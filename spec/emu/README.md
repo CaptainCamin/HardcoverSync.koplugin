@@ -63,6 +63,7 @@ return {
     emu:shot("name")            -- render + write PNG and .txt
     emu:press("NextPage")       -- key press, asserts a widget consumed it
     emu:key("a")                -- key press, no assertion
+    emu:keyLenient("a")         -- key press at the top widget only, no assertion
     emu:expectText("Want to Read")
     emu:screenText()            -- everything drawn, newline-joined
     emu:screenNodes()           -- ...with geometry

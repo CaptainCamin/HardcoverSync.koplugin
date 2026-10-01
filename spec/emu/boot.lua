@@ -331,6 +331,9 @@ function M.boot(opts)
     Escape = "Escape",
   }
 
+  -- Dispatch to UIManager, which walks the whole stack, and assert the call did
+  -- not raise. This asserts nothing about whether a widget consumed the key --
+  -- sendEvent returns no such information. Use emu:press for that.
   function emu:key(name)
     local keycode = self.keymap[name] or name
     local Key = require("device/key")
@@ -381,7 +384,18 @@ function M.boot(opts)
   instance, where most keys are consumed by the keyboard widget rather than
   moving a selection.
   ]]
-  function emu:key(name)
+  function emu:keyLenient(name)
+    --[[--
+    For input a widget is *expected* to ignore -- typing into a search box, for
+    instance, where most keys are consumed by the keyboard widget rather than
+    moving a selection.
+
+    Renamed from emu:key. This used to be a second `emu:key` definition, and
+    because the later one wins in Lua, the asserting variant above was silently
+    replaced by this lenient one for every scenario: a key no widget was bound to
+    passed instead of failing. Anything that wants the assertion uses emu:press,
+    which has always asserted. Kept under its own name so both are reachable.
+    ]]
     local keycode = self.keymap[name] or name
     local Key = require("device/key")
     local target = UIManager:getTopmostVisibleWidget()
