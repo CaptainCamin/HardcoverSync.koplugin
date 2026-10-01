@@ -64,7 +64,9 @@ while IFS= read -r f; do
     FAILED=1
     FAILED_LIST+=("syntax: $f")
   fi
-done < <(find . -name '*.lua' -not -path './.git/*')
+# -type f and the -not -path lines: CI installs Lua into a `.lua` directory in the
+# workspace, which -name '*.lua' also matches, and it is not source.
+done < <(find . -name '*.lua' -type f -not -path './.git/*' -not -path './.lua/*' -not -path './.luarocks/*')
 if [ "$FAILED" -eq 0 ]; then
   echo "  all files parse"
 fi
