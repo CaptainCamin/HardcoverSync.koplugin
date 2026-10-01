@@ -939,24 +939,24 @@ end
 --
 -- Async wrappers.
 --
--- These do not make the request any faster or non-blocking -- the socket read is
--- still synchronous -- and they are honest about that. What they change is
--- WHERE the result is delivered: on the next UI tick rather than inside the
--- caller's stack frame.
---
--- That matters because the read blocks for up to 6 seconds (socketutil:set_timeout
--- at :180). A caller that does its work after the call therefore has already
--- shown nothing for those 6 seconds. Wrapping the *delivery* lets the caller
--- show its screen first and fill it in afterwards, which is the whole point.
---
--- Do not read these as "the UI will not freeze". It will, for the duration of
--- the request. A spinner drawn before the call is what makes that tolerable; see
--- hardcover/lib/ui/status_dialogs.lua.
+-- Each one runs the call inside Trapper:wrap. That is what makes the request
+-- non-blocking: inside a wrapped coroutine, query() forks a subprocess and
+-- yields back to KOReader's event loop, so the screen the caller just showed
+-- (a "Loading..." message, an empty dialog) actually gets painted while the
+-- request is in flight, and a tap can cancel it. Outside a wrap,
+-- dismissableRunInSubprocess() logs "unwrapped dismissableRunInSubprocess(),
+-- falling back to blocking in-process run" and the whole UI freezes until the
+-- reply arrives -- which is what these did when they merely called the
+-- blocking function and delayed the callback.
 --
 -- Every callback is invoked through UIManager:nextTick, so a caller may touch
--- widgets directly without wrapping the body itself. Callers must still check
--- UIManager:isWidgetShown before writing to a dialog -- the user can close it
--- while the request is in flight, and updating a freed widget crashes.
+-- widgets directly. Callers must still check UIManager:isWidgetShown before
+-- writing to a dialog: the user can close it while the request is in flight,
+-- and updating a freed widget crashes.
+--
+-- If the call raises, the callback still fires (with no results) so a dialog
+-- waiting on it shows its retry instead of loading forever; Trapper:wrap alone
+-- would swallow the error and the callback would never run.
 --
 
 -- Delivers on the next UI tick. Guarded because a caller may legitimately have
@@ -969,39 +969,46 @@ local function deliver(callback, ...)
   end)
 end
 
+local function async(callback, fn, ...)
+  local args = { ... }
+  local n = select("#", ...)
+  Trapper:wrap(function()
+    local results = { pcall(fn, unpack(args, 1, n)) }
+    if not results[1] then
+      logger.warn("hardcover api: async call raised", results[2])
+      deliver(callback)
+      return
+    end
+    deliver(callback, unpack(results, 2, table.maxn(results)))
+  end)
+end
+
 function HardcoverApi:getShelfAsync(user_id, status_id, offset, limit, callback)
-  local entries, err, has_more = self:getShelf(user_id, status_id, offset, limit)
-  deliver(callback, entries, err, has_more)
+  async(callback, self.getShelf, self, user_id, status_id, offset, limit)
 end
 
 function HardcoverApi:getBookDetailAsync(book_id, user_id, edition_id, callback)
-  local detail = self:getBookDetail(book_id, user_id, edition_id)
-  deliver(callback, detail)
+  async(callback, self.getBookDetail, self, book_id, user_id, edition_id)
 end
 
 function HardcoverApi:findBooksAsync(title, author, user_id, callback)
-  local books, err = self:findBooks(title, author, user_id)
-  deliver(callback, books, err)
+  async(callback, self.findBooks, self, title, author, user_id)
 end
 
 function HardcoverApi:findEditionsAsync(book_id, user_id, callback)
-  local editions = self:findEditions(book_id, user_id)
-  deliver(callback, editions)
+  async(callback, self.findEditions, self, book_id, user_id)
 end
 
 function HardcoverApi:findDefaultEditionAsync(book_id, user_id, callback)
-  local edition = self:findDefaultEdition(book_id, user_id)
-  deliver(callback, edition)
+  async(callback, self.findDefaultEdition, self, book_id, user_id)
 end
 
 function HardcoverApi:findBookByIdentifiersAsync(identifiers, user_id, callback)
-  local book = self:findBookByIdentifiers(identifiers, user_id)
-  deliver(callback, book)
+  async(callback, self.findBookByIdentifiers, self, identifiers, user_id)
 end
 
 function HardcoverApi:getRandomToReadAsync(user_id, limit, callback)
-  local books, err = self:getRandomToRead(user_id, limit)
-  deliver(callback, books, err)
+  async(callback, self.getRandomToRead, self, user_id, limit)
 end
 
 return HardcoverApi

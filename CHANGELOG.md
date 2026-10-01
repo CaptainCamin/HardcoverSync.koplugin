@@ -4,6 +4,11 @@
 
 ### Performance
 
+* Screens that load a list or details from Hardcover (shelves, search, editions, book details, suggested books)
+  no longer freeze KOReader while waiting for the reply. The requests now run in the background, so the
+  "Loading..." message is actually drawn first, and a tap cancels the request. Previously they ran in-process
+  (KOReader logged "unwrapped dismissableRunInSubprocess(), falling back to blocking in-process run") and the
+  screen stayed frozen until the reply arrived or timed out.
 * Faster startup: the search, shelf, book detail, journal and sign-in screens (and the list and cover widgets
   behind them, about 3,700 lines of code) now load the first time they are opened instead of every time
   KOReader starts.
@@ -41,6 +46,7 @@
 
 ### Added
 
+* The `Sync now` menu item is greyed out when there is nothing to sync.
 * Offline progress tracking. Turning a page with no network now records where you are instead of
   dropping the update. Pending changes are queued on disk, so they survive closing the book or
   quitting KOReader, and are sent automatically once you are back online. A `Pending sync` menu

@@ -252,8 +252,11 @@ function HardcoverMenu:getSubMenuItems(book_view)
         end
         return _("Sync now")
       end,
+      -- Greyed out when there is nothing to send. Offline with changes queued it
+      -- stays enabled: tapping it is how the user learns they are saved and
+      -- will sync later.
       enabled_func = function()
-        return self.enabled
+        return self.enabled and self.sync_queue:hasPending()
       end,
       callback = function()
         -- Syncing genuinely needs a connection, but the confirmation message
