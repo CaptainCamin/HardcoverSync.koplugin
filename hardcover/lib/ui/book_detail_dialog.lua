@@ -17,6 +17,7 @@ local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local InfoMessage = require("ui/widget/infomessage")
+local LeftContainer = require("ui/widget/container/leftcontainer")
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
 local Size = require("ui/size")
@@ -43,7 +44,11 @@ function BookDetailDialog:init()
   self.width = Screen:getWidth() - Screen:scaleBySize(40)
   self.height = Screen:getHeight() - Screen:scaleBySize(60)
 
-  self.key_events.CloseDialog = { { "Back" } }
+  -- The event name picks the handler: CloseDetail runs onCloseDetail. This was
+  -- CloseDialog, which has no handler, so the Back key did nothing -- including
+  -- on the loading screen, which has no button, leaving a slow or hung fetch
+  -- with no way out.
+  self.key_events.CloseDetail = { { "Back" } }
 
   --[[--
   Loading state.
@@ -59,7 +64,7 @@ function BookDetailDialog:init()
     self.loading_text = TextWidget:new {
       text = _("Loading book details…"),
       face = Font:getFace("cfont", 18),
-      width = self.width,
+      max_width = self.width,
     }
     self.loading_frame = FrameContainer:new {
       width = Screen:getWidth(),
@@ -82,18 +87,21 @@ function BookDetailDialog:init()
   local detail = self.detail or {}
   local book = detail.book or {}
 
-  self.title_text = TextWidget:new {
+  -- TextWidget is one line and sizes itself to its text: it reads max_width, not
+  -- width, so a long title ran off the edge. TextBoxWidget wraps to width.
+  self.title_text = TextBoxWidget:new {
     text = book.title or _("Unknown title"),
     face = Font:getFace("cfont", 20),
     width = self.width,
-    is_title = true,
+    alignment = "left",
   }
 
   if book.subtitle and book.subtitle ~= "" then
-    self.subtitle_text = TextWidget:new {
+    self.subtitle_text = TextBoxWidget:new {
       text = book.subtitle,
       face = Font:getFace("cfont", 16),
       width = self.width,
+      alignment = "left",
     }
   end
 
@@ -109,7 +117,7 @@ function BookDetailDialog:init()
   self.status_text = TextWidget:new {
     text = table.concat(status_bits, "  "),
     face = Font:getFace("smallinfofont"),
-    width = self.width,
+    max_width = self.width,
   }
 
   --[[--
@@ -127,17 +135,32 @@ function BookDetailDialog:init()
 
   for _, row in ipairs(rows) do
     if row.label ~= "Description" then
+      -- A fixed label column, so the values line up whatever the labels say:
+      -- the label sits in a container of set width instead of sizing the column
+      -- to its own text. The value wraps, so a long author list or series name
+      -- stays on screen.
+      local label_width = math.floor(self.width * 0.32)
       local label = TextWidget:new {
         text = row.label,
         face = Font:getFace("cfont", 15),
-        width = math.floor(self.width * 0.32),
+        max_width = label_width,
       }
-      local value = TextWidget:new {
+      local label_cell = LeftContainer:new {
+        dimen = Geom:new { w = label_width, h = label:getSize().h },
+        label,
+      }
+      local value = TextBoxWidget:new {
         text = tostring(row.value),
         face = Font:getFace("cfont", 15),
-        width = self.width - label.width - 20,
+        width = self.width - label_width - 20,
+        alignment = "left",
       }
-      table.insert(self.meta_rows, HorizontalGroup:new { label, HorizontalSpan:new { width = 10 }, value })
+      table.insert(self.meta_rows, HorizontalGroup:new {
+        align = "top",
+        label_cell,
+        HorizontalSpan:new { width = 10 },
+        value,
+      })
     end
   end
 
@@ -147,8 +170,10 @@ function BookDetailDialog:init()
     self.description_text = TextBoxWidget:new {
       text = book.description,
       face = Font:getFace("cfont", 15),
+      -- No height: a TextBoxWidget given one shows only the lines that fit and
+      -- hides the rest, and the scroll container around it cannot reveal them.
+      -- Left unset it is as tall as the text and the body scrolls.
       width = self.width - 20,
-      height = math.floor(self.height * 0.3),
       alignment = "left",
     }
   end
@@ -167,12 +192,19 @@ function BookDetailDialog:init()
     close_button,
   }
 
-  local content = VerticalGroup:new {
-    self.title_text,
-    self.subtitle_text,
-    self.status_text,
-    VerticalSpan:new { height = 10 },
-  }
+  -- Built by appending, never as one table constructor: most books have no
+  -- subtitle, and a nil in the middle of the constructor is a hole that
+  -- VerticalGroup's ipairs stops at, so everything after the title (status,
+  -- metadata, description) silently vanished.
+  local content = VerticalGroup:new {}
+  local function add(widget)
+    if widget then table.insert(content, widget) end
+  end
+  add(self.title_text)
+  add(self.subtitle_text)
+  add(self.status_text)
+  add(VerticalSpan:new { height = 10 })
+  self.content_group = content
 
   for _, row in ipairs(self.meta_rows) do
     table.insert(content, row)

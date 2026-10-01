@@ -271,8 +271,9 @@ function Shelf.detailRows(book)
 
   addRow(rows, "ISBN", book.isbn_13 or book.isbn_10)
 
+  -- 0 means nobody has rated it: "0.0 (0 ratings)" is noise, not a rating
   local rating = book.rating
-  if rating then
+  if rating and rating > 0 then
     if book.ratings_count then
       addRow(rows, "Community rating", string.format("%.1f (%d ratings)", rating, book.ratings_count))
     else

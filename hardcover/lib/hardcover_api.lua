@@ -631,8 +631,8 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
 
   if edition_id then
     query = [[
-      query ($bookId: Int!, $userId: Int!) {
-        editions(where: { id: { _eq: $bookId } }) {
+      query ($editionId: Int!, $userId: Int!) {
+        editions(where: { id: { _eq: $editionId } }) {
           id
           edition_format
           reading_format_id
@@ -714,7 +714,17 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
     ]]
   end
 
-  local results = self:query(query, { bookId = book_id, userId = user_id })
+  -- The edition query filters on the edition, so that is the id it needs. It
+  -- used to be sent the book id, so a linked edition either matched nothing
+  -- ("no response", retried forever) or a different book's edition.
+  local variables = { userId = user_id }
+  if edition_id then
+    variables.editionId = edition_id
+  else
+    variables.bookId = book_id
+  end
+
+  local results = self:query(query, variables)
   if not results then
     return nil
   end

@@ -29,6 +29,14 @@
 
 ### Fixed
 
+* Book details: most books showed only a title. A book with no subtitle (and every book shown from the saved
+  copy) lost its status, metadata and description, because a missing subtitle cut the layout short.
+* Book details: the Back key now closes the screen, including the loading screen; it was bound to nothing.
+* Book details: opening the details of a book linked to a specific edition looked up the wrong edition (it
+  was sent the book's id), so it failed or showed another book. It now uses the edition's id.
+* Book details: long titles, authors and series now wrap instead of running off the screen, the metadata
+  labels line up in a fixed column, the full description is shown and scrolls (it was cut off after a few
+  lines), and a book with no ratings no longer shows "0.0 (0 ratings)".
 * Error messages for a failed list no longer print `table: 0x...`; they say what happened.
 * Opening a list with no connection no longer tries to download covers it does not have, which each waited
   out a timeout.
