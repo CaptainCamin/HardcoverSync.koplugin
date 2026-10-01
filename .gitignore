@@ -1,0 +1,8 @@
+hardcover_config.lua
+*.zip
+/luarocks
+/lua
+/lua_modules
+/.luarocks
+.DS_STORE
+__pycache__/

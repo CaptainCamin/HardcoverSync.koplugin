@@ -1,0 +1,30 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Lua
+        uses: leafo/gh-actions-lua@v10
+        with:
+          luaVersion: "5.1"
+
+      - name: Syntax-check every Lua file
+        run: |
+          status=0
+          while IFS= read -r f; do
+            if ! lua -e "assert(loadfile([[$f]]))"; then
+              echo "SYNTAX ERROR: $f"
+              status=1
+            fi
+          done < <(find . -name '*.lua' -not -path './.git/*')
+          exit $status
+
+      - name: Run the harnesses
+        run: ./spec/run_all.sh
