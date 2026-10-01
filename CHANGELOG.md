@@ -4,6 +4,13 @@
 
 ### Added
 
+* Offline progress tracking. Turning a page with no network now records where you are instead of
+  dropping the update. Pending changes are queued on disk, so they survive closing the book or
+  quitting KOReader, and are sent automatically once you are back online. A `Pending sync` menu
+  item shows what is waiting, lets you send it by hand, and lets you discard it.
+* Your shelves are now browsable: `Want to Read list` and `Currently Reading list` open as paged
+  lists with covers, your rating, and the book's status. Tapping a row opens its details, and the
+  icon in the title bar loads the next page.
 * Sign in from the plugin using OAuth's Device Authorization Grant, which needs no browser on the
   reader: the plugin shows a short code, you approve it on a phone or computer, and it keeps the
   connection fresh. Set `client_id` in `hardcover_config.lua` to enable it.
@@ -11,6 +18,12 @@
   and `Sign out`.
 * Expiring access tokens are now refreshed automatically, so a week-old session no longer stops
   syncing. A rejected token triggers a refresh instead of disabling the plugin.
+
+### Fixed
+
+* Opening the Want to Read or Currently Reading list crashed KOReader. Rows in those lists were
+  being drawn as folders rather than books, because the list did not mark them as files the way the
+  search list does. Both lists now open normally.
 
 ### Notes
 
@@ -23,6 +36,8 @@
   write:library`. There is no `write:journal` scope: requesting one fails the whole authorization
   with `invalid_scope`. Reading journals and writing journal entries are both covered by the
   library scopes.
+* Signing out now clears the stored tokens from disk as well as memory. Previously they survived a
+  restart, so signing out appeared not to work.
 
 ## 0.5.0
 
