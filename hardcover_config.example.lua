@@ -8,7 +8,7 @@
 --    Choose "Mobile, desktop, or CLI" as the application type, leave the
 --    Device Authorization Grant toggle ON, and allow these scopes:
 --      read:catalog read:catalog:search read:me:content read:library
---      write:library
+--      read:social write:library
 --    Put the client id below. There is no secret: this is a public client, and
 --    the plugin uses the device flow so no browser is needed on the reader.
 --

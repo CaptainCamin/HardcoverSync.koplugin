@@ -17,7 +17,7 @@ A KOReader plugin to update your [Hardcover.app](https://hardcover.app) reading 
 2. Set the application type to **Mobile, desktop, or CLI**, leave **Device
    Authorization Grant** enabled, and allow these scopes:
    `read:catalog read:catalog:search read:me:content read:library
-   write:library`
+   read:social write:library`
 3. Copy the **client id** into `hardcover_config.lua`:
 
    ```lua

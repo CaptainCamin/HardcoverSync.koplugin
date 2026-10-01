@@ -20,12 +20,13 @@ local OAuthClient = require("hardcover/lib/oauth_client")
 -- read:catalog:search: title/author search
 -- read:me:content: the user id we key local state on
 -- read:library: shelf listings and reading progress
+-- read:social: other readers' reviews (and other users' generated content)
 -- write:library: status/progress updates AND reading journal entries
 --
 -- There is no separate write:journal scope: requesting one fails the whole
 -- authorization with `invalid_scope`. Journal writes are part of
 -- write:library, and read:journal is implied by read:library.
-local DEFAULT_SCOPE = "read:catalog read:catalog:search read:me:content read:library write:library"
+local DEFAULT_SCOPE = "read:catalog read:catalog:search read:me:content read:library read:social write:library"
 
 local Auth = {}
 Auth.__index = Auth
@@ -64,6 +65,7 @@ function Auth:_load()
     token_type = self.settings:readSetting("token_type") or "Bearer",
     expires_at = self.settings:readSetting("expires_at"),
     obtained_at = self.settings:readSetting("obtained_at"),
+    scope = self.settings:readSetting("scope"),
   }
 end
 
@@ -79,6 +81,7 @@ function Auth:_persist(tokens)
   self.settings:saveSetting("token_type", tokens.token_type)
   self.settings:saveSetting("expires_at", tokens.expires_at)
   self.settings:saveSetting("obtained_at", tokens.obtained_at)
+  self.settings:saveSetting("scope", tokens.scope)
   self.settings:flush()
 
   self.tokens = tokens
@@ -96,6 +99,7 @@ function Auth:clear()
   self.settings:saveSetting("token_type", nil)
   self.settings:saveSetting("expires_at", nil)
   self.settings:saveSetting("obtained_at", nil)
+  self.settings:saveSetting("scope", nil)
   self.settings:flush()
 
   self.tokens = nil
@@ -221,6 +225,20 @@ function Auth:invalidateAccessToken()
 
   self.settings:saveSetting("expires_at", 0)
   self.settings:flush()
+end
+
+--
+-- Was this sign in granted `scope`? true / false, or nil when it cannot be
+-- told: a personal access token, nobody signed in, or a token stored before
+-- scopes were recorded. A caller treats nil as "try it and handle an
+-- insufficient_scope answer"; false means asking would fail, so offer to sign
+-- in again instead.
+--
+function Auth:hasScope(scope)
+  if not self:usingOAuth() then
+    return nil
+  end
+  return OAuth.hasScope(self.tokens, scope)
 end
 
 --

@@ -113,9 +113,13 @@
   twice, so the plugin never retries a refresh whose outcome it does not know. If that happens you
   are asked to sign in again rather than being silently locked out.
 * The requested scopes are `read:catalog read:catalog:search read:me:content read:library
-  write:library`. There is no `write:journal` scope: requesting one fails the whole authorization
+  read:social write:library`. There is no `write:journal` scope: requesting one fails the whole authorization
   with `invalid_scope`. Reading journals and writing journal entries are both covered by the
   library scopes.
+* `read:social` is what allows reading other readers' reviews. Your Hardcover app must allow it (asking for a
+  scope the app does not allow fails the whole sign in), and a sign in made before this change does not have it:
+  sign out and sign in again once reviews arrive. The plugin now records which scopes each sign in was
+  granted, so it can tell a missing scope from a failed request.
 * Signing out now clears the stored tokens from disk as well as memory. Previously they survived a
   restart, so signing out appeared not to work.
 
