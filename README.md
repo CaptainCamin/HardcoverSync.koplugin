@@ -157,9 +157,12 @@ alongside your own status and rating.
 
 ### Browsing your lists
 
-`Want to Read list` and `Currently Reading list` open your Hardcover shelves a page at a time, with cover images
-where available. Select a book to open its details. When more books are available, use the reload icon in the
-upper left to load the next page.
+`Want to Read list` and `Currently Reading list` open your Hardcover shelves, with cover images where available.
+Select a book to open its details. The whole shelf is loaded: the first books appear straight away and the rest
+arrive in the background. If loading is interrupted (for example by tapping the screen while it loads, or by losing
+your connection), a reload icon appears in the upper left so you can carry on from where the list stops.
+
+Lists you have opened are saved on the device, so they also open with no connection, showing the saved copy.
 
 Both list items work whether or not a book is currently open.
 

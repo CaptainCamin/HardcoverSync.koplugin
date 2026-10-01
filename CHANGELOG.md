@@ -59,8 +59,8 @@
 
 ### Added
 
-* Your shelves work offline. Want to Read, Currently Reading and any other list are saved on the device as
-  you browse them (each page you load is kept), so you can open them with no connection. When a saved list
+* Your shelves work offline. Want to Read, Currently Reading and any other list are saved on the device
+  after they load, so you can open them with no connection. When a saved list
   exists it appears immediately and refreshes quietly in the background; offline you are told it is the saved
   copy and when it was saved. Tapping a book offline shows the details that were saved with the list
   (author, series, rating, description), without edition fields such as publisher and ISBN. Covers you have
@@ -70,9 +70,10 @@
   dropping the update. Pending changes are queued on disk, so they survive closing the book or
   quitting KOReader, and are sent automatically once you are back online. A `Pending sync` menu
   item shows what is waiting, lets you send it by hand, and lets you discard it.
-* Your shelves are now browsable: `Want to Read list` and `Currently Reading list` open as paged
-  lists with covers, your rating, and the book's status. Tapping a row opens its details, and the
-  icon in the title bar loads the next page.
+* Your shelves are now browsable: `Want to Read list` and `Currently Reading list` open as lists with
+  covers, your rating, and the book's status. Tapping a row opens its details. The whole shelf is loaded, not
+  just the first page: the rest arrives in the background while you browse, without moving you off the page
+  you are on, and a reload icon in the title bar appears only if loading was interrupted so you can carry on.
 * Sign in from the plugin using OAuth's Device Authorization Grant, which needs no browser on the
   reader: the plugin shows a short code, you approve it on a phone or computer, and it keeps the
   connection fresh. Set `client_id` in `hardcover_config.lua` to enable it.

@@ -381,4 +381,22 @@ do
       .. ", icon = " .. tostring(spec.title_bar_left_icon))
 end
 
+-- ---------------------------------------------------------------- keeping the reader's place
+print("\n== keeping the reader's place while rows arrive ==")
+do
+  local d = buildDialog({ entry() })
+  local got = "unset"
+  d.menu.switchItemTable = function(_, _, _, number) got = number end
+  d.menu.page, d.menu.perpage = 3, 10
+
+  d:setEntries({ entry(), entry() }, true, true)
+  r.check("stays on the page being viewed when keep_position is set", got == 21,
+    "item number " .. tostring(got))
+
+  got = "unset"
+  d:setEntries({ entry() }, false)
+  r.check("returns to the first page when it is not", got == nil,
+    "item number " .. tostring(got))
+end
+
 r.finish()

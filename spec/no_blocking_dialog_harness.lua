@@ -245,7 +245,14 @@ package.preload["ui/font"] = function() return { getFace = function() return {} 
 package.preload["ui/widget/inputdialog"] = function() return widget_stub() end
 package.preload["ui/widget/spinwidget"] = function() return { new = function(_, o) return o end } end
 package.preload["ui/downloadmgr"] = function() return {} end
-package.preload["ui/trapper"] = function() return { dismissableRunInSubprocess = function(_, f) return f() end } end
+package.preload["ui/trapper"] = function()
+  return {
+    dismissableRunInSubprocess = function(_, f) return f() end,
+    -- Background.run goes through this. Running the function inline keeps the
+    -- order of calls observable, which is all these checks are about.
+    wrap = function(_, f) f() end,
+  }
+end
 -- Online: these checks are about the order of show and fetch, which only exists
 -- when a fetch happens. The offline paths have their own harness
 -- (offline_shelf_harness.lua).

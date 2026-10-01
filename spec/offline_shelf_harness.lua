@@ -38,6 +38,15 @@ package.preload["ui/uimanager"] = function()
     nextTick = function(_, fn) ticks[#ticks + 1] = fn end,
   }
 end
+package.preload["ui/trapper"] = function()
+  return {
+    wrap = function(_, fn)
+      local co = coroutine.create(fn)
+      local ok, err = coroutine.resume(co)
+      if not ok then error("wrapped function raised: " .. tostring(err), 0) end
+    end,
+  }
+end
 package.preload["ui/network/manager"] = function()
   return { isConnected = function() return online end }
 end
@@ -56,6 +65,7 @@ _G.require = function(name)
   return make()
 end
 
+local UIManager_close = function(w) require("ui/uimanager"):close(w) end
 local Api = real_require("hardcover/lib/hardcover_api")
 local User = real_require("hardcover/lib/user")
 local StatusDialogs = real_require("hardcover/lib/ui/status_dialogs")
@@ -65,7 +75,16 @@ User.getId = function() return 1 end
 
 -- ------------------------------------------------------------ recorders
 local api_calls, pending_shelf, pending_detail
-Api.getShelfAsync = function(_, _, _, offset, _, cb) api_calls[#api_calls + 1] = "shelf@" .. offset; pending_shelf = cb end
+local shelf_pages -- queue of results for Api.getShelf: { entries } or { nil, err }
+local seen_in_coroutine
+Api.getShelf = function(_, _, _, offset, limit)
+  api_calls[#api_calls + 1] = "shelf@" .. offset
+  if not coroutine.running() then seen_in_coroutine = false end
+  local nextpage = table.remove(shelf_pages, 1)
+  if nextpage == nil then return {}, nil, false end
+  return nextpage[1], nextpage[2], false
+end
+Api.getShelfAsync = function(_, _, _, offset, _, cb) api_calls[#api_calls + 1] = "async@" .. offset; pending_shelf = cb end
 Api.getBookDetailAsync = function(_, _, _, _, cb) api_calls[#api_calls + 1] = "detail"; pending_detail = cb end
 
 local infos, retries, loadings
@@ -79,7 +98,11 @@ local function fakeClass(path)
   local class = real_require(path)
   class.new = function(_, o)
     o = o or {}
-    o.setEntries = function(self, entries, has_more) self.shown = entries; self.shown_more = has_more end
+    o.updates = 0
+    o.setEntries = function(self, entries, has_more, keep)
+      self.shown = entries; self.shown_more = has_more; self.kept_position = keep
+      self.updates = self.updates + 1
+    end
     o.setEmptyState = function(self, m) self.empty = m end
     o.setDetail = function(self, d) self.detail = d end
     o.free = function() end
@@ -99,6 +122,7 @@ local function newManager()
     flush = function() end,
   }
   api_calls, pending_shelf, pending_detail = {}, nil, nil
+  shelf_pages, seen_in_coroutine = {}, true
   infos, retries, loadings = {}, {}, 0
   stack, ticks, fake = {}, {}, {}
   return setmetatable({
@@ -113,37 +137,156 @@ local function check(label, fn)
 end
 local function book(id, title) return { book_id = id, title = title, status_id = 1, description = "d" } end
 
-print("\n== opening a shelf ==")
+local function page(n, from)
+  local rows = {}
+  for i = 1, n do rows[i] = { user_book_id = from + i, book_id = from + i, title = "B" .. (from + i), status_id = 1 } end
+  return { rows }
+end
 
-check("online with nothing saved: loading message, then the list, and it is saved", function()
+print("\n== loading the whole shelf ==")
+
+check("every page is loaded, in the background, until one comes back empty", function()
   online = true
   local m = newManager()
+  shelf_pages = { page(50, 0), page(50, 50), page(10, 100), { {} } }
   m:showShelf(1, "Want to Read")
-  assert(loadings == 1 and #api_calls == 1, "should wait on the network")
-  pending_shelf({ book(1, "One") }, nil, false)
-  assert(fake[1].shown and #fake[1].shown == 1, "list not shown")
-  assert(m.shelf_cache:getPage(1, 1, 0), "list was not saved")
+  local d = fake[1]
+  assert(#d.shown == 110, "showed " .. #d.shown .. " of 110")
+  assert(d.shown_more == false, "a finished list still offers 'load more'")
+  assert(seen_in_coroutine, "a page was requested on the main thread (it would freeze the UI)")
+  assert(#api_calls == 4, "requests: " .. table.concat(api_calls, ","))
 end)
 
-check("online with a saved list: shown at once, then refreshed quietly", function()
+check("the complete list is saved", function()
   online = true
   local m = newManager()
-  m.shelf_cache:putPage(1, 1, 0, { book(1, "Old") }, false)
+  shelf_pages = { page(50, 0), page(5, 50), { {} } }
   m:showShelf(1, "Want to Read")
-  assert(fake[1].shown and fake[1].shown[1].title == "Old", "saved list was not on screen before the network answered")
+  local saved = m.shelf_cache:get(1, 1)
+  assert(saved and #saved.entries == 55 and saved.complete == true)
+end)
+
+check("with nothing saved, rows appear as pages arrive and keep the reader's page", function()
+  online = true
+  local m = newManager()
+  shelf_pages = { page(50, 0), page(50, 50), { {} } }
+  m:showShelf(1, "Want to Read")
+  local d = fake[1]
+  assert(d.updates >= 3, "no progressive updates: " .. d.updates)
+  assert(d.kept_position == true, "the list jumped back to page one")
+  assert(loadings == 1, "should show a loading message until the first page")
+end)
+
+check("a server that returns fewer rows than asked for still yields everything", function()
+  online = true
+  local m = newManager()
+  shelf_pages = { page(25, 0), page(25, 25), page(25, 50), { {} } }
+  m:showShelf(1, "Want to Read")
+  assert(#fake[1].shown == 75, "stopped early at " .. #fake[1].shown)
+end)
+
+check("a book that shifts into two pages is shown once", function()
+  online = true
+  local m = newManager()
+  local overlap = { { { user_book_id = 50, book_id = 50, title = "dup" }, { user_book_id = 51, book_id = 51, title = "new" } } }
+  shelf_pages = { page(50, 0), overlap, { {} } }
+  m:showShelf(1, "Want to Read")
+  assert(#fake[1].shown == 51, "rows: " .. #fake[1].shown)
+end)
+
+check("an empty shelf is still said to be empty", function()
+  online = true
+  local m = newManager()
+  shelf_pages = { { {} } }
+  m:showShelf(1, "Want to Read")
+  assert(fake[1].empty, "no empty state")
+end)
+
+print("\n== a tap that cancels a page ==")
+
+check("a cancelled page is asked for again", function()
+  online = true
+  local m = newManager()
+  shelf_pages = { page(50, 0), { nil, { completed = false } }, page(50, 50), { {} } }
+  m:showShelf(1, "Want to Read")
+  assert(#fake[1].shown == 100, "gave up after one cancelled page: " .. #fake[1].shown)
+end)
+
+check("after repeated cancels it stops, keeps what arrived and offers to continue", function()
+  online = true
+  local m = newManager()
+  local c = { nil, { completed = false } }
+  shelf_pages = { page(50, 0), c, c, c, c, c }
+  m:showShelf(1, "Want to Read")
+  local d = fake[1]
+  assert(#d.shown == 50 and d.shown_more == true, "partial list / reload icon not kept")
+  assert(m.shelf_cache:get(1, 1).complete == false, "a partial list was saved as complete")
+  assert(#retries == 0, "interrupted a list that has rows")
+end)
+
+check("a real failure with nothing saved offers a readable retry", function()
+  online = true
+  local m = newManager()
+  shelf_pages = { { nil, { status = 500 } } }
+  m:showShelf(1, "Want to Read")
+  assert(#retries == 1, "no retry offered")
+  assert(not StatusDialogs.describe(retries[1].err):find("table:"))
+end)
+
+print("\n== with a saved list ==")
+
+check("the whole saved list is on screen before the network answers", function()
+  online = true
+  local m = newManager()
+  local rows = page(120, 0)[1]
+  m.shelf_cache:put(1, 1, rows, true)
+  shelf_pages = {} -- the load would be empty; check the first paint
+  local d
+  -- capture what was shown first by pausing the load: make getShelf record the screen state
+  local first_paint
+  local real = Api.getShelf
+  Api.getShelf = function(...)
+    first_paint = first_paint or (fake[1] and fake[1].shown and #fake[1].shown)
+    return real(...)
+  end
+  m:showShelf(1, "Want to Read")
+  Api.getShelf = real
+  assert(first_paint == 120, "first paint had " .. tostring(first_paint) .. " rows")
   assert(loadings == 0, "a saved list should not put up a loading message")
-  assert(#api_calls == 1, "should still refresh")
-  pending_shelf({ book(2, "New") }, nil, false)
-  assert(fake[1].shown[1].title == "New", "refresh did not replace the list")
-  assert(m.shelf_cache:getPage(1, 1, 0).entries[1].title == "New", "refresh was not saved")
 end)
 
-check("offline with a saved list: shows it, says so, makes no request", function()
+check("the fresh list replaces it only once it is complete", function()
+  online = true
+  local m = newManager()
+  m.shelf_cache:put(1, 1, page(120, 0)[1], true)
+  shelf_pages = { page(50, 1000), page(50, 1050), { {} } }
+  local sizes = {}
+  m:showShelf(1, "Want to Read")
+  local d = fake[1]
+  assert(#d.shown == 100 and d.shown[1].title == "B1001", "refresh did not replace the list")
+  assert(d.updates == 2, "the list was swapped mid-refresh (" .. d.updates .. " updates): it would shrink while loading")
+  assert(#m.shelf_cache:get(1, 1).entries == 100, "refresh was not saved")
+end)
+
+check("a refresh that fails midway leaves the saved list alone", function()
+  online = true
+  local m = newManager()
+  m.shelf_cache:put(1, 1, page(120, 0)[1], true)
+  shelf_pages = { page(50, 1000), { nil, { status = 500 } } }
+  m:showShelf(1, "Want to Read")
+  assert(#fake[1].shown == 120, "the saved list was replaced by a partial one")
+  assert(#m.shelf_cache:get(1, 1).entries == 120, "the saved list was overwritten")
+  assert(#retries == 0, "interrupted for a failed refresh")
+end)
+
+print("\n== offline ==")
+
+check("offline with a saved list: all of it, with the date, and no request", function()
   online = false
   local m = newManager()
-  m.shelf_cache:putPage(1, 1, 0, { book(1, "Saved") }, false)
+  m.shelf_cache:put(1, 1, page(120, 0)[1], true)
   m:showShelf(1, "Want to Read")
-  assert(fake[1].shown[1].title == "Saved")
+  assert(#fake[1].shown == 120)
   assert(#api_calls == 0, "made a request while offline")
   assert(#infos == 1 and infos[1]:find("Offline"), "no offline notice")
   assert(#retries == 0)
@@ -157,74 +300,41 @@ check("offline with nothing saved: a readable retry, no request", function()
   assert(#retries == 1 and type(retries[1].err) == "string", "error was not text")
 end)
 
-check("online refresh fails but a saved list is showing: it stays, no interruption", function()
+check("closing the shelf stops the loading", function()
   online = true
   local m = newManager()
-  m.shelf_cache:putPage(1, 1, 0, { book(1, "Saved") }, false)
+  shelf_pages = { page(50, 0), page(50, 50), page(50, 100), { {} } }
+  -- close the dialog as soon as the first request is made
+  local real = Api.getShelf
+  Api.getShelf = function(...)
+    local r1, r2, r3 = real(...)
+    if fake[1] then UIManager_close(fake[1]) end
+    return r1, r2, r3
+  end
   m:showShelf(1, "Want to Read")
-  pending_shelf(nil, { completed = false }, nil)
-  assert(fake[1].shown[1].title == "Saved" and #retries == 0)
+  Api.getShelf = real
+  assert(#api_calls == 1, "kept requesting after the dialog closed: " .. #api_calls)
 end)
 
-check("online failure with nothing saved: a retry whose text is readable", function()
+check("the reload icon continues from where a partial list stops", function()
   online = true
   local m = newManager()
-  m:showShelf(1, "Want to Read")
-  pending_shelf(nil, { completed = false }, nil)
-  assert(#retries == 1, "no retry offered")
-  local text = StatusDialogs.describe(retries[1].err)
-  assert(not text:find("table:"), "error table was printed: " .. text)
-end)
-
-check("an empty shelf is still said to be empty", function()
-  online = true
-  local m = newManager()
-  m:showShelf(1, "Want to Read")
-  pending_shelf({}, nil, false)
-  assert(fake[1].empty, "no empty state")
-end)
-
-print("\n== paging ==")
-
-check("a next page seen before is served offline", function()
-  online = false
-  local m = newManager()
-  m.shelf_cache:putPage(1, 1, 0, { book(1, "A") }, true)
-  m.shelf_cache:putPage(1, 1, 20, { book(2, "B") }, false)
   m:showShelf(1, "Want to Read")
   local got
-  fake[1].fetch_page(20, 20, function(entries) got = entries end)
-  assert(got and got[1].title == "B", "cached page not served")
-  assert(#api_calls == 0)
-end)
-
-check("a next page never seen reports it plainly offline", function()
+  fake[1].fetch_page(50, 50, function(e) got = e end)
+  assert(api_calls[#api_calls] == "async@50", "asked for " .. tostring(api_calls[#api_calls]))
   online = false
-  local m = newManager()
-  m.shelf_cache:putPage(1, 1, 0, { book(1, "A") }, true)
-  m:showShelf(1, "Want to Read")
-  local entries, err
-  fake[1].fetch_page(20, 20, function(e, er) entries, err = e, er end)
-  assert(entries == nil and type(err) == "string")
-end)
-
-check("online, a fetched page is saved for next time", function()
-  online = true
-  local m = newManager()
-  m:showShelf(1, "Want to Read")
-  pending_shelf({ book(1, "A") }, nil, true)
-  local got
-  fake[1].fetch_page(20, 20, function(e) got = e end)
-  pending_shelf({ book(2, "B") }, nil, false)
-  assert(got and m.shelf_cache:getPage(1, 1, 20).entries[1].title == "B")
+  local err
+  fake[1].fetch_page(50, 50, function(_, e) err = e end)
+  assert(type(err) == "string", "offline reload should say so")
 end)
 
 print("\n== book details ==")
 
 local function savedBook(m)
-  m.shelf_cache:putPage(1, 1, 0, { {
+  m.shelf_cache:put(1, 1, { {
     book_id = 7, title = "Seven", pages = 100, status_id = 2, description = "About seven",
-  } }, false)
+  } }, true)
 end
 
 check("offline with a saved row: details are shown from it, no request", function()

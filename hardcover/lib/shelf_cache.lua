@@ -1,13 +1,12 @@
--- Keeps the pages of your shelves on disk so they can be browsed offline.
+-- Keeps your shelves on disk so they can be browsed offline.
 --
--- Pure logic: the store is injected (`open(path)` returns a LuaSettings-like
--- object) and opened on first use, so requiring this costs nothing at startup
--- and nothing is read until a shelf is actually opened.
+-- One record per shelf: the whole list as it was last loaded, whether that load
+-- reached the end, and when. Pure logic: the store is injected (`open(path)`
+-- returns a LuaSettings-like object) and opened on first use, so requiring this
+-- costs nothing at startup and nothing is read until a shelf is opened.
 --
 -- A shelf is the pair (user, status). Keying on the user means a different
--- account never sees someone else's cached library. Pages are stored by their
--- offset, exactly as the API returns them, because that is how the shelf screen
--- asks for them.
+-- account never sees someone else's cached library.
 --
 -- Every operation is best-effort: a cache that cannot be read or written must
 -- never break the screen that asked for it.
@@ -15,9 +14,14 @@
 local ShelfCache = {}
 ShelfCache.__index = ShelfCache
 
--- Do not keep pages past this offset: the cache is for browsing, not a mirror
--- of a very large library, and each page carries descriptions.
-local MAX_OFFSET = 200
+-- The cache is for browsing, not a mirror of a very large library, and the
+-- whole file is read when a shelf is opened. Past this a shelf is kept as an
+-- incomplete list.
+local MAX_ENTRIES = 3000
+
+-- Descriptions dominate the size of a row. Enough is kept to read offline; the
+-- full text comes with the network.
+local MAX_DESCRIPTION = 600
 
 function ShelfCache:new(o)
   return setmetatable(o or {}, self)
@@ -37,68 +41,72 @@ local function shelfKey(user_id, status_id)
   return tostring(user_id or 0) .. ":" .. tostring(status_id or "all")
 end
 
-local function pageKey(offset)
-  return "p" .. tostring(offset or 0)
+-- Cut a string to at most `limit` bytes without leaving half of a UTF-8
+-- character at the end.
+local function truncate(text, limit)
+  if type(text) ~= "string" or #text <= limit then
+    return text
+  end
+  local cut = text:sub(1, limit)
+  -- drop continuation bytes (10xxxxxx), then a dangling lead byte (11xxxxxx)
+  while #cut > 0 and cut:byte(#cut) >= 0x80 and cut:byte(#cut) < 0xC0 do
+    cut = cut:sub(1, #cut - 1)
+  end
+  if #cut > 0 and cut:byte(#cut) >= 0xC0 then
+    cut = cut:sub(1, #cut - 1)
+  end
+  -- the ellipsis as bytes (U+2026), so this reads the same on any Lua
+  return cut .. "\226\128\166"
 end
 
-function ShelfCache:_shelf(user_id, status_id, create)
+-- { entries = {...}, complete = bool, saved_at = os.time() } or nil
+function ShelfCache:get(user_id, status_id)
   local store = self:_store()
-  if not store then return nil end
-
-  local shelves = store:readSetting("shelves")
-  if not shelves then
-    if not create then return nil end
-    shelves = {}
-    store:saveSetting("shelves", shelves)
-  end
-
-  local key = shelfKey(user_id, status_id)
-  local shelf = shelves[key]
-  if not shelf and create then
-    shelf = { pages = {} }
-    shelves[key] = shelf
-  end
-  return shelf
-end
-
--- { entries = {...}, has_more = bool, saved_at = os.time() } or nil
-function ShelfCache:getPage(user_id, status_id, offset)
-  local shelf = self:_shelf(user_id, status_id, false)
-  local page = shelf and shelf.pages and shelf.pages[pageKey(offset)]
-  if page and type(page.entries) == "table" then
-    return page
+  local shelves = store and store:readSetting("shelves")
+  local shelf = shelves and shelves[shelfKey(user_id, status_id)]
+  if shelf and type(shelf.entries) == "table" then
+    return shelf
   end
 end
 
-function ShelfCache:putPage(user_id, status_id, offset, entries, has_more)
-  offset = offset or 0
-  if offset >= MAX_OFFSET or type(entries) ~= "table" then
+-- `complete` says the list reaches the end of the shelf; a partial list is
+-- kept so something can still be shown offline, but is marked.
+function ShelfCache:put(user_id, status_id, entries, complete)
+  if type(entries) ~= "table" then
     return false
   end
 
-  local shelf = self:_shelf(user_id, status_id, true)
-  if not shelf then return false end
+  local store = self:_store()
+  if not store then return false end
 
-  -- A fresh first page means the later ones were fetched against an older
-  -- ordering and their offsets no longer line up, so drop them. They are
-  -- re-fetched if the reader pages forward.
-  if offset == 0 then
-    shelf.pages = {}
+  local kept = {}
+  for i, entry in ipairs(entries) do
+    if i > MAX_ENTRIES then
+      complete = false
+      break
+    end
+    local copy = {}
+    for k, v in pairs(entry) do copy[k] = v end
+    copy.description = truncate(copy.description, MAX_DESCRIPTION)
+    kept[i] = copy
   end
 
-  shelf.pages[pageKey(offset)] = {
-    entries = entries,
-    has_more = has_more and true or false,
+  local shelves = store:readSetting("shelves")
+  if not shelves then
+    shelves = {}
+    store:saveSetting("shelves", shelves)
+  end
+  shelves[shelfKey(user_id, status_id)] = {
+    entries = kept,
+    complete = complete and true or false,
     saved_at = os.time(),
   }
 
-  local store = self:_store()
-  local ok = pcall(store.flush, store)
-  return ok
+  return (pcall(store.flush, store))
 end
 
--- The cached row for a book, from any page of any of this user's shelves. Lets
--- a book's details be shown offline from what the shelf already had.
+-- The cached row for a book, from any of this user's shelves. Lets a book's
+-- details be shown offline from what the shelf already had.
 function ShelfCache:findEntry(user_id, book_id)
   local store = self:_store()
   local shelves = store and store:readSetting("shelves")
@@ -106,12 +114,10 @@ function ShelfCache:findEntry(user_id, book_id)
 
   local prefix = tostring(user_id or 0) .. ":"
   for key, shelf in pairs(shelves) do
-    if key:sub(1, #prefix) == prefix and shelf.pages then
-      for _, page in pairs(shelf.pages) do
-        for _, entry in ipairs(page.entries or {}) do
-          if entry.book_id == book_id then
-            return entry
-          end
+    if key:sub(1, #prefix) == prefix then
+      for _, entry in ipairs(shelf.entries or {}) do
+        if entry.book_id == book_id then
+          return entry
         end
       end
     end
@@ -123,7 +129,7 @@ function ShelfCache:clear()
   local store = self:_store()
   if not store then return false end
   store:saveSetting("shelves", nil)
-  return pcall(store.flush, store)
+  return (pcall(store.flush, store))
 end
 
 return ShelfCache
