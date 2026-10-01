@@ -239,6 +239,10 @@ function HardcoverApp:signIn()
     timeout = nil,
   })
 
+  -- UIManager:show only queues the widget; nothing is drawn until the event
+  -- loop runs, which the blocking call below prevents. Paint it now.
+  UIManager:forceRePaint()
+
   local device, err = self.auth:beginDeviceFlow()
 
   UIManager:close(working)
@@ -760,6 +764,7 @@ function HardcoverApp:startReadCache()
 
   self.state.read_cache_started = true
 
+  local cancel
   local restart
   local cancelled = false
 

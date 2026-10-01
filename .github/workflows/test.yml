@@ -28,3 +28,6 @@ jobs:
 
       - name: Run the harnesses
         run: ./spec/run_all.sh
+
+      - name: Run Busted
+        uses: lunarmodules/busted@v2.2.0

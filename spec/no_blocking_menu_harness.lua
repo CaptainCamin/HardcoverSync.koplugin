@@ -148,6 +148,13 @@ check("signIn displays an indicator before beginDeviceFlow", function()
   if block_at < show_at then
     error("beginDeviceFlow() runs before anything is shown")
   end
+
+  -- show() only queues the widget; a blocking call right after it means the
+  -- indicator is never painted unless the screen is flushed first.
+  local paint_at = body:find("UIManager:forceRePaint", 1, true)
+  if not paint_at or paint_at < show_at or paint_at > block_at then
+    error("signIn must call UIManager:forceRePaint() between show and beginDeviceFlow")
+  end
 end)
 
 check("the sign-in dialog is not shown twice", function()
