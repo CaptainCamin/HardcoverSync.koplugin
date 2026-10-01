@@ -66,6 +66,20 @@ function support.preload_koreader_stubs()
         return copy(t, {})
       end,
       trim = function(s) return (tostring(s):gsub("^%s+", ""):gsub("%s+$", "")) end,
+      -- KOReader decodes these on the way in; a stub that does nothing would
+      -- let a row module that FORGETS to decode pass its harness, which is
+      -- exactly the bug the real util call exists to prevent.
+      htmlEntitiesToUtf8 = function(s)
+        if type(s) ~= "string" then return s end
+        s = s:gsub("&amp;", "&"):gsub("&lt;", "<"):gsub("&gt;", ">")
+        s = s:gsub("&quot;", '"'):gsub("&#39;", "'"):gsub("&apos;", "'")
+        s = s:gsub("&nbsp;", " ")
+        -- numeric references
+        s = s:gsub("&#(%d+);", function(d)
+          return utf8 and utf8.char and utf8.char(tonumber(d)) or "?"
+        end)
+        return s
+      end,
       splitFilePathName = function(p) return p:match("^(.*/)([^/]*)$") end,
       urlEncode = function(url)
         if url == nil then return end

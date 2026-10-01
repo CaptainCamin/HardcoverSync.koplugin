@@ -198,8 +198,25 @@ do
       r.check("the title reaches the row", type(item.text) == "string"
         and item.text:find("The Dispossessed", 1, true) ~= nil,
         "text = " .. tostring(item.text))
-      r.check("the author reaches the row", type(item.text) == "string"
-        and item.text:find("Le Guin", 1, true) ~= nil,
+      --[[
+The author reaches the row in `authors`, not in `text`.
+
+It used to be asserted against `text`, which was true only because the old
+shelf code appended authors to the text string itself. Row shaping now puts
+them in their own field, because that is what ListMenu and SearchMenu read:
+SearchMenu draws title and authors as separate lines from those fields, and
+cramming them into `text` meant the SearchMenu path printed the title twice
+for a shelf row.
+
+So the assertion follows the field the menu actually paints from, and
+separately pins the compatibility-mode `text` form, where there is only one
+line to put the author on.
+]]
+      r.check("the author reaches the row", type(item.authors) == "string"
+        and item.authors:find("Le Guin", 1, true) ~= nil,
+        "authors = " .. tostring(item.authors))
+      r.check("the title is not polluted with the author",
+        item.text ~= nil and item.text:find("Le Guin", 1, true) == nil,
         "text = " .. tostring(item.text))
       r.check("the status is shown as a mandatory label", type(item.mandatory) == "string"
         and item.mandatory:find("Want to Read", 1, true) ~= nil,

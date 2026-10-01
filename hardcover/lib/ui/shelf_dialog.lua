@@ -13,6 +13,7 @@ local _ = require("gettext")
 
 local SearchMenu = require("hardcover/lib/ui/search_menu")
 local Shelf = require("hardcover/lib/shelf")
+local ListRow = require("hardcover/lib/ui/list_row")
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 
 local Screen = Device.screen
@@ -33,45 +34,24 @@ local ShelfDialog = InputContainer:extend {
 }
 
 function ShelfDialog:createListItem(entry)
-  local text = entry.title
-  if entry.authors and entry.authors ~= "" then
-    text = text .. "\n" .. entry.authors
-  end
+  local item = ListRow.row(entry, { compatibility_mode = self.compatibility_mode })
 
-  local mandatory = Shelf.statusLabel(entry.status_id)
+  -- Shelf rows carry two things a search row does not: the reader's status for
+  -- the book, and their rating. Both decorate the mandatory column rather than
+  -- being derived inside list_row, because they are properties of a shelf
+  -- entry rather than of a book.
+  local mandatory_parts = { Shelf.statusLabel(entry.status_id) }
 
   if entry.user_rating and entry.user_rating > 0 then
-    -- format without the trailing .0 so a whole rating reads "5*" not "5.0*"
+    -- Format without the trailing .0, so a whole rating reads "5*" not "5.0*"
     local rating = entry.user_rating
-    local formatted = rating % 1 == 0 and string.format("%d", rating) or string.format("%.1f", rating)
-    mandatory = mandatory .. "  " .. formatted .. "*"
+    local formatted = rating % 1 == 0 and string.format("%d", rating)
+                                   or string.format("%.1f", rating)
+    table.insert(mandatory_parts, formatted .. "*")
   end
 
-  local item = {
-    text = text,
-    mandatory = mandatory,
-    mandatory_dim = true,
-    entry = entry,
-    book_id = entry.book_id,
-    -- The vendored ListMenu picks its drawing path with
-    --   is_directory = not (entry.is_file or entry.file)
-    -- so an item with neither is rendered as a FOLDER, not a book. That branch
-    -- is what crashed both shelf views on device: every row took it because no
-    -- shelf item carried a file marker. search_dialog sets the same synthetic
-    -- marker; do the same here so a shelf row draws as a book.
-    file = "hardcover-" .. tostring(entry.book_id),
-  }
-
-  if entry.series then
-    item.series = entry.series
-  end
-
-  if entry.cached_image and entry.cached_image.url then
-    item.cover_url = entry.cached_image.url
-    item.cover_w = entry.cached_image.width
-    item.cover_h = entry.cached_image.height
-    item.lazy_load_cover = true
-  end
+  item.mandatory = table.concat(mandatory_parts, "  ")
+  item.entry = entry
 
   return item
 end

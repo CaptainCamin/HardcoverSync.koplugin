@@ -58,7 +58,55 @@ return {
     -- menu, that is where it shows.
     emu:expectText("Want to Read")
 
+    --[[
+    The synthetic file marker must never appear in the painted text.
+
+    It used to: every row printed "hardcover-201" between its title and its
+    status label. vendored/listmenu.lua:277 sets bookinfo = self.entry and :502
+    renders title = bookinfo.title or filename_without_suffix, and
+    filename_without_suffix is parsed out of entry.file -- so a row carrying the
+    marker but no `title` prints the marker as the book's name.
+
+    Asserted on the rendered text rather than the item table on purpose. The
+    item table is correct in the broken case too -- it has a `file` and a
+    `mandatory`, exactly as it should -- which is why this went unnoticed until
+    a text dump was read. A stub harness checking row fields cannot see it; only
+    the painted output can.
+    ]]
+    local painted = emu:screenText()
+    assert(not painted:find("hardcover-", 1, true),
+           "the synthetic file marker is being painted as a book name:\n" .. painted)
+
     local _, nodes = emu:shot("shelf_page1")
+
+    --[[--
+    The `file` marker must never reach the screen.
+
+    Rows carry file = "hardcover-<book_id>" so the vendored ListMenu draws them
+    through the book branch rather than the directory branch -- the branch that
+    crashed both shelf views. ListMenu also derives a row's display name from
+    that same field:
+
+        title = bookinfo.title and bookinfo.title or filename_without_suffix
+
+    where filename_without_suffix is parsed out of `file`. So marking a row
+    without also setting `title` makes the marker the visible book name, and
+    every row reads "hardcover-201".
+
+    This is the class of bug a stub harness cannot see: the item table is
+    correct in every field, the table-level assertions all pass, and only the
+    painted text is wrong. Assert on what was drawn.
+    NOTE: this comment is closed on purpose. The file header at line 1 opens a
+    long --[[-- that runs to EOF, so anything added after it silently never
+    executes -- which is exactly how the first version of this guard passed
+    against broken code.
+    ]]--
+    local painted = emu:screenText()
+    assert(not painted:find("hardcover-", 1, true), string.format(
+      "the internal file marker leaked onto the screen: %s",
+      painted:match("[^\n]*hardcover-[^\n]*") or "?"))
+    assert(painted:find("The Lathe of Heaven", 1, true),
+      "no book title on screen -- the list is not rendering its rows")
 
     --[[--
     Paging, and why the guard is there.
