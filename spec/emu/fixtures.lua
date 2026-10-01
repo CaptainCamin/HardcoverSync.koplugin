@@ -123,9 +123,19 @@ function M.install(overrides)
         book = b,
       }
     end
+    -- Normalize through the plugin's own Shelf module rather than shaping rows
+    -- here: the dialog is supposed to receive what normalizeEntry returns, so
+    -- building the shape independently would let a scenario pass while the real
+    -- path produced something else.
+    local Shelf = require("hardcover/lib/shelf")
+    local entries = {}
+    for _, user_book in ipairs(page) do
+      entries[#entries + 1] = Shelf.normalizeEntry(user_book)
+    end
+
     -- A short page tells the dialog there is nothing more to fetch.
     local has_more = (#M.books > offset + limit)
-    return require("hardcover/lib/shelf").map_user_books(page), nil, has_more
+    return entries, nil, has_more
   end
 
   Api.getBookDetail = function(_, book_id, user_id, edition_id)
