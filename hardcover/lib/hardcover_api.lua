@@ -133,8 +133,16 @@ function HardcoverApi:query(query, parameters)
 
   local completed, success, content
 
+  -- Resolve the token HERE, in the parent. The request runs in a forked
+  -- subprocess, and resolving the token may refresh it: a refresh done in the
+  -- child persists the new rotated tokens to disk but never reaches this
+  -- process's memory, so the parent would refresh again with the now-spent
+  -- refresh token. Hardcover treats that replay as theft and revokes the whole
+  -- chain, forcing a fresh sign in.
+  local headers = request_headers()
+
   completed, content = Trapper:dismissableRunInSubprocess(function()
-    return self:_query(query, parameters)
+    return self:_query(query, parameters, headers)
   end, true, true)
 
   if completed and content then
@@ -168,7 +176,7 @@ function HardcoverApi:query(query, parameters)
   end
 end
 
-function HardcoverApi:_query(query, parameters)
+function HardcoverApi:_query(query, parameters, headers)
   local requestBody = {
     query = query,
     variables = parameters
@@ -182,7 +190,7 @@ function HardcoverApi:_query(query, parameters)
   local request = {
     url = api_url,
     method = "POST",
-    headers = request_headers(),
+    headers = headers or request_headers(),
     source = ltn12.source.string(json.encode(requestBody)),
     sink = socketutil.table_sink(sink),
   }

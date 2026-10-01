@@ -188,7 +188,14 @@ function OAuth.RefreshGuard()
 end
 
 function OAuth.canStartRefresh(guard)
-  return guard ~= nil and not guard.in_flight
+  if guard == nil or guard.in_flight then
+    return false
+  end
+
+  -- After an unknown outcome the refresh token may already be spent, so a
+  -- second attempt is exactly the replay that revokes the chain. Only a fresh
+  -- sign in (which replaces the guard) clears this.
+  return guard.last_error ~= "unknown"
 end
 
 function OAuth.beginRefresh(guard)

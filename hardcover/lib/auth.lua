@@ -168,7 +168,16 @@ function Auth:refresh()
 
   OAuth.beginRefresh(self.guard)
 
-  local outcome, body = self.client:refresh(self:clientId(), self.tokens.refresh_token)
+  -- If the request throws we cannot know whether it reached the server, which
+  -- is the same position as a timeout: treat the refresh token as possibly
+  -- spent. Without the pcall the guard would stay "in flight" forever and no
+  -- refresh could ever run again in this session.
+  local called, outcome, body = pcall(self.client.refresh, self.client, self:clientId(), self.tokens.refresh_token)
+  if not called then
+    logger.warn("hardcover oauth: refresh raised, outcome unknown", outcome)
+    OAuth.endRefresh(self.guard, "unknown")
+    return nil
+  end
 
   if outcome == "ok" then
     local fresh = OAuth.applyRefresh(self.tokens, body, os.time())

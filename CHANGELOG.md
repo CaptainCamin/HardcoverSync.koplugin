@@ -11,6 +11,13 @@
 
 ### Fixed
 
+* OAuth: the access token is now resolved (and refreshed) before the request is handed to its subprocess.
+  Previously a refresh ran inside the subprocess, so the new tokens reached disk but not the running
+  plugin, which then refreshed again with the already-used refresh token. Hardcover treats that as a replay
+  and revokes the session, so signing in would have been required again after the first weekly expiry.
+* OAuth: after a refresh whose outcome is unknown (timeout, or an error thrown mid-request) the plugin no
+  longer tries again with the same refresh token; it asks you to sign in. A refresh that threw also no
+  longer blocks all later refreshes.
 * Fixed a leaked global in the book cache retry handling that could cancel the wrong request after
   switching books.
 * The sign-in "Contacting Hardcover" message is now painted before the network request starts.

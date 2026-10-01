@@ -228,14 +228,19 @@ check("a spent refresh token is never presented twice", function()
   -- refresh token a second time revokes the entire chain server-side, so the
   -- user loses library sync entirely.
   local log = {}
+  -- The outcomes must go to the client double itself. Passing them to newAuth
+  -- as well as a custom client made them vanish: the double's queue was empty,
+  -- so the first call returned invalid_grant, cleared the tokens, and every
+  -- later refresh was a no-op -- the test passed without ever reaching the
+  -- unknown-outcome path it is named for.
   local a = newAuth {
-    outcomes = { { "timeout", { error = "timeout" } } },
-    client = clientDouble({}, log),
+    client = clientDouble({ { "timeout", { error = "timeout" } } }, log),
   }
   a.tokens = { access_token = "old", refresh_token = "one-shot", expires_at = os.time() - 10 }
   a:refresh()
   a:refresh()
   a:refresh()
+  if a.tokens == nil then error("tokens were discarded: the unknown-outcome path was not exercised") end
   local count = 0
   for _, c in ipairs(log) do
     if c.op == "refresh" then count = count + 1 end
@@ -243,6 +248,25 @@ check("a spent refresh token is never presented twice", function()
   if count ~= 1 then
     error("refresh token presented " .. count .. " times, expected exactly 1")
   end
+end)
+
+check("a refresh that throws is treated as unknown, not left in flight", function()
+  -- A throw leaves the guard set forever, so no refresh could ever run again
+  -- this session; and since the request may have landed, the token must not be
+  -- presented a second time either.
+  local log = {}
+  local client = clientDouble({}, log)
+  client.refresh = function(_, client_id, refresh_token)
+    log[#log + 1] = { op = "refresh", refresh_token = refresh_token }
+    error("socket exploded")
+  end
+  local a = newAuth { client = client }
+  a.tokens = { access_token = "old", refresh_token = "one-shot", expires_at = os.time() - 10 }
+  eq(a:refresh(), nil, "refresh result")
+  eq(a.guard.in_flight, false, "guard released")
+  eq(a:needsReauth(), true, "the user is asked to sign in again")
+  a:refresh()
+  eq(#log, 1, "refresh token presented once")
 end)
 
 check("an unknown outcome is not retried", function()
