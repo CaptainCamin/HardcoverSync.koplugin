@@ -327,28 +327,54 @@ check("a failed status update keeps the entry too", function()
   eq(q:hasPending(), true, "the entry survives")
 end)
 
-check("progress queued for a book already on Hardcover as Want to Read", function()
-  -- The book was linked and then read offline without the plugin ever having
-  -- seen its status. Online, _handlePageUpdate refuses to send progress for a
-  -- book that is not Currently Reading; this records what the queue does.
-  local q = newQueue()
-  q:enqueuePage("/books/a.epub", { mapped_page = 120, book_id = 1, edition_id = 3 })
+local function existingBookApi(status_id)
   local api = fakeApi()
   api.findUserBook = function(_, book_id)
     api.calls[#api.calls + 1] = { op = "findUserBook", book_id = book_id }
-    return { id = 500, status_id = HARDCOVER.STATUS.TO_READ, user_book_reads = {} }
+    return { id = 500, status_id = status_id, user_book_reads = {} }
   end
-  local read_created, status_set = false, false
-  api.createRead = function(_, _, _, page)
-    read_created = true
-    return { id = 500, status_id = HARDCOVER.STATUS.TO_READ, user_book_reads = { { id = 1, progress_pages = page } } }
+  api.created_read, api.new_status = false, nil
+  api.createRead = function(self, _, _, page)
+    self.created_read = true
+    return { id = 500, status_id = self.new_status or status_id,
+      user_book_reads = { { id = 1, progress_pages = page } } }
   end
-  local orig_update = api.updateUserBook
-  api.updateUserBook = function(...) status_set = true; return orig_update(...) end
-  q:flush(api, { user_id = 1 })
-  print(string.format("         -> read created: %s, status changed: %s, entry left: %s",
-    tostring(read_created), tostring(status_set), tostring(q:hasPending())))
-  eq(read_created, false, "progress must not be recorded on a Want to Read book")
+  api.updateUserBook = function(self, _, new_status)
+    self.new_status = new_status
+    return { id = 500, status_id = new_status, user_book_reads = {} }
+  end
+  return api
+end
+
+check("offline progress on a Want to Read book moves it to Currently Reading", function()
+  -- The book was linked and read offline without the plugin ever having seen
+  -- its status. Reading it means it is being read.
+  local q = newQueue()
+  q:enqueuePage("/books/a.epub", { mapped_page = 120, book_id = 1, edition_id = 3 })
+  local api = existingBookApi(HARDCOVER.STATUS.TO_READ)
+  eq(q:flush(api, { user_id = 1 }), true, "flush result")
+  eq(api.new_status, HARDCOVER.STATUS.READING, "status set to Currently Reading")
+  eq(api.created_read, true, "the page was recorded")
+  eq(q:hasPending("/books/a.epub"), false, "the entry is cleared")
+end)
+
+check("a failed move to Currently Reading keeps the entry", function()
+  local q = newQueue()
+  q:enqueuePage("/books/a.epub", { mapped_page = 120, book_id = 1, edition_id = 3 })
+  local api = existingBookApi(HARDCOVER.STATUS.TO_READ)
+  api.updateUserBook = function() return nil end
+  eq(q:flush(api, { user_id = 1 }), false, "flush result")
+  eq(q:get("/books/a.epub").mapped_page, 120, "the page survives")
+  eq(api.created_read, false, "no page was sent on a book still Want to Read")
+end)
+
+check("offline progress is not sent onto a Finished book", function()
+  local q = newQueue()
+  q:enqueuePage("/books/a.epub", { mapped_page = 120, book_id = 1, edition_id = 3 })
+  local api = existingBookApi(HARDCOVER.STATUS.FINISHED)
+  eq(q:flush(api, { user_id = 1 }), true, "flush result")
+  eq(api.created_read, false, "no reading record created")
+  eq(api.new_status, nil, "status untouched")
   eq(q:hasPending("/books/a.epub"), false, "the entry is dropped, not retried forever")
 end)
 

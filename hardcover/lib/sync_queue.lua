@@ -212,12 +212,20 @@ function SyncQueue:_flushEntry(api, filepath, opts)
     end
     entry.status_id = nil
     self:save(filepath, entry)
+  elseif flush_page and user_book.status_id == HARDCOVER.STATUS.TO_READ then
+    -- Reading a Want to Read book offline means it is now being read, so move
+    -- it to Currently Reading before recording progress. Without this the
+    -- progress would land on a book still marked Want to Read.
+    local started = api:updateUserBook(book_id, HARDCOVER.STATUS.READING, privacy_setting_id or user_book.privacy_setting_id, edition_id)
+    if not hasUserBook(started) then
+      return false
+    end
+    user_book = started
   elseif flush_page and user_book.status_id and user_book.status_id ~= HARDCOVER.STATUS.READING then
-    -- Same rule as the online path (_handlePageUpdate): progress is only sent
-    -- for a book that is Currently Reading. Otherwise a book read offline
-    -- without the plugin ever having seen its status would get a reading
-    -- record on a Want to Read, Finished or DNF book. The entry is dropped
-    -- below rather than retried, since the answer will not change.
+    -- Finished or Did Not Finish: do not quietly reopen it from a stale queue.
+    -- This matches the online path (_handlePageUpdate), which only sends
+    -- progress for a Currently Reading book. The entry is dropped below rather
+    -- than retried, since the answer will not change.
     flush_page = false
   end
 
