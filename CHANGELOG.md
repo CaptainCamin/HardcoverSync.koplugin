@@ -24,6 +24,11 @@
 * Opening the Want to Read or Currently Reading list crashed KOReader. Rows in those lists were
   being drawn as folders rather than books, because the list did not mark them as files the way the
   search list does. Both lists now open normally.
+* Tapping an item in the plugin menu could do nothing at all, leaving the screen unchanged until
+  the device was power-cycled. The menu was waiting on a wifi callback that never arrived in
+  airplane mode, while a connection was already pending, or on a device that cannot restore wifi,
+  so the screen was never opened. Menus now open straight away and the wifi prompt is layered on
+  top; if there is no connection you get a message saying so instead of nothing happening.
 
 ### Notes
 
