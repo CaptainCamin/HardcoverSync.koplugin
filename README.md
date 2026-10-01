@@ -5,11 +5,49 @@ A KOReader plugin to update your [Hardcover.app](https://hardcover.app) reading 
 ## Installation
 
 1. Download and extract the latest release: https://github.com/Billiam/hardcoverapp.koplugin/releases/latest
-2. Rename `hardcover_config.example.lua` to `hardcover_config.lua`
-3. Fetch your API key from https://hardcover.app/account/api (just the part after `Bearer `)
-4. Add your API key to the `token` field in `hardcover_config.lua`, between the `''` quotes. For example:
-   `token = 'abcde...fghij'`
-5. Install plugin by copying the `hardcoverapp.koplugin` folder to the KOReader plugins folder on your device
+2. Rename `hardcover_config.example.lua` to `hardcover_config.lua` and set it up as described below
+3. Copy the `hardcoverapp.koplugin` folder to the KOReader plugins folder on your device
+4. Restart KOReader
+
+## Signing in
+
+### With a Hardcover account (recommended)
+
+1. Register an app at https://hardcover.app/account/developer-apps/new
+2. Set the application type to **Mobile, desktop, or CLI**, leave **Device
+   Authorization Grant** enabled, and allow these scopes:
+   `read:catalog read:catalog:search read:me:content read:library
+   write:library`
+3. Copy the **client id** into `hardcover_config.lua`:
+
+   ```lua
+   return {
+     client_id = 'your-client-id',
+   }
+   ```
+
+4. In KOReader, open the Hardcover menu and choose `Account` → `Sign in to
+   Hardcover`. The plugin shows a short code and a web address. Open that
+   address on a phone or computer, enter the code, and approve. The plugin
+   signs itself in and keeps the connection fresh from then on.
+
+There is no secret to store: this is a public client using the device flow,
+which is why no browser is needed on the reader.
+
+### With a personal access token
+
+If you would rather use a token, get one from
+https://hardcover.app/account/api and put it in `hardcover_config.lua`:
+
+```lua
+return {
+  token = 'abcde...fghij'
+}
+```
+
+The `token` field is only used when `client_id` is empty. Note that tokens now
+carry an expiration and a scope list, so choose permissions that cover what the
+plugin uses, and expect to replace an expired token.
 
 ## Usage
 
@@ -105,6 +143,37 @@ refresh button in the upper left corner to get a new list of 10 books.
 
 ![Suggest a book dialog displaying several books. There is a refresh icon in the upper left corner](https://github.com/user-attachments/assets/2564e0f1-2c62-4463-957f-421a47d792d6)
 
+### Reading offline
+
+Progress tracking keeps working without a connection. After each successful sync the plugin saves a local copy of
+the book's status and position, so opening a linked book with no network rebuilds your position from that copy and
+keeps recording from there. Page turns and status changes made while offline are held in a queue and pushed to
+Hardcover as soon as a connection is available — including when you reconnect, resume the device, or close the
+document.
+
+The menu shows how many changes are waiting:
+
+* `Sync now` — no changes waiting. Select it to sync on demand.
+* `Sync pending changes (n)` — `n` changes are queued. Select it to sync now, or when offline it will tell you
+  they will sync later.
+* Tap and hold either to discard everything queued, after confirming.
+
+If a sync fails, the changes stay queued and are retried later rather than dropped.
+
+### Book details
+
+`Book details` shows everything Hardcover knows about the currently linked book: author, series, format,
+publisher, page count, language, publication year, ISBN, community rating, reader counts and the description,
+alongside your own status and rating.
+
+### Browsing your lists
+
+`Want to Read list` and `Currently Reading list` open your Hardcover shelves a page at a time, with cover images
+where available. Select a book to open its details. When more books are available, use the reload icon in the
+upper left to load the next page.
+
+Both list items work whether or not a book is currently open.
+
 ## Settings
 
 ![A settings menu containing the following options: Checkboxes for Automatically link by ISBN, Automatically link by Hardcover identifiers and Automatically link by title and author. Below that is an item to change the Track progress frequency showing the current setting (1 minute), and a checkbox to Always track progress by default.](https://github.com/user-attachments/assets/dc8a397b-f36d-49da-b880-d04d47219ed0)
@@ -161,3 +230,31 @@ soon as you press them. Enable this setting to display a confirmation prompt bef
 
 When enabled, book and edition searches will be displayed in a simplified list with minimal data. This mode is the
 default for KOReader versions prior to v2024.07
+
+## Development
+
+Everything except the live API calls can be checked without a device or an API token:
+
+```bash
+./spec/run_all.sh
+```
+
+That runs, in order: a Lua 5.1 syntax check over every file, the pure-module specs, a structural check of the
+generated GraphQL, and the dialog, menu, and app harnesses (the last three load the real plugin code against
+stubbed KOReader widgets and drive it).
+
+Individually:
+
+| Command | What it covers |
+|---|---|
+| `lua spec/runner.lua` | pure-module specs (`spec/lib/*_spec.lua`) |
+| `lua spec/graphql_syntax_check.lua` | generated queries are well formed |
+| `lua spec/ui_harness.lua` | the shelf and book detail dialogs |
+| `lua spec/menu_harness.lua` | menu items and their callbacks |
+| `lua spec/oauth_client_harness.lua` | OAuth HTTP layer, form encoding, error decoding |
+| `lua spec/auth_harness.lua` | OAuth token lifecycle and refresh safety |
+| `lua spec/app_harness.lua` | offline tracking and sync lifecycle |
+
+`spec/verify_live.sh` is separate because it needs a real API token. It runs the new queries against Hardcover
+and reports which fields are actually present — useful for catching schema changes that documentation has not
+caught up with yet.

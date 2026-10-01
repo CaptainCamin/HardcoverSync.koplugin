@@ -18,12 +18,18 @@ jobs:
       - name: Run Busted
         uses: lunarmodules/busted@v2.2.0
 
+      - name: Install LuaJIT
+        run: sudo apt-get install -y luajit zip
+
+      - name: Run the harnesses
+        run: ./spec/run_all.sh
+
+      # package_release.sh is the single definition of what ships; it also
+      # verifies the built zip.
       - name: Zip release
-        run: |
-          cd ..
-          zip -r hardcoverapp.koplugin.zip hardcoverapp.koplugin -x '*/*.git*' '*/spec/*' '*/lua_modules/*' '*/.luarocks/*' '*/lua' '*/luarocks' '*/.tool-versions' '*/*.rockspec'
+        run: ./spec/package_release.sh "$RUNNER_TEMP"
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ../hardcoverapp.koplugin.zip
+          files: ${{ runner.temp }}/hardcoverapp.koplugin.zip

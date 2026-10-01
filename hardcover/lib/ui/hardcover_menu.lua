@@ -9,12 +9,14 @@ local T = require("ffi/util").template
 
 local Font = require("ui/font")
 local UIManager = require("ui/uimanager")
+local NetworkMgr = require("ui/network/manager")
+local logger = require("logger")
 
-local UpdateDoubleSpinWidget = require("hardcover/lib/ui/update_double_spin_widget")
 local InfoMessage = require("ui/widget/infomessage")
 local SpinWidget = require("ui/widget/spinwidget")
 
 local Api = require("hardcover/lib/hardcover_api")
+local Background = require("hardcover/lib/background")
 local Github = require("hardcover/lib/github")
 local User = require("hardcover/lib/user")
 local _t = require("hardcover/lib/table_util")
@@ -31,6 +33,47 @@ function HardcoverMenu:new(o)
   return setmetatable(o or {
     enabled = true
   }, self)
+end
+
+-- Run a dialog-opening action immediately, arranging wifi around it.
+--
+-- This exists because running the action from inside an AutoWifi callback made
+-- it conditional: on several paths (airplane mode, a pending connection, a
+-- device that cannot restore wifi) that callback never fired and the tapped
+-- menu item did nothing at all. On e-ink that reads as a screen that never
+-- updates.
+--
+-- zlibrary.koplugin avoids this by showing every dialog directly in the menu
+-- callback and dealing with connectivity separately. Do the same here: the user
+-- asked for a screen, so open it. If it turns out wifi is needed, the fetch
+-- fails and the dialog reports that; the wifi prompt is a convenience layered
+-- on top, never a gate in front of the UI.
+--
+-- `needs_wifi` is false for actions that work from local data and so should
+-- never prompt at all.
+function HardcoverMenu:withWifiThen(action, needs_wifi)
+  if not needs_wifi then
+    action(false)
+    return
+  end
+
+  -- Open the screen first. If wifi is already up this is the whole story.
+  if NetworkMgr:isWifiOn() then
+    action(false)
+    return
+  end
+
+  -- Wifi is down. Show the dialog regardless, then try to bring the connection
+  -- up so the fetch inside it can succeed.
+  action(false)
+
+  self.wifi:wifiPrompt(function(wifi_enabled)
+    if wifi_enabled then
+      UIManager:nextTick(function()
+        self.wifi:wifiDisablePrompt()
+      end)
+    end
+  end)
 end
 
 local privacy_labels = {
@@ -115,17 +158,24 @@ function HardcoverMenu:getSubMenuItems(book_view)
         return self.enabled and self.settings:bookLinked()
       end,
       callback = function(menu_instance)
-        local editions = Api:findEditions(self.settings:getLinkedBookId(), User:getId())
-        -- need to show "active" here, and prioritize current edition if available
-        self.dialog_manager:buildSearchDialog(
-          "Select edition",
-          editions,
+        -- Show the dialog before listing editions. This fetch used to run here,
+        -- so tapping "Change edition" did nothing for the length of a request
+        -- (up to six seconds with no route to the API), which on e-ink is
+        -- indistinguishable from a crash. The dialog opens on a loading list and
+        -- fills in from the callback.
+        self.dialog_manager:buildLoadingSearchDialog(
+          _("Select edition"),
+          function(callback)
+            Api:findEditionsAsync(self.settings:getLinkedBookId(), User:getId(), callback)
+          end,
           {
             edition_id = self.settings:getLinkedEditionId()
           },
           function(book)
-            self.hardcover:linkBook(book)
-            menu_instance:updateItems()
+            Background.run(function()
+              self.hardcover:linkBook(book)
+              menu_instance:updateItems()
+            end)
           end
         )
       end,
@@ -157,6 +207,90 @@ function HardcoverMenu:getSubMenuItems(book_view)
       end,
       separator = true
     },
+    book_view and {
+      text = _("Book details"),
+      enabled_func = function()
+        return self.enabled and self.settings:bookLinked()
+      end,
+      callback = function()
+        self:withWifiThen(function()
+          self.dialog_manager:showBookDetail(
+            self.settings:getLinkedBookId(),
+            self.settings:getLinkedEditionId()
+          )
+        end, true)
+      end,
+      keep_menu_open = true,
+      separator = true
+    },
+    {
+      text = _("Want to Read list"),
+      enabled_func = function()
+        return self.enabled
+      end,
+      callback = function()
+        self:withWifiThen(function()
+          self.dialog_manager:showShelf(HARDCOVER.STATUS.TO_READ, _("Want to Read"))
+        end, true)
+      end,
+      keep_menu_open = true,
+    },
+    {
+      text = _("Currently Reading list"),
+      enabled_func = function()
+        return self.enabled
+      end,
+      callback = function()
+        self:withWifiThen(function()
+          self.dialog_manager:showShelf(HARDCOVER.STATUS.READING, _("Currently Reading"))
+        end, true)
+      end,
+      keep_menu_open = true,
+    },
+    {
+      text_func = function()
+        local pending = self.sync_queue:pendingCount()
+        if pending > 0 then
+          return T(_("Sync pending changes (%1)"), pending)
+        end
+        return _("Sync now")
+      end,
+      -- Greyed out when there is nothing to send. Offline with changes queued it
+      -- stays enabled: tapping it is how the user learns they are saved and
+      -- will sync later.
+      enabled_func = function()
+        return self.enabled and self.sync_queue:hasPending()
+      end,
+      callback = function()
+        -- Syncing genuinely needs a connection, but the confirmation message
+        -- must still appear when it cannot be sent -- otherwise the menu item
+        -- looks dead. withWifiThen reports the outcome either way.
+        self:withWifiThen(function()
+          self.on_flush_sync_queue()
+        end, true)
+      end,
+      hold_callback = function(menu_instance)
+        -- long press discards anything queued, for when a queued change is
+        -- wrong and the user would rather retype it than push it
+        local count = self.sync_queue:pendingCount()
+        if count == 0 then
+          return
+        end
+
+        self.dialog_manager:maybeConfirm({
+          text = T(_("Discard %1 pending changes?"), count),
+          ok_callback = function()
+            self.sync_queue:clearAll()
+            menu_instance:updateItems()
+          end,
+          no_confirm_callback = function()
+            menu_instance:updateItems()
+          end
+        })
+      end,
+      keep_menu_open = true,
+      separator = true
+    },
     {
       text = _("Suggest a book"),
       callback = function()
@@ -164,6 +298,69 @@ function HardcoverMenu:getSubMenuItems(book_view)
       end,
       separator = true,
       keep_menu_open = true
+    },
+    -- OAuth sign-in/out. Only offered when hardcover_config.lua supplies a
+    -- client_id; with a static API key there is nothing to sign in to.
+    self.auth and self.auth:usingOAuth() and {
+      text_func = function()
+        return T(_("Account: %1"), self.auth:statusText())
+      end,
+      sub_item_table_func = function()
+        local items = {}
+
+        if self.auth:needsReauth() then
+          table.insert(items, {
+            text = _("Sign in to Hardcover"),
+            enabled_func = function()
+              return self.enabled
+            end,
+            callback = function(menu_instance)
+              self.on_sign_in()
+              if menu_instance then
+                menu_instance:updateItems()
+              end
+            end,
+            keep_menu_open = true,
+          })
+        else
+          table.insert(items, {
+            text = _("Sign in again"),
+            enabled_func = function()
+              return self.enabled
+            end,
+            callback = function()
+              self.on_sign_in()
+            end,
+            keep_menu_open = true,
+          })
+          table.insert(items, {
+            text = _("Sign out"),
+            enabled_func = function()
+              return self.enabled
+            end,
+            callback = function(menu_instance)
+              self.dialog_manager:maybeConfirm({
+                text = _("Sign out of Hardcover?"),
+                ok_callback = function()
+                  self.on_sign_out()
+                  if menu_instance then
+                    menu_instance:updateItems()
+                  end
+                end,
+                no_confirm_callback = function()
+                  if menu_instance then
+                    menu_instance:updateItems()
+                  end
+                end,
+              })
+            end,
+            keep_menu_open = true,
+          })
+        end
+
+        return items
+      end,
+      separator = true,
     },
     {
       text = _("Settings"),
@@ -174,16 +371,27 @@ function HardcoverMenu:getSubMenuItems(book_view)
     {
       text = _("About"),
       callback = function()
-        local new_release = Github:newestRelease()
         local version = table.concat(VERSION, ".")
-        local new_release_str = ""
-        if new_release then
-          new_release_str = " (latest v" .. new_release .. ")"
-        end
         local settings_file = DataStorage:getSettingsDir() .. "/" .. "hardcoversync_settings.lua"
 
-        UIManager:show(InfoMessage:new {
-          text = [[
+        -- Build the text with a placeholder for the "latest release" note, show
+        -- the box straight away, and fill the note in if GitHub answers.
+        --
+        -- This used to call Github:newestRelease() BEFORE showing anything, and
+        -- that request had no timeout. With no route to api.github.com it
+        -- blocked for a long time, so the About box never appeared at all --
+        -- indistinguishable on e-ink from a screen that failed to refresh.
+        -- Showing first and asking second makes the screen's appearance
+        -- independent of the network.
+        local LATEST_MARK = " \u{25CB} checking for a newer release\u{2026}"
+
+        local function about_text(latest)
+          local new_release_str = ""
+          if latest then
+            new_release_str = " (latest v" .. latest .. ")"
+          end
+
+          return [[
 Hardcover plugin
 v]] .. version .. new_release_str .. [[
 
@@ -194,10 +402,32 @@ Project:
 github.com/billiam/hardcoverapp.koplugin
 
 Settings:
-]] .. settings_file,
+]] .. settings_file
+        end
+
+        local message = InfoMessage:new {
+          text = about_text(nil),
           face = Font:getFace("cfont", 18),
           show_icon = false,
-        })
+        }
+
+        UIManager:show(message)
+
+        -- Update in place once the answer arrives, if the box is still up.
+        Github:newestReleaseAsync(function(new_release)
+          if not new_release then
+            if message.text and message.text:find(LATEST_MARK, 1, true) then
+              message.text = message.text:gsub(LATEST_MARK:gsub("(%W)", "%%%1"), "")
+            end
+            return
+          end
+
+          if message.text and message.text:find(LATEST_MARK, 1, true) then
+            message.text = message.text:gsub(LATEST_MARK:gsub("(%W)", "%%%1"),
+              " (latest v" .. new_release .. ")")
+            UIManager:setDirty(message, "ui")
+          end
+        end)
       end,
       keep_menu_open = true
     }
@@ -242,6 +472,65 @@ function HardcoverMenu:getVisibilitySubMenuItems()
   }
 end
 
+-- The actions below talk to Hardcover and are reached from menu callbacks, which
+-- run outside Trapper:wrap, so each does its work inside Background.run: the
+-- request then forks and yields instead of freezing KOReader until it returns.
+
+function HardcoverMenu:setStatus(status)
+  Background.run(function()
+    self.cache:updateBookStatus(self.ui.document.file, status)
+  end)
+end
+
+function HardcoverMenu:removeCurrentRead(menu_instance)
+  Background.run(function()
+    local result = Api:removeRead(self.state.book_status.id)
+    if result and result.id then
+      self.state.book_status = {}
+      menu_instance:updateItems()
+    end
+  end)
+end
+
+function HardcoverMenu:savePage(current_read, edition_page, menu_instance)
+  Background.run(function()
+    local result
+
+    if current_read then
+      result = Api:updatePage(current_read.id, current_read.edition_id, edition_page,
+        current_read.started_at)
+    else
+      local start_date = os.date("%Y-%m-%d")
+      result = Api:createRead(self.state.book_status.id, self.state.book_status.edition_id, edition_page,
+        start_date)
+    end
+
+    if result then
+      self.state.book_status = result
+      menu_instance:updateItems()
+    else
+      -- A failed page write used to be invisible, so a reader who set the page
+      -- and saw nothing happen could not tell a rejected write from a working
+      -- one; the progress would simply re-sync from the server later, looking
+      -- like the change had been lost.
+      self.dialog_manager:showError(_("Page could not be saved"))
+    end
+  end)
+end
+
+-- `quiet` is the clear-rating long press: no error when it fails, as before.
+function HardcoverMenu:saveRating(value, menu_instance, quiet)
+  Background.run(function()
+    local result = Api:updateRating(self.state.book_status.id, value)
+    if result then
+      self.state.book_status = result
+      menu_instance:updateItems()
+    elseif not quiet then
+      self.dialog_manager:showError(_("Rating could not be saved"))
+    end
+  end)
+end
+
 function HardcoverMenu:getStatusSubMenuItems()
   return {
     {
@@ -256,7 +545,7 @@ function HardcoverMenu:getStatusSubMenuItems()
         self.dialog_manager:maybeConfirm({
           text = "Mark book as Want To Read?",
           ok_callback = function()
-            self.cache:updateBookStatus(self.ui.document.file, HARDCOVER.STATUS.TO_READ)
+            self:setStatus(HARDCOVER.STATUS.TO_READ)
           end,
           no_confirm_callback = function()
             menu_instance:updateItems()
@@ -277,7 +566,7 @@ function HardcoverMenu:getStatusSubMenuItems()
         self.dialog_manager:maybeConfirm({
           text = "Mark book as Currently Reading?",
           ok_callback = function()
-            self.cache:updateBookStatus(self.ui.document.file, HARDCOVER.STATUS.READING)
+            self:setStatus(HARDCOVER.STATUS.READING)
           end,
           no_confirm_callback = function()
             menu_instance:updateItems()
@@ -298,7 +587,7 @@ function HardcoverMenu:getStatusSubMenuItems()
         self.dialog_manager:maybeConfirm({
           text = "Mark book as Read?",
           ok_callback = function()
-            self.cache:updateBookStatus(self.ui.document.file, HARDCOVER.STATUS.FINISHED)
+            self:setStatus(HARDCOVER.STATUS.FINISHED)
           end,
           no_confirm_callback = function()
             menu_instance:updateItems()
@@ -319,7 +608,7 @@ function HardcoverMenu:getStatusSubMenuItems()
         self.dialog_manager:maybeConfirm({
           text = "Mark book as Did Not Finish?",
           ok_callback = function()
-            self.cache:updateBookStatus(self.ui.document.file, HARDCOVER.STATUS.DNF)
+            self:setStatus(HARDCOVER.STATUS.DNF)
           end,
           no_confirm_callback = function()
             menu_instance:updateItems()
@@ -337,11 +626,7 @@ function HardcoverMenu:getStatusSubMenuItems()
         self.dialog_manager:maybeConfirm({
           text = "Remove current book status?",
           ok_callback = function()
-            local result = Api:removeRead(self.state.book_status.id)
-            if result and result.id then
-              self.state.book_status = {}
-              menu_instance:updateItems()
-            end
+            self:removeCurrentRead(menu_instance)
           end
         })
       end,
@@ -379,6 +664,7 @@ function HardcoverMenu:getStatusSubMenuItems()
           left_text = left_text .. ": was " .. last_hardcover_page
         end
 
+        local UpdateDoubleSpinWidget = require("hardcover/lib/ui/update_double_spin_widget")
         local spinner = UpdateDoubleSpinWidget:new {
           ok_always_enabled = true,
 
@@ -409,23 +695,7 @@ function HardcoverMenu:getStatusSubMenuItems()
           title_text = _("Set current page"),
 
           callback = function(edition_page, _document_page)
-            local result
-
-            if current_read then
-              result = Api:updatePage(current_read.id, current_read.edition_id, edition_page,
-                current_read.started_at)
-            else
-              local start_date = os.date("%Y-%m-%d")
-              result = Api:createRead(self.state.book_status.id, self.state.book_status.edition_id, edition_page,
-                start_date)
-            end
-
-            if result then
-              self.state.book_status = result
-              menu_instance:updateItems()
-            else
-
-            end
+            self:savePage(current_read, edition_page, menu_instance)
           end
         }
         UIManager:show(spinner)
@@ -488,23 +758,13 @@ function HardcoverMenu:getStatusSubMenuItems()
           ok_text = _("Save"),
           title_text = _("Set Rating"),
           callback = function(spin)
-            local result = Api:updateRating(self.state.book_status.id, spin.value)
-            if result then
-              self.state.book_status = result
-              menu_instance:updateItems()
-            else
-              self.dialog_magager:showError("Rating could not be saved")
-            end
+            self:saveRating(spin.value, menu_instance)
           end
         }
         UIManager:show(spinner)
       end,
       hold_callback = function(menu_instance)
-        local result = Api:updateRating(self.state.book_status.id, 0)
-        if result then
-          self.state.book_status = result
-          menu_instance:updateItems()
-        end
+        self:saveRating(0, menu_instance, true)
       end,
       keep_menu_open = true,
       separator = true

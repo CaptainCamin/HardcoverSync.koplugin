@@ -2,6 +2,7 @@ local _ = require("gettext")
 local json = require("json")
 
 local UIManager = require("ui/uimanager")
+local NetworkManager = require("ui/network/manager")
 
 local ConfirmBox = require("ui/widget/confirmbox")
 local InfoMessage = require("ui/widget/infomessage")
@@ -9,12 +10,17 @@ local FileSearcher = require("apps/filemanager/filemanagerfilesearcher")
 
 local Api = require("hardcover/lib/hardcover_api")
 local Book = require("hardcover/lib/book")
+local Shelf = require("hardcover/lib/shelf")
 local User = require("hardcover/lib/user")
 
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 
-local JournalDialog = require("hardcover/lib/ui/journal_dialog")
-local SearchDialog = require("hardcover/lib/ui/search_dialog")
+local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
+
+-- The book detail, journal, search and shelf dialogs are required where they
+-- are first shown, not here. They pull in the vendored ListMenu and CoverMenu
+-- (about 1,500 lines) and KOReader loads this plugin on every start, so
+-- loading them eagerly cost startup time for screens most sessions never open.
 
 local DialogManager = {}
 DialogManager.__index = DialogManager
@@ -57,17 +63,31 @@ local function mapJournalData(data)
   return result
 end
 
+-- Tear down a dialog that is about to be replaced.
+--
+-- free() alone is not enough: a dialog that is still on KOReader's window stack
+-- stays there, freed, underneath its replacement. Closing the replacement then
+-- reveals the dead one -- a menu that was closed but is still on screen. The
+-- retry paths hit this: the failed dialog is still showing when "Retry" builds
+-- its successor. close() rather than onClose(), so the dialog's close_callback
+-- (which can prompt to turn wifi off) is not fired for a replacement.
+local function discard(dialog)
+  if not dialog then return end
+  if UIManager:isWidgetShown(dialog) then
+    UIManager:close(dialog)
+  end
+  dialog:free()
+end
+
 function DialogManager:buildSearchDialog(title, items, active_item, book_callback, search_callback, search)
   local callback = function(book)
     self.search_dialog:onClose()
     book_callback(book)
   end
 
-  if self.search_dialog then
-    self.search_dialog:free()
-  end
+  discard(self.search_dialog)
 
-  self.search_dialog = SearchDialog:new {
+  self.search_dialog = require("hardcover/lib/ui/search_dialog"):new {
     compatibility_mode = self.settings:compatibilityMode(),
     title = title,
     items = items,
@@ -78,6 +98,68 @@ function DialogManager:buildSearchDialog(title, items, active_item, book_callbac
   }
 
   UIManager:show(self.search_dialog)
+end
+
+--
+-- Show a book list whose contents arrive after the dialog opens.
+--
+-- The pattern for every "pick something from a list" screen. The alternative --
+-- fetch, then build the dialog -- means the tap produces no screen at all while
+-- the request is in flight, which is the dead-tap bug this module exists to
+-- remove. "Change edition" did exactly that.
+--
+-- fetch is called with a callback and must invoke it with (items, err). The
+-- dialog is on screen before fetch runs, and a failure becomes a retry rather
+-- than a blank list the user cannot tell from "no editions exist".
+--
+-- search_callback, when given, puts a magnifying glass in the title bar that
+-- re-runs a query in place. It is not optional in practice: the link-book
+-- dialog is useless without it, since the initial lookup can easily return
+-- nothing for an edition with a thin metadata record.
+--
+function DialogManager:buildLoadingSearchDialog(title, fetch, active_item, book_callback, search_callback, search_value)
+  discard(self.search_dialog)
+  self.search_dialog = nil
+
+  self.search_dialog = require("hardcover/lib/ui/search_dialog"):new {
+    compatibility_mode = self.settings:compatibilityMode(),
+    title = title,
+    items = {},
+    active_item = active_item,
+    loading = true,
+    select_book_cb = function(book)
+      self.search_dialog:onClose()
+      book_callback(book)
+    end,
+    search_callback = search_callback,
+    search_value = search_value,
+  }
+
+  UIManager:show(self.search_dialog)
+
+  local loading = StatusDialogs.loading(_("Loading…"))
+
+  fetch(function(items, err)
+    StatusDialogs.close(loading)
+    if not UIManager:isWidgetShown(self.search_dialog) then return end
+
+    if err or not items then
+      StatusDialogs.retry(err or _("no response"), _("Loading the list"),
+        function()
+          self:buildLoadingSearchDialog(title, fetch, active_item, book_callback,
+                                        search_callback, search_value)
+        end,
+        function() end)
+      return
+    end
+
+    if #items == 0 then
+      self.search_dialog:setEmptyState(_("Nothing to choose from"))
+      return
+    end
+
+    self.search_dialog:setItems(title, items, active_item)
+  end)
 end
 
 function DialogManager:confirm(options)
@@ -106,15 +188,23 @@ function DialogManager:maybeConfirm(options)
   end
 end
 
-function DialogManager:buildBookListDialog(title, items, icon_callback, disable_wifi_after)
-  if self.search_dialog then
-    self.search_dialog:free()
-  end
+--
+-- A list of books whose rows hand off to the file searcher.
+--
+-- fetch, when given, makes this show-then-fetch: the dialog opens on an empty
+-- list and fetch supplies the rows. "Suggest a book" needs that, because its
+-- cached list is usually cold and the fetch used to run before the dialog
+-- existed.
+--
+function DialogManager:buildBookListDialog(title, items, icon_callback, disable_wifi_after, fetch)
+  discard(self.search_dialog)
+  self.search_dialog = nil
 
-  self.search_dialog = SearchDialog:new {
+  self.search_dialog = require("hardcover/lib/ui/search_dialog"):new {
     compatibility_mode = self.settings:compatibilityMode(),
     title = title,
-    items = items,
+    items = items or {},
+    loading = fetch ~= nil,
     left_icon_callback = icon_callback,
     left_icon = "cre.render.reload",
     select_book_cb = function(book)
@@ -137,20 +227,62 @@ function DialogManager:buildBookListDialog(title, items, icon_callback, disable_
   }
 
   UIManager:show(self.search_dialog)
-end
 
-function DialogManager:updateSearchResults(search)
-  local books, error = Api:findBooks(search, nil, User:getId())
-  if error then
-    if not Api.enabled then
-      UIManager:close(self.search_dialog)
+  if not fetch then return end
+
+  local loading = StatusDialogs.loading(_("Loading…"))
+
+  fetch(function(items, err)
+    StatusDialogs.close(loading)
+    if not UIManager:isWidgetShown(self.search_dialog) then return end
+
+    if err or not items then
+      StatusDialogs.retry(err or _("no response"), _("Loading the list"),
+        function()
+          self:buildBookListDialog(title, nil, icon_callback, disable_wifi_after, fetch)
+        end,
+        function() UIManager:close(self.search_dialog) end)
+      return
     end
 
-    return
-  end
+    if #items == 0 then
+      self.search_dialog:setEmptyState(_("No books found on Want to Read list"))
+      return
+    end
 
-  self.search_dialog:setItems(self.search_dialog.title, books, self.search_dialog.active_item)
-  self.search_dialog.search_value = search
+    self.search_dialog:setItems(title, items)
+  end)
+end
+
+--
+-- Re-run a search against the dialog already on screen.
+--
+-- The dialog is shown, so there is nothing to show first here -- but the error
+-- path was a silent no-op: it closed the dialog only when Api.enabled was false
+-- and otherwise did nothing, leaving stale rows that looked like results. A
+-- failure the user cannot see is indistinguishable from a search that worked.
+--
+function DialogManager:updateSearchResults(search)
+  if not self.search_dialog then return end
+
+  local loading = StatusDialogs.loading(_("Searching…"))
+
+  Api:findBooksAsync(search, nil, User:getId(), function(books, err)
+    StatusDialogs.close(loading)
+    if not UIManager:isWidgetShown(self.search_dialog) then return end
+
+    if err or not books then
+      -- Keep the previous rows. Clearing them turns a transient failure into
+      -- an empty list, which reads as "no matches" -- a different and wrong
+      -- answer to the question the user asked.
+      StatusDialogs.error(_("Search failed. Tap the search icon to try again."))
+      return
+    end
+
+    self.search_dialog:setItems(self.search_dialog.title, books,
+                                self.search_dialog.active_item)
+    self.search_dialog.search_value = search
+  end)
 end
 
 function DialogManager:updateRandomBooks(books)
@@ -162,19 +294,10 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
   local edition_id = settings.edition_id
   local edition_format = settings.edition_format
 
-  if not edition_id then
-    local edition = Api:findDefaultEdition(settings.book_id, User:getId())
-    if edition then
-      edition_id = edition.id
-      edition_format = Book:editionFormatName(edition.edition_format, edition.reading_format_id)
-      remote_pages = edition.pages
-    end
-  end
-
   mapped_page = mapped_page or self.page_mapper:getMappedPage(page, document:getPageCount(), remote_pages)
   local wifi_was_off = false
   local dialog
-  dialog = JournalDialog:new {
+  dialog = require("hardcover/lib/ui/journal_dialog"):new {
     input = text,
     event_type = event_type or "note",
     book_id = settings.book_id,
@@ -184,7 +307,17 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
     pages = remote_pages,
     save_dialog_callback = function(book_data)
       local api_data = mapJournalData(book_data)
+
+      -- This runs inside InputDialog's save handler, which wants the outcome as
+      -- a return value, so the request cannot be moved to the background without
+      -- reimplementing that handler. It blocks, so put a message on screen and
+      -- paint it first: otherwise the dialog just sits there for the length of
+      -- the request with no sign the tap was received.
+      local saving = StatusDialogs.loading(_("Saving…"))
+      UIManager:forceRePaint()
       local result = Api:createJournalEntry(api_data)
+      StatusDialogs.close(saving)
+
       if result then
         UIManager:nextTick(function()
           UIManager:close(dialog)
@@ -202,13 +335,25 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
       end
     end,
     select_edition_callback = function()
-      -- TODO: could be moved into child dialog but needs access to build dialog, which needs dialog again
       dialog:onCloseKeyboard()
 
-      local editions = Api:findEditions(self.settings:getLinkedBookId(), User:getId())
-      self:buildSearchDialog(
-        "Select edition",
-        editions,
+      --[[
+      Opens the edition picker on top of this dialog, so this is a re-entrant
+      call: buildLoadingSearchDialog assigns self.search_dialog while a journal
+      dialog is already up. That is safe because the two are different slots and
+      different widget classes -- the journal dialog is a local, not a field --
+      but it is why this cannot simply be moved into JournalDialog: the child
+      would need the manager to build its own replacement, and the manager needs
+      the child to know what to fill in.
+
+      Show-then-fetch like every other list here. The fetch used to run inline,
+      so tapping "change edition" froze for the length of a request.
+      ]]
+      self:buildLoadingSearchDialog(
+        _("Select edition"),
+        function(callback)
+          Api:findEditionsAsync(self.settings:getLinkedBookId(), User:getId(), callback)
+        end,
         { edition_id = dialog.edition_id },
         function(edition)
           if not edition then
@@ -240,15 +385,242 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
 
     UIManager:show(dialog)
     dialog:onShowKeyboard()
+
+    --[[
+    Resolve the edition only after the dialog is up. This lookup used to run
+    above the dialog's construction, so a book with no linked edition -- which
+    is every book the reader has not linked yet -- blocked for the length of a
+    request before anything appeared. The dialog is fully usable without it:
+    it just does not know which edition the note belongs to yet, and setEdition
+    fills that in when the answer lands.
+
+    A failure here is not worth a dialog of its own. The user can still write
+    the note and save it; the edition is filled in later, or the note is saved
+    against the default by the save path. Reporting it would interrupt a task
+    that is otherwise fine.
+    ]]
+    if not edition_id and settings.book_id then
+      Api:findDefaultEditionAsync(settings.book_id, User:getId(), function(edition)
+        if not edition then return end
+        if not UIManager:isWidgetShown(dialog) then return end
+        dialog:setEdition(
+          edition.id,
+          Book:editionFormatName(edition.edition_format, edition.reading_format_id),
+          edition.pages
+        )
+      end)
+    end
   end)
 end
 
+--
+-- Browse a shelf (Want to Read by default) and open details for a selection.
+--
+-- Show-then-fetch. The first page used to be fetched here, before the dialog
+-- existed, and an error called showError and returned -- so on a device with no
+-- route to the API the tap produced no screen at all for up to six seconds
+-- (socketutil:set_timeout(6, 12) in hardcover_api.lua), which on e-ink reads as
+-- a crashed device. The dialog is now built and shown empty, and the fetch only
+-- updates a screen that already exists.
+--
+-- The user can close the dialog while the request is in flight, so every write
+-- below is guarded on isWidgetShown. Updating a freed widget crashes.
+--
+function DialogManager:showShelf(status_id, title, done_callback)
+  local user_id = User:getId()
+  local cache = self.shelf_cache
+
+  discard(self.shelf_dialog)
+  self.shelf_dialog = nil
+
+  -- What was fetched last time, if anything. Shown at once, so the list is
+  -- there before (or without) the network; the fetch below then refreshes it.
+  local cached = cache and cache:getPage(user_id, status_id, 0)
+
+  self.shelf_dialog = require("hardcover/lib/ui/shelf_dialog"):new {
+    compatibility_mode = self.settings:compatibilityMode(),
+    title = title,
+    status_id = status_id,
+    -- Empty until the fetch lands. Passing a nil here would reach the API as a
+    -- nil offset and silently refetch page one forever.
+    entries = {},
+    has_more = false,
+    offset = 0,
+    page_size = 20,
+    fetch_page = function(offset, limit, callback)
+      local saved = cache and cache:getPage(user_id, status_id, offset)
+
+      if not NetworkManager:isConnected() then
+        -- Offline: serve the page if it was seen before, otherwise say so.
+        if saved then
+          callback(saved.entries, nil, saved.has_more)
+        else
+          callback(nil, _("not available offline"))
+        end
+        return
+      end
+
+      Api:getShelfAsync(user_id, status_id, offset, limit, function(entries, err, has_more)
+        if entries and cache then
+          cache:putPage(user_id, status_id, offset, entries, has_more)
+        end
+        callback(entries, err, has_more)
+      end)
+    end,
+    select_entry_cb = function(entry)
+      self:showBookDetail(entry.book_id, nil, done_callback)
+    end,
+    close_callback = function()
+      if done_callback then
+        done_callback()
+      end
+    end,
+  }
+
+  UIManager:show(self.shelf_dialog)
+
+  local dialog = self.shelf_dialog
+
+  if cached and #cached.entries > 0 then
+    dialog.offset = #cached.entries
+    dialog:setEntries(cached.entries, cached.has_more)
+  end
+
+  -- Offline there is nothing to wait for: say what is being shown and stop.
+  if not NetworkManager:isConnected() then
+    if cached then
+      StatusDialogs.info(string.format(_("Offline: showing your list as it was on %s"),
+        os.date("%Y-%m-%d", cached.saved_at or os.time())))
+    else
+      StatusDialogs.retry(_("no internet connection"), _("Loading your shelf"),
+        function() self:showShelf(status_id, title, done_callback) end,
+        function() end)
+    end
+    return
+  end
+
+  -- With a saved list already on screen the refresh is quiet; without one the
+  -- reader is waiting on it, so say so.
+  local loading = not cached and StatusDialogs.loading(_("Loading your shelf…")) or nil
+
+  Api:getShelfAsync(user_id, status_id, 0, dialog.page_size,
+    function(entries, err, has_more)
+      if loading then StatusDialogs.close(loading) end
+      if not UIManager:isWidgetShown(dialog) then return end
+
+      if err or not entries then
+        -- The saved list is still right there; failing to refresh it is not
+        -- worth interrupting for.
+        if cached then return end
+
+        -- Offer the retry rather than an error the user can only dismiss and
+        -- start again. Recursion is safe: it rebuilds the dialog and shows it
+        -- again, and the fetch below is the same code.
+        StatusDialogs.retry(err, _("Loading your shelf"),
+          function()
+            self:showShelf(status_id, title, done_callback)
+          end,
+          function() end)
+        return
+      end
+
+      if cache then
+        cache:putPage(user_id, status_id, 0, entries, has_more)
+      end
+
+      if #entries == 0 then
+        dialog:setEmptyState(_("No books on this shelf yet"))
+        return
+      end
+
+      dialog.offset = #entries
+      dialog:setEntries(entries, has_more and #entries > 0)
+    end)
+end
+
+--
+-- Fetch and display full details for one book.
+--
+-- Show-then-fetch, same reason as showShelf: the detail used to be fetched
+-- before the dialog existed, so a failure showed an error in place of a screen
+-- and an offline tap did nothing at all.
+--
+function DialogManager:showBookDetail(book_id, edition_id, done_callback)
+  local dialog = require("hardcover/lib/ui/book_detail_dialog"):new {
+    detail = nil,
+    loading = true,
+  }
+
+  UIManager:show(dialog)
+
+  local user_id = User:getId()
+  local saved = self.shelf_cache and self.shelf_cache:findEntry(user_id, book_id)
+
+  -- What a shelf row already knows, shown when the network cannot supply the
+  -- full record. Book level only: edition fields are not on a shelf row.
+  local function showSaved()
+    dialog:setDetail(Shelf.detailFromEntry(saved))
+    StatusDialogs.info(_("Offline: showing saved details"))
+    if done_callback then
+      done_callback()
+    end
+  end
+
+  if not NetworkManager:isConnected() then
+    if saved then
+      showSaved()
+    else
+      StatusDialogs.retry(_("no internet connection"), _("Loading book details"),
+        function()
+          UIManager:close(dialog)
+          self:showBookDetail(book_id, edition_id, done_callback)
+        end,
+        function() UIManager:close(dialog) end)
+    end
+    return dialog
+  end
+
+  local loading = StatusDialogs.loading(_("Loading book details…"))
+
+  Api:getBookDetailAsync(book_id, user_id, edition_id, function(detail)
+    StatusDialogs.close(loading)
+    if not UIManager:isWidgetShown(dialog) then return end
+
+    if not detail then
+      if saved then
+        showSaved()
+        return
+      end
+
+      StatusDialogs.retry(_("no response"), _("Loading book details"),
+        function()
+          UIManager:close(dialog)
+          self:showBookDetail(book_id, edition_id, done_callback)
+        end,
+        function() UIManager:close(dialog) end)
+      return
+    end
+
+    dialog:setDetail(detail)
+    if done_callback then
+      done_callback()
+    end
+  end)
+
+  return dialog
+end
+
+--
+-- A failure the user must notice.
+--
+-- Delegates rather than building an InfoMessage here, because this predates
+-- hardcover/lib/ui/status_dialogs.lua and duplicated it: two implementations
+-- of the same message, one with a 2-second timeout and one with 5, and
+-- BookDetailDialog had a third. A failure reported through the wrong one is a
+-- failure that vanishes before it is read.
+--
 function DialogManager:showError(err)
-  UIManager:show(InfoMessage:new {
-    text = err,
-    icon = "notice-warning",
-    timeout = 2
-  })
+  return StatusDialogs.error(err)
 end
 
 return DialogManager

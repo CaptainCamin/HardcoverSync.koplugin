@@ -1,14 +1,35 @@
-name: Test
+name: test
 
-on: [ push, pull_request ]
+on:
+  push:
+  pull_request:
 
 jobs:
-  busted:
+  test:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Install Lua
+        uses: leafo/gh-actions-lua@v10
+        with:
+          luaVersion: "5.1"
+
+      - name: Syntax-check every Lua file
+        run: |
+          status=0
+          while IFS= read -r f; do
+            if ! lua -e "assert(loadfile([[$f]]))"; then
+              echo "SYNTAX ERROR: $f"
+              status=1
+            fi
+          # -type f: the Lua install action puts the interpreter in a `.lua` directory in
+          # the workspace, which `-name '*.lua'` also matches. It is not source.
+          done < <(find . -name '*.lua' -type f -not -path './.git/*' -not -path './.lua/*' -not -path './.luarocks/*')
+          exit $status
+
+      - name: Run the harnesses
+        run: ./spec/run_all.sh
 
       - name: Run Busted
         uses: lunarmodules/busted@v2.2.0
-

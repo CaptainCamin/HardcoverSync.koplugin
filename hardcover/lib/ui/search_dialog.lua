@@ -10,7 +10,8 @@ local Size = require("ui/size")
 local UIManager = require("ui/uimanager")
 local _ = require("gettext")
 local logger = require("logger")
-local _t = require("hardcover/lib/table_util")
+
+local ListRow = require("hardcover/lib/ui/list_row")
 
 local Screen = Device.screen
 
@@ -30,99 +31,11 @@ local HardcoverSearchDialog = InputContainer:extend {
   compatibility_mode = true
 }
 
-function HardcoverSearchDialog:createListItem(book, active_item)
-  local info = ""
-  local title = book.title
-  local authors = {}
-
-  if book.contributions.author then
-    table.insert(authors, book.contributions.author)
-  end
-
-  if #book.contributions > 0 then
-    for _, a in ipairs(book.contributions) do
-      table.insert(authors, a.author.name)
-    end
-  end
-
-  if book.release_year then
-    title = title .. " (" .. book.release_year .. ")"
-  end
-
-  if book.users_count then
-    info = book.users_count .. " readers"
-  elseif book.users_read_count then
-    info = book.users_read_count .. " reads"
-  end
-
-  local active = active_item and (
-    (book.edition_id and book.edition_id == active_item.edition_id) or
-    (book.book_id == active_item.book_id)
-  )
-
-  local result = {
-    title = title,
-    mandatory = info,
-    mandatory_dim = true,
-    file = "hardcover-" .. book.book_id,
-    book_id = book.book_id,
-    edition_id = book.edition_id,
-    edition_format = book.edition_format,
-    highlight = active,
-  }
-
-  if not book.edition_id and _t.dig(book, "book_series", 1, "position") then
-    result.series = book.book_series[1].series.name
-    if book.book_series[1].position then
-      result.series = result.series .. " #" .. book.book_series[1].position
-    end
-  end
-
-  if book.language and book.language.code2 then
-    if self.series then
-      result.series = " - " .. book.language.code2
-    else
-      result.series = book.language.language
-    end
-  end
-
-  if book.pages then
-    result.pages = book.pages
-  end
-
-  if book.book_series.position then
-    result.series = book.book_series.series.name
-    result.series_index = book.book_series.position
-  end
-
-  if #authors > 0 then
-    result.authors = table.concat(authors, ", ")
-  end
-
-  if self.compatibility_mode then
-    result.text = result.title
-    result.dim = result.highlight
-    if book.edition_id then
-      result.text = result.text .. " - " .. book.filetype
-    else
-      if result.authors and result.authors ~= "" then
-        result.text = result.text .. " - " .. result.authors
-      end
-    end
-  end
-
-  if book.filetype then
-    result.filetype = book.filetype
-  end
-
-  if book.cached_image.url then
-    result.cover_url = book.cached_image.url
-    result.cover_w = book.cached_image.width
-    result.cover_h = book.cached_image.height
-    result.lazy_load_cover = true
-  end
-
-  return result
+function HardcoverSearchDialog:createListItem(book)
+  -- Row shaping lives in hardcover/lib/ui/list_row.lua, shared with the shelf
+  -- dialog. It was inline here and the two copies had drifted -- see that
+  -- module's header for the three fields whose absence is visible on screen.
+  return ListRow.row(book, { compatibility_mode = self.compatibility_mode })
 end
 
 function HardcoverSearchDialog:init()
@@ -219,6 +132,31 @@ function HardcoverSearchDialog:search()
   search_dialog:onShowKeyboard()
 end
 
+--
+-- An empty list is an answer, not a failure.
+--
+-- KOReader's own "No items" would otherwise be all the user sees, which is
+-- indistinguishable from the list failing to load -- and this dialog is reached
+-- from paths that genuinely can return nothing.
+--
+-- The row carries a `file` marker for the same reason shelf rows do: the
+-- vendored ListMenu chooses its drawing path with
+-- is_directory = not (entry.is_file or entry.file), and a row without one is
+-- drawn through the folder branch.
+--
+function HardcoverSearchDialog:setEmptyState(message)
+  self.empty_state = message
+  self.menu:switchItemTable(self.title or _("Select book"), {
+    {
+      text = message,
+      mandatory = "",
+      mandatory_dim = true,
+      file = "hardcover-empty",
+    },
+  })
+  UIManager:setDirty(self, "ui")
+end
+
 function HardcoverSearchDialog:setTitle(title)
   self.menu.title = title
 end
@@ -240,9 +178,10 @@ function HardcoverSearchDialog:onTapClose(arg, ges)
 end
 
 function HardcoverSearchDialog:parseItems(items, active_item)
-  return _t.map(items, function(book)
-    return self:createListItem(book, active_item)
-  end)
+  -- ListRow.rows marks the row matching active_item, so the reader can see
+  -- which book is already linked without opening anything.
+  return ListRow.rows(items, { compatibility_mode = self.compatibility_mode },
+                     active_item)
 end
 
 function HardcoverSearchDialog:setItems(title, items, active_item)

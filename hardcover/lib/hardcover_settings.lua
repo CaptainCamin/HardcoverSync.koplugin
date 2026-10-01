@@ -11,13 +11,15 @@ function HardcoverSettings:new(path, ui)
   local o = {}
   setmetatable(o, self)
 
-  self.settings = LuaSettings:open(path)
-  self.ui = ui
-  self.subscribers = {}
+  -- on the instance, not on the class: writing to `self` here would share one
+  -- LuaSettings handle across every HardcoverSettings created in a session
+  o.settings = LuaSettings:open(path)
+  o.ui = ui
+  o.subscribers = {}
 
   if KoreaderVersion:getNormalizedCurrentVersion() < 202403010000 then
-    if self.settings:readSetting(SETTING.COMPATIBILITY_MODE) == nil then
-      self:updateSetting(SETTING.COMPATIBILITY_MODE, true)
+    if o.settings:readSetting(SETTING.COMPATIBILITY_MODE) == nil then
+      o:updateSetting(SETTING.COMPATIBILITY_MODE, true)
     end
   end
 
@@ -188,6 +190,70 @@ end
 
 function HardcoverSettings:changeTrackPercentageInterval(percent)
   self:updateSetting(SETTING.TRACK_PERCENTAGE, percent)
+end
+
+local SNAPSHOT_KEYS = {
+  "user_book_id",
+  "read_id",
+  "status_id",
+  "privacy_setting_id",
+  "started_at",
+  "last_synced_page",
+}
+
+function HardcoverSettings:saveBookSnapshot(filename, user_book)
+  if not filename or not user_book or not user_book.id then
+    return
+  end
+
+  local reads = user_book.user_book_reads
+  local current_read = reads and reads[#reads]
+  local config = {
+    user_book_id = user_book.id,
+    status_id = user_book.status_id,
+    privacy_setting_id = user_book.privacy_setting_id,
+    read_id = current_read and current_read.id,
+    started_at = current_read and current_read.started_at,
+    last_synced_page = current_read and current_read.progress_pages,
+  }
+  if user_book.edition_id then
+    config.edition_id = user_book.edition_id
+  end
+  self:updateBookSetting(filename, config)
+end
+
+function HardcoverSettings:clearBookSnapshot(filename)
+  if not filename then
+    return
+  end
+  self:updateBookSetting(filename, { _delete = SNAPSHOT_KEYS })
+end
+
+function HardcoverSettings:bookStatusFromSnapshot(filename)
+  local settings = self:readBookSettings(filename)
+  if not settings or not settings.user_book_id then
+    return nil
+  end
+
+  local book_status = {
+    id = settings.user_book_id,
+    book_id = settings.book_id,
+    edition_id = settings.edition_id,
+    status_id = settings.status_id,
+    privacy_setting_id = settings.privacy_setting_id,
+    user_book_reads = {},
+  }
+
+  if settings.read_id or settings.last_synced_page or settings.started_at then
+    book_status.user_book_reads = { {
+      id = settings.read_id,
+      started_at = settings.started_at,
+      progress_pages = settings.last_synced_page,
+      edition_id = settings.edition_id,
+    } }
+  end
+
+  return book_status
 end
 
 function HardcoverSettings:compatibilityMode()
