@@ -83,6 +83,70 @@ function DialogManager:buildSearchDialog(title, items, active_item, book_callbac
   UIManager:show(self.search_dialog)
 end
 
+--
+-- Show a book list whose contents arrive after the dialog opens.
+--
+-- The pattern for every "pick something from a list" screen. The alternative --
+-- fetch, then build the dialog -- means the tap produces no screen at all while
+-- the request is in flight, which is the dead-tap bug this module exists to
+-- remove. "Change edition" did exactly that.
+--
+-- fetch is called with a callback and must invoke it with (items, err). The
+-- dialog is on screen before fetch runs, and a failure becomes a retry rather
+-- than a blank list the user cannot tell from "no editions exist".
+--
+-- search_callback, when given, puts a magnifying glass in the title bar that
+-- re-runs a query in place. It is not optional in practice: the link-book
+-- dialog is useless without it, since the initial lookup can easily return
+-- nothing for an edition with a thin metadata record.
+--
+function DialogManager:buildLoadingSearchDialog(title, fetch, active_item, book_callback, search_callback, search_value)
+  if self.search_dialog then
+    self.search_dialog:free()
+    self.search_dialog = nil
+  end
+
+  self.search_dialog = SearchDialog:new {
+    compatibility_mode = self.settings:compatibilityMode(),
+    title = title,
+    items = {},
+    active_item = active_item,
+    loading = true,
+    select_book_cb = function(book)
+      self.search_dialog:onClose()
+      book_callback(book)
+    end,
+    search_callback = search_callback,
+    search_value = search_value,
+  }
+
+  UIManager:show(self.search_dialog)
+
+  local loading = StatusDialogs.loading(_("Loading…"))
+
+  fetch(function(items, err)
+    StatusDialogs.close(loading)
+    if not UIManager:isWidgetShown(self.search_dialog) then return end
+
+    if err or not items then
+      StatusDialogs.retry(err or _("no response"), _("Loading the list"),
+        function()
+          self:buildLoadingSearchDialog(title, fetch, active_item, book_callback,
+                                        search_callback, search_value)
+        end,
+        function() end)
+      return
+    end
+
+    if #items == 0 then
+      self.search_dialog:setEmptyState(_("Nothing to choose from"))
+      return
+    end
+
+    self.search_dialog:setItems(title, items, active_item)
+  end)
+end
+
 function DialogManager:confirm(options)
   options.text = options.text or "Are you sure"
 
@@ -109,15 +173,25 @@ function DialogManager:maybeConfirm(options)
   end
 end
 
-function DialogManager:buildBookListDialog(title, items, icon_callback, disable_wifi_after)
+--
+-- A list of books whose rows hand off to the file searcher.
+--
+-- fetch, when given, makes this show-then-fetch: the dialog opens on an empty
+-- list and fetch supplies the rows. "Suggest a book" needs that, because its
+-- cached list is usually cold and the fetch used to run before the dialog
+-- existed.
+--
+function DialogManager:buildBookListDialog(title, items, icon_callback, disable_wifi_after, fetch)
   if self.search_dialog then
     self.search_dialog:free()
+    self.search_dialog = nil
   end
 
   self.search_dialog = SearchDialog:new {
     compatibility_mode = self.settings:compatibilityMode(),
     title = title,
-    items = items,
+    items = items or {},
+    loading = fetch ~= nil,
     left_icon_callback = icon_callback,
     left_icon = "cre.render.reload",
     select_book_cb = function(book)
@@ -140,6 +214,31 @@ function DialogManager:buildBookListDialog(title, items, icon_callback, disable_
   }
 
   UIManager:show(self.search_dialog)
+
+  if not fetch then return end
+
+  local loading = StatusDialogs.loading(_("Loading…"))
+
+  fetch(function(items, err)
+    StatusDialogs.close(loading)
+    if not UIManager:isWidgetShown(self.search_dialog) then return end
+
+    if err or not items then
+      StatusDialogs.retry(err or _("no response"), _("Loading the list"),
+        function()
+          self:buildBookListDialog(title, nil, icon_callback, disable_wifi_after, fetch)
+        end,
+        function() UIManager:close(self.search_dialog) end)
+      return
+    end
+
+    if #items == 0 then
+      self.search_dialog:setEmptyState(_("No books found on Want to Read list"))
+      return
+    end
+
+    self.search_dialog:setItems(title, items)
+  end)
 end
 
 --
@@ -213,13 +312,25 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
       end
     end,
     select_edition_callback = function()
-      -- TODO: could be moved into child dialog but needs access to build dialog, which needs dialog again
       dialog:onCloseKeyboard()
 
-      local editions = Api:findEditions(self.settings:getLinkedBookId(), User:getId())
-      self:buildSearchDialog(
-        "Select edition",
-        editions,
+      --[[
+      Opens the edition picker on top of this dialog, so this is a re-entrant
+      call: buildLoadingSearchDialog assigns self.search_dialog while a journal
+      dialog is already up. That is safe because the two are different slots and
+      different widget classes -- the journal dialog is a local, not a field --
+      but it is why this cannot simply be moved into JournalDialog: the child
+      would need the manager to build its own replacement, and the manager needs
+      the child to know what to fill in.
+
+      Show-then-fetch like every other list here. The fetch used to run inline,
+      so tapping "change edition" froze for the length of a request.
+      ]]
+      self:buildLoadingSearchDialog(
+        _("Select edition"),
+        function(callback)
+          Api:findEditionsAsync(self.settings:getLinkedBookId(), User:getId(), callback)
+        end,
         { edition_id = dialog.edition_id },
         function(edition)
           if not edition then

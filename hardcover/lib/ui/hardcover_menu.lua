@@ -158,11 +158,16 @@ function HardcoverMenu:getSubMenuItems(book_view)
         return self.enabled and self.settings:bookLinked()
       end,
       callback = function(menu_instance)
-        local editions = Api:findEditions(self.settings:getLinkedBookId(), User:getId())
-        -- need to show "active" here, and prioritize current edition if available
-        self.dialog_manager:buildSearchDialog(
-          "Select edition",
-          editions,
+        -- Show the dialog before listing editions. This fetch used to run here,
+        -- so tapping "Change edition" did nothing for the length of a request
+        -- (up to six seconds with no route to the API), which on e-ink is
+        -- indistinguishable from a crash. The dialog opens on a loading list and
+        -- fills in from the callback.
+        self.dialog_manager:buildLoadingSearchDialog(
+          _("Select edition"),
+          function(callback)
+            Api:findEditionsAsync(self.settings:getLinkedBookId(), User:getId(), callback)
+          end,
           {
             edition_id = self.settings:getLinkedEditionId()
           },

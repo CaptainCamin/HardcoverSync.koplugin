@@ -24,23 +24,41 @@ function Hardcover:new(o)
 end
 
 function Hardcover:showLinkBookDialog(force_search, link_callback)
-  local search_value, books, err = self:findBookOptions(force_search)
+  -- Show first, then look the book up.
+  --
+  -- findBookOptions resolves identifiers and falls back to a title search, which
+  -- is two round trips before anything appeared. Tapping "Link book" on a
+  -- disconnected device therefore did nothing for up to six seconds per
+  -- request -- and on e-ink that is indistinguishable from a crashed device.
+  --
+  -- The dialog opens with the title/author of the book already open, so there is
+  -- something meaningful on screen immediately, and the results replace it.
+  local prefill = self.ui.document and self.ui.document:getProps() or {}
+  local search_value = prefill.title
 
-  if err then
-    logger.err(err)
-    return
-  end
-
-  self.dialog_manager:buildSearchDialog(
-    "Select book",
-    books,
+  self.dialog_manager:buildLoadingSearchDialog(
+    _("Select book"),
+    function(callback)
+      -- findBookOptions returns (title, books, err); the dialog wants
+      -- (books, err).
+      local ok, resolved_title, books, err = pcall(self.findBookOptions, self, force_search)
+      if not ok then
+        callback(nil, tostring(resolved_title))
+        return
+      end
+      search_value = search_value or resolved_title
+      callback(books, err)
+    end,
     {
       book_id = self.settings:getLinkedBookId()
     },
     function(book)
       self:linkBook(book)
-      link_callback(book)
+      if link_callback then link_callback(book) end
     end,
+    -- Without this the dialog cannot be searched from, and the initial lookup
+    -- returns nothing often enough -- a thin metadata record, an edition with
+    -- no ISBN -- that the dialog would be unusable without it.
     function(search)
       self.dialog_manager:updateSearchResults(search)
       return true
@@ -68,32 +86,36 @@ end
 
 function Hardcover:showRandomBookDialog()
   self.wifi:wifiPrompt(function(wifi_enabled)
-    local books = cache.random_books
-    if not books then
-      books = self:cacheRandomBooks()
+    -- Cache first: a warm list means no request at all, which is the whole
+    -- point of keeping it. Only a cold cache goes to the network, and when it
+    -- does the dialog is already on screen -- this used to fetch first, so a
+    -- cold cache meant the tap did nothing for the length of a request.
+    local cached = cache.random_books
+    local has_cache = cached and #cached > 0
+
+    local function reload()
+      return self:cacheRandomBooks()
     end
 
-    if not cache.random_books or #cache.random_books == 0 then
-      UIManager:show(Notification:new {
-        text = "No books found on Want to Read list",
-        timeout = 4
-      })
-
-      if wifi_enabled then
-        UIManager:nextTick(function()
-          self.wifi:wifiDisablePrompt()
+    self.dialog_manager:buildBookListDialog(
+      _("Suggest a book"),
+      has_cache and cached or {},
+      function()
+        local books = reload()
+        if books and #books > 0 then
+          self.dialog_manager:updateRandomBooks(books)
+        end
+      end,
+      wifi_enabled,
+      has_cache and nil or function(callback)
+        Api:getRandomToReadAsync(User:getId(), 10, function(books, err)
+          if books and #books > 0 then
+            cache.random_books = books
+          end
+          callback(books, err)
         end)
       end
-
-      return
-    end
-
-    self.dialog_manager:buildBookListDialog("Suggest a book", cache.random_books, function()
-      books = self:cacheRandomBooks()
-      if books then
-        self.dialog_manager:updateRandomBooks(books)
-      end
-    end, wifi_enabled)
+    )
   end)
 end
 

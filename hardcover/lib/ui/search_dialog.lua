@@ -219,6 +219,31 @@ function HardcoverSearchDialog:search()
   search_dialog:onShowKeyboard()
 end
 
+--
+-- An empty list is an answer, not a failure.
+--
+-- KOReader's own "No items" would otherwise be all the user sees, which is
+-- indistinguishable from the list failing to load -- and this dialog is reached
+-- from paths that genuinely can return nothing.
+--
+-- The row carries a `file` marker for the same reason shelf rows do: the
+-- vendored ListMenu chooses its drawing path with
+-- is_directory = not (entry.is_file or entry.file), and a row without one is
+-- drawn through the folder branch.
+--
+function HardcoverSearchDialog:setEmptyState(message)
+  self.empty_state = message
+  self.menu:switchItemTable(self.title or _("Select book"), {
+    {
+      text = message,
+      mandatory = "",
+      mandatory_dim = true,
+      file = "hardcover-empty",
+    },
+  })
+  UIManager:setDirty(self, "ui")
+end
+
 function HardcoverSearchDialog:setTitle(title)
   self.menu.title = title
 end

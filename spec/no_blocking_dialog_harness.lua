@@ -273,10 +273,11 @@ local function build_manager()
   for name in pairs(package.loaded) do
     if name:sub(1, 10) == "hardcover/" then package.loaded[name] = nil end
   end
-  package.loaded["hardcover/lib/hardcover_api"] = stub_api{
+  local fake_api = stub_api{
     "getShelf", "getBookDetail", "findBooks", "findEditions",
     "findDefaultEdition", "getRandomToRead", "findBookByIdentifiers",
   }
+  package.loaded["hardcover/lib/hardcover_api"] = fake_api
 
   local DialogManager = dofile(ROOT .. "/hardcover/lib/ui/dialog_manager.lua")
   local manager = DialogManager:new{}
@@ -328,7 +329,7 @@ local function build_manager()
   }
   manager.page_mapper = { getMappedPage = function() return 1 end }
   manager.hardcover = { changeBookVisibility = function() end }
-  return manager, settings
+  return manager, settings, fake_api
 end
 
 local function assert_shows_before_fetch(label, fn)
@@ -386,6 +387,26 @@ assert_shows_before_fetch("journalEntryForm shows its dialog before resolving th
   -- arrives with self = nil -- the same silent shape-shift the harness for
   -- sync_queue had to guard against.
   manager:journalEntryForm(nil, document, 1, nil, nil, "note")
+end)
+
+-- ---------------------------------------------------------------- buildLoadingSearchDialog
+-- "Change edition", the journal's edition picker and the link-book dialog all
+-- route through this. It used to be buildSearchDialog(fetch-then-show) at each
+-- call site; the point of the test is that the dialog exists before fetch runs.
+assert_shows_before_fetch("buildLoadingSearchDialog shows its dialog before fetching", function()
+  local manager, _, Api = build_manager()
+  manager:buildLoadingSearchDialog(
+    "Select edition",
+    function(callback) Api.findEditions(4242, 1, callback) end,
+    { edition_id = 1 },
+    function() end)
+end)
+
+assert_shows_before_fetch("buildBookListDialog with a fetch shows before fetching", function()
+  local manager, _, Api = build_manager()
+  manager:buildBookListDialog(
+    "Suggest a book", {}, function() end, false,
+    function(callback) Api.getRandomToRead(1, 10, callback) end)
 end)
 
 r.finish()
