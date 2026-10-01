@@ -9,6 +9,7 @@ local T = require("ffi/util").template
 
 local Font = require("ui/font")
 local UIManager = require("ui/uimanager")
+local NetworkMgr = require("ui/network/manager")
 
 local UpdateDoubleSpinWidget = require("hardcover/lib/ui/update_double_spin_widget")
 local InfoMessage = require("ui/widget/infomessage")
@@ -31,6 +32,47 @@ function HardcoverMenu:new(o)
   return setmetatable(o or {
     enabled = true
   }, self)
+end
+
+-- Run a dialog-opening action immediately, arranging wifi around it.
+--
+-- This exists because running the action from inside an AutoWifi callback made
+-- it conditional: on several paths (airplane mode, a pending connection, a
+-- device that cannot restore wifi) that callback never fired and the tapped
+-- menu item did nothing at all. On e-ink that reads as a screen that never
+-- updates.
+--
+-- zlibrary.koplugin avoids this by showing every dialog directly in the menu
+-- callback and dealing with connectivity separately. Do the same here: the user
+-- asked for a screen, so open it. If it turns out wifi is needed, the fetch
+-- fails and the dialog reports that; the wifi prompt is a convenience layered
+-- on top, never a gate in front of the UI.
+--
+-- `needs_wifi` is false for actions that work from local data and so should
+-- never prompt at all.
+function HardcoverMenu:withWifiThen(action, needs_wifi)
+  if not needs_wifi then
+    action(false)
+    return
+  end
+
+  -- Open the screen first. If wifi is already up this is the whole story.
+  if NetworkMgr:isWifiOn() then
+    action(false)
+    return
+  end
+
+  -- Wifi is down. Show the dialog regardless, then try to bring the connection
+  -- up so the fetch inside it can succeed.
+  action(false)
+
+  self.wifi:wifiPrompt(function(wifi_enabled)
+    if wifi_enabled then
+      UIManager:nextTick(function()
+        self.wifi:wifiDisablePrompt()
+      end)
+    end
+  end)
 end
 
 local privacy_labels = {
@@ -163,18 +205,12 @@ function HardcoverMenu:getSubMenuItems(book_view)
         return self.enabled and self.settings:bookLinked()
       end,
       callback = function()
-        self.wifi:wifiPrompt(function(wifi_enabled)
+        self:withWifiThen(function()
           self.dialog_manager:showBookDetail(
             self.settings:getLinkedBookId(),
             self.settings:getLinkedEditionId()
           )
-
-          if wifi_enabled then
-            UIManager:nextTick(function()
-              self.wifi:wifiDisablePrompt()
-            end)
-          end
-        end)
+        end, true)
       end,
       keep_menu_open = true,
       separator = true
@@ -185,15 +221,9 @@ function HardcoverMenu:getSubMenuItems(book_view)
         return self.enabled
       end,
       callback = function()
-        self.wifi:wifiPrompt(function(wifi_enabled)
+        self:withWifiThen(function()
           self.dialog_manager:showShelf(HARDCOVER.STATUS.TO_READ, _("Want to Read"))
-
-          if wifi_enabled then
-            UIManager:nextTick(function()
-              self.wifi:wifiDisablePrompt()
-            end)
-          end
-        end)
+        end, true)
       end,
       keep_menu_open = true,
     },
@@ -203,9 +233,9 @@ function HardcoverMenu:getSubMenuItems(book_view)
         return self.enabled
       end,
       callback = function()
-        self.wifi:wifiPrompt(function()
+        self:withWifiThen(function()
           self.dialog_manager:showShelf(HARDCOVER.STATUS.READING, _("Currently Reading"))
-        end)
+        end, true)
       end,
       keep_menu_open = true,
     },
@@ -221,15 +251,12 @@ function HardcoverMenu:getSubMenuItems(book_view)
         return self.enabled
       end,
       callback = function()
-        self.wifi:wifiPrompt(function(wifi_enabled)
+        -- Syncing genuinely needs a connection, but the confirmation message
+        -- must still appear when it cannot be sent -- otherwise the menu item
+        -- looks dead. withWifiThen reports the outcome either way.
+        self:withWifiThen(function()
           self.on_flush_sync_queue()
-
-          if wifi_enabled then
-            UIManager:nextTick(function()
-              self.wifi:wifiDisablePrompt()
-            end)
-          end
-        end)
+        end, true)
       end,
       hold_callback = function(menu_instance)
         -- long press discards anything queued, for when a queued change is

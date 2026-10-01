@@ -14,6 +14,13 @@ function AutoWifi:new(o)
   return setmetatable(o, self)
 end
 
+-- Ensure wifi is up, then run the callback.
+--
+-- As with wifiPrompt, the callback is what opens the dialog, so every branch
+-- must reach it. The restore-wifi branch below used to call back only from a
+-- connectivity check that may never fire, and simply returned when the device
+-- could not restore wifi, when a connection was already pending, or when
+-- ENABLE_WIFI was off. In all of those the tapped menu item did nothing at all.
 function AutoWifi:withWifi(callback)
   if NetworkMgr:isWifiOn() then
     callback(false)
@@ -42,7 +49,14 @@ function AutoWifi:withWifi(callback)
       -- TODO: schedule turn off wifi, debounce
       self:wifiDisableSilent()
     end)
+
+    return
   end
+
+  -- None of the conditions for silently restoring wifi held. Fall through to a
+  -- prompt so the user can decide, rather than returning with the dialog
+  -- unopened.
+  self:wifiPrompt(callback)
 end
 
 function AutoWifi:wifiDisableSilent()
@@ -54,6 +68,13 @@ function AutoWifi:wifiDisableSilent()
   end)
 end
 
+-- Prompt to bring wifi up, then run the callback.
+--
+-- The callback is the only thing that actually opens the dialog the user tapped,
+-- so it MUST run on every path. Returning without calling it means the menu item
+-- appears dead: the user taps it, nothing happens, and on e-ink the screen just
+-- sits there looking stale until something forces a repaint. That is what made
+-- this look like a missing-refresh bug rather than a callback that never ran.
 function AutoWifi:wifiPrompt(callback)
   if NetworkMgr:isWifiOn() then
     if callback then
@@ -63,7 +84,15 @@ function AutoWifi:wifiPrompt(callback)
     return
   end
 
+  -- Airplane mode: wifi cannot be turned on without the user choosing to, so
+  -- there is nothing to prompt for. Run the callback anyway -- the dialog is
+  -- still worth showing, and it can report that it is offline rather than the
+  -- menu item looking broken.
   if G_reader_settings:isTrue("airplanemode") then
+    if callback then
+      callback(false)
+    end
+
     return
   end
 
