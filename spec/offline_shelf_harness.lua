@@ -84,6 +84,14 @@ Api.getShelf = function(_, _, _, offset, limit)
   if nextpage == nil then return {}, nil, false end
   return nextpage[1], nextpage[2], false
 end
+local count_results, count_calls
+Api.getShelfCounts = function()
+  count_calls = count_calls + 1
+  if not coroutine.running() then seen_in_coroutine = false end
+  local nextresult = table.remove(count_results, 1)
+  if nextresult == nil then return nil, { completed = false } end
+  return nextresult
+end
 Api.getShelfAsync = function(_, _, _, offset, _, cb) api_calls[#api_calls + 1] = "async@" .. offset; pending_shelf = cb end
 Api.getBookDetailAsync = function(_, _, _, _, cb) api_calls[#api_calls + 1] = "detail"; pending_detail = cb end
 
@@ -105,6 +113,7 @@ local function fakeClass(path)
     end
     o.setEmptyState = function(self, m) self.empty = m end
     o.setDetail = function(self, d) self.detail = d end
+    o.setRows = function(self, rows) self.rows = rows; self.row_updates = (self.row_updates or 0) + 1 end
     o.free = function() end
     fake[#fake + 1] = o
     return o
@@ -112,6 +121,7 @@ local function fakeClass(path)
 end
 fakeClass("hardcover/lib/ui/shelf_dialog")
 fakeClass("hardcover/lib/ui/book_detail_dialog")
+fakeClass("hardcover/lib/ui/home_dialog")
 
 local store_data
 local function newManager()
@@ -123,6 +133,7 @@ local function newManager()
   }
   api_calls, pending_shelf, pending_detail = {}, nil, nil
   shelf_pages, seen_in_coroutine = {}, true
+  count_results, count_calls = {}, 0
   infos, retries, loadings = {}, {}, 0
   stack, ticks, fake = {}, {}, {}
   return setmetatable({
@@ -327,6 +338,91 @@ check("the reload icon continues from where a partial list stops", function()
   local err
   fake[1].fetch_page(50, 50, function(_, e) err = e end)
   assert(type(err) == "string", "offline reload should say so")
+end)
+
+print("\n== the home screen ==")
+
+local function rowFor(d, status_id)
+  for _, row in ipairs(d.rows) do if row.status_id == status_id then return row end end
+end
+
+check("it opens at once with the counts that were saved", function()
+  online = true
+  local m = newManager()
+  m.shelf_cache:putCounts(1, { [1] = 42, [2] = 3 })
+  m:showHome()
+  local d = fake[1]
+  assert(d and d.rows, "no screen")
+  assert(rowFor(d, 1).count == 42 and rowFor(d, 2).count == 3, "saved counts not shown")
+end)
+
+check("online, fresh counts replace them and are saved", function()
+  online = true
+  local m = newManager()
+  m.shelf_cache:putCounts(1, { [1] = 42 })
+  count_results = { { [1] = 45, [2] = 4, [3] = 130, [5] = 2 } }
+  m:showHome()
+  local d = fake[1]
+  assert(seen_in_coroutine, "the request ran on the main thread (it would freeze the UI)")
+  assert(rowFor(d, 1).count == 45 and rowFor(d, 3).count == 130, "counts were not refreshed")
+  assert(m.shelf_cache:counts(1, { 1 })[1] == 45, "fresh counts were not saved")
+end)
+
+check("offline, it opens with the saved counts and makes no request", function()
+  online = false
+  local m = newManager()
+  m.shelf_cache:putCounts(1, { [1] = 42 })
+  m:showHome()
+  assert(rowFor(fake[1], 1).count == 42)
+  assert(count_calls == 0, "made a request while offline")
+end)
+
+check("offline with nothing saved, it still opens, with no counts", function()
+  online = false
+  local m = newManager()
+  m:showHome()
+  assert(fake[1] and #fake[1].rows == 4 and rowFor(fake[1], 1).count == nil)
+end)
+
+check("a shelf that was loaded in full gives its count offline", function()
+  online = false
+  local m = newManager()
+  m.shelf_cache:put(1, 2, { { book_id = 1 }, { book_id = 2 }, { book_id = 3 } }, true)
+  m:showHome()
+  assert(rowFor(fake[1], 2).count == 3)
+end)
+
+check("a failed refresh leaves the saved counts on screen", function()
+  online = true
+  local m = newManager()
+  m.shelf_cache:putCounts(1, { [1] = 42 })
+  count_results = {} -- the stub answers a failure
+  m:showHome()
+  assert(rowFor(fake[1], 1).count == 42 and (fake[1].row_updates or 0) == 0, "the saved counts were replaced")
+end)
+
+check("choosing a shelf opens that shelf", function()
+  online = true
+  local m = newManager()
+  m:showHome()
+  fake[1].select_cb({ status_id = 2, title = "Currently Reading" })
+  local shelf
+  for _, d in ipairs(fake) do if d.status_id == 2 then shelf = d end end
+  assert(shelf and shelf.title == "Currently Reading", "no shelf screen for that status")
+end)
+
+check("counts that arrive after the screen was closed are ignored", function()
+  online = true
+  local m = newManager()
+  count_results = { { [1] = 99 } }
+  local real = Api.getShelfCounts
+  Api.getShelfCounts = function(...)
+    UIManager_close(fake[1])
+    return real(...)
+  end
+  m:showHome()
+  Api.getShelfCounts = real
+  assert((fake[1].row_updates or 0) == 0, "updated a screen that was closed")
 end)
 
 print("\n== book details ==")

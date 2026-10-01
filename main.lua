@@ -73,6 +73,15 @@ function HardcoverApp:onDispatcherRegisterActions()
     general = true,
   })
 
+  -- A button for the home screen: it appears wherever KOReader lists actions
+  -- (gestures, profiles, quick menus), so another plugin can launch it too.
+  Dispatcher:registerAction("hardcover_home", {
+    category = "none",
+    event = "HardcoverHome",
+    title = _("Hardcover: Home"),
+    general = true,
+  })
+
   Dispatcher:registerAction("hardcover_update_progress", {
     category = "none",
     event = "HardcoverUpdateProgress",
@@ -300,6 +309,11 @@ function HardcoverApp:onHardcoverLink()
       text = _("Linked to: " .. book.title),
     })
   end)
+end
+
+function HardcoverApp:onHardcoverHome()
+  self.dialog_manager:showHome()
+  return true
 end
 
 function HardcoverApp:onHardcoverTrack()

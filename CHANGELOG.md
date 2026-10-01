@@ -67,6 +67,10 @@
 
 ### Added
 
+* A home screen: `Hardcover` → `Home`, or the new `Hardcover: Home` action (a gesture, profile or another plugin
+  can launch it). It lists your shelves (Currently Reading, Want to Read, Read, Did Not Finish) with how many
+  books are on each, opens at once from the counts it last saved (so it works offline), and refreshes them in
+  the background. Choosing a shelf opens it on top, so closing it comes back to the home screen.
 * Your shelves work offline. Want to Read, Currently Reading and any other list are saved on the device
   after they load, so you can open them with no connection. When a saved list
   exists it appears immediately and refreshes quietly in the background; offline you are told it is the saved

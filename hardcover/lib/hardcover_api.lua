@@ -623,6 +623,42 @@ function HardcoverApi:getShelf(user_id, status_id, offset, limit)
 end
 
 --
+-- How many books are on each of the given shelves, as { [status_id] = count }.
+--
+-- One aggregate per shelf, all in a single request. Each aliased aggregate counts
+-- as a top-level query against the rate limit, and a request may hold at most
+-- five, so that is the most shelves asked for at once.
+--
+function HardcoverApi:getShelfCounts(user_id, status_ids)
+  if not status_ids or #status_ids == 0 or #status_ids > 5 then
+    return nil
+  end
+
+  local parts = {}
+  for _, id in ipairs(status_ids) do
+    parts[#parts + 1] = string.format(
+      "s%d: user_books_aggregate(where: { user_id: { _eq: $userId }, status_id: { _eq: %d } }) { aggregate { count } }",
+      id, id)
+  end
+
+  local query = "query ($userId: Int!) {\n  " .. table.concat(parts, "\n  ") .. "\n}"
+
+  local results, err = self:query(query, { userId = user_id })
+  if not results then
+    return nil, err
+  end
+
+  local counts = {}
+  for _, id in ipairs(status_ids) do
+    local count = tonumber(_t.dig(results, "s" .. id, "aggregate", "count"))
+    if count then
+      counts[id] = count
+    end
+  end
+  return counts
+end
+
+--
 -- Full detail for one book, including description and community rating.
 -- `edition_id` is optional; when given, edition level fields are included.
 --

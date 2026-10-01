@@ -10,6 +10,7 @@ local InfoMessage = require("ui/widget/infomessage")
 local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
 local Book = require("hardcover/lib/book")
+local Home = require("hardcover/lib/home")
 local Shelf = require("hardcover/lib/shelf")
 local User = require("hardcover/lib/user")
 
@@ -356,6 +357,53 @@ end
 -- The user can close the dialog while the request is in flight, so every write
 -- below is guarded on isWidgetShown. Updating a freed widget crashes.
 --
+--
+-- The home screen: your shelves with their counts.
+--
+-- Shown at once from whatever counts were saved (so offline it still opens, with
+-- the last numbers), then refreshed in the background. Choosing a shelf opens it
+-- on top, so closing the shelf comes back here.
+--
+function DialogManager:showHome(done_callback)
+  local user_id = User:getId()
+  local cache = self.shelf_cache
+  local ids = Home.statusIds()
+
+  discard(self.home_dialog)
+  self.home_dialog = nil
+
+  local dialog = require("hardcover/lib/ui/home_dialog"):new {
+    rows = Home.rows(cache and cache:counts(user_id, ids) or {}),
+    select_cb = function(row)
+      self:showShelf(row.status_id, row.title)
+    end,
+    close_callback = function()
+      if done_callback then done_callback() end
+    end,
+  }
+  self.home_dialog = dialog
+
+  UIManager:show(dialog)
+
+  if not NetworkManager:isConnected() then
+    return
+  end
+
+  Background.run(function()
+    local counts = Api:getShelfCounts(user_id, ids)
+
+    -- failed or cancelled: the saved numbers are still on screen, leave them
+    if not counts or not UIManager:isWidgetShown(dialog) then
+      return
+    end
+
+    if cache then
+      cache:putCounts(user_id, counts)
+    end
+    dialog:setRows(Home.rows(counts))
+  end)
+end
+
 -- How many books each request asks for. The loop below keeps asking until a page
 -- comes back empty rather than until one comes back short, so a server that
 -- returns fewer than requested still yields the whole shelf.

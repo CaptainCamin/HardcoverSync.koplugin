@@ -105,6 +105,49 @@ function ShelfCache:put(user_id, status_id, entries, complete)
   return (pcall(store.flush, store))
 end
 
+-- How many books each shelf held when last counted, { [status_id] = n }.
+--
+-- A count saved from the server wins; otherwise a shelf that was loaded in full
+-- is as good a count as any. A shelf with neither has no entry, so the caller can
+-- show nothing instead of a made up zero.
+function ShelfCache:counts(user_id, status_ids)
+  local store = self:_store()
+  local out = {}
+  if not store then return out end
+
+  local saved = store:readSetting("counts")
+  local mine = saved and saved[tostring(user_id or 0)]
+
+  for _, status_id in ipairs(status_ids or {}) do
+    local n = mine and mine["s" .. status_id]
+    if n == nil then
+      local shelf = self:get(user_id, status_id)
+      if shelf and shelf.complete then n = #shelf.entries end
+    end
+    if n ~= nil then out[status_id] = n end
+  end
+  return out
+end
+
+function ShelfCache:putCounts(user_id, counts)
+  local store = self:_store()
+  if not store or type(counts) ~= "table" then return false end
+
+  local saved = store:readSetting("counts")
+  if not saved then
+    saved = {}
+    store:saveSetting("counts", saved)
+  end
+
+  local mine = {}
+  for status_id, n in pairs(counts) do
+    mine["s" .. status_id] = n
+  end
+  saved[tostring(user_id or 0)] = mine
+
+  return (pcall(store.flush, store))
+end
+
 -- The cached row for a book, from any of this user's shelves. Lets a book's
 -- details be shown offline from what the shelf already had.
 function ShelfCache:findEntry(user_id, book_id)
@@ -129,6 +172,7 @@ function ShelfCache:clear()
   local store = self:_store()
   if not store then return false end
   store:saveSetting("shelves", nil)
+  store:saveSetting("counts", nil)
   return (pcall(store.flush, store))
 end
 

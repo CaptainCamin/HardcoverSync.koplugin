@@ -99,6 +99,17 @@ end
 
 function HardcoverMenu:getSubMenuItems(book_view)
   local menu_items = {
+    {
+      text = _("Home"),
+      enabled_func = function()
+        return self.enabled
+      end,
+      callback = function()
+        self.dialog_manager:showHome()
+      end,
+      keep_menu_open = true,
+      separator = true,
+    },
     book_view and {
       text_func = function()
         if self.settings:bookLinked() then

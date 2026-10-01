@@ -155,6 +155,15 @@ If a sync fails, the changes stay queued and are retried later rather than dropp
 publisher, page count, language, publication year, ISBN, community rating, reader counts and the description,
 alongside your own status and rating.
 
+### Home screen
+
+`Hardcover` → `Home` opens your home screen: your shelves (Currently Reading, Want to Read, Read, Did Not Finish)
+with how many books are on each. Choose a shelf to browse it; closing the shelf brings you back. It opens with
+the counts it last saved, so it also works with no connection, and refreshes them in the background.
+
+There is also a `Hardcover: Home` action, available wherever KOReader lists actions (gestures, profiles, quick
+menus), so you can open the home screen from a gesture or have another plugin launch it.
+
 ### Browsing your lists
 
 `Want to Read list` and `Currently Reading list` open your Hardcover shelves, with cover images where available.
