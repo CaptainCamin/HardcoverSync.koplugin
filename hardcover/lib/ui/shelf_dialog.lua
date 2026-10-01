@@ -53,6 +53,13 @@ function ShelfDialog:createListItem(entry)
     mandatory_dim = true,
     entry = entry,
     book_id = entry.book_id,
+    -- The vendored ListMenu picks its drawing path with
+    --   is_directory = not (entry.is_file or entry.file)
+    -- so an item with neither is rendered as a FOLDER, not a book. That branch
+    -- is what crashed both shelf views on device: every row took it because no
+    -- shelf item carried a file marker. search_dialog sets the same synthetic
+    -- marker; do the same here so a shelf row draws as a book.
+    file = "hardcover-" .. tostring(entry.book_id),
   }
 
   if entry.series then

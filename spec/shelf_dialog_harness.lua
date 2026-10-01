@@ -199,6 +199,19 @@ do
       -- Selection is wired at the menu level via onMenuSelect, not per item:
       -- shelf_dialog mirrors search_dialog here, and a per-row callback would
       -- be redundant.
+      -- THE CRASH. hardcover/vendor/listmenu.lua decides how to draw a row with:
+      --   self.is_directory = not (self.entry.is_file or self.entry.file)
+      -- A shelf item carrying neither is drawn as a FOLDER, not a book, and the
+      -- directory branch is what blew up on device. search_dialog sets
+      -- file = "hardcover-<book_id>"; the shelf dialog did not, so every row in
+      -- both shelf views took the directory path.
+      r.check("a book row is not mistaken for a directory",
+        item.file ~= nil or item.is_file == true,
+        "item has neither .file nor .is_file, so the menu renders it as a folder")
+      r.check("the file marker identifies this specific book",
+        item.file == "hardcover-9001",
+        "file = " .. tostring(item.file))
+
       r.check("row selection is wired on the menu", type(spec.onMenuSelect) == "function",
         "onMenuSelect = " .. type(spec.onMenuSelect))
       r.check("tapping a row does not carry its own callback", item.callback == nil,
