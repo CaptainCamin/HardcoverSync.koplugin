@@ -209,4 +209,93 @@ function support.load_module(name, env_overrides)
   return module, env
 end
 
+-- ---------------------------------------------------------------- HTTP stubs
+-- Several plugin modules require the socket stack at load time even when the
+-- caller never makes a request. Without these the require chain dies before a
+-- harness gets to assert anything. Stock Lua also has no ssl.https (it lives in
+-- LuaSec, which KOReader bundles), so that is stood in for too.
+function support.preload_http_stubs()
+  package.preload["socket"] = function() return {} end
+  package.preload["socket.http"] = function() return {} end
+  package.preload["socket.url"] = function() return {} end
+  package.preload["socketutil"] = function()
+    return {
+      block_timeout = 20,
+      total_timeout = 20,
+      TIMEOUT_CODE = 408,
+      SINK_TIMEOUT_CODE = 599,
+      set_timeout = function() end,
+      reset_timeout = function() end,
+      table_sink = function(tbl)
+        return function(chunk)
+          if chunk then table.insert(tbl, chunk) end
+          return 1
+        end
+      end,
+    }
+  end
+  package.preload["ssl"] = function() return {} end
+  package.preload["ssl.https"] = function()
+    return { request = function() return nil, "stubbed" end }
+  end
+  package.preload["ltn12"] = function()
+    return {
+      source = {
+        -- one-shot, matching ltn12's real contract
+        string = function(s)
+          local sent = false
+          return function()
+            if sent then return nil end
+            sent = true
+            return s
+          end
+        end,
+      },
+    }
+  end
+end
+
+-- A real JSON decoder. Stubbing this one is a trap: the plugin decodes HTTP
+-- bodies with it, and the OAuth error codes these tests care about arrive
+-- inside those bodies, so a fake that raised on every input would leave the
+-- interesting paths untestable.
+function support.preload_json(root)
+  package.preload["json"] = function()
+    return dofile((root or ".") .. "/spec/json.lua")
+  end
+end
+
+-- The small set of inert widgets plugin modules reach for at load time.
+function support.preload_ui_stubs()
+  package.preload["logger"] = function()
+    return { dbg = function() end, info = function() end, warn = function() end, err = function() end }
+  end
+  package.preload["gettext"] = function()
+    return setmetatable({}, { __call = function(_, s) return s end })
+  end
+  package.preload["ui/uimanager"] = function()
+    return {
+      show = function() end,
+      setDirty = function() end,
+      scheduleIn = function() end,
+      unschedule = function() end,
+      repaint = function() end,
+    }
+  end
+  package.preload["ui/widget/infomessage"] = function()
+    local M = { shown = {} }
+    M.new = function(_, o)
+      o = o or {}
+      setmetatable(o, M)
+      o.show = function() M.shown[#M.shown + 1] = o.text end
+      o.free = function() end
+      return o
+    end
+    return M
+  end
+  package.preload["datastorage"] = function()
+    return { getSettingsDir = function() return "/tmp/hardcover-spec" end }
+  end
+end
+
 return support
