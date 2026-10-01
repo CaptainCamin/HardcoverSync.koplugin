@@ -301,21 +301,15 @@ function M.boot(opts)
   end
 
   --[[--
-  Send a key as if pressed, and let the resulting scheduled work run.
+  Friendly key names -> device keycodes.
 
-  Pumping tasks matters: a great deal of plugin code defers its next step with
-  UIManager:nextTick, so a screenshot taken straight after a key press shows the
-  screen *before* the plugin reacted.
-  ]]
-  --[[--
-  Press a key, by the name a human would use.
+  KOReader's own bindings are keycodes: Menu's NextPage is
+  { "RPgFwd", "LPgFwd" }, not the string "NextPage". Sending "NextPage" matches
+  nothing and the press is dropped silently -- indistinguishable from a broken
+  widget. Translate here so scenarios can think in human terms.
 
-  KOReader's own key bindings are device keycodes: Menu's NextPage is bound to
-  { "RPgFwd", "LPgFwd" }, not to the string "NextPage". Sending "NextPage"
-  therefore matches nothing and the key press is silently dropped -- which
-  looks exactly like a broken widget. This translates the friendly names a
-  scenario thinks in, and asserts on anything unmapped rather than dropping it
-  too.
+  Add a device's keys as needed; check the binding in the widget's source
+  rather than guessing, since an unmapped name fails quietly.
   ]]
   emu.keymap = {
     NextPage = "RPgFwd",
@@ -331,9 +325,14 @@ function M.boot(opts)
     Escape = "Escape",
   }
 
-  -- Dispatch to UIManager, which walks the whole stack, and assert the call did
-  -- not raise. This asserts nothing about whether a widget consumed the key --
-  -- sendEvent returns no such information. Use emu:press for that.
+  --[[--
+  Send a key through UIManager, which walks the whole widget stack, and assert
+  the dispatch did not raise.
+
+  Asserts nothing about whether a widget consumed the key -- sendEvent returns
+  no such information. Use emu:press when the consumption itself is the thing
+  under test.
+  ]]
   function emu:key(name)
     local keycode = self.keymap[name] or name
     local Key = require("device/key")
@@ -408,23 +407,61 @@ function M.boot(opts)
   end
 
   --[[--
-  Synthesise a tap. KOReader delivers taps as a Gesture object through
-  onTapHold, not as key presses, so a scenario that only ever presses keys is
-  not exercising the path a finger takes.
+  Synthesise a tap. KOReader delivers taps as a Gesture event, not as key
+  presses, so a scenario that only ever presses keys is not exercising the path
+  a finger takes.
+
+  A gesture is a PLAIN TABLE, not a class instance: frontend/device/gesturedetector.lua
+  builds `{ ges = "tap", pos = Geom:new{...}, time = ... }` and hands it to
+  handleEvent. There is no Gesture class to instantiate, and ges_events entries
+  match on the *string* (`gs.ges ~= self.ges`). Constructing it any other way
+  yields a gesture every widget silently ignores.
+
+  `time` matters for anything with a rate limit: ui/time is fixed-point, not
+  seconds. `Time:s(x)` BUILDS a time from a count of seconds and returns a
+  number -- so `Time:s()` is arithmetic on nil, not "now". `Time.now()` reads
+  the clock.
   ]]
-  function emu:tap(x, y)
-    local ges_events = require("ui/gesturedetector")
-    local Screen = self.Screen
-    local ok, err = pcall(function()
-      UIManager:sendEvent(Event:new("Gesture", ges_events.Tap:new{
-        pos = { x = x, y = y },
-        ges = ges_events.Tap,
-        screen_width = Screen:getWidth(),
-        screen_height = Screen:getHeight(),
-      }))
-    end)
+  emu.GESTURES = {
+    Tap = "tap",
+    DoubleTap = "double_tap",
+    Hold = "hold",
+    Pan = "pan",
+    Swipe = "swipe",
+  }
+
+  function emu:tap(x, y, opts)
+    opts = opts or {}
+    local Geom = require("ui/geometry")
+    local Time = require("ui/time")
+
+    local gesture = {
+      ges = opts.ges or self.GESTURES.Tap,
+      pos = Geom:new{ x = x, y = y, w = 0, h = 0 },
+      time = opts.time or Time.now(),
+    }
+
+    local target = UIManager:getTopmostVisibleWidget()
+    assert(target, "no widget on the stack to tap")
+    local consumed = target:handleEvent(
+      self.Event:new("Gesture", gesture))
     self:pump()
-    if not ok then error(err, 0) end
+    return consumed
+  end
+
+  --[[--
+  Tap and assert something handled it.
+
+  Taps outside a widget's registered range are dropped silently, which looks
+  identical to a widget that ignores touches -- so a scenario that taps and
+  asserts nothing has proved nothing.
+  ]]
+  function emu:tapExpecting(x, y, opts)
+    local consumed = self:tap(x, y, opts)
+    assert(consumed, string.format(
+      "tap at (%d,%d) was not consumed by %s -- no gesture range covers that point",
+      x, y, tostring(UIManager:getTopmostVisibleWidget().name)))
+    return consumed
   end
 
   --[[--
