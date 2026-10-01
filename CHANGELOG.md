@@ -4,6 +4,7 @@
 
 ### Performance
 
+* Offline page turns write the pending queue to disk once instead of twice.
 * Cover images are cached on disk, so revisiting a shelf or search result no longer downloads them again.
 * Covers start loading on the next tick instead of after a fixed one second delay, and a cover that appears
   in several rows is downloaded once.
@@ -13,6 +14,8 @@
 * Fixed a leaked global in the book cache retry handling that could cancel the wrong request after
   switching books.
 * The sign-in "Contacting Hardcover" message is now painted before the network request starts.
+* One book that fails to sync no longer blocks every other book in the offline queue, and an error thrown
+  during a sync no longer leaves syncing disabled until KOReader restarts.
 * An empty cover list no longer triggers a request for a missing URL.
 
 ### Added

@@ -327,6 +327,58 @@ check("a failed status update keeps the entry too", function()
   eq(q:hasPending(), true, "the entry survives")
 end)
 
+check("one book that always fails does not block the others", function()
+  -- Returning on the first failure meant a single bad entry (a deleted book, a
+  -- rejected edition) stopped every later book from syncing, forever.
+  local q = newQueue()
+  q:enqueuePage("/books/bad.epub", { mapped_page = 1, book_id = 1, edition_id = 3 })
+  q:enqueuePage("/books/ok.epub", { mapped_page = 2, book_id = 2, edition_id = 3 })
+  local api = fakeApi()
+  local real = api.updatePage
+  api.updatePage = function(self, read_id, edition_id, page)
+    if page == 1 then self.calls[#self.calls + 1] = { op = "updatePage", page = page }; return nil end
+    return real(self, read_id, edition_id, page)
+  end
+  eq(q:flush(api, { user_id = 1 }), false, "flush reports the failure")
+  eq(q:hasPending("/books/ok.epub"), false, "the good book was sent")
+  eq(q:hasPending("/books/bad.epub"), true, "the bad book is kept")
+end)
+
+check("flushing stops after repeated back-to-back failures", function()
+  local q = newQueue()
+  for i = 1, 5 do
+    q:enqueuePage("/books/" .. i .. ".epub", { mapped_page = i, book_id = i, edition_id = 3 })
+  end
+  local api = fakeApi { page_fails = true }
+  q:flush(api, { user_id = 1 })
+  local finds = 0
+  for _, c in ipairs(api.calls) do if c.op == "findUserBook" then finds = finds + 1 end end
+  eq(finds, 2, "books attempted before giving up")
+  eq(q:pendingCount(), 5, "nothing was lost")
+end)
+
+check("an API call that throws releases the flushing flag", function()
+  local q = newQueue()
+  q:enqueuePage("/books/a.epub", { mapped_page = 5, book_id = 1, edition_id = 3 })
+  local api = fakeApi()
+  api.updatePage = function() error("socket exploded") end
+  eq(q:flush(api, { user_id = 1 }), false, "flush reports failure")
+  eq(q.flushing, false, "flushing flag")
+  eq(q:get("/books/a.epub").mapped_page, 5, "the page survives")
+  eq(q:flush(fakeApi(), { user_id = 1 }), true, "a later flush works")
+end)
+
+check("an enqueue writes the queue to disk once", function()
+  local q, settings = newQueue()
+  local writes = 0
+  settings.flush = function() writes = writes + 1 return true end
+  q:enqueuePage("/books/a.epub", { mapped_page = 5, book_id = 1 })
+  eq(writes, 1, "page enqueue writes")
+  writes = 0
+  q:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.FINISHED, book_id = 1 })
+  eq(writes, 1, "status enqueue writes")
+end)
+
 check("a re-entrant flush is refused rather than double-sending", function()
   -- flush() recurses through callbacks in some paths; sending twice would
   -- duplicate reads.

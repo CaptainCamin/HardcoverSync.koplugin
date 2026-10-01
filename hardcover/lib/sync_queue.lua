@@ -79,6 +79,8 @@ function SyncQueue:clearAll()
   return cleared
 end
 
+-- Does not persist: callers set their own fields first and write once. Offline
+-- every page turn lands here, and each write is a flash write on the device.
 function SyncQueue:_ensure(filepath, meta)
   local pending = self:pending()
   local entry = pending[filepath] or {}
@@ -91,7 +93,6 @@ function SyncQueue:_ensure(filepath, meta)
   end
   entry.updated_at = os.time()
   pending[filepath] = entry
-  self:persist()
   return entry
 end
 
@@ -173,6 +174,85 @@ local function hasUserBook(user_book)
   return user_book and user_book.id ~= nil
 end
 
+-- Sends one file's pending status and page. Returns true when the entry is
+-- fully sent (and cleared), false when it should be kept for another attempt.
+function SyncQueue:_flushEntry(api, filepath, opts)
+  local entry = self:get(filepath)
+  if self:isEmpty(entry) then
+    return true
+  end
+
+  local user_id = opts.user_id
+  local book_id = entry.book_id
+  local edition_id = entry.edition_id
+  local privacy_setting_id = entry.privacy_setting_id
+  local pending_status = entry.status_id
+  local flush_page = self:shouldFlushPage(entry)
+
+  local user_book = api:findUserBook(book_id, user_id)
+  if not hasUserBook(user_book) then
+    local status_to_set = pending_status or HARDCOVER.STATUS.READING
+    user_book = api:updateUserBook(book_id, status_to_set, privacy_setting_id, edition_id)
+    if not hasUserBook(user_book) then
+      return false
+    end
+    entry.status_id = nil
+    self:save(filepath, entry)
+  elseif pending_status then
+    user_book = api:updateUserBook(
+      book_id,
+      pending_status,
+      privacy_setting_id or user_book.privacy_setting_id,
+      edition_id
+    )
+    if not hasUserBook(user_book) then
+      return false
+    end
+    entry.status_id = nil
+    self:save(filepath, entry)
+  end
+
+  if flush_page then
+    local reads = user_book.user_book_reads
+    local current_read = reads and reads[#reads]
+    local result
+    if current_read and current_read.id then
+      result = api:updatePage(
+        current_read.id,
+        current_read.edition_id or edition_id,
+        entry.mapped_page,
+        current_read.started_at or entry.started_at
+      )
+    elseif user_book.id then
+      result = api:createRead(
+        user_book.id,
+        edition_id or user_book.edition_id,
+        entry.mapped_page,
+        entry.started_at or os.date("%Y-%m-%d")
+      )
+    end
+    if not result then
+      return false
+    end
+    user_book = result
+  end
+
+  self:clear(filepath)
+  if opts.settings and opts.settings.saveBookSnapshot then
+    opts.settings:saveBookSnapshot(filepath, user_book)
+  end
+  if opts.state and opts.current_file == filepath then
+    opts.state.book_status = user_book
+    opts.state.book_status_fetched = true
+  end
+  return true
+end
+
+-- After this many entries fail back to back, stop: that pattern means the
+-- network or the token is down, and every remaining book would just wait out
+-- its own timeout.
+local MAX_CONSECUTIVE_FAILURES = 2
+
 function SyncQueue:flush(api, opts)
   opts = opts or {}
   if self.flushing then
@@ -186,85 +266,26 @@ function SyncQueue:flush(api, opts)
 
   self.flushing = true
 
-  local user_id = opts.user_id
-  local settings = opts.settings
-  local current_file = opts.current_file
-  local state = opts.state
+  local all_sent = true
+  local consecutive_failures = 0
 
   for _, filepath in ipairs(paths) do
-    local entry = self:get(filepath)
-    if not self:isEmpty(entry) then
-      local book_id = entry.book_id
-      local edition_id = entry.edition_id
-      local privacy_setting_id = entry.privacy_setting_id
-      local pending_status = entry.status_id
-      local flush_page = self:shouldFlushPage(entry)
-
-      local user_book = api:findUserBook(book_id, user_id)
-      if not hasUserBook(user_book) then
-        local status_to_set = pending_status or HARDCOVER.STATUS.READING
-        user_book = api:updateUserBook(book_id, status_to_set, privacy_setting_id, edition_id)
-        if not hasUserBook(user_book) then
-          self.flushing = false
-          return false
-        end
-        pending_status = nil
-        entry.status_id = nil
-        self:save(filepath, entry)
-      elseif pending_status then
-        user_book = api:updateUserBook(
-          book_id,
-          pending_status,
-          privacy_setting_id or user_book.privacy_setting_id,
-          edition_id
-        )
-        if not hasUserBook(user_book) then
-          self.flushing = false
-          return false
-        end
-        entry.status_id = nil
-        self:save(filepath, entry)
-      end
-
-      if flush_page then
-        local reads = user_book.user_book_reads
-        local current_read = reads and reads[#reads]
-        local result
-        if current_read and current_read.id then
-          result = api:updatePage(
-            current_read.id,
-            current_read.edition_id or edition_id,
-            entry.mapped_page,
-            current_read.started_at or entry.started_at
-          )
-        elseif user_book.id then
-          result = api:createRead(
-            user_book.id,
-            edition_id or user_book.edition_id,
-            entry.mapped_page,
-            entry.started_at or os.date("%Y-%m-%d")
-          )
-        end
-        if not result then
-          self.flushing = false
-          return false
-        end
-        user_book = result
-      end
-
-      self:clear(filepath)
-      if settings and settings.saveBookSnapshot then
-        settings:saveBookSnapshot(filepath, user_book)
-      end
-      if state and current_file == filepath then
-        state.book_status = user_book
-        state.book_status_fetched = true
+    -- An API call that throws must not leave `flushing` set, or every later
+    -- flush is refused until KOReader restarts.
+    local ok, sent = pcall(self._flushEntry, self, api, filepath, opts)
+    if ok and sent then
+      consecutive_failures = 0
+    else
+      all_sent = false
+      consecutive_failures = consecutive_failures + 1
+      if consecutive_failures >= MAX_CONSECUTIVE_FAILURES then
+        break
       end
     end
   end
 
   self.flushing = false
-  return true
+  return all_sent
 end
 
 return SyncQueue
