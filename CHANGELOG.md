@@ -14,6 +14,8 @@
 
 ### Fixed
 
+* Tapping `Sync now` crashed KOReader: the menu was never given the function that sends pending changes. It
+  also was never given the wifi helper, so any menu item that opens a screen crashed when wifi was off.
 * The screen is now refreshed after closing the book details and sign-in screens. KOReader repaints what was
   underneath but only refreshes an e-ink panel if the closing widget asks for it, and these two never did,
   so the closed screen could stay visible until something else triggered a refresh.

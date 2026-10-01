@@ -174,6 +174,8 @@ function HardcoverApp:init()
     state = self.state,
     sync_queue = self.sync_queue,
     ui = self.ui,
+    wifi = self.wifi,
+    on_flush_sync_queue = function() self:on_flush_sync_queue() end,
     on_sign_in = function() self:signIn() end,
     on_sign_out = function() self.auth:signOut() end,
   }
