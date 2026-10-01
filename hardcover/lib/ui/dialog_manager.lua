@@ -505,12 +505,17 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
   return dialog
 end
 
+--
+-- A failure the user must notice.
+--
+-- Delegates rather than building an InfoMessage here, because this predates
+-- hardcover/lib/ui/status_dialogs.lua and duplicated it: two implementations
+-- of the same message, one with a 2-second timeout and one with 5, and
+-- BookDetailDialog had a third. A failure reported through the wrong one is a
+-- failure that vanishes before it is read.
+--
 function DialogManager:showError(err)
-  UIManager:show(InfoMessage:new {
-    text = err,
-    icon = "notice-warning",
-    timeout = 2
-  })
+  return StatusDialogs.error(err)
 end
 
 return DialogManager

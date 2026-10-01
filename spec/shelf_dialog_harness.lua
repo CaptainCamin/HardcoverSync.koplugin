@@ -218,9 +218,26 @@ line to put the author on.
       r.check("the title is not polluted with the author",
         item.text ~= nil and item.text:find("Le Guin", 1, true) == nil,
         "text = " .. tostring(item.text))
-      r.check("the status is shown as a mandatory label", type(item.mandatory) == "string"
+      -- Shelf rows still need their own decoration: the status label and rating are
+  -- properties of a shelf entry, not of a book, so they are applied after the
+  -- shared row shaping rather than inside it.
+  r.check("the status is shown as a mandatory label", type(item.mandatory) == "string"
         and item.mandatory:find("Want to Read", 1, true) ~= nil,
         "mandatory = " .. tostring(item.mandatory))
+  r.check("a rating is appended to the status",
+        (function()
+          local rated = buildDialog({ entry({ user_rating = 4 }) })
+          local r_item = (lastSpec().item_table or {})[1]
+          return r_item and r_item.mandatory:find("4*", 1, true) ~= nil
+        end)(),
+        "a whole rating must read 4*, not 4.0*")
+  r.check("a fractional rating keeps its decimal",
+        (function()
+          local d = buildDialog({ entry({ user_rating = 4.5 }) })
+          local r_item = (lastSpec().item_table or {})[1]
+          return r_item and r_item.mandatory:find("4.5*", 1, true) ~= nil
+        end)(),
+        "expected 4.5* in the mandatory label")
       r.check("the cover url is attached", item.cover_url == "https://covers.example/1.jpg",
         "cover_url = " .. tostring(item.cover_url))
       r.check("cover dimensions are passed through",

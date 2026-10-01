@@ -17,6 +17,7 @@ local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local InfoMessage = require("ui/widget/infomessage")
+local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
 local Size = require("ui/size")
 local TextBoxWidget = require("ui/widget/textboxwidget")
@@ -286,11 +287,12 @@ function BookDetailDialog:onClose()
   return true
 end
 
+-- Delegates to StatusDialogs, which is where every other error message in the
+-- plugin is built. This was a third implementation of the same thing, with no
+-- timeout at all -- so a message shown here had no defined lifetime and no
+-- guaranteed icon.
 function BookDetailDialog:showError(message)
-  UIManager:show(InfoMessage:new {
-    text = message,
-    icon = "notice-warning",
-  })
+  return StatusDialogs.error(message)
 end
 
 return BookDetailDialog
