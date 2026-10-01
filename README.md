@@ -132,17 +132,6 @@ published book, with a calculation like:
 In both cases, this may not exactly match the page of the published document, and can even be far off if there
 are large differences in the total pages.
 
-### Suggest a book
-
-The suggest a book menu item will display up to 10 books from your Want To Read list in random order. Selecting one of
-the books in the dialog will start a file search for that book on your device, based on the title. The plugin does not
-know which books you have or do not have on your device.
-
-The selected books/order are preserved when reopening the dialog (until KOReader is restarted), but you can use the
-refresh button in the upper left corner to get a new list of 10 books.
-
-![Suggest a book dialog displaying several books. There is a refresh icon in the upper left corner](https://github.com/user-attachments/assets/2564e0f1-2c62-4463-957f-421a47d792d6)
-
 ### Reading offline
 
 Progress tracking keeps working without a connection. After each successful sync the plugin saves a local copy of

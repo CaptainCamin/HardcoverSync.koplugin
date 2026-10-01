@@ -120,7 +120,6 @@ local cases = {
   { "findEditionsAsync", "findEditions", { 7, 1 } },
   { "findDefaultEditionAsync", "findDefaultEdition", { 7, 1 } },
   { "findBookByIdentifiersAsync", "findBookByIdentifiers", { { isbn = "1" }, 1 } },
-  { "getRandomToReadAsync", "getRandomToRead", { 1, 10 } },
 }
 
 for _, case in ipairs(cases) do

@@ -79,13 +79,6 @@ function HardcoverApp:onDispatcherRegisterActions()
     title = _("Hardcover: Update progress"),
     general = true,
   })
-
-  Dispatcher:registerAction("hardcover_random_books", {
-    category = "none",
-    event = "HardcoverSuggestBook",
-    title = _("Hardcover: Suggest a book"),
-    general = true,
-  })
 end
 
 function HardcoverApp:init()
@@ -357,10 +350,6 @@ function HardcoverApp:onHardcoverUpdateProgress()
       icon = "notice-warning",
     })
   end
-end
-
-function HardcoverApp:onHardcoverSuggestBook()
-  self.hardcover:showRandomBookDialog()
 end
 
 function HardcoverApp:onSettingsChanged(field, change, original_value)

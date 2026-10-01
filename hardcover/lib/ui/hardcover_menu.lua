@@ -291,14 +291,6 @@ function HardcoverMenu:getSubMenuItems(book_view)
       keep_menu_open = true,
       separator = true
     },
-    {
-      text = _("Suggest a book"),
-      callback = function()
-        self.hardcover:showRandomBookDialog()
-      end,
-      separator = true,
-      keep_menu_open = true
-    },
     -- OAuth sign-in/out. Only offered when hardcover_config.lua supplies a
     -- client_id; with a static API key there is nothing to sign in to.
     self.auth and self.auth:usingOAuth() and {

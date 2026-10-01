@@ -2,13 +2,19 @@
 
 ## 0.6.0
 
+### Removed
+
+* Removed the `Suggest a book` feature: the menu item, the `Hardcover: Suggest a book` gesture action and the
+  search-for-this-book-on-your-device dialog behind it. A gesture you had bound to that action will no longer do
+  anything and can be unbound in KOReader's gesture settings.
+
 ### Performance
 
 * Changing a book's status, removing a read, setting the page, rating, changing visibility, linking a book or
-  edition, automatic linking, suggesting a book, marking a book finished, and the "update progress" gesture
+  edition, automatic linking, marking a book finished, and the "update progress" gesture
   no longer freeze KOReader while they wait on Hardcover. Saving a journal entry still waits for the reply
   (the dialog needs the result to answer), but now shows "Saving..." first so you can see the tap registered.
-* Screens that load a list or details from Hardcover (shelves, search, editions, book details, suggested books)
+* Screens that load a list or details from Hardcover (shelves, search, editions, book details)
   no longer freeze KOReader while waiting for the reply. The requests now run in the background, so the
   "Loading..." message is actually drawn first, and a tap cancels the request. Previously they ran in-process
   (KOReader logged "unwrapped dismissableRunInSubprocess(), falling back to blocking in-process run") and the
@@ -31,7 +37,7 @@
 * The screen is now refreshed after closing the book details and sign-in screens. KOReader repaints what was
   underneath but only refreshes an e-ink panel if the closing widget asks for it, and these two never did,
   so the closed screen could stay visible until something else triggered a refresh.
-* Retrying a list that failed to load (shelves, search, edition lists, suggested books) no longer leaves the
+* Retrying a list that failed to load (shelves, search, edition lists) no longer leaves the
   failed screen underneath the new one, which showed up again after closing the new one.
 * OAuth: the access token is now resolved (and refreshed) before the request is handed to its subprocess.
   Previously a refresh ran inside the subprocess, so the new tokens reached disk but not the running

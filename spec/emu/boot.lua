@@ -502,9 +502,6 @@ function M.boot(opts)
         file = opts.file or "/books/fixture-book.epub",
         getPageCount = function() return opts.pages or 412 end,
       },
-      filesearcher = {
-        doSearch = function() end,
-      },
       getCurrentPage = function() return opts.page or 37 end,
       menu = {
         registerToMainMenu = function() end,

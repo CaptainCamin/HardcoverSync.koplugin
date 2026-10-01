@@ -250,7 +250,6 @@ package.preload["ui/trapper"] = function() return { dismissableRunInSubprocess =
 -- when a fetch happens. The offline paths have their own harness
 -- (offline_shelf_harness.lua).
 package.preload["ui/network/manager"] = function() return { isConnected = function() return true end } end
-package.preload["apps/filemanager/filemanagerfilesearcher"] = function() return {} end
 package.preload["datastorage"] = function() return { getSettingsDir = function() return "/tmp/hc" end } end
 package.preload["device"] = function()
   return { screen = { getWidth = function() return 1200 end, getHeight = function() return 1600 end,
@@ -278,7 +277,7 @@ local function build_manager()
   end
   local fake_api = stub_api{
     "getShelf", "getBookDetail", "findBooks", "findEditions",
-    "findDefaultEdition", "getRandomToRead", "findBookByIdentifiers",
+    "findDefaultEdition", "findBookByIdentifiers",
   }
   package.loaded["hardcover/lib/hardcover_api"] = fake_api
 
@@ -319,7 +318,7 @@ local function build_manager()
   User.settings = settings
 
   manager.settings = settings
-  manager.ui = { filesearcher = {} }
+  manager.ui = {}
   -- journalEntryForm shows its dialog from inside wifiPrompt(callback), which
   -- takes the callback alone and receives the wifi state. The plugin awaits
   -- connectivity before showing here, so this harness must invoke the callback
@@ -403,13 +402,6 @@ assert_shows_before_fetch("buildLoadingSearchDialog shows its dialog before fetc
     function(callback) Api.findEditions(4242, 1, callback) end,
     { edition_id = 1 },
     function() end)
-end)
-
-assert_shows_before_fetch("buildBookListDialog with a fetch shows before fetching", function()
-  local manager, _, Api = build_manager()
-  manager:buildBookListDialog(
-    "Suggest a book", {}, function() end, false,
-    function(callback) Api.getRandomToRead(1, 10, callback) end)
 end)
 
 r.finish()

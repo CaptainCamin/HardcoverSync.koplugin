@@ -6,7 +6,6 @@ local NetworkManager = require("ui/network/manager")
 
 local ConfirmBox = require("ui/widget/confirmbox")
 local InfoMessage = require("ui/widget/infomessage")
-local FileSearcher = require("apps/filemanager/filemanagerfilesearcher")
 
 local Api = require("hardcover/lib/hardcover_api")
 local Book = require("hardcover/lib/book")
@@ -189,72 +188,6 @@ function DialogManager:maybeConfirm(options)
 end
 
 --
--- A list of books whose rows hand off to the file searcher.
---
--- fetch, when given, makes this show-then-fetch: the dialog opens on an empty
--- list and fetch supplies the rows. "Suggest a book" needs that, because its
--- cached list is usually cold and the fetch used to run before the dialog
--- existed.
---
-function DialogManager:buildBookListDialog(title, items, icon_callback, disable_wifi_after, fetch)
-  discard(self.search_dialog)
-  self.search_dialog = nil
-
-  self.search_dialog = require("hardcover/lib/ui/search_dialog"):new {
-    compatibility_mode = self.settings:compatibilityMode(),
-    title = title,
-    items = items or {},
-    loading = fetch ~= nil,
-    left_icon_callback = icon_callback,
-    left_icon = "cre.render.reload",
-    select_book_cb = function(book)
-      local clean_title = book.title:gsub("^The ", ""):gsub("^An ", ""):gsub("^A ", ""):gsub(" ?%(%d+%)$", "")
-
-      FileSearcher.search_path = G_reader_settings:readSetting("home_dir")
-      FileSearcher.search_string = clean_title
-      self.ui.filesearcher.case_sensitive = false
-      self.ui.filesearcher.include_subfolders = true
-      self.ui.filesearcher.include_metadata = true
-      self.ui.filesearcher:doSearch()
-    end,
-    close_callback = function()
-      if disable_wifi_after then
-        UIManager:nextTick(function()
-          self.wifi:wifiDisablePrompt()
-        end)
-      end
-    end
-  }
-
-  UIManager:show(self.search_dialog)
-
-  if not fetch then return end
-
-  local loading = StatusDialogs.loading(_("Loading…"))
-
-  fetch(function(items, err)
-    StatusDialogs.close(loading)
-    if not UIManager:isWidgetShown(self.search_dialog) then return end
-
-    if err or not items then
-      StatusDialogs.retry(err or _("no response"), _("Loading the list"),
-        function()
-          self:buildBookListDialog(title, nil, icon_callback, disable_wifi_after, fetch)
-        end,
-        function() UIManager:close(self.search_dialog) end)
-      return
-    end
-
-    if #items == 0 then
-      self.search_dialog:setEmptyState(_("No books found on Want to Read list"))
-      return
-    end
-
-    self.search_dialog:setItems(title, items)
-  end)
-end
-
---
 -- Re-run a search against the dialog already on screen.
 --
 -- The dialog is shown, so there is nothing to show first here -- but the error
@@ -283,10 +216,6 @@ function DialogManager:updateSearchResults(search)
                                 self.search_dialog.active_item)
     self.search_dialog.search_value = search
   end)
-end
-
-function DialogManager:updateRandomBooks(books)
-  self.search_dialog:setItems(self.search_dialog.title, books)
 end
 
 function DialogManager:journalEntryForm(text, document, page, remote_pages, mapped_page, event_type)
