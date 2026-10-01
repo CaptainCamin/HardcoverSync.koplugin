@@ -55,7 +55,9 @@ return {
 }
 EOF
 
-cd "$PLUGIN_ROOT"
+# cwd must be the KOReader install: setupkoenv's ffi.loadlib resolves libs/
+# relative to it, and resources/ and fonts/ are read relative to it too.
+cd "$KOREADER_DIR"
 
 SCENARIOS=()
 for f in "$EMU_DIR"/scenarios/*.lua; do

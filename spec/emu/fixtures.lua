@@ -15,6 +15,25 @@ local M = {}
 
 M.USER_ID = 4242
 
+--[[--
+Deep copy, local to the harness.
+
+The plugin's table_util has no deep-copy helper, and borrowing KOReader's
+util.tableDeepCopy would couple the fixtures to the emulator being present --
+they are also useful from the stock-Lua spec suite.
+]]
+local function deepcopy(value, seen)
+  seen = seen or {}
+  if type(value) ~= "table" then return value end
+  if seen[value] then return seen[value] end
+  local out = {}
+  seen[value] = out
+  for k, v in pairs(value) do out[deepcopy(k, seen)] = deepcopy(v, seen) end
+  return setmetatable(out, getmetatable(value))
+end
+
+M.deepcopy = deepcopy
+
 -- A plain book row, as returned inside a user_books query.
 local function book_row(id, title, year, pages, opts)
   opts = opts or {}
@@ -76,8 +95,57 @@ M.books = {
   book_row(108, "The Obelisk Gate", 2016, 448, { author = "N. K. Jemisin" }),
 }
 
+--[[--
+A bigger shelf, for scenarios that need more than one page.
+
+The curated list above is deliberately small and hand-checked. But a menu with
+fewer rows than fit on the screen has page_num == 1, and NextPage on a
+single-page menu cycles straight back to page 1 -- so a paging assertion against
+it passes for the wrong reason. This list exists to make paging real.
+
+Generated rather than hand-written because nobody reads row 40 of a fixture;
+what matters is only that there are enough distinct rows to overflow a page at
+the emulated resolution.
+]]
+M.shelf_books = {}
+do
+  local titles = {
+    "The Lathe of Heaven", "Kindred", "The Snow Queen", "A Wizard of Earthsea",
+    "The Word for World Is Forest", "The Left Hand of Darkness", "Solaris",
+    "Roadside Picnic", "Hyperion", "The Fall of Hyperion", "Dune", "Children of Dune",
+    "The Three Stigmata of Palmer Eldritch", "Do Androids Dream of Electric Sheep",
+    "Valley of Flowers", "The Memory Police", "Convenience Store Woman",
+    "The Master and Margarita", "Babel", "The Dispossessed",
+  }
+  for i, title in ipairs(titles) do
+    M.shelf_books[#M.shelf_books + 1] = book_row(200 + i, title, 1950 + i * 3, 200 + i * 11, {
+      author = "Fixture Author " .. i,
+      series = (i % 3 == 0) and ("Shelf Series " .. math.floor(i / 3)) or nil,
+      series_position = (i % 3 == 0) and (i % 5) or nil,
+      no_image = (i % 7 == 0), -- no-cover rows land throughout the list
+    })
+  end
+end
+
 M.books_by_id = {}
 for _, b in ipairs(M.books) do M.books_by_id[b.book_id] = b end
+for _, b in ipairs(M.shelf_books) do M.books_by_id[b.book_id] = b end
+
+--[[--
+Build the real settings object, backed by the emulated data dir.
+
+Deliberately not a stub: HardcoverSettings is the plugin's own persistence
+layer, and the dialogs ask it real questions (compatibility mode, page counts,
+whether a book is linked). A hand-written stand-in would drift from it and make
+a scenario pass while the device disagrees. Writes land in the scratch KO_HOME,
+never in a real installation.
+]]
+function M.real_settings(emu, ui)
+  local HardcoverSettings = require("hardcover/lib/hardcover_settings")
+  return HardcoverSettings:new(
+    emu.DataStorage:getSettingsDir() .. "/hardcoversync_settings.lua",
+    ui or emu:stub_ui())
+end
 
 --[[--
 Replace the API layer with fixtures.
@@ -87,20 +155,21 @@ them on. Anything not listed here still runs for real and will attempt a
 request -- which fails cleanly offline -- so a scenario that quietly depends on
 an unstubbed call shows up as an empty screen rather than as a false pass.
 ]]
-function M.install(overrides)
+function M.install(opts)
+  opts = opts or {}
+
   local Api = require("hardcover/lib/hardcover_api")
   local User = require("hardcover/lib/user")
 
-  User.settings = User.settings or {
-    -- dialogs ask the settings object for these; keep them cheap and total
-    compatibilityMode = function() return false end,
-    pages = function() return 341 end,
-  }
-  User.getId = User.getId or function() return M.USER_ID end
+  -- User:getId reads through to settings, then falls back to Api:me(). Give it
+  -- the real settings object and let the stubbed me() supply the id, so the
+  -- lookup path itself is exercised.
+  if opts.settings then
+    User.settings = opts.settings
+  end
 
   -- Never let a scenario touch the network, whatever it forgets to stub.
   Api.enabled = true
-  Api._emu_offline = true
 
   local calls = {}
   M.calls = calls
@@ -112,9 +181,15 @@ function M.install(overrides)
   Api.getShelf = function(_, user_id, status_id, offset, limit)
     record("getShelf")
     offset, limit = offset or 0, limit or 20
+
+    -- opts.books lets a scenario choose between the small curated list and the
+    -- big one. The default is the big one: a single-page menu silently passes
+    -- every paging assertion, so the fixture should not make that easy.
+    local source = opts.books or M.shelf_books
+
     local page = {}
-    for i = offset + 1, math.min(offset + limit, #M.books) do
-      local b = M.books[i]
+    for i = offset + 1, math.min(offset + limit, #source) do
+      local b = source[i]
       page[#page + 1] = {
         id = 9000 + b.book_id,
         status_id = status_id or 2,
@@ -134,14 +209,14 @@ function M.install(overrides)
     end
 
     -- A short page tells the dialog there is nothing more to fetch.
-    local has_more = (#M.books > offset + limit)
+    local has_more = (#source > offset + limit)
     return entries, nil, has_more
   end
 
   Api.getBookDetail = function(_, book_id, user_id, edition_id)
     record("getBookDetail")
     local b = M.books_by_id[book_id] or M.books[1]
-    local detail = require("hardcover/lib/table_util").tableDeepCopy(b)
+    local detail = deepcopy(b)
     if edition_id then
       detail.edition_id = edition_id
       detail.edition_format = "Paperback"
@@ -165,7 +240,7 @@ function M.install(overrides)
     local out = {}
     for _, b in ipairs(M.books) do
       if b.title:lower():find(needle, 1, true) then
-        out[#out + 1] = require("hardcover/lib/table_util").tableDeepCopy(b)
+        out[#out + 1] = deepcopy(b)
       end
     end
     return out
@@ -178,7 +253,7 @@ function M.install(overrides)
     for i = 1, 3 do
       editions[i] = {
         id = book_id * 100 + i,
-        book = require("hardcover/lib/table_util").tableDeepCopy(b),
+        book = deepcopy(b),
         cached_image = b.cached_image,
         edition_format = "Paperback",
         reading_format_id = 1,
@@ -235,7 +310,9 @@ function M.install(overrides)
     return { id = 70001 }
   end
 
-  for k, v in pairs(overrides or {}) do
+  -- Last, so a scenario can override any single method without having to
+  -- restate the rest of the fixture layer.
+  for k, v in pairs(opts.overrides or {}) do
     Api[k] = v
   end
 

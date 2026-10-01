@@ -13,6 +13,7 @@ local Device = require("device")
 local Font = require("ui/font")
 local FocusManager = require("ui/widget/focusmanager")
 local FrameContainer = require("ui/widget/container/framecontainer")
+local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local InfoMessage = require("ui/widget/infomessage")
@@ -76,22 +77,33 @@ function BookDetailDialog:init()
     width = self.width,
   }
 
-  -- metadata rows: a fixed two column grid, label then value
+  --[[--
+  Metadata rows: a fixed two column grid, label then value.
+
+  The description is skipped here. Shelf.detailRows emits it as one of its
+  rows, but the dialog gives it a dedicated wrapping box further down -- so
+  leaving it in printed the whole description twice, once crammed into a
+  two-column grid cell and once properly wrapped. Filtering it out at the
+  display layer leaves Shelf.detailRows complete for any other caller that
+  genuinely wants the description as a row.
+  ]]
   local rows = Shelf.detailRows(book)
   self.meta_rows = {}
 
   for _, row in ipairs(rows) do
-    local label = TextWidget:new {
-      text = row.label,
-      face = Font:getFace("cfont", 15),
-      width = math.floor(self.width * 0.32),
-    }
-    local value = TextWidget:new {
-      text = tostring(row.value),
-      face = Font:getFace("cfont", 15),
-      width = self.width - label.width - 20,
-    }
-    table.insert(self.meta_rows, HorizontalGroup:new { label, HorizontalSpan:new { width = 10 }, value })
+    if row.label ~= "Description" then
+      local label = TextWidget:new {
+        text = row.label,
+        face = Font:getFace("cfont", 15),
+        width = math.floor(self.width * 0.32),
+      }
+      local value = TextWidget:new {
+        text = tostring(row.value),
+        face = Font:getFace("cfont", 15),
+        width = self.width - label.width - 20,
+      }
+      table.insert(self.meta_rows, HorizontalGroup:new { label, HorizontalSpan:new { width = 10 }, value })
+    end
   end
 
   -- description is the only free text field, so it gets its own wrapping box
@@ -137,15 +149,45 @@ function BookDetailDialog:init()
   end
 
   table.insert(content, VerticalSpan:new { height = 10 })
-  table.insert(content, button_row)
 
-  -- a full description plus every metadata row overflows a small e-ink screen,
-  -- so the body scrolls and the close button stays pinned below it
+  --[[--
+  A full description plus every metadata row overflows a small e-ink screen, so
+  the body scrolls and the close button stays pinned below it.
+
+  ScrollableContainer takes its size from an explicit `dimen`, NOT from
+  width/height -- initState reads self.dimen.w/h and paintTo writes
+  self.dimen.x/y. Passing width/height therefore leaves dimen nil and the first
+  paint dies with "attempt to index field 'dimen' (a nil value)", so the dialog
+  never appeared at all.
+
+  Two further things this used to get wrong:
+
+    * button_row.height is nil. A HorizontalGroup sizes itself behind getSize();
+      it has no .height field, so the subtraction raised "attempt to perform
+      arithmetic on field 'height' (a nil value)".
+
+    * button_row was also appended to the scroll's content, so the same widget
+      was in two parents: it scrolled away with the body *and* was meant to
+      stay pinned. It rendered twice.
+
+  Keep the row out of the content, and resolve its size through getSize().
+  ]]
+  local button_row_size = button_row:getSize()
+
+  local scroll_height = self.height - button_row_size.h - 20
+
   local scroll = ScrollableContainer:new {
-    width = self.width,
-    height = self.height - button_row.height - 20,
+    dimen = Geom:new {
+      x = 0,
+      y = 0,
+      w = self.width,
+      h = scroll_height,
+    },
+    show_parent = self,
     content,
   }
+
+  self.scroll = scroll
 
   self.content_container = CenterContainer:new {
     dimen = Screen:getSize(),
