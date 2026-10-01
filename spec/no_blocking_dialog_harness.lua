@@ -144,18 +144,21 @@ local function reset() events = {} end
 -- The API stub never resolves on its own: it records the call and returns nil,
 -- forcing the caller to rely on the callback. A stub that returned data
 -- synchronously would let a fetch-then-show implementation pass by accident.
+-- Every stubbed method returns nil and never invokes a callback. That is
+-- deliberate: the assertions are about what happens BEFORE the answer, so a stub
+-- that resolved synchronously would let a fetch-then-show implementation pass by
+-- accident. The Async variants are stubbed alongside the sync ones because
+-- dialog_manager calls those, and a missing method would read as a product bug
+-- rather than a gap in the stub.
 local function stub_api(names)
   local Api = {}
   for _, name in ipairs(names) do
-    Api[name] = function(_, ...)
+    local record = function()
       note("api", name)
       return nil
     end
-    Api[name:gsub("Async$", "")] = Api[name]
-  end
-  Api.getShelfAsync = function(_, ...)
-    note("api", "getShelf")
-    return nil
+    Api[name] = record
+    Api[name .. "Async"] = record
   end
   return Api
 end

@@ -102,6 +102,21 @@ package.preload["ui/widget/infomessage"] = function()
   return M
 end
 
+-- shelf_dialog now routes its load-more failure through StatusDialogs, which
+-- builds a ConfirmBox as well as an InfoMessage. Both are captured so a test
+-- can assert on what the user was shown.
+package.preload["ui/widget/confirmbox"] = function()
+  local M = { last = nil }
+  M.new = function(_, o)
+    o = o or {}
+    setmetatable(o, M)
+    o.show = function() M.last = o end
+    o.free = function() end
+    return o
+  end
+  return M
+end
+
 -- Capture what the plugin hands the real Menu.
 local Menu, record = support.capturing_menu()
 package.preload["ui/widget/menu"] = function() return Menu end

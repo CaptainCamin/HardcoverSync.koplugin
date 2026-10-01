@@ -6,7 +6,6 @@
 
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
-local InfoMessage = require("ui/widget/infomessage")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local Menu = require("ui/widget/menu")
 local UIManager = require("ui/uimanager")
@@ -14,6 +13,7 @@ local _ = require("gettext")
 
 local SearchMenu = require("hardcover/lib/ui/search_menu")
 local Shelf = require("hardcover/lib/shelf")
+local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 
 local Screen = Device.screen
 
@@ -125,6 +125,60 @@ function ShelfDialog:parseItems(entries)
 end
 
 --
+-- Replace the rows after the first page lands.
+--
+-- The dialog is built and shown empty, so this is what fills it. The item table
+-- is swapped rather than appended because the menu's cover cache is keyed on it.
+--
+function ShelfDialog:setEntries(entries, has_more)
+  self.entries = entries or {}
+  self.has_more = has_more and #self.entries > 0
+  self.menu:switchItemTable(self.title, self:parseItems(self.entries))
+  self:updatePager()
+  UIManager:setDirty(self, "ui")
+end
+
+--
+-- An empty shelf is a real answer, not a failure.
+--
+-- Without a row saying so, the screen is a title bar over a blank list, which
+-- reads as a bug rather than as "you have not added anything here yet".
+--
+-- The row still carries a `file` marker. The vendored ListMenu chooses its
+-- drawing path with is_directory = not (entry.is_file or entry.file), so a row
+-- without one renders through the FOLDER branch -- the branch that already
+-- crashed both shelf views on device once.
+--
+function ShelfDialog:setEmptyState(message)
+  self.empty_state = message
+  self.has_more = false
+  self.menu:switchItemTable(self.title, {
+    {
+      text = message,
+      mandatory = "",
+      mandatory_dim = true,
+      file = "hardcover-empty",
+    },
+  })
+  self:updatePager()
+  UIManager:setDirty(self, "ui")
+end
+
+--
+-- The title-bar left icon loads the next page; it has to disappear once there
+-- is no next page, or it invites a tap that does nothing.
+--
+function ShelfDialog:updatePager()
+  if self.has_more then
+    self.menu.title_bar_left_icon = "cre.render.reload"
+    self.menu.onLeftButtonTap = function() self:loadMore() end
+  else
+    self.menu.title_bar_left_icon = nil
+    self.menu.onLeftButtonTap = nil
+  end
+end
+
+--
 -- Fetch the next page and append it. Guarded by self.loading so a double tap
 -- on the reload icon cannot fire two overlapping requests.
 --
@@ -140,27 +194,16 @@ function ShelfDialog:loadMore()
     self.loading = false
 
     if err or not entries then
-      UIManager:show(InfoMessage:new {
-        text = _("Could not load more books"),
-        icon = "notice-warning",
-      })
+      StatusDialogs.error(_("Could not load more books"))
       return
     end
 
     self.offset = page_offset + #entries
-    self.has_more = has_more and #entries > 0
-    self.entries = Shelf.appendPage(self.entries, entries, self.has_more)
+    self.entries = Shelf.appendPage(self.entries, entries, has_more and #entries > 0)
 
-    -- swap in a fresh item table; keeps the menu's cover cache consistent
+    -- Swap in a fresh item table; keeps the menu's cover cache consistent
     self.menu:switchItemTable(self.title, self:parseItems(self.entries))
-
-    if self.has_more then
-      self.menu.title_bar_left_icon = "cre.render.reload"
-      self.menu.onLeftButtonTap = function() self:loadMore() end
-    else
-      self.menu.title_bar_left_icon = nil
-      self.menu.onLeftButtonTap = nil
-    end
+    self:updatePager()
 
     UIManager:setDirty(self, "ui")
   end)

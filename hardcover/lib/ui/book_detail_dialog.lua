@@ -44,6 +44,40 @@ function BookDetailDialog:init()
 
   self.key_events.CloseDialog = { { "Back" } }
 
+  --[[--
+  Loading state.
+
+  The dialog is shown before its detail is fetched, so init runs once with
+  self.loading set and again from setDetail. Re-running init is safe here and is
+  the whole reason the body is built here rather than incrementally patched:
+  the widgets are pure functions of self.detail, so rebuilding them cannot leave
+  a stale one behind. It is NOT the right pattern for live text updates, where
+  rebuilding per keystroke would throw away FocusManager's focus.
+  ]]
+  if self.loading then
+    self.loading_text = TextWidget:new {
+      text = _("Loading book details…"),
+      face = Font:getFace("cfont", 18),
+      width = self.width,
+    }
+    self.loading_frame = FrameContainer:new {
+      width = Screen:getWidth(),
+      height = Screen:getHeight(),
+      background = Blitbuffer.COLOR_WHITE,
+      bordersize = 0,
+      padding = 0,
+      margin = 0,
+      CenterContainer:new {
+        dimen = Screen:getSize(),
+        VerticalGroup:new { self.loading_text },
+      },
+    }
+    self[1] = self.loading_frame
+    return
+  end
+
+  self.loading = false
+
   local detail = self.detail or {}
   local book = detail.book or {}
 
@@ -209,6 +243,29 @@ function BookDetailDialog:init()
   self.layout = { { close_button } }
 
   self[1] = self.frame
+end
+
+--
+-- Fill in the detail after the fetch lands.
+--
+-- Rebuilds by re-running init, which is correct here because every widget in the
+-- body is a pure function of self.detail -- see the note in init. Freeing the
+-- old body first matters: Menu/ScrollableContainer hold Blitbuffers, and leaving
+-- them for the garbage collector is how a dialog ends up painting a freed
+-- widget's _bb.
+--
+function BookDetailDialog:setDetail(detail)
+  self.detail = detail
+  self.loading = false
+
+  if self[1] and type(self[1].free) == "function" then
+    pcall(function() self[1]:free() end)
+  end
+  self[1] = nil
+
+  self:init()
+
+  UIManager:setDirty(self, "ui")
 end
 
 function BookDetailDialog:onShowDetail()

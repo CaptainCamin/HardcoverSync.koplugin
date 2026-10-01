@@ -17,6 +17,7 @@ local BookDetailDialog = require("hardcover/lib/ui/book_detail_dialog")
 local JournalDialog = require("hardcover/lib/ui/journal_dialog")
 local SearchDialog = require("hardcover/lib/ui/search_dialog")
 local ShelfDialog = require("hardcover/lib/ui/shelf_dialog")
+local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 
 local DialogManager = {}
 DialogManager.__index = DialogManager
@@ -141,18 +142,35 @@ function DialogManager:buildBookListDialog(title, items, icon_callback, disable_
   UIManager:show(self.search_dialog)
 end
 
+--
+-- Re-run a search against the dialog already on screen.
+--
+-- The dialog is shown, so there is nothing to show first here -- but the error
+-- path was a silent no-op: it closed the dialog only when Api.enabled was false
+-- and otherwise did nothing, leaving stale rows that looked like results. A
+-- failure the user cannot see is indistinguishable from a search that worked.
+--
 function DialogManager:updateSearchResults(search)
-  local books, error = Api:findBooks(search, nil, User:getId())
-  if error then
-    if not Api.enabled then
-      UIManager:close(self.search_dialog)
+  if not self.search_dialog then return end
+
+  local loading = StatusDialogs.loading(_("Searching…"))
+
+  Api:findBooksAsync(search, nil, User:getId(), function(books, err)
+    StatusDialogs.close(loading)
+    if not UIManager:isWidgetShown(self.search_dialog) then return end
+
+    if err or not books then
+      -- Keep the previous rows. Clearing them turns a transient failure into
+      -- an empty list, which reads as "no matches" -- a different and wrong
+      -- answer to the question the user asked.
+      StatusDialogs.error(_("Search failed. Tap the search icon to try again."))
+      return
     end
 
-    return
-  end
-
-  self.search_dialog:setItems(self.search_dialog.title, books, self.search_dialog.active_item)
-  self.search_dialog.search_value = search
+    self.search_dialog:setItems(self.search_dialog.title, books,
+                                self.search_dialog.active_item)
+    self.search_dialog.search_value = search
+  end)
 end
 
 function DialogManager:updateRandomBooks(books)
@@ -163,15 +181,6 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
   local settings = self.settings:readBookSettings(document.file) or {}
   local edition_id = settings.edition_id
   local edition_format = settings.edition_format
-
-  if not edition_id then
-    local edition = Api:findDefaultEdition(settings.book_id, User:getId())
-    if edition then
-      edition_id = edition.id
-      edition_format = Book:editionFormatName(edition.edition_format, edition.reading_format_id)
-      remote_pages = edition.pages
-    end
-  end
 
   mapped_page = mapped_page or self.page_mapper:getMappedPage(page, document:getPageCount(), remote_pages)
   local wifi_was_off = false
@@ -242,41 +251,68 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
 
     UIManager:show(dialog)
     dialog:onShowKeyboard()
+
+    --[[
+    Resolve the edition only after the dialog is up. This lookup used to run
+    above the dialog's construction, so a book with no linked edition -- which
+    is every book the reader has not linked yet -- blocked for the length of a
+    request before anything appeared. The dialog is fully usable without it:
+    it just does not know which edition the note belongs to yet, and setEdition
+    fills that in when the answer lands.
+
+    A failure here is not worth a dialog of its own. The user can still write
+    the note and save it; the edition is filled in later, or the note is saved
+    against the default by the save path. Reporting it would interrupt a task
+    that is otherwise fine.
+    ]]
+    if not edition_id and settings.book_id then
+      Api:findDefaultEditionAsync(settings.book_id, User:getId(), function(edition)
+        if not edition then return end
+        if not UIManager:isWidgetShown(dialog) then return end
+        dialog:setEdition(
+          edition.id,
+          Book:editionFormatName(edition.edition_format, edition.reading_format_id),
+          edition.pages
+        )
+      end)
+    end
   end)
 end
 
 --
 -- Browse a shelf (Want to Read by default) and open details for a selection.
 --
+-- Show-then-fetch. The first page used to be fetched here, before the dialog
+-- existed, and an error called showError and returned -- so on a device with no
+-- route to the API the tap produced no screen at all for up to six seconds
+-- (socketutil:set_timeout(6, 12) in hardcover_api.lua), which on e-ink reads as
+-- a crashed device. The dialog is now built and shown empty, and the fetch only
+-- updates a screen that already exists.
+--
+-- The user can close the dialog while the request is in flight, so every write
+-- below is guarded on isWidgetShown. Updating a freed widget crashes.
+--
 function DialogManager:showShelf(status_id, title, done_callback)
   local user_id = User:getId()
 
-  local fetch_page = function(offset, limit, callback)
-    local entries, err, has_more = Api:getShelf(user_id, status_id, offset, limit)
-    callback(entries, err, has_more)
-  end
-
-  -- first page is fetched up front so the dialog opens with content in it
-  local entries, err, has_more = Api:getShelf(user_id, status_id, 0, 20)
-
-  if err or not entries then
-    self:showError(_("Could not load your list from Hardcover"))
-    return
-  end
-
   if self.shelf_dialog then
     self.shelf_dialog:free()
+    self.shelf_dialog = nil
   end
 
   self.shelf_dialog = ShelfDialog:new {
     compatibility_mode = self.settings:compatibilityMode(),
     title = title,
     status_id = status_id,
-    entries = entries,
-    has_more = has_more,
-    offset = #entries,
+    -- Empty until the fetch lands. Passing a nil here would reach the API as a
+    -- nil offset and silently refetch page one forever.
+    entries = {},
+    has_more = false,
+    offset = 0,
     page_size = 20,
-    fetch_page = fetch_page,
+    fetch_page = function(offset, limit, callback)
+      Api:getShelfAsync(user_id, status_id, offset, limit, callback)
+    end,
     select_entry_cb = function(entry)
       self:showBookDetail(entry.book_id, nil, done_callback)
     end,
@@ -288,24 +324,72 @@ function DialogManager:showShelf(status_id, title, done_callback)
   }
 
   UIManager:show(self.shelf_dialog)
+
+  local loading = StatusDialogs.loading(_("Loading your shelf…"))
+
+  Api:getShelfAsync(user_id, status_id, 0, self.shelf_dialog.page_size,
+    function(entries, err, has_more)
+      StatusDialogs.close(loading)
+      if not UIManager:isWidgetShown(self.shelf_dialog) then return end
+
+      if err or not entries then
+        -- Offer the retry rather than an error the user can only dismiss and
+        -- start again. Recursion is safe: it rebuilds the dialog and shows it
+        -- again, and the fetch below is the same code.
+        StatusDialogs.retry(err or _("no response"), _("Loading your shelf"),
+          function()
+            self:showShelf(status_id, title, done_callback)
+          end,
+          function() end)
+        return
+      end
+
+      if #entries == 0 then
+        self.shelf_dialog:setEmptyState(_("No books on this shelf yet"))
+        return
+      end
+
+      self.shelf_dialog.offset = #entries
+      self.shelf_dialog:setEntries(entries, has_more and #entries > 0)
+    end)
 end
 
 --
 -- Fetch and display full details for one book.
 --
+-- Show-then-fetch, same reason as showShelf: the detail used to be fetched
+-- before the dialog existed, so a failure showed an error in place of a screen
+-- and an offline tap did nothing at all.
+--
 function DialogManager:showBookDetail(book_id, edition_id, done_callback)
-  local detail = Api:getBookDetail(book_id, User:getId(), edition_id)
-
-  if not detail then
-    self:showError(_("Could not load book details"))
-    return
-  end
-
   local dialog = BookDetailDialog:new {
-    detail = detail,
+    detail = nil,
+    loading = true,
   }
 
   UIManager:show(dialog)
+
+  local loading = StatusDialogs.loading(_("Loading book details…"))
+
+  Api:getBookDetailAsync(book_id, User:getId(), edition_id, function(detail)
+    StatusDialogs.close(loading)
+    if not UIManager:isWidgetShown(dialog) then return end
+
+    if not detail then
+      StatusDialogs.retry(_("no response"), _("Loading book details"),
+        function()
+          UIManager:close(dialog)
+          self:showBookDetail(book_id, edition_id, done_callback)
+        end,
+        function() UIManager:close(dialog) end)
+      return
+    end
+
+    dialog:setDetail(detail)
+    if done_callback then
+      done_callback()
+    end
+  end)
 
   return dialog
 end

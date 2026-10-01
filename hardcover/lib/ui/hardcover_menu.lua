@@ -644,7 +644,12 @@ function HardcoverMenu:getStatusSubMenuItems()
               self.state.book_status = result
               menu_instance:updateItems()
             else
-
+              -- Was an empty branch: a failed page write was invisible, so a
+              -- reader who set the page and saw nothing happen had no way to
+              -- tell a rejected write from a working one. The progress would
+              -- simply re-sync from the server later, looking like the change
+              -- had been lost.
+              self.dialog_manager:showError(_("Page could not be saved"))
             end
           end
         }
@@ -713,7 +718,13 @@ function HardcoverMenu:getStatusSubMenuItems()
               self.state.book_status = result
               menu_instance:updateItems()
             else
-              self.dialog_magager:showError("Rating could not be saved")
+              -- Was self.dialog_magager, misspelled. Indexing that field is nil, so a
+              -- failed rating save raised "attempt to index a nil value" from
+              -- inside the spinner's OK callback instead of telling the user
+              -- their rating had not been saved -- and the raise happened
+              -- after the spinner was already gone, so the screen simply did
+              -- not change.
+              self.dialog_manager:showError(_("Rating could not be saved"))
             end
           end
         }
