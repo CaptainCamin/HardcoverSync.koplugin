@@ -116,11 +116,29 @@ end
 -- dropped connection, and the user cannot either. Nothing here claims the failure
 -- was temporary, because for a walled server or a wrong host it is not, and
 -- "temporary" invites a retry that cannot work.
+-- Turn whatever a failed call handed back into text a person can read.
+--
+-- The API reports failure as nil plus an error *table* (for example
+-- { completed = false } when there was no connection or the request was
+-- cancelled), and tostring() of that prints "table: 0x...". Strings pass
+-- through; known shapes get a sentence; anything else a generic one.
+function SD.describe(err)
+  if type(err) == "string" and err ~= "" then
+    return err
+  end
+  if type(err) == "table" then
+    if type(err.message) == "string" then return err.message end
+    if err.completed == false then return _("no response from Hardcover") end
+    if err.status then return string.format(_("Hardcover returned an error (%s)"), tostring(err.status)) end
+  end
+  return _("no response")
+end
+
 function SD.retry(err, operation_name, retry_callback, cancel_callback)
   return SD.confirm{
     text = string.format(
       _("Could not complete \"%s\": %s Would you like to retry?"),
-      tostring(operation_name), tostring(err)),
+      tostring(operation_name), SD.describe(err)),
     ok_text = _("Retry"),
     cancel_text = _("Cancel"),
     ok_callback = retry_callback,

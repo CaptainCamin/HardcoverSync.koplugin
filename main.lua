@@ -29,6 +29,7 @@ local Hardcover = require("hardcover/lib/hardcover")
 local HardcoverSettings = require("hardcover/lib/hardcover_settings")
 local PageMapper = require("hardcover/lib/page_mapper")
 local Scheduler = require("hardcover/lib/scheduler")
+local ShelfCache = require("hardcover/lib/shelf_cache")
 local SyncQueue = require("hardcover/lib/sync_queue")
 local throttle = require("hardcover/lib/throttle")
 local User = require("hardcover/lib/user")
@@ -109,6 +110,12 @@ function HardcoverApp:init()
   }
   Api.auth = self.auth
 
+  -- Opened on first use, so an unused cache costs nothing at startup.
+  self.shelf_cache = ShelfCache:new {
+    path = ("%s/%s"):format(DataStorage:getSettingsDir(), "hardcovershelf_cache.lua"),
+    open = function(path) return LuaSettings:open(path) end,
+  }
+
   self.sync_queue = SyncQueue:new {
     settings = LuaSettings:open(("%s/%s"):format(DataStorage:getSettingsDir(), "hardcoversync_queue.lua"))
   }
@@ -150,6 +157,7 @@ function HardcoverApp:init()
   self.dialog_manager = DialogManager:new {
     page_mapper = self.page_mapper,
     settings = self.settings,
+    shelf_cache = self.shelf_cache,
     state = self.state,
     ui = self.ui,
     wifi = self.wifi
@@ -178,7 +186,11 @@ function HardcoverApp:init()
     wifi = self.wifi,
     on_flush_sync_queue = function() self:on_flush_sync_queue() end,
     on_sign_in = function() self:signIn() end,
-    on_sign_out = function() self.auth:signOut() end,
+    on_sign_out = function()
+      -- the cache holds this account's library, so it goes with the sign in
+      self.shelf_cache:clear()
+      self.auth:signOut()
+    end,
   }
 
   self:onDispatcherRegisterActions()

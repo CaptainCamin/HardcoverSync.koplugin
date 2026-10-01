@@ -138,6 +138,39 @@ function Shelf.normalizeEntry(user_book)
     ratings_count = book.ratings_count,
     cached_image = book.cached_image,
     description = book.description,
+    -- kept raw so a book's details can be rebuilt from this row alone when the
+    -- network is not there (see Shelf.detailFromEntry)
+    contributions = book.contributions,
+    book_series = book.book_series,
+  }
+end
+
+--
+-- The shape the book detail screen expects, rebuilt from a shelf row.
+--
+-- A shelf row carries most of what the detail query returns, so an offline tap
+-- can still show something. It is the book level view: edition fields
+-- (publisher, format, ISBN) are not on a shelf row and are simply absent.
+--
+function Shelf.detailFromEntry(entry)
+  entry = entry or {}
+  return {
+    book = {
+      book_id = entry.book_id,
+      title = entry.title,
+      release_year = entry.release_year,
+      pages = entry.pages,
+      users_count = entry.users_count,
+      rating = entry.community_rating,
+      ratings_count = entry.ratings_count,
+      description = entry.description,
+      cached_image = entry.cached_image,
+      contributions = entry.contributions,
+      book_series = entry.book_series,
+    },
+    user_book_id = entry.user_book_id,
+    status_id = entry.status_id,
+    user_rating = entry.user_rating,
   }
 end
 

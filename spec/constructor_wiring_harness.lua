@@ -35,7 +35,8 @@ end
 
 -- fields supplied in `Name:new { ... }` (top-level keys of that table)
 local function supplied(main_src, ctor)
-  local start = main_src:find(ctor .. ":new%s*{")
+  -- %f[%w_] so "Cache" does not match inside "ShelfCache:new {"
+  local start = main_src:find("%f[%w_]" .. ctor .. ":new%s*{")
   if not start then return nil end
   local body_start = main_src:find("{", start, true)
   local depth, i = 0, body_start

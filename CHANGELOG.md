@@ -23,6 +23,9 @@
 
 ### Fixed
 
+* Error messages for a failed list no longer print `table: 0x...`; they say what happened.
+* Opening a list with no connection no longer tries to download covers it does not have, which each waited
+  out a timeout.
 * Tapping `Sync now` crashed KOReader: the menu was never given the function that sends pending changes. It
   also was never given the wifi helper, so any menu item that opens a screen crashed when wifi was off.
 * The screen is now refreshed after closing the book details and sign-in screens. KOReader repaints what was
@@ -50,6 +53,12 @@
 
 ### Added
 
+* Your shelves work offline. Want to Read, Currently Reading and any other list are saved on the device as
+  you browse them (each page you load is kept), so you can open them with no connection. When a saved list
+  exists it appears immediately and refreshes quietly in the background; offline you are told it is the saved
+  copy and when it was saved. Tapping a book offline shows the details that were saved with the list
+  (author, series, rating, description), without edition fields such as publisher and ISBN. Covers you have
+  already seen also show offline. Signing out clears the saved lists.
 * The `Sync now` menu item is greyed out when there is nothing to sync.
 * Offline progress tracking. Turning a page with no network now records where you are instead of
   dropping the update. Pending changes are queued on disk, so they survive closing the book or

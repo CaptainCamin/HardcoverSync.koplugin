@@ -194,6 +194,20 @@ check("halting stops further delivery", function()
   expect(#got == 1, "delivered " .. #got .. " after halt")
 end)
 
+check("offline: cached covers are served, the rest are skipped without a download", function()
+  reset()
+  ImageLoader.cache:put("u1", "CACHED1")
+  local original = ImageLoader.isOnline
+  ImageLoader.isOnline = function() return false end
+  local got = {}
+  ImageLoader:loadImages({ "u1", "u2", "u3" }, function(url, content) got[#got + 1] = url .. "=" .. content end)
+  drain()
+  ImageLoader.isOnline = original
+  assert(#fetched == 0, "tried to download while offline: " .. table.concat(fetched, ","))
+  assert(table.concat(got, ",") == "u1=CACHED1", table.concat(got, ","))
+  assert(not ImageLoader:isLoading(), "the batch never finished")
+end)
+
 check("works with no cache at all", function()
   reset()
   ImageLoader.cache = false

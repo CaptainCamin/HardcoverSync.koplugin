@@ -2,6 +2,7 @@ local _ = require("gettext")
 local json = require("json")
 
 local UIManager = require("ui/uimanager")
+local NetworkManager = require("ui/network/manager")
 
 local ConfirmBox = require("ui/widget/confirmbox")
 local InfoMessage = require("ui/widget/infomessage")
@@ -9,6 +10,7 @@ local FileSearcher = require("apps/filemanager/filemanagerfilesearcher")
 
 local Api = require("hardcover/lib/hardcover_api")
 local Book = require("hardcover/lib/book")
+local Shelf = require("hardcover/lib/shelf")
 local User = require("hardcover/lib/user")
 
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
@@ -426,9 +428,14 @@ end
 --
 function DialogManager:showShelf(status_id, title, done_callback)
   local user_id = User:getId()
+  local cache = self.shelf_cache
 
   discard(self.shelf_dialog)
   self.shelf_dialog = nil
+
+  -- What was fetched last time, if anything. Shown at once, so the list is
+  -- there before (or without) the network; the fetch below then refreshes it.
+  local cached = cache and cache:getPage(user_id, status_id, 0)
 
   self.shelf_dialog = require("hardcover/lib/ui/shelf_dialog"):new {
     compatibility_mode = self.settings:compatibilityMode(),
@@ -441,7 +448,24 @@ function DialogManager:showShelf(status_id, title, done_callback)
     offset = 0,
     page_size = 20,
     fetch_page = function(offset, limit, callback)
-      Api:getShelfAsync(user_id, status_id, offset, limit, callback)
+      local saved = cache and cache:getPage(user_id, status_id, offset)
+
+      if not NetworkManager:isConnected() then
+        -- Offline: serve the page if it was seen before, otherwise say so.
+        if saved then
+          callback(saved.entries, nil, saved.has_more)
+        else
+          callback(nil, _("not available offline"))
+        end
+        return
+      end
+
+      Api:getShelfAsync(user_id, status_id, offset, limit, function(entries, err, has_more)
+        if entries and cache then
+          cache:putPage(user_id, status_id, offset, entries, has_more)
+        end
+        callback(entries, err, has_more)
+      end)
     end,
     select_entry_cb = function(entry)
       self:showBookDetail(entry.book_id, nil, done_callback)
@@ -455,18 +479,44 @@ function DialogManager:showShelf(status_id, title, done_callback)
 
   UIManager:show(self.shelf_dialog)
 
-  local loading = StatusDialogs.loading(_("Loading your shelf…"))
+  local dialog = self.shelf_dialog
 
-  Api:getShelfAsync(user_id, status_id, 0, self.shelf_dialog.page_size,
+  if cached and #cached.entries > 0 then
+    dialog.offset = #cached.entries
+    dialog:setEntries(cached.entries, cached.has_more)
+  end
+
+  -- Offline there is nothing to wait for: say what is being shown and stop.
+  if not NetworkManager:isConnected() then
+    if cached then
+      StatusDialogs.info(string.format(_("Offline: showing your list as it was on %s"),
+        os.date("%Y-%m-%d", cached.saved_at or os.time())))
+    else
+      StatusDialogs.retry(_("no internet connection"), _("Loading your shelf"),
+        function() self:showShelf(status_id, title, done_callback) end,
+        function() end)
+    end
+    return
+  end
+
+  -- With a saved list already on screen the refresh is quiet; without one the
+  -- reader is waiting on it, so say so.
+  local loading = not cached and StatusDialogs.loading(_("Loading your shelf…")) or nil
+
+  Api:getShelfAsync(user_id, status_id, 0, dialog.page_size,
     function(entries, err, has_more)
-      StatusDialogs.close(loading)
-      if not UIManager:isWidgetShown(self.shelf_dialog) then return end
+      if loading then StatusDialogs.close(loading) end
+      if not UIManager:isWidgetShown(dialog) then return end
 
       if err or not entries then
+        -- The saved list is still right there; failing to refresh it is not
+        -- worth interrupting for.
+        if cached then return end
+
         -- Offer the retry rather than an error the user can only dismiss and
         -- start again. Recursion is safe: it rebuilds the dialog and shows it
         -- again, and the fetch below is the same code.
-        StatusDialogs.retry(err or _("no response"), _("Loading your shelf"),
+        StatusDialogs.retry(err, _("Loading your shelf"),
           function()
             self:showShelf(status_id, title, done_callback)
           end,
@@ -474,13 +524,17 @@ function DialogManager:showShelf(status_id, title, done_callback)
         return
       end
 
+      if cache then
+        cache:putPage(user_id, status_id, 0, entries, has_more)
+      end
+
       if #entries == 0 then
-        self.shelf_dialog:setEmptyState(_("No books on this shelf yet"))
+        dialog:setEmptyState(_("No books on this shelf yet"))
         return
       end
 
-      self.shelf_dialog.offset = #entries
-      self.shelf_dialog:setEntries(entries, has_more and #entries > 0)
+      dialog.offset = #entries
+      dialog:setEntries(entries, has_more and #entries > 0)
     end)
 end
 
@@ -499,13 +553,45 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
 
   UIManager:show(dialog)
 
+  local user_id = User:getId()
+  local saved = self.shelf_cache and self.shelf_cache:findEntry(user_id, book_id)
+
+  -- What a shelf row already knows, shown when the network cannot supply the
+  -- full record. Book level only: edition fields are not on a shelf row.
+  local function showSaved()
+    dialog:setDetail(Shelf.detailFromEntry(saved))
+    StatusDialogs.info(_("Offline: showing saved details"))
+    if done_callback then
+      done_callback()
+    end
+  end
+
+  if not NetworkManager:isConnected() then
+    if saved then
+      showSaved()
+    else
+      StatusDialogs.retry(_("no internet connection"), _("Loading book details"),
+        function()
+          UIManager:close(dialog)
+          self:showBookDetail(book_id, edition_id, done_callback)
+        end,
+        function() UIManager:close(dialog) end)
+    end
+    return dialog
+  end
+
   local loading = StatusDialogs.loading(_("Loading book details…"))
 
-  Api:getBookDetailAsync(book_id, User:getId(), edition_id, function(detail)
+  Api:getBookDetailAsync(book_id, user_id, edition_id, function(detail)
     StatusDialogs.close(loading)
     if not UIManager:isWidgetShown(dialog) then return end
 
     if not detail then
+      if saved then
+        showSaved()
+        return
+      end
+
       StatusDialogs.retry(_("no response"), _("Loading book details"),
         function()
           UIManager:close(dialog)

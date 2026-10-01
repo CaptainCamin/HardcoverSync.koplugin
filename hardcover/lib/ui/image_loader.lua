@@ -32,6 +32,13 @@ function ImageLoader:getCache()
   return self.cache or nil
 end
 
+-- Overridable so tests need no network manager.
+function ImageLoader:isOnline()
+  local ok, NetworkManager = pcall(require, "ui/network/manager")
+  if not ok then return true end
+  return NetworkManager:isConnected()
+end
+
 local Batch = {}
 Batch.__index = Batch
 
@@ -88,6 +95,13 @@ function Batch:loadImages(urls)
     local cached = cache and cache:get(url)
     if cached then
       self.callback(url, cached)
+      schedule_next(CACHED_DELAY)
+      return
+    end
+
+    -- Offline, a download can only fail, and each one waits out a timeout. Covers
+    -- already on disk were served above; the rest are simply skipped.
+    if not ImageLoader:isOnline() then
       schedule_next(CACHED_DELAY)
       return
     end
