@@ -14,6 +14,11 @@
 
 ### Fixed
 
+* The screen is now refreshed after closing the book details and sign-in screens. KOReader repaints what was
+  underneath but only refreshes an e-ink panel if the closing widget asks for it, and these two never did,
+  so the closed screen could stay visible until something else triggered a refresh.
+* Retrying a list that failed to load (shelves, search, edition lists, suggested books) no longer leaves the
+  failed screen underneath the new one, which showed up again after closing the new one.
 * OAuth: the access token is now resolved (and refreshed) before the request is handed to its subprocess.
   Previously a refresh ran inside the subprocess, so the new tokens reached disk but not the running
   plugin, which then refreshed again with the already-used refresh token. Hardcover treats that as a replay

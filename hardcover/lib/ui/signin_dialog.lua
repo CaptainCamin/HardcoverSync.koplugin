@@ -155,6 +155,13 @@ function SignInDialog:poll()
   UIManager:scheduleIn(delay, self.poll, self)
 end
 
+-- See BookDetailDialog:onCloseWidget: close() queues no refresh by itself, and
+-- WidgetContainer does not either, so every way out of this dialog (success,
+-- declined, expired, cancelled) left the code on screen.
+function SignInDialog:onCloseWidget()
+  UIManager:setDirty(nil, "ui")
+end
+
 function SignInDialog:onSuccess()
   self.cancelled = true
   UIManager:close(self)

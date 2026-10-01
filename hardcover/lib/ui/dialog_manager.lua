@@ -61,15 +61,29 @@ local function mapJournalData(data)
   return result
 end
 
+-- Tear down a dialog that is about to be replaced.
+--
+-- free() alone is not enough: a dialog that is still on KOReader's window stack
+-- stays there, freed, underneath its replacement. Closing the replacement then
+-- reveals the dead one -- a menu that was closed but is still on screen. The
+-- retry paths hit this: the failed dialog is still showing when "Retry" builds
+-- its successor. close() rather than onClose(), so the dialog's close_callback
+-- (which can prompt to turn wifi off) is not fired for a replacement.
+local function discard(dialog)
+  if not dialog then return end
+  if UIManager:isWidgetShown(dialog) then
+    UIManager:close(dialog)
+  end
+  dialog:free()
+end
+
 function DialogManager:buildSearchDialog(title, items, active_item, book_callback, search_callback, search)
   local callback = function(book)
     self.search_dialog:onClose()
     book_callback(book)
   end
 
-  if self.search_dialog then
-    self.search_dialog:free()
-  end
+  discard(self.search_dialog)
 
   self.search_dialog = require("hardcover/lib/ui/search_dialog"):new {
     compatibility_mode = self.settings:compatibilityMode(),
@@ -102,10 +116,8 @@ end
 -- nothing for an edition with a thin metadata record.
 --
 function DialogManager:buildLoadingSearchDialog(title, fetch, active_item, book_callback, search_callback, search_value)
-  if self.search_dialog then
-    self.search_dialog:free()
-    self.search_dialog = nil
-  end
+  discard(self.search_dialog)
+  self.search_dialog = nil
 
   self.search_dialog = require("hardcover/lib/ui/search_dialog"):new {
     compatibility_mode = self.settings:compatibilityMode(),
@@ -183,10 +195,8 @@ end
 -- existed.
 --
 function DialogManager:buildBookListDialog(title, items, icon_callback, disable_wifi_after, fetch)
-  if self.search_dialog then
-    self.search_dialog:free()
-    self.search_dialog = nil
-  end
+  discard(self.search_dialog)
+  self.search_dialog = nil
 
   self.search_dialog = require("hardcover/lib/ui/search_dialog"):new {
     compatibility_mode = self.settings:compatibilityMode(),
@@ -407,10 +417,8 @@ end
 function DialogManager:showShelf(status_id, title, done_callback)
   local user_id = User:getId()
 
-  if self.shelf_dialog then
-    self.shelf_dialog:free()
-    self.shelf_dialog = nil
-  end
+  discard(self.shelf_dialog)
+  self.shelf_dialog = nil
 
   self.shelf_dialog = require("hardcover/lib/ui/shelf_dialog"):new {
     compatibility_mode = self.settings:compatibilityMode(),

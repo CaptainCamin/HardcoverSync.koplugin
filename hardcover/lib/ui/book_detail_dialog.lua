@@ -274,6 +274,15 @@ function BookDetailDialog:onShowDetail()
   UIManager:setDirty(self, "ui")
 end
 
+-- UIManager:close() repaints whatever was underneath into the framebuffer, but
+-- queues no refresh of its own: with no mode given, _refresh() drops it. Stock
+-- widgets queue theirs from here, and this one extends FocusManager, which does
+-- not. Without it the dialog stays on the e-ink panel after it has closed,
+-- until something else refreshes that area.
+function BookDetailDialog:onCloseWidget()
+  UIManager:setDirty(nil, "ui")
+end
+
 function BookDetailDialog:onCloseDetail()
   UIManager:close(self)
   return true
