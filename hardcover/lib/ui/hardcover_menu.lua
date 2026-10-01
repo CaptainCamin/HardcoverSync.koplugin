@@ -12,7 +12,6 @@ local UIManager = require("ui/uimanager")
 local NetworkMgr = require("ui/network/manager")
 local logger = require("logger")
 
-local UpdateDoubleSpinWidget = require("hardcover/lib/ui/update_double_spin_widget")
 local InfoMessage = require("ui/widget/infomessage")
 local SpinWidget = require("ui/widget/spinwidget")
 
@@ -604,6 +603,7 @@ function HardcoverMenu:getStatusSubMenuItems()
           left_text = left_text .. ": was " .. last_hardcover_page
         end
 
+        local UpdateDoubleSpinWidget = require("hardcover/lib/ui/update_double_spin_widget")
         local spinner = UpdateDoubleSpinWidget:new {
           ok_always_enabled = true,
 

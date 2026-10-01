@@ -4,6 +4,9 @@
 
 ### Performance
 
+* Faster startup: the search, shelf, book detail, journal and sign-in screens (and the list and cover widgets
+  behind them, about 3,700 lines of code) now load the first time they are opened instead of every time
+  KOReader starts.
 * Offline page turns write the pending queue to disk once instead of twice.
 * Cover images are cached on disk, so revisiting a shelf or search result no longer downloads them again.
 * Covers start loading on the next tick instead of after a fixed one second delay, and a cover that appears

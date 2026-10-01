@@ -13,11 +13,12 @@ local User = require("hardcover/lib/user")
 
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 
-local BookDetailDialog = require("hardcover/lib/ui/book_detail_dialog")
-local JournalDialog = require("hardcover/lib/ui/journal_dialog")
-local SearchDialog = require("hardcover/lib/ui/search_dialog")
-local ShelfDialog = require("hardcover/lib/ui/shelf_dialog")
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
+
+-- The book detail, journal, search and shelf dialogs are required where they
+-- are first shown, not here. They pull in the vendored ListMenu and CoverMenu
+-- (about 1,500 lines) and KOReader loads this plugin on every start, so
+-- loading them eagerly cost startup time for screens most sessions never open.
 
 local DialogManager = {}
 DialogManager.__index = DialogManager
@@ -70,7 +71,7 @@ function DialogManager:buildSearchDialog(title, items, active_item, book_callbac
     self.search_dialog:free()
   end
 
-  self.search_dialog = SearchDialog:new {
+  self.search_dialog = require("hardcover/lib/ui/search_dialog"):new {
     compatibility_mode = self.settings:compatibilityMode(),
     title = title,
     items = items,
@@ -106,7 +107,7 @@ function DialogManager:buildLoadingSearchDialog(title, fetch, active_item, book_
     self.search_dialog = nil
   end
 
-  self.search_dialog = SearchDialog:new {
+  self.search_dialog = require("hardcover/lib/ui/search_dialog"):new {
     compatibility_mode = self.settings:compatibilityMode(),
     title = title,
     items = {},
@@ -187,7 +188,7 @@ function DialogManager:buildBookListDialog(title, items, icon_callback, disable_
     self.search_dialog = nil
   end
 
-  self.search_dialog = SearchDialog:new {
+  self.search_dialog = require("hardcover/lib/ui/search_dialog"):new {
     compatibility_mode = self.settings:compatibilityMode(),
     title = title,
     items = items or {},
@@ -284,7 +285,7 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
   mapped_page = mapped_page or self.page_mapper:getMappedPage(page, document:getPageCount(), remote_pages)
   local wifi_was_off = false
   local dialog
-  dialog = JournalDialog:new {
+  dialog = require("hardcover/lib/ui/journal_dialog"):new {
     input = text,
     event_type = event_type or "note",
     book_id = settings.book_id,
@@ -411,7 +412,7 @@ function DialogManager:showShelf(status_id, title, done_callback)
     self.shelf_dialog = nil
   end
 
-  self.shelf_dialog = ShelfDialog:new {
+  self.shelf_dialog = require("hardcover/lib/ui/shelf_dialog"):new {
     compatibility_mode = self.settings:compatibilityMode(),
     title = title,
     status_id = status_id,
@@ -473,7 +474,7 @@ end
 -- and an offline tap did nothing at all.
 --
 function DialogManager:showBookDetail(book_id, edition_id, done_callback)
-  local dialog = BookDetailDialog:new {
+  local dialog = require("hardcover/lib/ui/book_detail_dialog"):new {
     detail = nil,
     loading = true,
   }

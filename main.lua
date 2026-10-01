@@ -34,7 +34,6 @@ local User = require("hardcover/lib/user")
 
 local DialogManager = require("hardcover/lib/ui/dialog_manager")
 local HardcoverMenu = require("hardcover/lib/ui/hardcover_menu")
-local SignInDialog = require("hardcover/lib/ui/signin_dialog")
 
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local SETTING = require("hardcover/lib/constants/settings")
@@ -261,6 +260,8 @@ function HardcoverApp:signIn()
     return
   end
 
+  -- required here, not at the top: only needed when signing in
+  local SignInDialog = require("hardcover/lib/ui/signin_dialog")
   local dialog = SignInDialog:new {
     auth = self.auth,
     device = device,
