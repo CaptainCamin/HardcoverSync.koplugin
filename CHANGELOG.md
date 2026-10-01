@@ -2,6 +2,19 @@
 
 ## 0.6.0
 
+### Performance
+
+* Cover images are cached on disk, so revisiting a shelf or search result no longer downloads them again.
+* Covers start loading on the next tick instead of after a fixed one second delay, and a cover that appears
+  in several rows is downloaded once.
+
+### Fixed
+
+* Fixed a leaked global in the book cache retry handling that could cancel the wrong request after
+  switching books.
+* The sign-in "Contacting Hardcover" message is now painted before the network request starts.
+* An empty cover list no longer triggers a request for a missing URL.
+
 ### Added
 
 * Offline progress tracking. Turning a page with no network now records where you are instead of

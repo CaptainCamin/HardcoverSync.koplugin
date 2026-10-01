@@ -161,8 +161,8 @@ function CoverMenu:updateItems(select_number, no_recalculate_dimen)
     for i = 1, #self.items_to_update do
       local item = self.items_to_update[i]
       if item.lazy_load_cover then
-        table.insert(images, item.entry.cover_url)
         if not items_by_cover_url[item.entry.cover_url] then
+          table.insert(images, item.entry.cover_url)
           items_by_cover_url[item.entry.cover_url] = { item }
         else
           table.insert(items_by_cover_url[item.entry.cover_url], item)
@@ -172,7 +172,9 @@ function CoverMenu:updateItems(select_number, no_recalculate_dimen)
     self.items_to_update = {}
 
     if #images > 0 then
-      UIManager:scheduleIn(1, function()
+      -- next tick, not a fixed delay: the menu has already been marked dirty
+      -- above and is painted before the next tick runs
+      UIManager:nextTick(function()
         image_batch, self.halt_image_loading = ImageLoader:loadImages(images, function(url, content)
           for _, item in ipairs(items_by_cover_url[url]) do
             item.entry.lazy_load_cover = false
