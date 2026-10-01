@@ -9,6 +9,7 @@ local Notification = require("ui/widget/notification")
 local InfoMessage = require("ui/widget/infomessage")
 
 local Api = require("hardcover/lib/hardcover_api")
+local Background = require("hardcover/lib/background")
 local Book = require("hardcover/lib/book")
 local User = require("hardcover/lib/user")
 
@@ -39,22 +40,30 @@ function Hardcover:showLinkBookDialog(force_search, link_callback)
   self.dialog_manager:buildLoadingSearchDialog(
     _("Select book"),
     function(callback)
-      -- findBookOptions returns (title, books, err); the dialog wants
-      -- (books, err).
-      local ok, resolved_title, books, err = pcall(self.findBookOptions, self, force_search)
-      if not ok then
-        callback(nil, tostring(resolved_title))
-        return
-      end
-      search_value = search_value or resolved_title
-      callback(books, err)
+      -- Two lookups (identifiers, then a title search) in the background, so the
+      -- dialog that is already on screen stays alive while they run.
+      Background.run(function()
+        -- findBookOptions returns (title, books, err); the dialog wants
+        -- (books, err).
+        local ok, resolved_title, books, err = pcall(self.findBookOptions, self, force_search)
+        UIManager:nextTick(function()
+          if not ok then
+            callback(nil, tostring(resolved_title))
+            return
+          end
+          search_value = search_value or resolved_title
+          callback(books, err)
+        end)
+      end)
     end,
     {
       book_id = self.settings:getLinkedBookId()
     },
     function(book)
-      self:linkBook(book)
-      if link_callback then link_callback(book) end
+      Background.run(function()
+        self:linkBook(book)
+        if link_callback then link_callback(book) end
+      end)
     end,
     -- Without this the dialog cannot be searched from, and the initial lookup
     -- returns nothing often enough -- a thin metadata record, an edition with
@@ -101,10 +110,12 @@ function Hardcover:showRandomBookDialog()
       _("Suggest a book"),
       has_cache and cached or {},
       function()
-        local books = reload()
-        if books and #books > 0 then
-          self.dialog_manager:updateRandomBooks(books)
-        end
+        Background.run(function()
+          local books = reload()
+          if books and #books > 0 then
+            self.dialog_manager:updateRandomBooks(books)
+          end
+        end)
       end,
       wifi_enabled,
       has_cache and nil or function(callback)
@@ -120,18 +131,22 @@ function Hardcover:showRandomBookDialog()
 end
 
 function Hardcover:updateCurrentBookStatus(status, privacy_setting_id)
-  self.cache:updateBookStatus(self.ui.document.file, status, privacy_setting_id)
-  if not self.state.book_status.id then
-    self.dialog_manager:showError("Book status could not be updated")
-  end
+  Background.run(function()
+    self.cache:updateBookStatus(self.ui.document.file, status, privacy_setting_id)
+    if not self.state.book_status.id then
+      self.dialog_manager:showError("Book status could not be updated")
+    end
+  end)
 end
 
 function Hardcover:changeBookVisibility(visibility)
-  self.cache:cacheUserBook()
+  Background.run(function()
+    self.cache:cacheUserBook()
 
-  if self.state.book_status.id then
-    self:updateCurrentBookStatus(self.state.book_status.status_id, visibility)
-  end
+    if self.state.book_status.id then
+      self:updateCurrentBookStatus(self.state.book_status.status_id, visibility)
+    end
+  end)
 end
 
 function Hardcover:linkBook(book)
@@ -259,7 +274,9 @@ function Hardcover:tryAutolink()
     or ((identifiers.book_slug or identifiers.edition_id) and self.settings:readSetting(SETTING.LINK_BY_HARDCOVER))
     or (props.title and self.settings:readSetting(SETTING.LINK_BY_TITLE)) then
     self.wifi:withWifi(function()
-      self:_runAutolink(identifiers)
+      Background.run(function()
+        self:_runAutolink(identifiers)
+      end)
     end)
   end
 end

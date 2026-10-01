@@ -21,6 +21,7 @@ local _t = require("hardcover/lib/table_util")
 local Api = require("hardcover/lib/hardcover_api")
 local Auth = require("hardcover/lib/auth")
 local AutoWifi = require("hardcover/lib/auto_wifi")
+local Background = require("hardcover/lib/background")
 local Cache = require("hardcover/lib/cache")
 local Config = require("hardcover/lib/config")
 local debounce = require("hardcover/lib/debounce")
@@ -314,15 +315,20 @@ end
 
 function HardcoverApp:onHardcoverUpdateProgress()
   if self.ui.document and self.settings:bookLinked() then
-    self:updatePageNow(function(result)
-      if result then
-        local text = result.queued and _("Progress saved offline, will sync") or _("Progress updated")
-        UIManager:show(Notification:new {
-          text = text
-        })
-      else
-        logger.warn("Unsuccessful updating page progress", self.ui.document.file)
-      end
+    -- In the background so the request does not freeze the reader. The updates
+    -- sent when the document closes or the device suspends deliberately stay
+    -- blocking: they have to finish before the device goes away.
+    Background.run(function()
+      self:updatePageNow(function(result)
+        if result then
+          local text = result.queued and _("Progress saved offline, will sync") or _("Progress updated")
+          UIManager:show(Notification:new {
+            text = text
+          })
+        else
+          logger.warn("Unsuccessful updating page progress", self.ui.document.file)
+        end
+      end)
     end)
   else
     logger.warn(self.state.book_status)
@@ -703,7 +709,9 @@ function HardcoverApp:onEndOfBook()
   end
 
   local marker = function()
-    self.cache:updateBookStatus(file_path, HARDCOVER.STATUS.FINISHED)
+    Background.run(function()
+      self.cache:updateBookStatus(file_path, HARDCOVER.STATUS.FINISHED)
+    end)
   end
 
   if mark_read == 'later' then
@@ -745,7 +753,9 @@ function HardcoverApp:onDocSettingsItemsChanged(file, doc_settings)
   end
 
   if status then
-    self.cache:updateBookStatus(file, status)
+    Background.run(function()
+      self.cache:updateBookStatus(file, status)
+    end)
     UIManager:show(InfoMessage:new {
       text = _("Hardcover status saved"),
       timeout = 2

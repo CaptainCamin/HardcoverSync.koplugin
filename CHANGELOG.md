@@ -4,6 +4,10 @@
 
 ### Performance
 
+* Changing a book's status, removing a read, setting the page, rating, changing visibility, linking a book or
+  edition, automatic linking, suggesting a book, marking a book finished, and the "update progress" gesture
+  no longer freeze KOReader while they wait on Hardcover. Saving a journal entry still waits for the reply
+  (the dialog needs the result to answer), but now shows "Saving..." first so you can see the tap registered.
 * Screens that load a list or details from Hardcover (shelves, search, editions, book details, suggested books)
   no longer freeze KOReader while waiting for the reply. The requests now run in the background, so the
   "Loading..." message is actually drawn first, and a tap cancels the request. Previously they ran in-process

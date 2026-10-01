@@ -16,6 +16,7 @@ local InfoMessage = require("ui/widget/infomessage")
 local SpinWidget = require("ui/widget/spinwidget")
 
 local Api = require("hardcover/lib/hardcover_api")
+local Background = require("hardcover/lib/background")
 local Github = require("hardcover/lib/github")
 local User = require("hardcover/lib/user")
 local _t = require("hardcover/lib/table_util")
@@ -171,8 +172,10 @@ function HardcoverMenu:getSubMenuItems(book_view)
             edition_id = self.settings:getLinkedEditionId()
           },
           function(book)
-            self.hardcover:linkBook(book)
-            menu_instance:updateItems()
+            Background.run(function()
+              self.hardcover:linkBook(book)
+              menu_instance:updateItems()
+            end)
           end
         )
       end,
@@ -469,6 +472,65 @@ function HardcoverMenu:getVisibilitySubMenuItems()
   }
 end
 
+-- The actions below talk to Hardcover and are reached from menu callbacks, which
+-- run outside Trapper:wrap, so each does its work inside Background.run: the
+-- request then forks and yields instead of freezing KOReader until it returns.
+
+function HardcoverMenu:setStatus(status)
+  Background.run(function()
+    self.cache:updateBookStatus(self.ui.document.file, status)
+  end)
+end
+
+function HardcoverMenu:removeCurrentRead(menu_instance)
+  Background.run(function()
+    local result = Api:removeRead(self.state.book_status.id)
+    if result and result.id then
+      self.state.book_status = {}
+      menu_instance:updateItems()
+    end
+  end)
+end
+
+function HardcoverMenu:savePage(current_read, edition_page, menu_instance)
+  Background.run(function()
+    local result
+
+    if current_read then
+      result = Api:updatePage(current_read.id, current_read.edition_id, edition_page,
+        current_read.started_at)
+    else
+      local start_date = os.date("%Y-%m-%d")
+      result = Api:createRead(self.state.book_status.id, self.state.book_status.edition_id, edition_page,
+        start_date)
+    end
+
+    if result then
+      self.state.book_status = result
+      menu_instance:updateItems()
+    else
+      -- A failed page write used to be invisible, so a reader who set the page
+      -- and saw nothing happen could not tell a rejected write from a working
+      -- one; the progress would simply re-sync from the server later, looking
+      -- like the change had been lost.
+      self.dialog_manager:showError(_("Page could not be saved"))
+    end
+  end)
+end
+
+-- `quiet` is the clear-rating long press: no error when it fails, as before.
+function HardcoverMenu:saveRating(value, menu_instance, quiet)
+  Background.run(function()
+    local result = Api:updateRating(self.state.book_status.id, value)
+    if result then
+      self.state.book_status = result
+      menu_instance:updateItems()
+    elseif not quiet then
+      self.dialog_manager:showError(_("Rating could not be saved"))
+    end
+  end)
+end
+
 function HardcoverMenu:getStatusSubMenuItems()
   return {
     {
@@ -483,7 +545,7 @@ function HardcoverMenu:getStatusSubMenuItems()
         self.dialog_manager:maybeConfirm({
           text = "Mark book as Want To Read?",
           ok_callback = function()
-            self.cache:updateBookStatus(self.ui.document.file, HARDCOVER.STATUS.TO_READ)
+            self:setStatus(HARDCOVER.STATUS.TO_READ)
           end,
           no_confirm_callback = function()
             menu_instance:updateItems()
@@ -504,7 +566,7 @@ function HardcoverMenu:getStatusSubMenuItems()
         self.dialog_manager:maybeConfirm({
           text = "Mark book as Currently Reading?",
           ok_callback = function()
-            self.cache:updateBookStatus(self.ui.document.file, HARDCOVER.STATUS.READING)
+            self:setStatus(HARDCOVER.STATUS.READING)
           end,
           no_confirm_callback = function()
             menu_instance:updateItems()
@@ -525,7 +587,7 @@ function HardcoverMenu:getStatusSubMenuItems()
         self.dialog_manager:maybeConfirm({
           text = "Mark book as Read?",
           ok_callback = function()
-            self.cache:updateBookStatus(self.ui.document.file, HARDCOVER.STATUS.FINISHED)
+            self:setStatus(HARDCOVER.STATUS.FINISHED)
           end,
           no_confirm_callback = function()
             menu_instance:updateItems()
@@ -546,7 +608,7 @@ function HardcoverMenu:getStatusSubMenuItems()
         self.dialog_manager:maybeConfirm({
           text = "Mark book as Did Not Finish?",
           ok_callback = function()
-            self.cache:updateBookStatus(self.ui.document.file, HARDCOVER.STATUS.DNF)
+            self:setStatus(HARDCOVER.STATUS.DNF)
           end,
           no_confirm_callback = function()
             menu_instance:updateItems()
@@ -564,11 +626,7 @@ function HardcoverMenu:getStatusSubMenuItems()
         self.dialog_manager:maybeConfirm({
           text = "Remove current book status?",
           ok_callback = function()
-            local result = Api:removeRead(self.state.book_status.id)
-            if result and result.id then
-              self.state.book_status = {}
-              menu_instance:updateItems()
-            end
+            self:removeCurrentRead(menu_instance)
           end
         })
       end,
@@ -637,28 +695,7 @@ function HardcoverMenu:getStatusSubMenuItems()
           title_text = _("Set current page"),
 
           callback = function(edition_page, _document_page)
-            local result
-
-            if current_read then
-              result = Api:updatePage(current_read.id, current_read.edition_id, edition_page,
-                current_read.started_at)
-            else
-              local start_date = os.date("%Y-%m-%d")
-              result = Api:createRead(self.state.book_status.id, self.state.book_status.edition_id, edition_page,
-                start_date)
-            end
-
-            if result then
-              self.state.book_status = result
-              menu_instance:updateItems()
-            else
-              -- Was an empty branch: a failed page write was invisible, so a
-              -- reader who set the page and saw nothing happen had no way to
-              -- tell a rejected write from a working one. The progress would
-              -- simply re-sync from the server later, looking like the change
-              -- had been lost.
-              self.dialog_manager:showError(_("Page could not be saved"))
-            end
+            self:savePage(current_read, edition_page, menu_instance)
           end
         }
         UIManager:show(spinner)
@@ -721,29 +758,13 @@ function HardcoverMenu:getStatusSubMenuItems()
           ok_text = _("Save"),
           title_text = _("Set Rating"),
           callback = function(spin)
-            local result = Api:updateRating(self.state.book_status.id, spin.value)
-            if result then
-              self.state.book_status = result
-              menu_instance:updateItems()
-            else
-              -- Was self.dialog_magager, misspelled. Indexing that field is nil, so a
-              -- failed rating save raised "attempt to index a nil value" from
-              -- inside the spinner's OK callback instead of telling the user
-              -- their rating had not been saved -- and the raise happened
-              -- after the spinner was already gone, so the screen simply did
-              -- not change.
-              self.dialog_manager:showError(_("Rating could not be saved"))
-            end
+            self:saveRating(spin.value, menu_instance)
           end
         }
         UIManager:show(spinner)
       end,
       hold_callback = function(menu_instance)
-        local result = Api:updateRating(self.state.book_status.id, 0)
-        if result then
-          self.state.book_status = result
-          menu_instance:updateItems()
-        end
+        self:saveRating(0, menu_instance, true)
       end,
       keep_menu_open = true,
       separator = true

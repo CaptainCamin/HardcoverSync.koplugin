@@ -305,7 +305,17 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
     pages = remote_pages,
     save_dialog_callback = function(book_data)
       local api_data = mapJournalData(book_data)
+
+      -- This runs inside InputDialog's save handler, which wants the outcome as
+      -- a return value, so the request cannot be moved to the background without
+      -- reimplementing that handler. It blocks, so put a message on screen and
+      -- paint it first: otherwise the dialog just sits there for the length of
+      -- the request with no sign the tap was received.
+      local saving = StatusDialogs.loading(_("Saving…"))
+      UIManager:forceRePaint()
       local result = Api:createJournalEntry(api_data)
+      StatusDialogs.close(saving)
+
       if result then
         UIManager:nextTick(function()
           UIManager:close(dialog)
