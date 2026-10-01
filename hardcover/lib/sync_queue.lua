@@ -56,6 +56,8 @@ function SyncQueue:filepaths()
       table.insert(paths, filepath)
     end
   end
+  -- pairs() order is arbitrary; a stable order keeps flushes reproducible
+  table.sort(paths)
   return paths
 end
 

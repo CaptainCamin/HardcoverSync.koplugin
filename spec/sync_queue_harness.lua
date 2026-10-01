@@ -331,8 +331,8 @@ check("one book that always fails does not block the others", function()
   -- Returning on the first failure meant a single bad entry (a deleted book, a
   -- rejected edition) stopped every later book from syncing, forever.
   local q = newQueue()
-  q:enqueuePage("/books/bad.epub", { mapped_page = 1, book_id = 1, edition_id = 3 })
-  q:enqueuePage("/books/ok.epub", { mapped_page = 2, book_id = 2, edition_id = 3 })
+  q:enqueuePage("/books/a_bad.epub", { mapped_page = 1, book_id = 1, edition_id = 3 })
+  q:enqueuePage("/books/b_ok.epub", { mapped_page = 2, book_id = 2, edition_id = 3 })
   local api = fakeApi()
   local real = api.updatePage
   api.updatePage = function(self, read_id, edition_id, page)
@@ -340,8 +340,8 @@ check("one book that always fails does not block the others", function()
     return real(self, read_id, edition_id, page)
   end
   eq(q:flush(api, { user_id = 1 }), false, "flush reports the failure")
-  eq(q:hasPending("/books/ok.epub"), false, "the good book was sent")
-  eq(q:hasPending("/books/bad.epub"), true, "the bad book is kept")
+  eq(q:hasPending("/books/b_ok.epub"), false, "the good book was sent")
+  eq(q:hasPending("/books/a_bad.epub"), true, "the bad book is kept")
 end)
 
 check("flushing stops after repeated back-to-back failures", function()
