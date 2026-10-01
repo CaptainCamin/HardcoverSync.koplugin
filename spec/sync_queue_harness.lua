@@ -327,6 +327,31 @@ check("a failed status update keeps the entry too", function()
   eq(q:hasPending(), true, "the entry survives")
 end)
 
+check("progress queued for a book already on Hardcover as Want to Read", function()
+  -- The book was linked and then read offline without the plugin ever having
+  -- seen its status. Online, _handlePageUpdate refuses to send progress for a
+  -- book that is not Currently Reading; this records what the queue does.
+  local q = newQueue()
+  q:enqueuePage("/books/a.epub", { mapped_page = 120, book_id = 1, edition_id = 3 })
+  local api = fakeApi()
+  api.findUserBook = function(_, book_id)
+    api.calls[#api.calls + 1] = { op = "findUserBook", book_id = book_id }
+    return { id = 500, status_id = HARDCOVER.STATUS.TO_READ, user_book_reads = {} }
+  end
+  local read_created, status_set = false, false
+  api.createRead = function(_, _, _, page)
+    read_created = true
+    return { id = 500, status_id = HARDCOVER.STATUS.TO_READ, user_book_reads = { { id = 1, progress_pages = page } } }
+  end
+  local orig_update = api.updateUserBook
+  api.updateUserBook = function(...) status_set = true; return orig_update(...) end
+  q:flush(api, { user_id = 1 })
+  print(string.format("         -> read created: %s, status changed: %s, entry left: %s",
+    tostring(read_created), tostring(status_set), tostring(q:hasPending())))
+  eq(read_created, false, "progress must not be recorded on a Want to Read book")
+  eq(q:hasPending("/books/a.epub"), false, "the entry is dropped, not retried forever")
+end)
+
 check("one book that always fails does not block the others", function()
   -- Returning on the first failure meant a single bad entry (a deleted book, a
   -- rejected edition) stopped every later book from syncing, forever.

@@ -212,6 +212,13 @@ function SyncQueue:_flushEntry(api, filepath, opts)
     end
     entry.status_id = nil
     self:save(filepath, entry)
+  elseif flush_page and user_book.status_id and user_book.status_id ~= HARDCOVER.STATUS.READING then
+    -- Same rule as the online path (_handlePageUpdate): progress is only sent
+    -- for a book that is Currently Reading. Otherwise a book read offline
+    -- without the plugin ever having seen its status would get a reading
+    -- record on a Want to Read, Finished or DNF book. The entry is dropped
+    -- below rather than retried, since the answer will not change.
+    flush_page = false
   end
 
   if flush_page then

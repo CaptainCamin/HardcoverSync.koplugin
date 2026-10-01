@@ -21,6 +21,9 @@
 * Fixed a leaked global in the book cache retry handling that could cancel the wrong request after
   switching books.
 * The sign-in "Contacting Hardcover" message is now painted before the network request starts.
+* Progress read offline is no longer sent for a book that is on Hardcover as Want to Read, Finished or Did
+  Not Finish, matching what happens online. Previously it created a reading record on that book without
+  changing its status.
 * One book that fails to sync no longer blocks every other book in the offline queue, and an error thrown
   during a sync no longer leaves syncing disabled until KOReader restarts.
 * An empty cover list no longer triggers a request for a missing URL.
