@@ -10,6 +10,7 @@ local T = require("ffi/util").template
 local Font = require("ui/font")
 local UIManager = require("ui/uimanager")
 local NetworkMgr = require("ui/network/manager")
+local logger = require("logger")
 
 local UpdateDoubleSpinWidget = require("hardcover/lib/ui/update_double_spin_widget")
 local InfoMessage = require("ui/widget/infomessage")
@@ -360,16 +361,27 @@ function HardcoverMenu:getSubMenuItems(book_view)
     {
       text = _("About"),
       callback = function()
-        local new_release = Github:newestRelease()
         local version = table.concat(VERSION, ".")
-        local new_release_str = ""
-        if new_release then
-          new_release_str = " (latest v" .. new_release .. ")"
-        end
         local settings_file = DataStorage:getSettingsDir() .. "/" .. "hardcoversync_settings.lua"
 
-        UIManager:show(InfoMessage:new {
-          text = [[
+        -- Build the text with a placeholder for the "latest release" note, show
+        -- the box straight away, and fill the note in if GitHub answers.
+        --
+        -- This used to call Github:newestRelease() BEFORE showing anything, and
+        -- that request had no timeout. With no route to api.github.com it
+        -- blocked for a long time, so the About box never appeared at all --
+        -- indistinguishable on e-ink from a screen that failed to refresh.
+        -- Showing first and asking second makes the screen's appearance
+        -- independent of the network.
+        local LATEST_MARK = " \u{25CB} checking for a newer release\u{2026}"
+
+        local function about_text(latest)
+          local new_release_str = ""
+          if latest then
+            new_release_str = " (latest v" .. latest .. ")"
+          end
+
+          return [[
 Hardcover plugin
 v]] .. version .. new_release_str .. [[
 
@@ -380,10 +392,32 @@ Project:
 github.com/billiam/hardcoverapp.koplugin
 
 Settings:
-]] .. settings_file,
+]] .. settings_file
+        end
+
+        local message = InfoMessage:new {
+          text = about_text(nil),
           face = Font:getFace("cfont", 18),
           show_icon = false,
-        })
+        }
+
+        UIManager:show(message)
+
+        -- Update in place once the answer arrives, if the box is still up.
+        Github:newestReleaseAsync(function(new_release)
+          if not new_release then
+            if message.text and message.text:find(LATEST_MARK, 1, true) then
+              message.text = message.text:gsub(LATEST_MARK:gsub("(%W)", "%%%1"), "")
+            end
+            return
+          end
+
+          if message.text and message.text:find(LATEST_MARK, 1, true) then
+            message.text = message.text:gsub(LATEST_MARK:gsub("(%W)", "%%%1"),
+              " (latest v" .. new_release .. ")")
+            UIManager:setDirty(message, "ui")
+          end
+        end)
       end,
       keep_menu_open = true
     }

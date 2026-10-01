@@ -226,7 +226,22 @@ function HardcoverApp:signIn()
     return
   end
 
+  -- Show a "signing in" indicator straight away, before the network call.
+  --
+  -- beginDeviceFlow() is a blocking HTTPS request, and it used to run before
+  -- anything was displayed. When it stalled, the screen simply never changed,
+  -- which on e-ink looks identical to a refresh failure. The indicator means
+  -- there is always something on screen, and it is replaced by the code entry
+  -- dialog or by an error.
+  local working = UIManager:show(InfoMessage:new {
+    text = _("Contacting Hardcover\u{2026}"),
+    icon = "handshake",
+    timeout = nil,
+  })
+
   local device, err = self.auth:beginDeviceFlow()
+
+  UIManager:close(working)
 
   if not device then
     local message = "Could not start sign in"
@@ -252,7 +267,9 @@ function HardcoverApp:signIn()
     self.settings:updateSetting(SETTING.USER_ID, nil)
   end
 
-  UIManager:show(dialog)
+  -- onShowSignIn shows the dialog and starts polling, so do not show it here as
+  -- well: showing the same widget twice puts two entries in UIManager's window
+  -- stack for one screen.
   dialog:onShowSignIn()
 end
 

@@ -1,0 +1,260 @@
+--[[--
+Headless KOReader emulator for plugin development.
+
+Boots the *real* KOReader frontend (fonts, widgets, UIManager, SDL framebuffer)
+from an installed KOReader, with no window and no device, then paints whatever
+the plugin builds into a PNG. This is the thing that lets a change be verified
+without porting it to a device: the widget code under test is the same code the
+device runs, not a stub of it.
+
+Usage (from the plugin root):
+
+    spec/emu/run.sh                      # render every scenario
+    spec/emu/run.sh shelf                 # render one scenario
+    spec/emu/run.sh shelf --keep-open     # leave the PNGs in ./emu-out
+
+Knobs (environment):
+
+    KO_EMU_APP     path to KOReader.app or a KOReader install dir
+                   (default: /Applications/KOReader.app)
+    KO_EMU_HOME    scratch data dir (default: spec/emu/.home)
+    KO_EMU_OUT     where PNGs go (default: spec/emu/.out)
+    KO_EMU_W/H     emulated screen size (default: 1200x1600, a Kobo Clara-ish
+                   panel -- set it to your device's real resolution to catch
+                   layout bugs that only appear at one size)
+
+Design notes:
+
+* SDL_VIDEODRIVER=dummy gives us a framebuffer with no window. Everything
+  downstream -- fonts, text shaping, layout, paint -- is the real thing.
+* KO_HOME redirects KOReader's data dir, so a run never touches the settings,
+  library or plugins of a real installation. Nothing here can damage the
+  user's KOReader.
+* The boot sequence mirrors reader.lua, in the same order. Order matters:
+  CanvasContext:init(Device) must happen before anything requires ui/font,
+  and Bidi.setup() must happen before UIManager or widgets load, because they
+  cache mirroring settings at load time.
+]]
+
+local M = {}
+
+local function script_dir()
+  local src = debug.getinfo(1, "S").source:sub(2)
+  return src:match("^(.*)/[^/]*$") or "."
+end
+
+local HERE = script_dir()
+
+function M.app_dir()
+  local app = os.getenv("KO_EMU_APP") or "/Applications/KOReader.app"
+  -- Accept either an .app bundle or a bare KOReader install directory.
+  local candidates = {
+    app .. "/Contents/koreader",
+    app .. "/Contents/MacOS/../koreader",
+    app,
+  }
+  for _, dir in ipairs(candidates) do
+    if M.is_dir(dir .. "/frontend") and M.is_file(dir .. "/setupkoenv.lua") then
+      return dir
+    end
+  end
+  error("no KOReader install found; set KO_EMU_APP (tried: " ..
+    table.concat(candidates, ", ") .. ")")
+end
+
+function M.is_dir(path)
+  local lfs = require("libs/libkoreader-lfs")
+  return lfs.attributes(path, "mode") == "directory"
+end
+
+function M.is_file(path)
+  local lfs = require("libs/libkoreader-lfs")
+  return lfs.attributes(path, "mode") == "file"
+end
+
+function M.mkdir_p(path)
+  if M.is_dir(path) then return end
+  M.mkdir_p(path:match("^(.*)/[^/]+$") or ".")
+  require("libs/libkoreader-lfs").mkdir(path)
+end
+
+-- Where PNGs land. Kept out of the plugin tree by default so a stray run never
+-- ends up inside a release zip.
+function M.out_dir()
+  local out = os.getenv("KO_EMU_OUT") or (HERE .. "/.out")
+  M.mkdir_p(out)
+  return out
+end
+
+--[[--
+Boot the emulator. Returns a handle with the modules a scenario needs.
+
+`keep_open` leaves the process alive after the scenario returns, for use with
+the interactive driver (emu_drive.lua) which needs a live UIManager.
+]]
+function M.boot(opts)
+  opts = opts or {}
+
+  local app = M.app_dir()
+  chdir(app)
+
+  package.path = app .. "/?.lua;" .. app .. "/frontend/?.lua;" .. app .. "/common/?.lua;" .. package.path
+  package.cpath = app .. "/common/?.so;" .. package.cpath
+
+  -- Same environment reader.lua sets up before anything else.
+  os.setlocale("C", "numeric")
+  dofile(app .. "/setupkoenv.lua")
+
+  local DataStorage = require("datastorage")
+
+  G_defaults = require("luadefaults"):open()
+  G_reader_settings = require("luasettings"):open(DataStorage:getDataDir() .. "/settings.reader.lua")
+
+  local device_id = G_reader_settings:readSetting("device_id")
+  if not device_id or device_id == "" then
+    G_reader_settings:saveSetting("device_id", "koreader-emu-harness")
+  end
+
+  -- The C blitter allocates native buffers per repaint; in a short-lived
+  -- render-many-screens run it churns for no benefit, and the Lua path is the
+  -- one whose output we can reason about.
+  G_reader_settings:saveSetting("dev_no_c_blitter", true)
+
+  local bb = require("ffi/blitbuffer")
+  bb:setUseCBB(false)
+
+  local _ = require("gettext")
+
+  local dbg = require("dbg")
+  if opts.debug then dbg:turnOn() end
+
+  local Device = require("device")
+  require("document/canvascontext"):init(Device)
+  require("ui/bidi").setup(nil)
+
+  local UIManager = require("ui/uimanager")
+  local Screen = Device.screen
+  local BB = require("ffi/blitbuffer")
+
+  local emu = {
+    app = app,
+    Device = Device,
+    UIManager = UIManager,
+    Screen = Screen,
+    BB = BB,
+    Font = require("ui/font"),
+    DataStorage = DataStorage,
+    Event = require("ui/event"),
+    out = M.out_dir(),
+    shots = {},
+  }
+
+  -- Seed a folder of fake books so filemanager-backed scenarios have a library.
+  emu.books_dir = DataStorage:getDataDir() .. "/books"
+  M.mkdir_p(emu.books_dir)
+
+  --[[--
+  Paint the current widget stack to a PNG and return its path.
+
+  Goes through UIManager:_repaint() rather than calling paintTo by hand, so
+  layout is computed exactly as it is on device -- same focus handling, same
+  scrolling, same cropping. A screenshot that skips this can differ from what
+  the device shows.
+  ]]
+  function emu:shot(name)
+    UIManager:show(emu.probe or { name = "_probe" })
+    UIManager:setDirty(nil, "full")
+    UIManager:_repaint()
+    UIManager:close(emu.probe)
+
+    local path = self.out .. "/" .. name .. ".png"
+    Screen:shot(path)
+    self.shots[#self.shots + 1] = path
+    print(string.format("  shot  %s", path))
+    return path
+  end
+
+  --[[--
+  Send a key as if pressed, and let the resulting scheduled work run.
+
+  Pumping tasks matters: a great deal of plugin code defers its next step with
+  UIManager:nextTick, so a screenshot taken straight after a key press shows the
+  screen *before* the plugin reacted.
+  ]]
+  function emu:key(keyname)
+    local Key = require("ui/key")
+    local ok, err = pcall(function()
+      UIManager:sendEvent(Event:new("KeyPress", Key:new(keyname, { is_menu_press = true })))
+    end)
+    self:pump()
+    if not ok then error(err, 0) end
+  end
+
+  --[[--
+  Synthesise a tap. KOReader delivers taps as a Gesture object through
+  onTapHold, not as key presses, so a scenario that only ever presses keys is
+  not exercising the path a finger takes.
+  ]]
+  function emu:tap(x, y)
+    local ges_events = require("ui/gesturedetector")
+    local Screen = self.Screen
+    local ok, err = pcall(function()
+      UIManager:sendEvent(Event:new("Gesture", ges_events.Tap:new{
+        pos = { x = x, y = y },
+        ges = ges_events.Tap,
+        screen_width = Screen:getWidth(),
+        screen_height = Screen:getHeight(),
+      }))
+    end)
+    self:pump()
+    if not ok then error(err, 0) end
+  end
+
+  --[[--
+  Run pending scheduled work until the queue stops producing new tasks.
+
+  Bounded, because a plugin that reschedules itself forever (a poll loop, say)
+  would otherwise hang the harness rather than fail a test.
+  ]]
+  function emu:pump(max_rounds)
+    local rounds = max_rounds or 40
+    for _ = 1, rounds do
+      local before = UIManager:getNextTaskTime()
+      if not before then break end
+      UIManager:_checkTasks()
+      if UIManager:getNextTaskTime() == before then break end
+    end
+    UIManager:_checkTasks()
+  end
+
+  function emu:quit(code)
+    local ok, err = pcall(function() require("device"):exit() end)
+    if not ok then print("device:exit() failed: " .. tostring(err)) end
+    os.exit(code or 0, true)
+  end
+
+  -- Top of the stack, i.e. what the user is actually looking at.
+  function emu:top()
+    return UIManager:getTopmostVisibleWidget()
+  end
+
+  --[[--
+  Close everything currently on the stack, so one scenario cannot leak a dialog
+  into the next.
+  ]]
+  function emu:closeAll()
+    local n = 0
+    while UIManager:getNthTopWidget(1) do
+      local w = UIManager:getNthTopWidget(1)
+      if not w then break end
+      UIManager:close(w)
+      n = n + 1
+      if n > 50 then break end
+    end
+    return n
+  end
+
+  return emu
+end
+
+return M
