@@ -23,7 +23,9 @@ jobs:
               echo "SYNTAX ERROR: $f"
               status=1
             fi
-          done < <(find . -name '*.lua' -not -path './.git/*')
+          # -type f: the Lua install action puts the interpreter in a `.lua` directory in
+          # the workspace, which `-name '*.lua'` also matches. It is not source.
+          done < <(find . -name '*.lua' -type f -not -path './.git/*' -not -path './.lua/*' -not -path './.luarocks/*')
           exit $status
 
       - name: Run the harnesses

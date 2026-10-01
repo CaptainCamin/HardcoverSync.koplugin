@@ -73,6 +73,11 @@ package.preload["ui/uimanager"] = function()
   }
 end
 package.preload["hardcover_version"] = function() return { "0", "0", "0", "spec" } end
+-- A real identity gettext, not the permissive stand-in: string.format("%s", x)
+-- accepts a table under LuaJIT but errors under plain Lua 5.1 (which CI uses).
+package.preload["gettext"] = function()
+  return setmetatable({}, { __call = function(_, s) return s end })
+end
 package.preload["logger"] = function()
   return { dbg = function() end, info = function() end, warn = function() end, err = function() end }
 end

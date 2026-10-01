@@ -97,7 +97,7 @@ return {
     correct in every field, the table-level assertions all pass, and only the
     painted text is wrong. Assert on what was drawn.
     NOTE: this comment is closed on purpose. The file header at line 1 opens a
-    long --[[-- that runs to EOF, so anything added after it silently never
+    long block comment that runs to EOF, so anything added after it silently never
     executes -- which is exactly how the first version of this guard passed
     against broken code.
     ]]--
