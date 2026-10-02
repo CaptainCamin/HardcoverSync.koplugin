@@ -919,26 +919,26 @@ function DialogManager:chooseShelf(dialog)
     return
   end
 
-  local ButtonDialog = require("ui/widget/buttondialog")
   local picker
   local rows = {}
 
   for _i, choice in ipairs(Shelf.statusChoices()) do
     local current = detail.status_id == choice.status_id
-    rows[#rows + 1] = { {
+    rows[#rows + 1] = {
       -- a bullet marks where the book is now; choosing it again does nothing
       text = (current and "\226\128\162 " or "") .. _(choice.label),
+      current = current,
       callback = function()
         UIManager:close(picker)
         if not current then
           self:saveShelf(dialog, choice.status_id)
         end
       end,
-    } }
+    }
   end
 
   if detail.user_book_id then
-    rows[#rows + 1] = { {
+    rows[#rows + 1] = {
       text = _("Remove from library"),
       callback = function()
         UIManager:close(picker)
@@ -949,18 +949,17 @@ function DialogManager:chooseShelf(dialog)
           ok_callback = function() self:removeFromShelf(dialog) end,
         }
       end,
-    } }
+    }
   end
 
-  rows[#rows + 1] = { {
+  rows[#rows + 1] = {
     text = _("Cancel"),
     callback = function() UIManager:close(picker) end,
-  } }
+  }
 
-  picker = ButtonDialog:new {
+  picker = require("hardcover/lib/ui/picker").new {
     title = detail.status_id and _("Move to shelf") or _("Add to shelf"),
-    title_align = "center",
-    buttons = rows,
+    rows = rows,
   }
   UIManager:show(picker)
 end

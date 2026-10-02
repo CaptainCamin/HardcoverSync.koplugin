@@ -11,6 +11,7 @@ local UIManager = require("ui/uimanager")
 local _ = require("gettext")
 local logger = require("logger")
 
+local ListChrome = require("hardcover/lib/ui/list_chrome")
 local ListRow = require("hardcover/lib/ui/list_row")
 
 local Screen = Device.screen
@@ -66,8 +67,10 @@ function HardcoverSearchDialog:init()
     left_icon_callback = self.left_icon_callback
   end
   local menu_class = self.compatibility_mode and Menu or SearchMenu
+  local chrome = ListChrome.options(function() return self.menu end)
 
   self.menu = menu_class:new {
+    page_info_text = chrome.page_info_text,
     -- no Q/W/E letter boxes: they are for keyboards, and cover part of each cover
     is_enable_shortcut = false,
     single_line = false,
