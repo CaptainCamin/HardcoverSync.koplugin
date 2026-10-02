@@ -17,6 +17,7 @@ local Shelf = require("hardcover/lib/shelf")
 local User = require("hardcover/lib/user")
 
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
+local SETTING = require("hardcover/lib/constants/settings")
 
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 
@@ -561,10 +562,23 @@ function DialogManager:showShelf(status_id, title, done_callback)
   -- refreshes it.
   local cached = cache and cache:get(user_id, status_id)
 
+  -- the order you last chose for this shelf (the order of each shelf is
+  -- remembered separately)
+  local sort_choices = self.settings:readSetting(SETTING.SHELF_SORT)
+  local sort_key = type(sort_choices) == "table" and sort_choices[tostring(status_id)] or nil
+
   local dialog = require("hardcover/lib/ui/shelf_dialog"):new {
     compatibility_mode = self.settings:compatibilityMode(),
     title = title,
     status_id = status_id,
+    sortable = true,
+    sort_key = sort_key,
+    on_sort_change = function(key)
+      local saved = self.settings:readSetting(SETTING.SHELF_SORT)
+      saved = type(saved) == "table" and saved or {}
+      saved[tostring(status_id)] = key
+      self.settings:updateSetting(SETTING.SHELF_SORT, saved)
+    end,
     -- Empty until the load lands. Passing a nil here would reach the API as a
     -- nil offset and silently refetch page one forever.
     entries = {},

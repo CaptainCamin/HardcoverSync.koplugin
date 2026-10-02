@@ -109,7 +109,7 @@ local function manager()
   answer = { books = {} }
   online = true
   local m = setmetatable({
-    settings = { compatibilityMode = function() return false end },
+    settings = { compatibilityMode = function() return false end, readSetting = function() return nil end, updateSetting = function() end },
   }, { __index = DialogManager })
   m.showBookDetail = function(_, id) details[#details + 1] = id end
   return m

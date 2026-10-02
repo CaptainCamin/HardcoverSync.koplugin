@@ -277,6 +277,11 @@ hundred books is fetched in a few requests, waiting briefly if Hardcover asks yo
 interrupted (for example by tapping the screen while it loads, or by losing your connection), a reload icon appears
 in the upper left so you can carry on from where the list stops.
 
+**Sorting.** The button in the upper left of a shelf opens `Sort by`: date added (newest or oldest first), title (a
+leading "The", "A" or "An" is ignored), author (by surname), year published, pages, most readers on Hardcover,
+community rating, or your own rating. Each shelf remembers its order, and the title shows it when it is not the
+default. Sorting works on the loaded list, so it needs no connection.
+
 Lists you have opened are saved on the device, so they also open with no connection, showing the saved copy.
 
 ## Settings
