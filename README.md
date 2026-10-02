@@ -196,35 +196,55 @@ If a sync fails, the changes stay queued and are retried later rather than dropp
 
 ### Book details
 
-`Book details` shows everything Hardcover knows about the currently linked book: author, series, format,
-publisher, page count, language, publication year, ISBN, community rating, reader counts and the description,
-alongside your own status and rating.
+`Book details` shows everything Hardcover knows about a book: the cover beside the title, author, series and a line
+of facts (year, pages, format), then your status and rating, the community rating and readers, the description, and
+the other details (publisher, language, ISBN). A book with no cover shows a placeholder.
+
+If the book is in a series, **More in the series** is a row of covers with each book's number, title and your own
+status (Read, Reading, Want to Read). The book you are on has a heavy border. Longer series have arrows either side
+to page through. Tap a cover to open that book on top; Close brings you back. The series is fetched after the
+details appear, and is left out when you are offline.
 
 ### Where things are
 
 The Hardcover menu is different in the reader and in the file browser.
 
 **In the reader** it is about the book you have open: linking it, tracking progress, status, rating, notes, book
-details, sync, and the tracking settings. If you are signed out, an `Account` entry appears so you can sign in.
+details, sync, and the tracking settings. `Settings` there includes your account (to sign out); if you are signed
+out, an `Account` entry also appears at the top level so you can sign in.
 
 **In the file browser** it is about your library: `Home` comes first, followed by sync, account, settings and about.
 
 ### Home screen
 
-`Hardcover` → `Home` (in the file browser) opens your home screen: your shelves (Currently Reading, Want to Read,
-Read, Did Not Finish) with how many books are on each. Choose a shelf to browse it; closing the shelf brings you
-back. It opens with the counts it last saved, so it also works with no connection, and refreshes them in the
-background.
+`Hardcover` → `Home` (in the file browser) opens your home screen:
+
+* **Currently reading**: a card for each book you are reading, with its cover, author and a progress bar
+  (`pages read / pages`). Tap a card to open that book's details.
+* **Shelves**: Currently Reading, Want to Read, Read and Did Not Finish, each with how many books are on it. Choose
+  one to browse it; closing the shelf brings you back.
+* **The cog** in the upper left opens the settings.
+
+It opens with what it last saved, so it also works with no connection, and refreshes in the background (the screen
+only repaints if something changed).
 
 There is also a `Hardcover: Home` action, available wherever KOReader lists actions (gestures, profiles, quick
 menus), so you can open the home screen from anywhere, including while reading, or have another plugin launch it.
 
+### Settings screen
+
+The cog on the home screen opens the plugin's settings in a screen of their own, with `Sync` and your Hardcover
+account (sign in, sign in again, sign out) at the top, then the options listed below. Options show a tick when on;
+groups open and have a `Back` row. The same settings are in the Hardcover menu in the reader and file browser.
+
 ### Browsing your lists
 
-Choosing a shelf on the home screen opens it, with cover images where available. Select a book to open its
-details. The whole shelf is loaded: the first books appear straight away and the rest arrive in the background. If
-loading is interrupted (for example by tapping the screen while it loads, or by losing your connection), a reload
-icon appears in the upper left so you can carry on from where the list stops.
+Choosing a shelf opens it full screen: five rows a page, each a cover, the title and the author (with the series,
+if it is in one), and your rating on the right if you have given one. Select a book to open its details. The whole
+shelf is loaded: the first books appear straight away and the rest arrive in the background; a shelf of several
+hundred books is fetched in a few requests, waiting briefly if Hardcover asks you to slow down. If loading is
+interrupted (for example by tapping the screen while it loads, or by losing your connection), a reload icon appears
+in the upper left so you can carry on from where the list stops.
 
 Lists you have opened are saved on the device, so they also open with no connection, showing the saved copy.
 
