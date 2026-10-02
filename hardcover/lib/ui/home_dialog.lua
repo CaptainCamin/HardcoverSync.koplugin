@@ -14,7 +14,6 @@
 local Blitbuffer = require("ffi/blitbuffer")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
-local GestureRange = require("ui/gesturerange")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
@@ -22,7 +21,6 @@ local IconWidget = require("ui/widget/iconwidget")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local ProgressWidget = require("ui/widget/progresswidget")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
-local ScrollPager = require("hardcover/lib/ui/scroll_pager")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
@@ -65,12 +63,6 @@ HomeDialog.MAX_CARDS = 3
 function HomeDialog:init()
   self.closed = false
   self.key_events.CloseHome = { { "Back" } }
-  -- A swipe up or down moves the page by a view. The scroll container does this itself
-  -- (and gets the swipe first, being a child); this is the page asking too, so a swipe
-  -- still works where the container's does not.
-  self.ges_events.HomeSwipe = {
-    GestureRange:new { ges = "swipe", range = function() return self.dimen end },
-  }
   -- the covers outlive a rebuild: Home rebuilds as its data arrives, and a picture
   -- already decoded is reused rather than decoded again
   self.covers = CoverCells:new {
@@ -550,20 +542,6 @@ function HomeDialog:onCloseWidget()
   self.closed = true
   self:releaseCovers()
   UIManager:setDirty(nil, "ui")
-end
-
-function HomeDialog:onHomeSwipe(_, ges)
-  local scroll = self.scroll
-  if not scroll then return false end
-  local delta = ges.direction == "north" and 1 or ges.direction == "south" and -1 or nil
-  if not delta then return false end
-  local p = ScrollPager.position(scroll)
-  local target = math.max(0, math.min(p.max, p.offset + delta * p.step))
-  if target ~= p.offset then
-    -- scrollToRatio puts the middle of the view at a point of the whole page
-    scroll:scrollToRatio(nil, (target + p.step / 2) / (p.max + p.step))
-  end
-  return true
 end
 
 function HomeDialog:onCloseHome()
