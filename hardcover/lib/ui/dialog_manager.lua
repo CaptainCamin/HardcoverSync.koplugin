@@ -1,6 +1,7 @@
 local _ = require("gettext")
 local T = require("ffi/util").template
 local json = require("json")
+local logger = require("logger")
 
 local UIManager = require("ui/uimanager")
 local Network = require("hardcover/lib/network")
@@ -1306,8 +1307,8 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
       done_callback()
     end
 
-    self:loadSeries(dialog, detail.book, user_id)
-    self:loadSimilar(dialog, book_id)
+    -- one after the other: two requests in flight at once left one of them lost
+    self:loadSeries(dialog, detail.book, user_id, function() self:loadSimilar(dialog, book_id) end)
   end)
 
   return dialog
@@ -1766,9 +1767,10 @@ end
 -- on top of this one, so Close comes back here. Nothing is fetched offline (the
 -- screen simply has no card) or for a book that is in no series.
 --
-function DialogManager:loadSeries(dialog, book, user_id)
+function DialogManager:loadSeries(dialog, book, user_id, when_done)
   local series_id = Shelf.seriesId(book)
   if not series_id or not Network.connected() then
+    if when_done then when_done() end
     return
   end
 
@@ -1776,34 +1778,53 @@ function DialogManager:loadSeries(dialog, book, user_id)
     local series = Api:getSeriesBooks(series_id, user_id)
 
     -- failed, cancelled by a tap, or the screen was closed meanwhile
-    if not series or not UIManager:isWidgetShown(dialog) then
-      return
+    local card = series and UIManager:isWidgetShown(dialog) and Shelf.seriesCard(series, book.book_id)
+    if card then
+      dialog:setSeries(card, function(book_id)
+        self:showBookDetail(book_id)
+      end)
     end
-
-    local card = Shelf.seriesCard(series, book.book_id)
-    if not card then
-      return
-    end
-
-    dialog:setSeries(card, function(book_id)
-      self:showBookDetail(book_id)
-    end)
+    if when_done and UIManager:isWidgetShown(dialog) then when_done() end
   end)
 end
 
 -- "Similar to <title>" on a book's details: Hardcover's ranking, fetched after the
--- screen is up (two requests) and shown as a strip of covers. A failure or an empty
--- ranking shows nothing: the rest of the screen does not depend on it.
+-- screen is up (two requests, after the series) and shown as a strip of covers. An
+-- empty ranking shows nothing. KOReader cancels a request in flight when the screen is
+-- touched, and a reader who scrolls the details straight away does exactly that, so a
+-- cancelled request is tried again (up to SIMILAR_CANCEL_TRIES) until they leave it
+-- alone; one that really failed is tried twice more. If it still fails the reader is
+-- told, so it is never just missing.
+local SIMILAR_CANCEL_TRIES = 8
+local SIMILAR_FAIL_TRIES = 3
+
 function DialogManager:loadSimilar(dialog, book_id)
   if not Network.connected() then return end
-  Api:getSimilarBooksAsync(book_id, function(entries)
-    if not UIManager:isWidgetShown(dialog) then return end
-    local card = Recommendations.card(entries, dialog.detail and dialog.detail.book and dialog.detail.book.title)
-    if not card then return end
-    dialog:setSimilar(card, function(id)
-      self:showBookDetail(id)
+  local tries = 0
+  local function attempt()
+    tries = tries + 1
+    Api:getSimilarBooksAsync(book_id, function(entries, err)
+      if not UIManager:isWidgetShown(dialog) then return end
+      if entries == nil then
+        logger.warn("hardcover: similar books failed (try " .. tries .. ")", err)
+        local cancelled = type(err) == "table" and err.completed == false
+        if tries < (cancelled and SIMILAR_CANCEL_TRIES or SIMILAR_FAIL_TRIES) then
+          UIManager:scheduleIn(2, function()
+            if UIManager:isWidgetShown(dialog) and Network.connected() then attempt() end
+          end)
+        else
+          StatusDialogs.info(_("Couldn't load similar books."))
+        end
+        return
+      end
+      local card = Recommendations.card(entries, dialog.detail and dialog.detail.book and dialog.detail.book.title)
+      if not card then return end
+      dialog:setSimilar(card, function(id)
+        self:showBookDetail(id)
+      end)
     end)
-  end)
+  end
+  attempt()
 end
 
 --

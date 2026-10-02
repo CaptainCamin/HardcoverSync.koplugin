@@ -125,6 +125,25 @@ return {
     end
     fixtures.similar_fail = nil
 
+    -- a request that fails is tried again, twice; if it keeps failing the reader is told
+    -- (the 2-second waits are skipped here)
+    local schedule = UIManager.scheduleIn
+    UIManager.scheduleIn = function(self, delay, fn, ...) if delay == 2 then fn() else schedule(self, delay, fn, ...) end end
+    fixtures.similar_ids = { 9, 4 }
+    for _, case in ipairs({ { "error", 3 }, { "cancelled", 8 } }) do
+      local mode, want = case[1], case[2]
+      fixtures.similar_fail = mode == "error" and "error" or true
+      local asked = calls_named("getSimilarBooks")
+      details = manager:showBookDetail(book_id)
+      for _ = 1, 30 do emu:pump() end
+      assert(calls_named("getSimilarBooks") - asked == want, mode .. " tries: " .. (calls_named("getSimilarBooks") - asked))
+      emu:expectText("Couldn't load similar books.")
+      assert(details.similar_card == nil)
+      emu:closeAll()
+    end
+    fixtures.similar_fail = nil
+    UIManager.scheduleIn = schedule
+
     -- offline: no request
     local NetworkManager = require("ui/network/manager")
     local was, was_state = NetworkManager.isConnected, NetworkManager.getConnectionState
