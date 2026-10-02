@@ -538,7 +538,7 @@ function DialogManager:showHome(done_callback)
       end
       -- a refresh that changed nothing repaints nothing
       if not Home.sameCounts(counts, saved_counts, ids) then
-        dialog:setRows(Home.rows(counts))
+        dialog:setRows(Home.rows(counts), true)
       end
     end
 
@@ -556,7 +556,7 @@ function DialogManager:showHome(done_callback)
         cache:putReading(user_id, entries)
       end
       if not Home.sameCards(entries, saved_reading) then
-        dialog:setReading(entries)
+        dialog:setReading(entries, true)
       end
     end
 
@@ -564,7 +564,7 @@ function DialogManager:showHome(done_callback)
     local list_count = Api:getListCount()
     if list_count and UIManager:isWidgetShown(dialog) and dialog.list_count ~= list_count then
       dialog.list_count = list_count
-      dialog:rebuild()
+      dialog:rebuildSoon()
     end
 
     -- the goal card: fresh goals replace the saved ones
@@ -574,7 +574,7 @@ function DialogManager:showHome(done_callback)
         if cache then cache:putGoals(user_id, goals) end
         dialog.goals = goals
         dialog.finished_offline = self:finishedOffline()
-        dialog:rebuild()
+        dialog:rebuildSoon()
       end
     end
   end)

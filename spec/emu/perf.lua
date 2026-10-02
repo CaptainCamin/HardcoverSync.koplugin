@@ -30,10 +30,14 @@ end
 
 -- the main loop: tasks, then a repaint, until the queue is empty
 function M.run_loop(rounds)
-  for _ = 1, rounds or 80 do
+  -- timers (Home's wait for more data) are real time, so wait for them: sleep a
+  -- little whenever nothing is due, until the queue is empty
+  local usleep = require("ffi/util").usleep
+  for _ = 1, rounds or 2000 do
     UIManager:_checkTasks()
     UIManager:_repaint()
     if not UIManager:getNextTaskTime() then break end
+    usleep(2000)
   end
 end
 

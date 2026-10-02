@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.5
+
+### Changed
+
+- Home redraws once for the numbers and books that arrive together when it opens (the counts, the reading list, the list count and the goals), waiting about a second and a half for the last of them, instead of redrawing for each. Fewer screen flashes on e-ink.
+
 ## 1.1.4
 
 ### Fixed

@@ -363,6 +363,11 @@ an unstubbed call shows up as an empty screen rather than as a false pass.
 function M.install(opts)
   opts = opts or {}
 
+  -- Home waits a moment for more data before redrawing; scenarios pump without
+  -- time passing, so they would never see the redraw. (perf_home and home_swipe-style
+  -- checks that care about the wait set it themselves.)
+  require("hardcover/lib/ui/home_dialog").REBUILD_DELAY = 0
+
   local Api = require("hardcover/lib/hardcover_api")
   local User = require("hardcover/lib/user")
 

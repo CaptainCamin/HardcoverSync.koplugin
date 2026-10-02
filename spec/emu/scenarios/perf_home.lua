@@ -36,6 +36,7 @@ return {
     -- nothing saved: counts, the reading list and the list count all arrive late
     local manager, settings = perf.new_manager(emu, fixtures, "perf_cold")
     fixtures.install({ settings = settings })
+    Home.REBUILD_DELAY = 0.05 -- a real wait, short (install sets 0 for the other scenarios)
     perf.slow_network({ "getShelfCounts", "getCurrentlyReading", "getListCount" })
     probe:reset()
     builds = 0
@@ -54,6 +55,7 @@ return {
       reading = fixtures.currently_reading,
     })
     fixtures.install({ settings = warm_settings })
+    Home.REBUILD_DELAY = 0.05 -- a real wait, short (install sets 0 for the other scenarios)
     perf.slow_network({ "getShelfCounts", "getCurrentlyReading", "getListCount" })
     probe:reset()
     builds = 0
@@ -65,15 +67,16 @@ return {
     perf.run_loop()
 
     -- the budget
-    -- Home now scrolls in this fixture (the Goals heading is always there), and a
-    -- scrolling page redraws its scroll area for each piece of data that arrives
-    -- (counts, reading list, list count, goals), so the budget is one per arrival
-    -- plus the first draw. A page that fits redraws only what changed.
-    local budget = 5
+    -- Home scrolls in this fixture (the Goals heading is always there), so a redraw
+    -- is the whole panel: the first draw (which asks twice: show and onShow) and one
+    -- redraw. Refreshes asked for in the same tick merge, so the emulator cannot show
+    -- the saving of the wait itself; the build count can: what arrives close together
+    -- (counts, reading list, list count, goals) is built once after the first build.
+    local budget = 3
     assert(cold.full <= budget, "opening Home refreshed the whole panel " .. cold.full .. " times (budget " .. budget .. ")")
     assert(warm.full <= budget, "reopening Home refreshed the whole panel " .. warm.full .. " times (budget " .. budget .. ")")
     assert(cold.decodes <= 2, "Home decoded " .. cold.decodes .. " covers for 2 distinct pictures")
     assert(warm.decodes <= 2, "Home decoded " .. warm.decodes .. " covers for 2 distinct pictures")
-    assert(cold_builds >= 1)
+    assert(cold_builds >= 1 and cold_builds <= 2, "Home was built " .. cold_builds .. " times opening (budget 2)")
   end,
 }

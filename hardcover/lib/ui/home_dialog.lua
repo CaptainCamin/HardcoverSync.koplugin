@@ -448,6 +448,8 @@ end
 -- seconds after the screen opens, which is exactly when someone is scrolling, and a
 -- page that jumps back to the top looks like a page that does not scroll.
 function HomeDialog:rebuild()
+  -- anything waiting for a later rebuild is being drawn now
+  self.rebuild_due = false
   local offset = self.scroll and self.scroll:getScrolledOffset().y or 0
   -- two rebuilds before a paint (counts and the reading list arriving together)
   -- compare with what was last on screen, not with the first one's unpainted tree
@@ -525,21 +527,44 @@ function HomeDialog:restoreScroll(offset)
 end
 
 -- Swap in fresh counts once they arrive.
-function HomeDialog:setRows(rows)
+-- `soon` (the data loading in the background) waits for the others to arrive
+-- instead of redrawing at once; see rebuildSoon.
+function HomeDialog:setRows(rows, soon)
   self.rows = rows or {}
-  self:rebuild()
+  if soon then self:rebuildSoon() else self:rebuild() end
 end
 
 -- Swap in the reading list (entries as Api:getCurrentlyReading returns them).
-function HomeDialog:setReading(entries)
+function HomeDialog:setReading(entries, soon)
   self.entries = entries or {}
-  self:rebuild()
+  if soon then self:rebuildSoon() else self:rebuild() end
+end
+
+-- How long a background load waits for more data before redrawing. Opening Home
+-- asks for the counts, the reading list, the list count and the goals one after
+-- another; redrawing for each is four visible refreshes on e-ink, so what arrives
+-- inside this window is drawn together.
+HomeDialog.REBUILD_DELAY = 1.5
+
+function HomeDialog:rebuildSoon()
+  self.rebuild_due = true
+  if self.rebuild_timer then return end
+  self.rebuild_timer = function()
+    self.rebuild_timer = nil
+    if self.closed or not self.rebuild_due then return end
+    self:rebuild()
+  end
+  UIManager:scheduleIn(HomeDialog.REBUILD_DELAY, self.rebuild_timer)
 end
 
 -- UIManager:close() queues no refresh of its own; without this the screen stays
 -- on the panel after it has closed.
 function HomeDialog:onCloseWidget()
   self.closed = true
+  if self.rebuild_timer then
+    UIManager:unschedule(self.rebuild_timer)
+    self.rebuild_timer = nil
+  end
   self:releaseCovers()
   UIManager:setDirty(nil, "ui")
 end
