@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- "Similar to <title>" could go missing on the details screen while the series strip showed. It now loads after the series strip instead of alongside it, is tried again (twice) if the request fails or is cut off, and says "Couldn't load similar books." if it still can't, so it is never silently absent. A book Hardcover has no ranking for still shows nothing.
+- "Similar to <title>" could go missing on the details screen while the series strip showed. It now loads after the series strip instead of alongside it, is tried again if the request fails (twice) or is cut off by touching the screen (up to eight times, two seconds apart, so scrolling straight away no longer loses it), and says "Couldn't load similar books." if it still can't, so it is never silently absent. A book Hardcover has no ranking for still shows nothing.
 
 ## 1.3.2
 

@@ -1790,8 +1790,14 @@ end
 
 -- "Similar to <title>" on a book's details: Hardcover's ranking, fetched after the
 -- screen is up (two requests, after the series) and shown as a strip of covers. An
--- empty ranking shows nothing. A request that failed or was cancelled by a tap is tried
--- again (twice), and if it still fails the reader is told, so it is never just missing.
+-- empty ranking shows nothing. KOReader cancels a request in flight when the screen is
+-- touched, and a reader who scrolls the details straight away does exactly that, so a
+-- cancelled request is tried again (up to SIMILAR_CANCEL_TRIES) until they leave it
+-- alone; one that really failed is tried twice more. If it still fails the reader is
+-- told, so it is never just missing.
+local SIMILAR_CANCEL_TRIES = 8
+local SIMILAR_FAIL_TRIES = 3
+
 function DialogManager:loadSimilar(dialog, book_id)
   if not Network.connected() then return end
   local tries = 0
@@ -1801,7 +1807,8 @@ function DialogManager:loadSimilar(dialog, book_id)
       if not UIManager:isWidgetShown(dialog) then return end
       if entries == nil then
         logger.warn("hardcover: similar books failed (try " .. tries .. ")", err)
-        if tries < 3 then
+        local cancelled = type(err) == "table" and err.completed == false
+        if tries < (cancelled and SIMILAR_CANCEL_TRIES or SIMILAR_FAIL_TRIES) then
           UIManager:scheduleIn(2, function()
             if UIManager:isWidgetShown(dialog) and Network.connected() then attempt() end
           end)

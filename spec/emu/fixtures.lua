@@ -517,7 +517,7 @@ function M.install(opts)
   Api.getSimilarBooks = function(_, book_id)
     record("getSimilarBooks")
     calls[#calls].args = { book_id = book_id }
-    if M.similar_fail then return nil, { completed = false } end
+    if M.similar_fail then return nil, M.similar_fail == "error" and { status = 500 } or { completed = false } end
     local entries = {}
     for _, i in ipairs(M.similar_ids or {}) do
       local b = M.shelf_books[i]
