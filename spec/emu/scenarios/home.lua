@@ -53,9 +53,10 @@ return {
     assert(dialog, "showHome did not produce a dialog")
     assert(UIManager:isWidgetShown(dialog), "the home screen was built but never shown")
 
-    -- each shelf is a tile: its count big, its name beside it
+    -- the shelves are tiles (its count big, its name beside it); what you are
+    -- reading is opened from its own heading, which carries the count
     for _, expected in ipairs({
-      "3", "Currently Reading", "42", "Want to Read", "130", "Read", "2", "Did Not Finish", "Library",
+      "3 books", "Currently reading", "42", "Want to Read", "130", "Read", "2", "Did Not Finish", "Library",
     }) do
       emu:expectText(expected)
     end
@@ -76,6 +77,10 @@ return {
     local rows = dialog.rows
     assert(#rows == 4 and rows[1].title == "Currently Reading",
       "rows are not in the expected order")
+    -- ...but the tile for it is gone: the heading takes its place
+    for _, node in ipairs(emu:screenNodes()) do
+      assert(node.text ~= "Currently Reading", "a Currently Reading tile is still drawn")
+    end
     emu:shot("home")
 
     -- geometry is only real once the screen has been painted
@@ -116,6 +121,17 @@ return {
     emu:shot("home_book")
     UIManager:close(top)
     emu:pump()
+
+    --[[--
+    The "Currently reading" heading is a button: it opens that shelf.
+    ]]
+    local heading = emu:expectText("Currently reading")
+    emu:tapExpecting(heading.x + 5, heading.y + 5)
+    assert(manager.shelf_dialog and UIManager:isWidgetShown(manager.shelf_dialog),
+      "tapping the heading did not open the Currently Reading shelf")
+    manager.shelf_dialog:onClose()
+    emu:pump()
+    assert(UIManager:getTopmostVisibleWidget() == dialog, "closing the shelf did not come back to Home")
 
     --[[--
     Choosing a shelf opens it on top, so closing it comes back here. A real tap
@@ -212,7 +228,7 @@ return {
     bare:showHome()
     emu:pump()
     assert(bare.home_dialog, "the home screen did not open without counts")
-    emu:expectText("Currently Reading")
+    emu:expectText("Currently reading") -- the heading stays: it opens the shelf
     assert(not emu:screenText():find("The Dispossessed", 1, true), "showed cards that were never loaded")
     for _, row in ipairs(bare.home_dialog.rows) do
       assert(row.count == nil, "invented a count for " .. row.title)

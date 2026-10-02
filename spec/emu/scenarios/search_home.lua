@@ -63,7 +63,8 @@ return {
     local button = emu:expectText("Search books")
     local screen_h = require("device").screen:getHeight()
     for _, row in ipairs(home.rows) do
-      local node = emu:expectText(row.title)
+      -- Currently Reading has no tile: its heading opens it
+      local node = emu:expectText(row.title == "Currently Reading" and "Currently reading" or row.title)
       assert(node.y + node.h <= screen_h, "shelf button " .. row.title .. " is off the screen")
     end
 
