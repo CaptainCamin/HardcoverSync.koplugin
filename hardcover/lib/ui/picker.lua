@@ -7,14 +7,16 @@
 -- and a width that is a share of the screen so the labels are not squeezed.
 
 local ButtonDialog = require("ui/widget/buttondialog")
+local UIManager = require("ui/uimanager")
 
 local Theme = require("hardcover/lib/ui/theme")
 
 local Picker = {}
 
 --
--- opts: title, rows (a list of { text, callback, current, bold }; one button
--- per row, in order).
+-- opts: title, rows (a list of { text, callback, current, bold, id }; one button
+-- per row, in order; an id lets setRow find it later), close_callback (when it is
+-- dismissed by a tap outside it or Back; a row's own callback closes it itself).
 --
 function Picker.new(opts)
   local buttons = {}
@@ -24,6 +26,7 @@ function Picker.new(opts)
       callback = row.callback,
       font_size = Theme.type.body,
       font_bold = row.current or row.bold or false,
+      id = row.id,
     } }
   end
   return ButtonDialog:new {
@@ -33,7 +36,21 @@ function Picker.new(opts)
     use_info_style = false, -- a bold title
     width_factor = 0.85,
     buttons = buttons,
+    tap_close_callback = opts.close_callback,
   }
+end
+
+--
+-- Change one row of a shown picker in place (its words, and whether it can be
+-- tapped), without rebuilding the dialog: a choice that is being saved shows it
+-- and cannot be tapped again until the answer is in.
+--
+function Picker.setRow(picker, id, text, enabled)
+  local button = picker and picker.getButtonById and picker:getButtonById(id)
+  if not button then return end
+  button:setText(text, button.width)
+  button:enableDisable(enabled ~= false)
+  UIManager:setDirty(picker, "ui")
 end
 
 return Picker

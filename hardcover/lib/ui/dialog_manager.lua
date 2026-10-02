@@ -13,6 +13,8 @@ local Background = require("hardcover/lib/background")
 local Book = require("hardcover/lib/book")
 local BookSearch = require("hardcover/lib/book_search")
 local Home = require("hardcover/lib/home")
+local Goals = require("hardcover/lib/goals")
+local Lists = require("hardcover/lib/lists")
 local Reviews = require("hardcover/lib/reviews")
 local Shelf = require("hardcover/lib/shelf")
 local Zlibrary = require("hardcover/lib/zlibrary")
@@ -503,6 +505,15 @@ function DialogManager:showHome(done_callback)
     lists_cb = function()
       self:showLists()
     end,
+    -- the saved goals, so the card is there at once and offline
+    goals = cache and cache:goals(user_id) or nil,
+    finished_offline = self:finishedOffline(),
+    goal_cb = function(goal)
+      self:showGoal(goal, nil)
+    end,
+    goals_cb = function()
+      self:showGoals()
+    end,
     close_callback = function()
       if done_callback then done_callback() end
     end,
@@ -554,6 +565,17 @@ function DialogManager:showHome(done_callback)
     if list_count and UIManager:isWidgetShown(dialog) and dialog.list_count ~= list_count then
       dialog.list_count = list_count
       dialog:rebuild()
+    end
+
+    -- the goal card: fresh goals replace the saved ones
+    if UIManager:isWidgetShown(dialog) then
+      local goals = Api:getGoals()
+      if goals and UIManager:isWidgetShown(dialog) then
+        if cache then cache:putGoals(user_id, goals) end
+        dialog.goals = goals
+        dialog.finished_offline = self:finishedOffline()
+        dialog:rebuild()
+      end
     end
   end)
 end
@@ -780,6 +802,213 @@ function DialogManager:showShelf(status_id, title, done_callback)
 end
 
 --
+-- Reading goals. Shown at once from the saved copy (or a loading line), refreshed
+-- when the network answers; the saved copy is what an offline device shows, with a
+-- note saying when it is from. Pace is worked out on the device (see goals.lua), and
+-- books finished here but not yet sent count toward the number.
+--
+local function goalsNote(saved_at, why)
+  local when = os.date("%b %d", saved_at or os.time())
+  return string.format(_("%s Showing your goals as of %s."), why, when)
+end
+
+function DialogManager:finishedOffline()
+  return self.sync_queue and self.sync_queue:finishedCount() or 0
+end
+
+function DialogManager:showGoals(done_callback)
+  local user_id = User:getId()
+  local cache = self.shelf_cache
+  local cached, saved_at = cache and cache:goals(user_id)
+
+  discard(self.goals_dialog)
+  self.goals_dialog = nil
+
+  local note
+  local online = NetworkManager:isConnected()
+  if cached and not online then note = goalsNote(saved_at, _("Offline.")) end
+
+  local dialog = require("hardcover/lib/ui/goals_dialog"):new {
+    goals = cached,
+    finished_offline = self:finishedOffline(),
+    note = note,
+    message = cached == nil and (online and _("Loading your goals\226\128\166") or _("Goals need an internet connection the first time.")) or nil,
+    open_cb = function(goal)
+      self:showGoal(goal, note)
+    end,
+    new_cb = function()
+      self:showGoalForm(nil)
+    end,
+    close_callback = function()
+      if done_callback then done_callback() end
+    end,
+  }
+  if cached and #cached == 0 then
+    dialog.message = _("No goals yet. Set one on hardcover.app and it will show up here.")
+  end
+  self.goals_dialog = dialog
+  UIManager:show(dialog)
+  if not online then return end
+
+  Api:getGoalsAsync(function(goals, err)
+    if not UIManager:isWidgetShown(dialog) then return end
+    if goals then
+      if cache then cache:putGoals(user_id, goals) end
+      dialog.open_cb = function(goal) self:showGoal(goal, nil) end
+      dialog:setGoals(goals, nil, self:finishedOffline())
+    elseif cached then
+      dialog:setGoals(cached, goalsNote(saved_at, _("Couldn't refresh.")), self:finishedOffline())
+    else
+      StatusDialogs.retry(err, _("Loading your goals"),
+        function() self:showGoals(done_callback) end,
+        function() UIManager:close(dialog) end)
+    end
+  end)
+end
+
+-- One goal, big. `note` is the saved-copy note when the goals shown are not fresh.
+function DialogManager:showGoal(goal, note, done_callback)
+  local dialog = require("hardcover/lib/ui/goal_dialog"):new {
+    goal = goal,
+    finished_offline = self:finishedOffline(),
+    note = note,
+    edit_cb = function(current)
+      self:showGoalForm(current)
+    end,
+    close_callback = function()
+      if done_callback then done_callback() end
+    end,
+  }
+  self.goal_dialog = dialog
+  UIManager:show(dialog)
+end
+
+--
+-- Making a goal (`goal` nil) or changing one: a form that stays open until the save
+-- has gone through, so a failure (no connection, a refusal) keeps what was typed.
+-- Saving needs the connection and the write:goals permission; neither is assumed:
+-- offline says so without sending anything, and a sign-in from before the
+-- permission existed is asked to sign in again.
+--
+function DialogManager:showGoalForm(goal, on_saved)
+  local dialog
+  dialog = require("hardcover/lib/ui/goal_form_dialog"):new {
+    goal = goal,
+    on_save = function(form)
+      self:saveGoal(dialog, form, on_saved)
+    end,
+    on_archive = goal and function()
+      self:archiveGoal(dialog, goal, on_saved)
+    end or nil,
+  }
+  self.goal_form_dialog = dialog
+  UIManager:show(dialog)
+  return dialog
+end
+
+local SIGN_IN_AGAIN = _("Sign out and back in (Settings > Account) to change goals.")
+
+-- why a write failed, in a sentence: a refusal for the permission says to sign in
+-- again, Hardcover's own words are passed on, anything else is "no answer"
+local function goalWriteProblem(err)
+  if Lists.isScopeError(err) then return SIGN_IN_AGAIN end
+  if type(err) == "string" and err ~= "" then
+    -- Hardcover's text may or may not end in a full stop, and a sentence follows it
+    err = err:gsub("%s+$", "")
+    if not err:match("[%.!%?]$") then err = err .. "." end
+    return err
+  end
+  return _("Hardcover did not answer.")
+end
+
+-- The goals as they are now (a list), everywhere they are shown: saved for offline,
+-- on the Goals screen, on Home's card, and on the goal screen if it is open.
+function DialogManager:applyGoals(goals, changed)
+  local user_id = User:getId()
+  if self.shelf_cache then self.shelf_cache:putGoals(user_id, goals) end
+
+  local screen = self.goals_dialog
+  if screen and UIManager:isWidgetShown(screen) then
+    screen:setGoals(goals, nil, self:finishedOffline())
+  end
+  local home = self.home_dialog
+  if home and UIManager:isWidgetShown(home) then
+    home.goals = goals
+    home.finished_offline = self:finishedOffline()
+    home:rebuild()
+  end
+  local one = self.goal_dialog
+  if changed and one and UIManager:isWidgetShown(one) and one.goal and one.goal.id == changed.id then
+    one:setGoal(changed)
+  end
+end
+
+-- the goals saved on the device (a list; empty when none)
+function DialogManager:savedGoals()
+  local cache = self.shelf_cache
+  return cache and cache:goals(User:getId()) or {}
+end
+
+function DialogManager:saveGoal(dialog, form, on_saved)
+  if not NetworkManager:isConnected() then
+    dialog:setMessage(_("You're offline. Your changes are kept here: save when you're connected."))
+    return
+  end
+  if Api.auth and Api.auth:hasScope(Goals.WRITE_SCOPE) == false then
+    dialog:setMessage(SIGN_IN_AGAIN)
+    return
+  end
+
+  dialog:setBusy(true)
+  Api:saveGoalAsync(form.id, Goals.input(form), function(saved, err)
+    -- the goal is saved on Hardcover whether or not the form is still open, so the
+    -- saved copy follows either way
+    if saved then
+      self:applyGoals(Goals.upsert(self:savedGoals(), saved), saved)
+    end
+    if not UIManager:isWidgetShown(dialog) then return end
+    if not saved then
+      dialog:setBusy(false)
+      dialog:setMessage(string.format(_("Couldn't save the goal: %s Your changes are kept."), goalWriteProblem(err)))
+      return
+    end
+    UIManager:close(dialog)
+    if on_saved then on_saved(saved) end
+  end)
+end
+
+function DialogManager:archiveGoal(dialog, goal, on_saved)
+  if not NetworkManager:isConnected() then
+    dialog:setMessage(_("You're offline. Archiving needs a connection."))
+    return
+  end
+  if Api.auth and Api.auth:hasScope(Goals.WRITE_SCOPE) == false then
+    dialog:setMessage(SIGN_IN_AGAIN)
+    return
+  end
+
+  dialog:setBusy(true)
+  Api:archiveGoalAsync(goal.id, function(done, err)
+    if done then
+      self:applyGoals(Goals.remove(self:savedGoals(), goal.id))
+    end
+    if not UIManager:isWidgetShown(dialog) then return end
+    if not done then
+      dialog:setBusy(false)
+      dialog:setMessage(string.format(_("Couldn't archive the goal: %s"), goalWriteProblem(err)))
+      return
+    end
+    UIManager:close(dialog)
+    -- the goal screen under the form is about a goal that is no longer listed
+    local one = self.goal_dialog
+    if one and UIManager:isWidgetShown(one) and one.goal and one.goal.id == goal.id then
+      UIManager:close(one)
+    end
+    if on_saved then on_saved(nil) end
+  end)
+end
+
+--
 -- Your lists and the ones you follow. Shown at once with a loading line, filled in
 -- when the answer arrives; a list opens in the shelf screen (showList).
 --
@@ -933,6 +1162,8 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
     -- only when the Z-library plugin is there: no button that does nothing
     on_zlibrary = Zlibrary.available(self.ui) and function(d) self:searchZlibrary(d) end or nil,
     on_shelf = function(d) self:chooseShelf(d) end,
+    -- only when signed in with OAuth (the write scope is an OAuth thing)
+    on_lists = self:canChooseLists() and function(d) self:chooseLists(d) end or nil,
     -- these open on top of the details, so closing them comes back here
     on_series = function(_, name) self:searchBooks(name) end,
     on_author = function(_, name) self:searchBooks(name) end,
@@ -1146,6 +1377,187 @@ function DialogManager:chooseShelf(dialog)
   picker = require("hardcover/lib/ui/picker").new {
     title = detail.status_id and _("Move to shelf") or _("Add to shelf"),
     rows = rows,
+  }
+  UIManager:show(picker)
+end
+
+-- Signed in with OAuth, so there is a sign-in whose scopes can say whether it may
+-- change lists.
+function DialogManager:canChooseLists()
+  local auth = Api.auth
+  return auth ~= nil and auth:usingOAuth() and not auth:needsReauth()
+end
+
+local function listsNeedNewSignIn()
+  StatusDialogs.info(_("Sign out and back in (Settings > Account) to add books to lists."), 6)
+end
+
+-- The lists screen, when it is open underneath, shows the new size of a list.
+function DialogManager:refreshListsScreen(list_id, count)
+  local screen = self.lists_dialog
+  if not (screen and UIManager:isWidgetShown(screen)) then return end
+  local changed = false
+  for _i, row in ipairs(screen.mine or {}) do
+    if row.id == list_id and row.count ~= count then
+      row.count = count
+      changed = true
+    end
+  end
+  if changed then screen:rebuild() end
+end
+
+-- Put the book on the details screen on your lists, or take it off, one tick box
+-- per list (a book can be on many).
+--
+-- Online only, like the shelf: each tap is sent at once. Which lists the book is on
+-- comes from one request, kept on the details screen so opening the picker again
+-- asks nothing. Where a "New list" row would go: first in the picker's rows (see
+-- showListsPicker), creating the list with a name prompt, then adding the book.
+--
+function DialogManager:chooseLists(dialog)
+  local detail = dialog.detail
+  if not (detail and detail.book and detail.book.book_id) then return end
+
+  if not NetworkManager:isConnected() then
+    StatusDialogs.info(_("You are offline. Changing a list needs a connection."))
+    return
+  end
+
+  -- a sign-in known to lack the scope would only fail: say what to do instead
+  -- (nil, as with a personal token, is "cannot tell": try and see)
+  if Api.auth and Api.auth:hasScope(Lists.WRITE_SCOPE) == false then
+    listsNeedNewSignIn()
+    return
+  end
+
+  if detail.lists then
+    self:showListsPicker(dialog)
+    return
+  end
+
+  local loading = StatusDialogs.loading(_("Loading your lists\226\128\166"))
+  Api:getBookListsAsync(detail.book.book_id, function(rows, err)
+    StatusDialogs.close(loading)
+    if not UIManager:isWidgetShown(dialog) then return end
+
+    if not rows then
+      StatusDialogs.retry(err, _("Loading your lists"),
+        function() self:chooseLists(dialog) end,
+        function() end)
+      return
+    end
+    detail.lists = rows
+    self:showListsPicker(dialog)
+  end)
+end
+
+function DialogManager:showListsPicker(dialog)
+  local detail = dialog.detail
+  local book_id = detail.book.book_id
+  local state = detail.lists
+  if #state == 0 then
+    StatusDialogs.info(_("You have no lists yet. Make one on hardcover.app and it will show up here."), 5)
+    return
+  end
+
+  local picker
+  local open = true
+
+  -- the details screen names the lists once the picker is done with them
+  local function syncDetail()
+    if UIManager:isWidgetShown(dialog) then dialog:setLists(detail.lists) end
+  end
+  local function close()
+    if not open then return end
+    open = false
+    UIManager:close(picker)
+    syncDetail()
+  end
+
+  local function redraw(r)
+    require("hardcover/lib/ui/picker").setRow(picker, "list_" .. r.id, Lists.pickerLabel(r), not r.busy)
+  end
+  local function changed(r)
+    r.busy = nil
+    redraw(r)
+    self:refreshListsScreen(r.id, r.count)
+    if not open then syncDetail() end -- the answer came after the picker was closed
+  end
+  -- the tick stays as it was; say why
+  local function failed(r, err)
+    r.busy = nil
+    redraw(r)
+    if Lists.isScopeError(err) then
+      listsNeedNewSignIn()
+    else
+      StatusDialogs.error(string.format(_("Could not change \"%s\": %s"), r.name, StatusDialogs.describe(err)))
+    end
+  end
+
+  local function toggle(r)
+    if r.busy then return end
+    if not NetworkManager:isConnected() then
+      StatusDialogs.info(_("You are offline. Changing a list needs a connection."))
+      return
+    end
+    r.busy = true
+    redraw(r)
+
+    if not r.on then
+      -- the end of the list: Lists.insertObject
+      Api:addToListAsync(book_id, r.id, r.count, function(added, err)
+        if not added then return failed(r, err) end
+        Lists.markAdded(r, added.id)
+        changed(r)
+      end)
+      return
+    end
+
+    local function remove(list_book_id)
+      Api:removeFromListAsync(list_book_id, function(removed, err)
+        if not removed then return failed(r, err) end
+        Lists.markRemoved(r)
+        changed(r)
+      end)
+    end
+    if r.list_book_id then
+      remove(r.list_book_id)
+      return
+    end
+    -- added a moment ago and Hardcover's answer did not say which row it made:
+    -- look it up (one request) rather than guess
+    Api:getBookListsAsync(book_id, function(fresh, err)
+      local found
+      for _i, f in ipairs(fresh or {}) do
+        if f.id == r.id then found = f end
+      end
+      if not found then return failed(r, err or { message = _("the list was not found") }) end
+      if not found.on then
+        Lists.markRemoved(r) -- already off it
+        return changed(r)
+      end
+      if not found.list_book_id then return failed(r, { message = _("no answer from Hardcover") }) end
+      remove(found.list_book_id)
+    end)
+  end
+
+  local rows = {}
+  for _i, r in ipairs(state) do
+    rows[#rows + 1] = {
+      id = "list_" .. r.id,
+      text = Lists.pickerLabel(r),
+      callback = function() toggle(r) end,
+    }
+  end
+  rows[#rows + 1] = { text = _("Done"), callback = close }
+
+  picker = require("hardcover/lib/ui/picker").new {
+    title = _("Add to lists"),
+    rows = rows,
+    close_callback = function()
+      open = false
+      syncDetail()
+    end,
   }
   UIManager:show(picker)
 end

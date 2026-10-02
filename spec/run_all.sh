@@ -65,8 +65,9 @@ while IFS= read -r f; do
     FAILED_LIST+=("syntax: $f")
   fi
 # -type f and the -not -path lines: CI installs Lua into a `.lua` directory in the
-# workspace, which -name '*.lua' also matches, and it is not source.
-done < <(find . -name '*.lua' -type f -not -path './.git/*' -not -path './.lua/*' -not -path './.luarocks/*')
+# workspace, which -name '*.lua' also matches, and it is not source. Nor is .claude/
+# (agent worktrees: another checkout, possibly mid-edit, that must not fail this run).
+done < <(find . -name '*.lua' -type f -not -path './.git/*' -not -path './.lua/*' -not -path './.luarocks/*' -not -path './.claude/*')
 if [ "$FAILED" -eq 0 ]; then
   echo "  all files parse"
 fi

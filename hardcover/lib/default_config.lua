@@ -19,10 +19,13 @@ return {
   -- Scope set requested at sign-in. There is no separate write:journal scope;
   -- journal reads and writes are both covered by the library scopes.
   -- read:social is what allows reading other readers' reviews; read:users is
-  -- what lets Hardcover tell us their names. The OAuth app
+  -- what lets Hardcover tell us their names. write:lists is for adding a book to
+  -- your lists (Lists.WRITE_SCOPE); older sign-ins lack it and are asked to sign
+  -- in again when they try. write:goals is the same for making, changing and
+  -- archiving goals (Goals.WRITE_SCOPE). The OAuth app
   -- must allow every scope listed here: asking for one it does not allow fails
   -- the whole sign-in with invalid_scope.
-  scope = "read:catalog read:catalog:search read:me:content read:library read:social read:users write:library",
+  scope = "read:catalog read:catalog:search read:me:content read:library read:social read:users write:library write:lists write:goals",
 
   -- Personal access token. Left empty on purpose: sign in from the plugin
   -- instead. A token in your hardcover_config.lua is used in place of signing

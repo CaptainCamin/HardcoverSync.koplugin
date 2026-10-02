@@ -49,6 +49,19 @@ function SyncQueue:hasPending(filepath)
   return false
 end
 
+-- How many books are waiting to be sent as finished. A reading goal counts these
+-- on top of what the server has counted, so finishing a book offline moves the
+-- number straight away.
+function SyncQueue:finishedCount()
+  local count = 0
+  for _, entry in pairs(self:pending()) do
+    if type(entry) == "table" and entry.status_id == HARDCOVER.STATUS.FINISHED then
+      count = count + 1
+    end
+  end
+  return count
+end
+
 function SyncQueue:filepaths()
   local paths = {}
   for filepath, entry in pairs(self:pending()) do

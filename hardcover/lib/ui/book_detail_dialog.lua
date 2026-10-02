@@ -26,6 +26,7 @@ local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local _ = require("gettext")
 
+local Lists = require("hardcover/lib/lists")
 local Shelf = require("hardcover/lib/shelf")
 local SeriesCarousel = require("hardcover/lib/ui/series_carousel")
 local Theme = require("hardcover/lib/ui/theme")
@@ -38,6 +39,9 @@ local BookDetailDialog = FocusManager:extend {
   detail = nil,
   -- called with no arguments when Reviews is tapped; no callback, no button
   on_reviews = nil,
+  -- called with no arguments when Lists is tapped (the lists to put the book on);
+  -- no callback, no button
+  on_lists = nil,
   -- present only when the Z-library plugin is installed (see hardcover/lib/zlibrary.lua)
   on_zlibrary = nil,
   -- tapping the series pill, the status pill or the author: called with the
@@ -224,6 +228,16 @@ function BookDetailDialog:init()
     addTo(column, tappable("status_tap", self.status_text, self.on_status, status_id))
   end
 
+  -- which of your lists the book is on, once that is known (the lists picker
+  -- loads it; see setLists)
+  self.lists_text = nil
+  local on_lists = Lists.onNames((self.detail or {}).lists)
+  if on_lists then
+    self.lists_text = wrapped(string.format(_("On your lists: %s"), on_lists), "small", false, true)
+    addTo(column, Theme.span("s"))
+    addTo(column, self.lists_text)
+  end
+
   -- a box of the cover's size holding the placeholder; loadCover swaps the
   -- picture in if one arrives
   local icon_size = math.floor(cover_width * 0.5)
@@ -311,12 +325,15 @@ function BookDetailDialog:init()
     })
   end
 
-  -- The action bar: Shelf (filled, the main one), then Reviews, then Z-library
-  -- when that plugin is there, sharing the width equally. They scroll with the
+  -- The action bar: Shelf (filled, the main one), then Lists and Reviews, then
+  -- Z-library when that plugin is there, sharing the width equally. They scroll with the
   -- page, so each tap is cut to the visible area (see viewport.lua) or one
   -- scrolled away could catch a tap meant for what is over it.
   local labels = { { "shelf_button", Shelf.shelfButtonText((self.detail or {}).status_id), "on_shelf", true } }
-  self.shelf_button, self.reviews_button, self.zlibrary_button = nil, nil, nil
+  self.shelf_button, self.lists_button, self.reviews_button, self.zlibrary_button = nil, nil, nil, nil
+  if self.on_lists then
+    labels[#labels + 1] = { "lists_button", _("Lists"), "on_lists" }
+  end
   if self.on_reviews then
     labels[#labels + 1] = { "reviews_button", _("Reviews"), "on_reviews" }
   end
@@ -579,6 +596,23 @@ function BookDetailDialog:setStatus(status_id, user_book_id)
   detail.status_id = status_id
   detail.user_book_id = status_id and user_book_id or nil
   if not status_id then detail.user_rating = nil end
+
+  local offset = self.scroll and self.scroll.getScrolledOffset and self.scroll:getScrolledOffset()
+  self:rebuild(true)
+  if offset and self.scroll and self.scroll.setScrolledOffset then
+    self.scroll:setScrolledOffset(offset)
+  end
+end
+
+--
+-- The lists the book is on are known (or changed): `rows` is Lists.membership's
+-- result, kept on the detail so the picker does not ask again and the line under
+-- the status can name them. Keeps the cover and the scroll position.
+--
+function BookDetailDialog:setLists(rows)
+  local detail = self.detail or {}
+  self.detail = detail
+  detail.lists = rows
 
   local offset = self.scroll and self.scroll.getScrolledOffset and self.scroll:getScrolledOffset()
   self:rebuild(true)

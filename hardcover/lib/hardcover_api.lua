@@ -11,6 +11,7 @@ local UIManager = require("ui/uimanager")
 local socketutil = require("socketutil")
 
 local Book = require("hardcover/lib/book")
+local Goals = require("hardcover/lib/goals")
 local Lists = require("hardcover/lib/lists")
 local Shelf = require("hardcover/lib/shelf")
 local VERSION = require("hardcover_version")
@@ -779,6 +780,185 @@ function HardcoverApi:getListBooks(list_id, source, ranked, offset, limit)
 end
 
 --
+-- Your reading goals, as a list (see Goals.normalize: archived ones are left out).
+-- Everything about pace is worked out on the device from this and the date.
+--
+function HardcoverApi:getGoals()
+  local query = [[
+    query {
+      me {
+        goals(
+          where: { archived: { _eq: false } }
+          order_by: [{ end_date: asc }, { id: asc }]
+        ) {
+          id
+          goal
+          metric
+          description
+          start_date
+          end_date
+          progress
+          archived
+          privacy_setting_id
+        }
+      }
+    }
+  ]]
+
+  local results, err = self:query(query, {})
+  local me = results and results.me
+  if type(me) == "table" and me[1] ~= nil then me = me[1] end
+  if type(me) ~= "table" or type(me.goals) ~= "table" then
+    return nil, err or { completed = false }
+  end
+  return Goals.normalize(me.goals)
+end
+
+-- The fields of a goal we read back from the goal mutations: the same ones getGoals
+-- reads, so what comes back is a row Goals.normalize takes.
+local GOAL_FIELDS = [[
+  id
+  goal
+  metric
+  description
+  start_date
+  end_date
+  progress
+  archived
+  privacy_setting_id
+]]
+
+--
+-- Make a goal (`id` nil) or change one, from a GoalInput (see Goals.input). Needs the
+-- write:goals scope; without it the answer is an insufficient-scope refusal (see
+-- Lists.isScopeError). Returns the saved goal as Goals.normalize shapes it, or nil and
+-- the error.
+--
+-- A new goal with no visibility set takes the account's own setting (one extra
+-- request): a private account must not get a public goal by default.
+--
+-- Hardcover counts a goal's progress on its side, from the books finished in its
+-- period, so after a save it is asked to count again (update_goal_progress): changing
+-- the dates or what is counted changes the number. If that second request fails the
+-- goal is still saved, and its number is brought up to date by the next fetch.
+--
+function HardcoverApi:saveGoal(id, input)
+  input = input or {}
+
+  if not id and input.privacy_setting_id == nil then
+    local me = self:me()
+    local setting = type(me) == "table" and tonumber(me.account_privacy_setting_id) or nil
+    local copy = {}
+    for k, v in pairs(input) do copy[k] = v end
+    copy.privacy_setting_id = setting or 1
+    input = copy
+  end
+
+  local query, vars, field
+  if id then
+    field = "update_goal"
+    query = [[
+      mutation ($id: Int!, $object: GoalInput!) {
+        update_goal(id: $id, object: $object) {
+          id
+          errors
+          goal { ]] .. GOAL_FIELDS .. [[ }
+        }
+      }
+    ]]
+    vars = { id = id, object = input }
+  else
+    field = "insert_goal"
+    query = [[
+      mutation ($object: GoalInput!) {
+        insert_goal(object: $object) {
+          id
+          errors
+          goal { ]] .. GOAL_FIELDS .. [[ }
+        }
+      }
+    ]]
+    vars = { object = input }
+  end
+
+  local result, err = self:query(query, vars)
+  local saved = result and result[field]
+  if type(saved) ~= "table" then
+    return nil, err or { completed = false }
+  end
+  if type(saved.errors) == "string" and saved.errors ~= "" then
+    return nil, saved.errors
+  end
+  local goal_id = tonumber(saved.id) or (type(saved.goal) == "table" and tonumber(saved.goal.id)) or nil
+  if not goal_id then
+    return nil, err or { completed = false }
+  end
+
+  local function row_of(answer)
+    local goal = type(answer) == "table" and answer.goal
+    if type(goal) == "table" and goal[1] ~= nil then goal = goal[1] end
+    return type(goal) == "table" and goal or nil
+  end
+
+  local row = row_of(saved)
+  local recount = self:query([[
+    mutation ($id: Int!) {
+      update_goal_progress(id: $id) {
+        id
+        errors
+        goal { ]] .. GOAL_FIELDS .. [[ }
+      }
+    }
+  ]], { id = goal_id })
+  local recounted = recount and recount.update_goal_progress
+  if type(recounted) == "table" and not (type(recounted.errors) == "string" and recounted.errors ~= "") then
+    row = row_of(recounted) or row
+  end
+
+  -- what Hardcover sent back, else what was sent (progress as it was, or 0 for a new goal)
+  local goal = Goals.normalize({ row })[1]
+  if not goal then
+    goal = Goals.normalize({ {
+      id = goal_id,
+      goal = input.goal,
+      metric = input.metric,
+      description = input.description,
+      start_date = input.start_date,
+      end_date = input.end_date,
+      progress = row and row.progress or 0,
+      privacy_setting_id = input.privacy_setting_id,
+    } })[1]
+  end
+  if not goal then
+    return nil, err or { completed = false }
+  end
+  return goal
+end
+
+--
+-- Archive a goal: it stays on Hardcover but is hidden (the same as archiving it on
+-- the website), so it can be brought back. Returns true, or nil and the error.
+--
+function HardcoverApi:archiveGoal(id)
+  local result, err = self:query([[
+    mutation ($id: Int!) {
+      update_goal(id: $id, object: { archived: true }) {
+        id
+        errors
+      }
+    }
+  ]], { id = id })
+  local out = result and result.update_goal
+  if type(out) ~= "table" then
+    return nil, err or { completed = false }
+  end
+  if type(out.errors) == "string" and out.errors ~= "" then
+    return nil, out.errors
+  end
+  return true
+end
+
+--
 -- How many books are on each of the given shelves, as { [status_id] = count }.
 --
 -- One aggregate per shelf, all in a single request. Each aliased aggregate counts
@@ -1264,6 +1444,92 @@ function HardcoverApi:removeUserBook(user_book_id)
   return nil, err
 end
 
+--
+-- Which of your own lists a book is on: every list of yours (id, name, size, ranked)
+-- and, for each, the list_books row that is this book if it is there (its id is what
+-- removing needs). The lists you follow cannot be added to, so they are not asked
+-- for. Works with the scopes every sign-in has. Returns rows (see
+-- Lists.membership), or nil and the error.
+--
+function HardcoverApi:getBookLists(book_id)
+  local query = [[
+    query ($bookId: Int!) {
+      me {
+        lists(order_by: [{ updated_at: desc }, { id: desc }]) {
+          id
+          name
+          books_count
+          ranked
+          privacy_setting_id
+          list_books(where: { book_id: { _eq: $bookId } }) {
+            id
+          }
+        }
+      }
+    }
+  ]]
+
+  local results, err = self:query(query, { bookId = book_id })
+  local me = results and results.me
+  if type(me) == "table" and me[1] ~= nil then me = me[1] end
+  if type(me) ~= "table" then
+    return nil, err or { completed = false }
+  end
+  return Lists.membership(me)
+end
+
+--
+-- Put a book on one of your lists (needs the write:lists scope, see Lists.WRITE_SCOPE).
+-- `position` is where in the list; the caller passes the end (Lists.insertObject).
+-- Returns { id = the new list_books row's id (nil if the answer did not carry
+-- one) }, or nil and the error: Hardcover's own text when it refused, the request's
+-- error table otherwise.
+--
+-- Written by analogy with insert_user_book (a payload with `error` and an id); the
+-- answer is read loosely so a slightly different payload still counts as done.
+--
+function HardcoverApi:addToList(book_id, list_id, position)
+  -- ListBookIdType is { id, list_book }: unlike insert_user_book it has no `error`
+  -- field (asking for one fails the whole request on validation; checked against the
+  -- API's schema). A refusal comes back as a GraphQL error instead.
+  local query = [[
+    mutation ($object: ListBookInput!) {
+      insert_list_book(object: $object) {
+        id
+        list_book { id }
+      }
+    }
+  ]]
+
+  local result, err = self:query(query, { object = Lists.insertObject(book_id, list_id, position) })
+  local inserted = result and result.insert_list_book
+  if type(inserted) == "table" then
+    if type(inserted.error) == "string" and inserted.error ~= "" then
+      return nil, inserted.error
+    end
+    return { id = Lists.listBookId(inserted) }
+  end
+  return nil, err or { completed = false }
+end
+
+-- Take a book off a list, by the id of its list_books row. Returns { id } or nil
+-- and the error.
+function HardcoverApi:removeFromList(list_book_id)
+  local query = [[
+    mutation ($id: Int!) {
+      delete_list_book(id: $id) {
+        id
+      }
+    }
+  ]]
+
+  local result, err = self:query(query, { id = list_book_id })
+  if result and type(result.delete_list_book) == "table" then
+    return result.delete_list_book
+  end
+  return nil, err or { completed = false }
+end
+
 function HardcoverApi:updateRating(user_book_id, rating)
   local query = [[
     mutation ($id: Int!, $rating: numeric) {
@@ -1364,8 +1630,32 @@ local function async(callback, fn, ...)
   end)
 end
 
+function HardcoverApi:saveGoalAsync(id, input, callback)
+  async(callback, self.saveGoal, self, id, input)
+end
+
+function HardcoverApi:archiveGoalAsync(id, callback)
+  async(callback, self.archiveGoal, self, id)
+end
+
+function HardcoverApi:getGoalsAsync(callback)
+  async(callback, self.getGoals, self)
+end
+
 function HardcoverApi:getListsAsync(callback)
   async(callback, self.getLists, self)
+end
+
+function HardcoverApi:getBookListsAsync(book_id, callback)
+  async(callback, self.getBookLists, self, book_id)
+end
+
+function HardcoverApi:addToListAsync(book_id, list_id, position, callback)
+  async(callback, self.addToList, self, book_id, list_id, position)
+end
+
+function HardcoverApi:removeFromListAsync(list_book_id, callback)
+  async(callback, self.removeFromList, self, list_book_id)
 end
 
 function HardcoverApi:getListCountAsync(callback)
