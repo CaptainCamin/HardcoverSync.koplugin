@@ -50,6 +50,8 @@ local BookDetailDialog = FocusManager:extend {
   -- name). No callback, nothing tappable.
   on_series = nil,
   on_status = nil,
+  -- tapping your rating: called with the dialog. No callback, not tappable.
+  on_rating = nil,
   on_author = nil,
   width = nil,
   height = nil,
@@ -262,11 +264,20 @@ function BookDetailDialog:init()
   -- hairlines
   local cell_w = math.floor(width / 3)
   local cells = HorizontalGroup:new {}
-  for _, stat in ipairs(Shelf.detailStats(self.detail)) do
-    table.insert(cells, CenterContainer:new {
+  for i, stat in ipairs(Shelf.detailStats(self.detail)) do
+    local cell = CenterContainer:new {
       dimen = Geom:new { w = cell_w, h = Screen:scaleBySize(78) },
       Theme.stat(stat[1], stat[2], cell_w),
-    })
+    }
+    -- the third figure is yours: tap it to rate the book
+    if i == 3 and self.on_rating then
+      cell = require("hardcover/lib/ui/tap_row"):new {
+        callback = function() self:on_rating() end,
+        viewport = viewport,
+        cell,
+      }
+    end
+    table.insert(cells, cell)
   end
   self.stats_strip = VerticalGroup:new {
     align = "left",
@@ -606,6 +617,21 @@ function BookDetailDialog:setStatus(status_id, user_book_id)
   detail.status_id = status_id
   detail.user_book_id = status_id and user_book_id or nil
   if not status_id then detail.user_rating = nil end
+
+  local offset = self.scroll and self.scroll.getScrolledOffset and self.scroll:getScrolledOffset()
+  self:rebuild(true)
+  if offset and self.scroll and self.scroll.setScrolledOffset then
+    self.scroll:setScrolledOffset(offset)
+  end
+end
+
+--
+-- Your rating changed (0 clears it). Keeps the cover and the scroll position.
+--
+function BookDetailDialog:setRating(rating)
+  local detail = self.detail or {}
+  self.detail = detail
+  detail.user_rating = (tonumber(rating) or 0) > 0 and rating or nil
 
   local offset = self.scroll and self.scroll.getScrolledOffset and self.scroll:getScrolledOffset()
   self:rebuild(true)

@@ -34,6 +34,7 @@ local Scheduler = require("hardcover/lib/scheduler")
 local ShelfCache = require("hardcover/lib/shelf_cache")
 local SyncQueue = require("hardcover/lib/sync_queue")
 local GoalQueue = require("hardcover/lib/goal_queue")
+local RatingQueue = require("hardcover/lib/rating_queue")
 local SyncConflicts = require("hardcover/lib/sync_conflicts")
 local throttle = require("hardcover/lib/throttle")
 local User = require("hardcover/lib/user")
@@ -137,6 +138,8 @@ function HardcoverApp:init()
 
   -- goal changes made offline wait in the same file as the progress queue
   self.goal_queue = GoalQueue:new { settings = self.sync_queue.settings }
+  -- so are ratings set offline from the book details screen
+  self.rating_queue = RatingQueue:new { settings = self.sync_queue.settings }
 
   User.settings = self.settings
   Api.on_error = function(err)
@@ -180,6 +183,7 @@ function HardcoverApp:init()
     sync_queue = self.sync_queue,
     -- goals made or changed offline, and the way to send them
     goal_queue = self.goal_queue,
+    rating_queue = self.rating_queue,
     flush_goals = function() self:flushSyncQueue(false) end,
     -- the settings, for the home screen's Settings button; read when asked, as
     -- the menu is built after this
@@ -211,6 +215,7 @@ function HardcoverApp:init()
     state = self.state,
     sync_queue = self.sync_queue,
     goal_queue = self.goal_queue,
+    rating_queue = self.rating_queue,
     ui = self.ui,
     wifi = self.wifi,
     on_flush_sync_queue = function() self:on_flush_sync_queue() end,
@@ -671,6 +676,7 @@ function HardcoverApp:on_flush_sync_queue()
   -- pressing Sync is the user asking again: let goal changes Hardcover refused try once more
   if self.goal_queue then self.goal_queue:retryHeld() end
   local pending = self.sync_queue:pendingCount() + (self.goal_queue and self.goal_queue:count() or 0)
+    + (self.rating_queue and self.rating_queue:count() or 0)
 
   if pending == 0 then
     UIManager:show(InfoMessage:new {
@@ -815,8 +821,21 @@ function HardcoverApp:_flushGoals()
   return not result.stopped and result.waiting == result.held
 end
 
+-- Send the ratings set offline. Returns false while any is still waiting.
+function HardcoverApp:_flushRatings()
+  local queue = self.rating_queue
+  if not queue or queue:isEmpty() then
+    return true
+  end
+  local waiting = queue:flush(Api, function(user_book_id, user_book)
+    self.dialog_manager:ratingSent(user_book_id, user_book)
+  end)
+  return waiting == 0
+end
+
 function HardcoverApp:flushSyncQueue(use_wifi, callback)
-  local goals_waiting = self.goal_queue and not self.goal_queue:isEmpty()
+  local goals_waiting = (self.goal_queue and not self.goal_queue:isEmpty())
+    or (self.rating_queue and not self.rating_queue:isEmpty())
   if not goals_waiting and (not self.sync_queue or not self.sync_queue:hasPending()) then
     if callback then
       callback(true)
@@ -835,6 +854,7 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
       -- an empty progress queue flushes to true; a queue with nothing to send for
       -- want of a user id says false, which must not hide the goals
       success = self:_flushGoals() and success
+      success = self:_flushRatings() and success
 
       self:_scheduleFlushRetry(success)
       self:_noticeSyncConflicts()
