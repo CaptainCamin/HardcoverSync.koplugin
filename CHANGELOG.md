@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.1
+
+### Fixed
+
+* The sign-in screen's instructions ran off both edges of the screen, cutting off the web address. They now wrap
+  and are centred.
+
 ## 0.7.0
 
 ### Changed (packaging)
@@ -13,8 +20,6 @@
 
 ### Fixed
 
-* The sign-in screen's instructions ran off both edges of the screen, cutting off the web address. They now wrap
-  and are centred.
 * Long shelves no longer lose books while loading: the shelf was ordered by date added only, and many books share a
   date, so paging could skip some books and repeat others (607 of 613 books loaded against the real API). Books are
   now ordered by date added, then id.
