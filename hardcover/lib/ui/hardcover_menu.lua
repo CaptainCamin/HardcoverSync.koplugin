@@ -772,6 +772,10 @@ function HardcoverMenu:removeCurrentRead(menu_instance)
   Background.run(function()
     local result = Api:removeRead(self.state.book_status.id)
     if result and result.id then
+      -- the book is off the shelf: a queued page or status must not put it back
+      if self.sync_queue and self.ui and self.ui.document then
+        self.sync_queue:clear(self.ui.document.file)
+      end
       self.state.book_status = {}
       menu_instance:updateItems()
     end
@@ -792,6 +796,15 @@ function HardcoverMenu:savePage(current_read, edition_page, menu_instance)
     end
 
     if result then
+      -- the page just set supersedes any older page still queued
+      if self.sync_queue and self.ui and self.ui.document then
+        local queued = self.sync_queue:get(self.ui.document.file)
+        if type(queued) == "table" then
+          queued.mapped_page = nil
+          queued.page_updated_at = nil
+          self.sync_queue:save(self.ui.document.file, queued)
+        end
+      end
       self.state.book_status = result
       menu_instance:updateItems()
     else

@@ -400,12 +400,42 @@ check("flushing stops after repeated back-to-back failures", function()
   for i = 1, 5 do
     q:enqueuePage("/books/" .. i .. ".epub", { mapped_page = i, book_id = i, edition_id = 3 })
   end
-  local api = fakeApi { page_fails = true }
+  local api = fakeApi()
+  -- the lookups fail: the network or token is down, not one book's fault
+  api.findUserBook = function(self)
+    self.calls[#self.calls + 1] = { op = "findUserBook" }
+    return {}, { status = 503 }
+  end
   q:flush(api, { user_id = 1 })
   local finds = 0
   for _, c in ipairs(api.calls) do if c.op == "findUserBook" then finds = finds + 1 end end
   eq(finds, 2, "books attempted before giving up")
   eq(q:pendingCount(), 5, "nothing was lost")
+end)
+
+check("books the server refuses do not stop the others, and are held after repeated refusals", function()
+  local q = newQueue()
+  q:enqueuePage("/books/a_dead.epub", { mapped_page = 1, book_id = 1, edition_id = 3 })
+  q:enqueuePage("/books/b_dead.epub", { mapped_page = 2, book_id = 2, edition_id = 3 })
+  q:enqueuePage("/books/c_ok.epub", { mapped_page = 3, book_id = 3, edition_id = 3 })
+  local api = fakeApi()
+  local find = api.findUserBook
+  -- books 1 and 2 are gone server-side: not found, and the insert is refused
+  api.findUserBook = function(self, book_id, user_id)
+    if book_id ~= 3 then return nil end
+    return find(self, book_id, user_id)
+  end
+  api.updateUserBook = function() return nil end
+  q:flush(api, { user_id = 1 })
+  eq(q:hasPending("/books/c_ok.epub"), false, "the healthy book synced on the first flush")
+  q:flush(api, { user_id = 1 })
+  q:flush(api, { user_id = 1 })
+  eq(q:heldCount(), 2, "both refused books are held")
+  local before = #api.calls
+  q:flush(api, { user_id = 1 })
+  eq(#api.calls, before, "held entries are not sent again")
+  q:retryHeld()
+  eq(q:heldCount(), 0, "retry releases them")
 end)
 
 check("an API call that throws releases the flushing flag", function()

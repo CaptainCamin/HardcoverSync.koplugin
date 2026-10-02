@@ -1,12 +1,10 @@
--- Shared scaffolding for the scripts in spec/known_bugs/.
+-- Shared scaffolding for the scripts in spec/sync_regressions/.
 --
--- Each script there reproduces ONE confirmed bug and is deliberately not named
--- *_harness.lua, so spec/run_all.sh does not pick it up. A script exits non-zero
--- while the bug exists and 0 once it is fixed. When a bug is fixed, move its
--- script into spec/ as a normal *_harness.lua.
+-- Each script there reproduces ONE bug found by auditing the offline sync code
+-- (all fixed now) and exits non-zero if it ever comes back. They are not named
+-- *_harness.lua; spec/run_all.sh runs them in their own loop.
 --
--- Run one with:  luajit spec/known_bugs/<file>.lua [plugin-root]
--- Run all with:  spec/known_bugs/run.sh   (prints which bugs still reproduce)
+-- Run one with:  luajit spec/sync_regressions/<file>.lua [plugin-root]
 
 local KB = {}
 
@@ -17,7 +15,7 @@ KB.support = dofile(KB.root .. "/spec/support.lua")
 
 local failures = {}
 
--- check(label, fn): fn errors (or an assertion fails) while the bug exists.
+-- check(label, fn): fn errors (or an assertion fails) if the bug is back.
 function KB.check(label, fn)
   local ok, err = pcall(fn)
   if ok then

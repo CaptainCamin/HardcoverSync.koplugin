@@ -10,7 +10,7 @@
 -- paused) are not recorded. The right value is available: self.ui:getCurrentPage().
 --
 -- Expected: the page handed to Cache:syncPage is the one currently displayed.
-local KB = dofile((arg[1] or ".") .. "/spec/known_bugs/lib.lua")
+local KB = dofile((arg[1] or ".") .. "/spec/sync_regressions/lib.lua")
 local App = KB.load_main()
 local PageMapper = require("hardcover/lib/page_mapper")
 

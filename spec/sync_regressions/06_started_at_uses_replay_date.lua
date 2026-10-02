@@ -9,7 +9,7 @@
 -- started_at = nil when there is no read.
 --
 -- Expected: started_at is the date of the first queued page, in local time.
-local KB = dofile((arg[1] or ".") .. "/spec/known_bugs/lib.lua")
+local KB = dofile((arg[1] or ".") .. "/spec/sync_regressions/lib.lua")
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 
 print("\n== started_at on a replayed read ==")

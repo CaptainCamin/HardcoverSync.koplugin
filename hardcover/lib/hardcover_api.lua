@@ -157,7 +157,14 @@ function HardcoverApi:query(query, parameters)
         self.auth:invalidateAccessToken()
       end
 
-      local data = json.decode(response, json.decode.simple)
+      -- A CDN error page (502/503/429) is HTML or empty, not JSON. Decoding
+      -- that must not throw: the caller would lose the update instead of
+      -- queueing it.
+      local decoded, data = pcall(json.decode, response, json.decode.simple)
+      if not decoded or type(data) ~= "table" then
+        return nil, { status = tonumber(code) }
+      end
+
       if data.data then
         return data.data
       elseif data.errors or data.error then
@@ -458,7 +465,9 @@ function HardcoverApi:findUserBook(book_id, user_id)
 
   local results, err = self:query(read_query, { id = book_id, userId = user_id })
   if not results or not results.user_books then
-    return {}, err
+    -- Always an error here, even offline where query gives none: callers (the
+    -- sync queue) must be able to tell "could not ask" from "not on the shelf"
+    return {}, err or { error = "no_response" }
   end
 
   return results.user_books[1]

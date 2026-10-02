@@ -94,6 +94,18 @@ for h in spec/*_harness.lua; do
 done
 
 echo
+echo "== offline sync regressions =="
+for h in spec/sync_regressions/[0-9]*.lua; do
+  [ -e "$h" ] || continue
+  printf '  %s\n' "$h"
+  if ! out="$("$LUA" "$h" "$ROOT" 2>&1)"; then
+    FAILED=1
+    FAILED_LIST+=("$h")
+    echo "$out" | sed 's/^/    /'
+  fi
+done
+
+echo
 if [ "$FAILED" -eq 0 ]; then
   echo "OK"
 else

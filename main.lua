@@ -562,6 +562,9 @@ function HardcoverApp:onDocumentClose()
 
   if self.settings:readSetting(SETTING.ENABLE_WIFI) then
     self:flushSyncQueue(true)
+  elseif NetworkManager:isConnected() then
+    -- already online: no need to switch wifi on, just send what is queued
+    self:flushSyncQueue(false)
   end
 
   self.state.process_page_turns = false
@@ -581,6 +584,9 @@ function HardcoverApp:onSuspend()
 
   if self.settings:readSetting(SETTING.ENABLE_WIFI) then
     self:flushSyncQueue(true)
+  elseif NetworkManager:isConnected() then
+    -- already online: no need to switch wifi on, just send what is queued
+    self:flushSyncQueue(false)
   end
 
   Scheduler:clear()
@@ -599,8 +605,11 @@ function HardcoverApp:onResume()
 end
 
 function HardcoverApp:updatePageNow(callback)
+  -- state.page is the page of the last debounced event; the reader may have
+  -- turned further in the two seconds since. Use the page on screen.
+  local page = self.ui.getCurrentPage and self.ui:getCurrentPage() or self.state.page
   local mapped_page = self.page_mapper:getMappedPage(
-    self.state.page,
+    page,
     self.ui.document:getPageCount(),
     self.settings:pages()
   )
@@ -681,6 +690,40 @@ function HardcoverApp:on_flush_sync_queue()
   self:flushSyncQueue(false, done)
 end
 
+-- Seconds to wait before trying a failed flush again while still online: the
+-- server answering 429/5xx is exactly when queued changes matter, and nothing
+-- else would trigger another attempt until the next connect or resume.
+local FLUSH_RETRY_DELAYS = { 30, 120, 600, 1800 }
+
+function HardcoverApp:_scheduleFlushRetry(success)
+  if success then
+    self.flush_retries = 0
+    return
+  end
+
+  -- entries the server keeps refusing are held and wait for the user; retrying
+  -- them here would only repeat the refusal
+  local held = self.sync_queue.heldCount and self.sync_queue:heldCount() or 0
+  if self.sync_queue:pendingCount() <= held then
+    return
+  end
+
+  local attempt = (self.flush_retries or 0) + 1
+  local delay = FLUSH_RETRY_DELAYS[attempt]
+  if not delay then
+    return
+  end
+  self.flush_retries = attempt
+
+  UIManager:unschedule(self._retryFlush)
+  self._retryFlush = function()
+    if NetworkManager:isConnected() then
+      self:flushSyncQueue(false)
+    end
+  end
+  UIManager:scheduleIn(delay, self._retryFlush)
+end
+
 function HardcoverApp:flushSyncQueue(use_wifi, callback)
   if not self.sync_queue or not self.sync_queue:hasPending() then
     if callback then
@@ -697,6 +740,8 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
         current_file = self.ui.document and self.ui.document.file,
         state = self.state,
       })
+
+      self:_scheduleFlushRetry(success)
 
       if callback then
         callback(success)

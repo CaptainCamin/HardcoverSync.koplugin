@@ -12,7 +12,7 @@
 -- reached through pendingCount, which raises too).
 --
 -- Expected: a malformed entry (or a non-table `pending`) is ignored or dropped.
-local KB = dofile((arg[1] or ".") .. "/spec/known_bugs/lib.lua")
+local KB = dofile((arg[1] or ".") .. "/spec/sync_regressions/lib.lua")
 local SyncQueue = require("hardcover/lib/sync_queue")
 
 print("\n== malformed queue contents ==")

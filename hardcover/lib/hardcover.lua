@@ -112,6 +112,18 @@ function Hardcover:linkBook(book)
     _delete = delete
   }
 
+  -- Linking to a different book: nothing of the old book's identity (user
+  -- book, read, status, queued progress) may be used for the new one. Without
+  -- this its page updates land on the old book's read.
+  local previous = self.settings:readBookSetting(filename, "book_id")
+  if previous ~= book.book_id then
+    self.settings:clearBookSnapshot(filename)
+    if self.cache.sync_queue then
+      self.cache.sync_queue:clear(filename)
+    end
+    self.state.book_status = {}
+  end
+
   self.settings:updateBookSetting(filename, new_settings)
   self.cache:cacheUserBook()
 

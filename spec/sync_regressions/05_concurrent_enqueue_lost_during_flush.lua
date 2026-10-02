@@ -9,7 +9,7 @@
 -- The same applies to the `entry.status_id = nil` it does after a status send.
 --
 -- Expected: only what was actually sent is cleared; the newer value stays queued.
-local KB = dofile((arg[1] or ".") .. "/spec/known_bugs/lib.lua")
+local KB = dofile((arg[1] or ".") .. "/spec/sync_regressions/lib.lua")
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 
 print("\n== enqueue during a flush ==")

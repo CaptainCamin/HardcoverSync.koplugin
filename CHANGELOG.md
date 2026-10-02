@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+Offline sync (found by an audit of the queue):
+
+- Replaying queued progress no longer moves Hardcover back when you have read further on another device, and the book you have open never shows as further back than the cloud.
+- A failed lookup, an unknown user, or a CDN error page (502/503/429) no longer creates or overwrites a book, throws, or loses the page; the change stays queued.
+- The last page before "Finished" is now sent before the book is marked Finished.
+- Changes made while a sync is running are no longer erased when it finishes.
+- A book Hardcover keeps refusing is held after 3 tries instead of blocking every book behind it.
+- A failed sync is retried (30 s, 2 min, 10 min, 30 min) while you stay online, and closing a book or suspending syncs when you are already online.
+- Closing or suspending records the page on screen, not the last one counted.
+- Reads started offline keep the day you began reading.
+- Re-linking a file to another book, removing a book, or setting the page by hand drops the queued changes they replace.
+- Ambiguous token-refresh failures (5xx, garbled reply) no longer re-send a refresh token that may already be spent.
+- A malformed queue file no longer breaks every sync check.
+
 ## 1.1.1
 
 ### Fixed
