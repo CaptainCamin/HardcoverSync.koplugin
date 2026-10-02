@@ -52,6 +52,8 @@ function SettingsDialog.show(opts)
   menu = Menu:new {
     title = current.title,
     item_table = {},
+    -- no Q/W/E letter boxes: they are for keyboards, and take a column of the list
+    is_enable_shortcut = false,
     is_borderless = true,
     is_popout = false,
     covers_fullscreen = true,

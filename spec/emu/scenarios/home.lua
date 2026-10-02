@@ -119,8 +119,9 @@ return {
     manager:showHome()
     emu:pump()
     emu:shot("home_again")
-    local button = emu:expectText("Settings")
-    emu:tapExpecting(button.x + 5, button.y + 5)
+    local cog = manager.home_dialog.title_bar.left_button
+    assert(cog and cog.dimen, "the title bar has no settings cog")
+    emu:tapExpecting(cog.dimen.x + 5, cog.dimen.y + 5)
     local top = UIManager:getTopmostVisibleWidget()
     assert(top ~= manager.home_dialog, "tapping Settings opened nothing")
     emu:expectText("Automatically link by ISBN")

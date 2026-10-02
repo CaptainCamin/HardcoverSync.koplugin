@@ -89,7 +89,7 @@
   Reading, Want to Read). Tapping a cover opens that book's details on top, so Close brings you back. The book on
   screen has a heavy border and is not tappable. A longer series is paged with arrows either side. The series
   is fetched in the background after the details appear, and is left out offline.
-* The home screen has a Settings button that opens the plugin's settings in a screen of their own (options show
+* The home screen has a settings cog in its title bar that opens the plugin's settings in a screen of their own (options show
   a tick, groups open and have a Back row), so they can be reached when Home is launched from another plugin.
 * A generic book icon is shown where the cover goes, for a book with no cover, while a cover loads, and when it
   cannot be fetched, so every book's details have the same layout.

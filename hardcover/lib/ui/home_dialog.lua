@@ -218,6 +218,13 @@ function HomeDialog:build()
     fullscreen = true,
     align = "center",
     title = self.title,
+    -- the cog opens the plugin's settings
+    left_icon = "appbar.settings",
+    left_icon_tap_callback = function()
+      if self.settings_cb then
+        self.settings_cb()
+      end
+    end,
     with_bottom_line = true,
     close_callback = function() self:onClose() end,
     show_parent = self,
@@ -242,18 +249,6 @@ function HomeDialog:build()
     })
     table.insert(shelves, VerticalSpan:new { width = Screen:scaleBySize(6) })
   end
-
-  table.insert(shelves, Button:new {
-    text = _("Settings"),
-    width = width,
-    text_font_size = 20,
-    padding_v = Screen:scaleBySize(10),
-    callback = function()
-      if self.settings_cb then
-        self.settings_cb()
-      end
-    end,
-  })
 
   local column = VerticalGroup:new { align = "left" }
   table.insert(column, VerticalSpan:new { width = gap })
