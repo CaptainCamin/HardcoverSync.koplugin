@@ -6,7 +6,7 @@ same offline from the saved copy -- with a book finished offline counted.
 "Today" is whatever the emulator's clock says, so the screens are checked by what
 they say about the fixture goals relative to it, not by exact numbers.
 
-Screens: goals_home, goals_screen, goals_one, goals_offline, goals_offline_one.
+Screens: goals_home_top, goals_home (scrolled to the card), goals_screen, goals_one, goals_offline, goals_offline_one.
 ]]
 
 local fixtures = require("fixtures")
@@ -104,6 +104,9 @@ return {
     manager:showHome()
     emu:pump()
     local home = manager.home_dialog
+    emu:pump()
+    emu:screenNodes()
+    emu:shot("goals_home_top")
     scroll_bottom(emu, home)
     emu:expectText("Goals")
     emu:expectText("Year Reading Goal")
