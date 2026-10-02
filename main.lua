@@ -539,14 +539,14 @@ function HardcoverApp:cancelPendingUpdates()
 end
 
 function HardcoverApp:onDocumentClose()
-  UIManager:unschedule(self.startCacheRead)
+  UIManager:unschedule(self.startReadCache)
 
   local had_pending = self.page_update_pending
   self:cancelPendingUpdates()
   self.state.read_cache_started = false
 
   if not self.state.book_status.id and not self.settings:syncEnabled() and not self.sync_queue:hasPending() then
-    self.process_page_turns = false
+    self.state.process_page_turns = false
     self.page_update_pending = false
     self.state.book_status = {}
     self.state.book_status_fetched = false
@@ -562,7 +562,7 @@ function HardcoverApp:onDocumentClose()
     self:flushSyncQueue(true)
   end
 
-  self.process_page_turns = false
+  self.state.process_page_turns = false
   self.page_update_pending = false
   self.state.book_status = {}
   self.state.book_status_fetched = false
