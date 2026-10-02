@@ -25,6 +25,9 @@ return {
     end
     -- the emulated settings file outlives a run: start from the default order
     settings:updateSetting(require("hardcover/lib/constants/settings").SHELF_SORT, nil)
+    -- and with the cover list (modern KOReader); another scenario may have left
+    -- compatibility mode on in the shared settings file
+    settings:updateSetting(require("hardcover/lib/constants/settings").COMPATIBILITY_MODE, false)
     fixtures.install({ settings = settings })
 
     local DialogManager = require("hardcover/lib/ui/dialog_manager")
