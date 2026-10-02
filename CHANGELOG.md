@@ -2,6 +2,15 @@
 
 ## 0.6.0
 
+### Changed (packaging)
+
+* The plugin now installs as `hardcoversync.koplugin` ("Hardcover Sync"), so it can be listed in KOReader's App Store
+  next to the original `hardcoverapp.koplugin` instead of being mistaken for it. **Remove the old
+  `hardcoverapp.koplugin` folder before installing**: the two register the same menus and actions. Settings carry
+  over. The About box and update check now point at this repository.
+* `spec/package_release.sh` takes the archive name from `_meta.lua`, so the release workflow's zip is
+  `hardcoversync.koplugin.zip` however the repository is checked out.
+
 ### Fixed
 
 * Long shelves no longer lose books while loading: the shelf was ordered by date added only, and many books share a

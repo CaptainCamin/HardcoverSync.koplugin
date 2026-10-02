@@ -293,7 +293,8 @@ v]] .. version .. new_release_str .. [[
 Updates book progress and status on Hardcover.app
 
 Project:
-github.com/billiam/hardcoverapp.koplugin
+github.com/CaptainCamin/HardcoverSync.koplugin
+(a fork of github.com/billiam/hardcoverapp.koplugin)
 
 Settings:
 ]] .. settings_file

@@ -1,7 +1,7 @@
 local _ = require("gettext")
 return {
-  name = "hardcoverapp",
-  fullname = _("Hardcover"),
+  name = "hardcoversync",
+  fullname = _("Hardcover Sync"),
   description = _([[Synchronize reading progress to Hardcover.app]]),
   version = "0.6.0"
 }

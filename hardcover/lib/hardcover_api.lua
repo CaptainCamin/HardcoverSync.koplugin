@@ -16,7 +16,7 @@ local VERSION = require("hardcover_version")
 
 local api_url = "https://api.hardcover.app/v1/graphql"
 
-local user_agent = T("hardcoverapp.koplugin/%1 (https://github.com/billiam/hardcoverapp.koplugin)",
+local user_agent = T("hardcoversync.koplugin/%1 (https://github.com/CaptainCamin/HardcoverSync.koplugin)",
   table.concat(VERSION, "."))
 
 local HardcoverApi = {

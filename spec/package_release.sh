@@ -2,16 +2,16 @@
 #
 # Build the installable plugin zip.
 #
-# Produces hardcoverapp.koplugin.zip containing a single top-level
-# hardcoverapp.koplugin/ directory, which is what KOReader's plugin loader
-# expects. Dev-only files (specs, harnesses, CI config, git metadata) are
+# Produces hardcoversync.koplugin.zip containing a single top-level
+# hardcoversync.koplugin/ directory, which is what KOReader's plugin loader
+# expects. The name comes from _meta.lua, not from the checkout directory, so a
+# clone under any name (CI checks out the repository's own name) builds the
+# same archive. Dev-only files (specs, harnesses, CI config, git metadata) are
 # excluded so the release stays small.
 #
-# This is the only packaging path in the repo. There is no release workflow
-# yet -- .github/workflows/ holds test.yml alone -- so this script is currently
-# the sole definition of what ships. If a release workflow is added later, it
-# must call this script rather than zipping anything itself, so the two cannot
-# drift into disagreeing about what ships.
+# This is the only packaging path in the repo: the release workflow
+# (.github/workflows/release.yml) calls it rather than zipping anything itself,
+# so the two cannot disagree about what ships.
 #
 # Usage:  ./spec/package_release.sh [output-dir]
 
@@ -20,7 +20,12 @@ set -euo pipefail
 # run from the plugin root regardless of where this was invoked from
 cd "$(dirname "$0")/.." || exit 1
 
-PLUGIN_DIR="$(basename "$PWD")"
+PLUGIN_NAME="$(sed -n 's/^[[:space:]]*name[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' _meta.lua | head -1)"
+if [ -z "$PLUGIN_NAME" ]; then
+  echo "Cannot read the plugin name from _meta.lua"
+  exit 1
+fi
+PLUGIN_DIR="$PLUGIN_NAME.koplugin"
 ROOT="$PWD"
 OUT_DIR="${1:-$PWD/..}"
 ZIP="$OUT_DIR/$PLUGIN_DIR.zip"
@@ -100,7 +105,7 @@ for unwanted in spec .git .github .gitignore; do
   fi
 done
 
-# Run from the staging directory so the archive holds "hardcoverapp.koplugin/..."
+# Run from the staging directory so the archive holds "$PLUGIN_DIR/..."
 # rather than an extra parent directory in the path.
 (
   cd "$STAGE" || exit 1

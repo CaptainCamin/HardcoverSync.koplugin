@@ -1,13 +1,29 @@
-# Hardcover.app for KOReader
+# Hardcover Sync for KOReader
 
-A KOReader plugin to update your [Hardcover.app](https://hardcover.app) reading status
+A KOReader plugin to track your reading on [Hardcover.app](https://hardcover.app) and browse your library: a home
+screen with what you are reading and your shelves, book details with the rest of the series, offline shelves, and
+progress and status syncing.
+
+This is a fork of Billiam's [hardcoverapp.koplugin](https://github.com/Billiam/hardcoverapp.koplugin), and keeps its
+tracking features. It installs as `hardcoversync.koplugin`, so it does not replace the original in KOReader's App
+Store, but **the two must not be installed together** (they register the same actions and menus): remove
+`hardcoverapp.koplugin` from your plugins folder first. Your settings carry over.
 
 ## Installation
 
-1. Download and extract the latest release: https://github.com/Billiam/hardcoverapp.koplugin/releases/latest
-2. Rename `hardcover_config.example.lua` to `hardcover_config.lua` and set it up as described below
-3. Copy the `hardcoverapp.koplugin` folder to the KOReader plugins folder on your device
-4. Restart KOReader
+**From the KOReader App Store** ([appstore.koplugin](https://github.com/omer-faruq/appstore.koplugin)): search for
+"Hardcover Sync". Forks with no stars are hidden by default; turn on "include zero-star forks" in the App Store's
+settings if it does not appear.
+
+**By hand:**
+
+1. Download the latest release: https://github.com/CaptainCamin/HardcoverSync.koplugin/releases/latest
+   (`hardcoversync.koplugin.zip`) and extract it
+2. Copy the `hardcoversync.koplugin` folder to the KOReader plugins folder on your device
+3. Restart KOReader
+
+Signing in needs no config file (see below). Rename `hardcover_config.example.lua` to `hardcover_config.lua` only to
+use your own OAuth app or an API key.
 
 ## Signing in
 
