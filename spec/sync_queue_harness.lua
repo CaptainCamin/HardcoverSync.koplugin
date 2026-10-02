@@ -368,14 +368,104 @@ check("a failed move to Currently Reading keeps the entry", function()
   eq(api.created_read, false, "no page was sent on a book still Want to Read")
 end)
 
-check("offline progress is not sent onto a Finished book", function()
+check("offline progress on a Finished book asks whether it is a re-read, and sends nothing yet", function()
   local q = newQueue()
   q:enqueuePage("/books/a.epub", { mapped_page = 120, book_id = 1, edition_id = 3 })
   local api = existingBookApi(HARDCOVER.STATUS.FINISHED)
-  eq(q:flush(api, { user_id = 1 }), true, "flush result")
+  eq(q:flush(api, { user_id = 1 }), false, "flush result")
   eq(api.created_read, false, "no reading record created")
   eq(api.new_status, nil, "status untouched")
-  eq(q:hasPending("/books/a.epub"), false, "the entry is dropped, not retried forever")
+  local conflicts = q:conflicts()
+  eq(#conflicts, 1, "one conflict")
+  eq(conflicts[1].entry.conflict.kind, "reread", "kind")
+  eq(conflicts[1].entry.conflict.local_page, 120, "local page")
+  local calls = #api.calls
+  q:flush(api, { user_id = 1 })
+  eq(#api.calls, calls, "a held conflict is not tried again")
+end)
+
+check("re-reading: yes makes a NEW read first, then sets Currently Reading", function()
+  local q = newQueue()
+  q:enqueuePage("/books/a.epub", { mapped_page = 120, book_id = 1, edition_id = 3 })
+  local api = existingBookApi(HARDCOVER.STATUS.FINISHED)
+  local order = {}
+  local create, update = api.createRead, api.updateUserBook
+  api.createRead = function(self, ...) order[#order + 1] = "createRead" return create(self, ...) end
+  api.updateUserBook = function(self, ...) order[#order + 1] = "updateUserBook" return update(self, ...) end
+  q:flush(api, { user_id = 1 })
+  eq(q:resolve("/books/a.epub", "yes"), true, "resolved")
+  eq(q:flush(api, { user_id = 1 }), true, "flush result")
+  eq(order[1], "createRead", "the new read comes first")
+  eq(order[2], "updateUserBook", "then the status")
+  eq(api.new_status, HARDCOVER.STATUS.READING, "now Currently Reading")
+  eq(q:hasPending("/books/a.epub"), false, "cleared")
+end)
+
+check("re-reading: no drops the progress and touches nothing", function()
+  local q = newQueue()
+  q:enqueuePage("/books/a.epub", { mapped_page = 120, book_id = 1, edition_id = 3 })
+  local api = existingBookApi(HARDCOVER.STATUS.FINISHED)
+  q:flush(api, { user_id = 1 })
+  eq(q:resolve("/books/a.epub", "no"), true, "resolved")
+  eq(q:hasPending("/books/a.epub"), false, "the entry is gone")
+  eq(api.created_read, false, "no read created")
+end)
+
+local function cloudAhead(page)
+  local api = fakeApi()
+  api.findUserBook = function()
+    return { id = 500, status_id = HARDCOVER.STATUS.READING,
+      user_book_reads = { { id = 900, edition_id = 3, progress_pages = page } } }
+  end
+  return api
+end
+
+check("cloud ahead by a few pages wins quietly", function()
+  local q = newQueue()
+  q:enqueuePage("/books/a.epub", { mapped_page = 100, book_id = 1, edition_id = 3 })
+  local api = cloudAhead(103)
+  eq(q:flush(api, { user_id = 1 }), true, "flush result")
+  eq(q:conflictCount(), 0, "no question asked")
+  eq(q:hasPending("/books/a.epub"), false, "dropped")
+  for _, c in ipairs(api.calls) do eq(c.op ~= "updatePage", true, "no page sent") end
+end)
+
+check("cloud far ahead holds the page for the user; choosing this device sends it", function()
+  local q = newQueue()
+  q:enqueuePage("/books/a.epub", { mapped_page = 100, book_id = 1, edition_id = 3 })
+  local api = cloudAhead(200)
+  q:flush(api, { user_id = 1 })
+  local c = q:conflicts()[1]
+  eq(c.entry.conflict.kind, "page", "kind")
+  eq(c.entry.conflict.cloud_page, 200, "cloud page")
+  eq(c.entry.mapped_page, 100, "our page is kept")
+  eq(q:resolve("/books/a.epub", "local"), true, "resolved")
+  eq(q:flush(api, { user_id = 1 }), true, "flush result")
+  local sent
+  for _, call in ipairs(api.calls) do if call.op == "updatePage" then sent = call.page end end
+  eq(sent, 100, "our page was sent")
+end)
+
+check("cloud far ahead: choosing Hardcover drops ours and remembers where to resume", function()
+  local q = newQueue()
+  q:enqueuePage("/books/a.epub", { mapped_page = 100, book_id = 1, edition_id = 3 })
+  local api = cloudAhead(200)
+  q:flush(api, { user_id = 1 })
+  eq(q:resolve("/books/a.epub", "cloud"), true, "resolved")
+  eq(q:hasPending("/books/a.epub"), false, "no page left to send")
+  eq(q:takeResumePage("/books/a.epub"), 200, "resume page")
+  eq(q:takeResumePage("/books/a.epub"), nil, "only once")
+  eq(q:get("/books/a.epub"), nil, "entry cleaned up")
+end)
+
+check("Decide later and reading on both leave things sensible", function()
+  local q = newQueue()
+  q:enqueuePage("/books/a.epub", { mapped_page = 100, book_id = 1, edition_id = 3 })
+  q:flush(cloudAhead(200), { user_id = 1 })
+  eq(q:resolve("/books/a.epub", "later"), false, "later changes nothing")
+  eq(q:conflictCount(), 1, "still waiting")
+  q:enqueuePage("/books/a.epub", { mapped_page = 130, book_id = 1, edition_id = 3 })
+  eq(q:conflictCount(), 0, "reading on asks the question afresh")
 end)
 
 check("one book that always fails does not block the others", function()
@@ -400,12 +490,42 @@ check("flushing stops after repeated back-to-back failures", function()
   for i = 1, 5 do
     q:enqueuePage("/books/" .. i .. ".epub", { mapped_page = i, book_id = i, edition_id = 3 })
   end
-  local api = fakeApi { page_fails = true }
+  local api = fakeApi()
+  -- the lookups fail: the network or token is down, not one book's fault
+  api.findUserBook = function(self)
+    self.calls[#self.calls + 1] = { op = "findUserBook" }
+    return {}, { status = 503 }
+  end
   q:flush(api, { user_id = 1 })
   local finds = 0
   for _, c in ipairs(api.calls) do if c.op == "findUserBook" then finds = finds + 1 end end
   eq(finds, 2, "books attempted before giving up")
   eq(q:pendingCount(), 5, "nothing was lost")
+end)
+
+check("books the server refuses do not stop the others, and are held after repeated refusals", function()
+  local q = newQueue()
+  q:enqueuePage("/books/a_dead.epub", { mapped_page = 1, book_id = 1, edition_id = 3 })
+  q:enqueuePage("/books/b_dead.epub", { mapped_page = 2, book_id = 2, edition_id = 3 })
+  q:enqueuePage("/books/c_ok.epub", { mapped_page = 3, book_id = 3, edition_id = 3 })
+  local api = fakeApi()
+  local find = api.findUserBook
+  -- books 1 and 2 are gone server-side: not found, and the insert is refused
+  api.findUserBook = function(self, book_id, user_id)
+    if book_id ~= 3 then return nil end
+    return find(self, book_id, user_id)
+  end
+  api.updateUserBook = function() return nil end
+  q:flush(api, { user_id = 1 })
+  eq(q:hasPending("/books/c_ok.epub"), false, "the healthy book synced on the first flush")
+  q:flush(api, { user_id = 1 })
+  q:flush(api, { user_id = 1 })
+  eq(q:heldCount(), 2, "both refused books are held")
+  local before = #api.calls
+  q:flush(api, { user_id = 1 })
+  eq(#api.calls, before, "held entries are not sent again")
+  q:retryHeld()
+  eq(q:heldCount(), 0, "retry releases them")
 end)
 
 check("an API call that throws releases the flushing flag", function()

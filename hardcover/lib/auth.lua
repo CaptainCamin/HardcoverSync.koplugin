@@ -199,9 +199,12 @@ function Auth:refresh()
 
   local error_code = body and body.error
 
-  if error_code == "timeout" then
-    -- The request may or may not have landed. Retrying is not safe: if it did,
-    -- our refresh token is spent and reusing it revokes the chain.
+  if error_code == "timeout" or error_code == "bad_response"
+      or (type(error_code) == "string" and error_code:match("^http_5")) then
+    -- The request may or may not have landed (a timeout, or a gateway error or
+    -- garbled reply that does not prove the token endpoint ignored it).
+    -- Retrying is not safe: if it did land, our refresh token is spent and
+    -- reusing it revokes the chain.
     OAuth.endRefresh(self.guard, "unknown")
     logger.warn("hardcover oauth: refresh outcome unknown, not retrying")
     return nil

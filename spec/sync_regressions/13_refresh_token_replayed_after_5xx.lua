@@ -18,7 +18,7 @@
 -- Expected: an ambiguous refresh failure is treated like a timeout ("unknown":
 -- no further refresh attempts with that token), or at minimum at most one
 -- attempt per flush.
-local KB = dofile((arg[1] or ".") .. "/spec/known_bugs/lib.lua")
+local KB = dofile((arg[1] or ".") .. "/spec/sync_regressions/lib.lua")
 table.unpack = table.unpack or unpack
 KB.stub_koreader()
 package.preload["luasettings"] = function() return { open = function() return {} end } end

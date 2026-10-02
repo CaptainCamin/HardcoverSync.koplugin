@@ -12,6 +12,8 @@ local NetworkManager = require("ui/network/manager")
 local Trapper = require("ui/trapper")
 local UIManager = require("ui/uimanager")
 
+local ConfirmBox = require("ui/widget/confirmbox")
+local Event = require("ui/event")
 local InfoMessage = require("ui/widget/infomessage")
 local Notification = require("ui/widget/notification")
 
@@ -31,6 +33,7 @@ local PageMapper = require("hardcover/lib/page_mapper")
 local Scheduler = require("hardcover/lib/scheduler")
 local ShelfCache = require("hardcover/lib/shelf_cache")
 local SyncQueue = require("hardcover/lib/sync_queue")
+local SyncConflicts = require("hardcover/lib/sync_conflicts")
 local throttle = require("hardcover/lib/throttle")
 local User = require("hardcover/lib/user")
 
@@ -526,6 +529,8 @@ function HardcoverApp:onReaderReady()
   if self.ui.document and (self.settings:syncEnabled() or (not self.settings:bookLinked() and self.settings:autolinkEnabled())) then
     UIManager:scheduleIn(2, self.startReadCache, self)
   end
+
+  UIManager:scheduleIn(3, self.askAboutOpenBook, self)
 end
 
 function HardcoverApp:cancelPendingUpdates()
@@ -542,6 +547,7 @@ end
 
 function HardcoverApp:onDocumentClose()
   UIManager:unschedule(self.startReadCache)
+  UIManager:unschedule(self.askAboutOpenBook)
 
   local had_pending = self.page_update_pending
   self:cancelPendingUpdates()
@@ -562,6 +568,9 @@ function HardcoverApp:onDocumentClose()
 
   if self.settings:readSetting(SETTING.ENABLE_WIFI) then
     self:flushSyncQueue(true)
+  elseif NetworkManager:isConnected() then
+    -- already online: no need to switch wifi on, just send what is queued
+    self:flushSyncQueue(false)
   end
 
   self.state.process_page_turns = false
@@ -581,6 +590,9 @@ function HardcoverApp:onSuspend()
 
   if self.settings:readSetting(SETTING.ENABLE_WIFI) then
     self:flushSyncQueue(true)
+  elseif NetworkManager:isConnected() then
+    -- already online: no need to switch wifi on, just send what is queued
+    self:flushSyncQueue(false)
   end
 
   Scheduler:clear()
@@ -599,8 +611,11 @@ function HardcoverApp:onResume()
 end
 
 function HardcoverApp:updatePageNow(callback)
+  -- state.page is the page of the last debounced event; the reader may have
+  -- turned further in the two seconds since. Use the page on screen.
+  local page = self.ui.getCurrentPage and self.ui:getCurrentPage() or self.state.page
   local mapped_page = self.page_mapper:getMappedPage(
-    self.state.page,
+    page,
     self.ui.document:getPageCount(),
     self.settings:pages()
   )
@@ -681,6 +696,90 @@ function HardcoverApp:on_flush_sync_queue()
   self:flushSyncQueue(false, done)
 end
 
+-- Seconds to wait before trying a failed flush again while still online: the
+-- server answering 429/5xx is exactly when queued changes matter, and nothing
+-- else would trigger another attempt until the next connect or resume.
+local FLUSH_RETRY_DELAYS = { 30, 120, 600, 1800 }
+
+function HardcoverApp:_scheduleFlushRetry(success)
+  if success then
+    self.flush_retries = 0
+    return
+  end
+
+  -- entries the server keeps refusing are held and wait for the user; retrying
+  -- them here would only repeat the refusal
+  local held = self.sync_queue.heldCount and self.sync_queue:heldCount() or 0
+  if self.sync_queue:pendingCount() <= held then
+    return
+  end
+
+  local attempt = (self.flush_retries or 0) + 1
+  local delay = FLUSH_RETRY_DELAYS[attempt]
+  if not delay then
+    return
+  end
+  self.flush_retries = attempt
+
+  UIManager:unschedule(self._retryFlush)
+  self._retryFlush = function()
+    if NetworkManager:isConnected() then
+      self:flushSyncQueue(false)
+    end
+  end
+  UIManager:scheduleIn(delay, self._retryFlush)
+end
+
+-- A sync can end with questions only the user can answer (this device and
+-- Hardcover disagree about where they are in a book). Say so once per new
+-- question; the answers are in the Sync menu.
+function HardcoverApp:_noticeSyncConflicts()
+  if not self.sync_queue.conflictCount then return end
+  local count = self.sync_queue:conflictCount()
+  if count > 0 and count ~= self.noticed_conflicts then
+    UIManager:show(InfoMessage:new {
+      text = SyncConflicts.notice(count),
+      timeout = 5,
+    })
+  end
+  self.noticed_conflicts = count
+end
+
+-- Opening a book that has a question waiting: ask it there, where the reader is
+-- thinking about the book. And if the user earlier chose Hardcover's page for it,
+-- offer to jump there.
+function HardcoverApp:askAboutOpenBook()
+  local file = self.ui.document and self.ui.document.file
+  if not file or not self.sync_queue.conflicts then return end
+
+  local resume = self.sync_queue:takeResumePage(file)
+  local function offer_jump()
+    local target = SyncConflicts.documentPage(resume, self.settings:pages(), self.ui.document:getPageCount())
+    if not target then return end
+    UIManager:show(ConfirmBox:new {
+      text = T(_("Hardcover is at page %1. Jump there?"), resume),
+      ok_text = _("Jump"),
+      ok_callback = function()
+        self.ui:handleEvent(Event:new("GotoPage", target))
+      end,
+    })
+  end
+
+  local entry = self.sync_queue:get(file)
+  if type(entry) == "table" and entry.conflict then
+    require("hardcover/lib/ui/sync_conflict_dialog").show {
+      queue = self.sync_queue,
+      only = file,
+      on_done = function(resolved)
+        if resume then offer_jump() end
+        if resolved > 0 then self:flushSyncQueue(false) end
+      end,
+    }
+  elseif resume then
+    offer_jump()
+  end
+end
+
 function HardcoverApp:flushSyncQueue(use_wifi, callback)
   if not self.sync_queue or not self.sync_queue:hasPending() then
     if callback then
@@ -697,6 +796,9 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
         current_file = self.ui.document and self.ui.document.file,
         state = self.state,
       })
+
+      self:_scheduleFlushRetry(success)
+      self:_noticeSyncConflicts()
 
       if callback then
         callback(success)
@@ -820,15 +922,23 @@ function HardcoverApp:startReadCache()
   -- withRetries dispatches through UIManager:nextTick, so this can in
   -- principle run before withRetries has returned; guard the cancel upvalue
   -- and remember the request so it still takes effect.
+  -- `delay` is when to try again; false means "when something changes": no
+  -- timer at all, because onNetworkConnected and onResume both start the cache.
+  -- Offline with nothing to go on, a timer every minute would only keep waking
+  -- the device (and its radio) for nothing.
   restart = function(delay)
     --logger.warn("HARDCOVER restart cache fetch")
-    delay = delay or 60
+    if delay == nil then
+      delay = 60
+    end
     cancelled = true
     self.state.read_cache_started = false
     if cancel then
       cancel()
     end
-    UIManager:scheduleIn(delay, self.startReadCache, self)
+    if delay then
+      UIManager:scheduleIn(delay, self.startReadCache, self)
+    end
   end
 
   cancel = Scheduler:withRetries(6, 3, function(success, fail)
@@ -856,14 +966,14 @@ function HardcoverApp:startReadCache()
               return success()
             end
 
-            -- linked, but nothing cached yet and no network: retry later in
-            -- case a snapshot appears, but do not treat it as a hard failure
-            return restart()
+            -- linked, but nothing cached yet and no network: wait for the
+            -- network to come back rather than polling for it
+            return restart(false)
           end
 
           self.wifi:withWifi(function()
             if not NetworkManager:isConnected() then
-              return restart()
+              return restart(false)
             end
 
             local err = self.cache:cacheUserBook()

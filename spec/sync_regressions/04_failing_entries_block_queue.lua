@@ -10,7 +10,7 @@
 -- Expected: healthy entries behind the bad ones still sync (e.g. skip entries
 -- that failed the same way on earlier flushes, or stop only on errors that mean
 -- "network/token down", not on per-book rejections).
-local KB = dofile((arg[1] or ".") .. "/spec/known_bugs/lib.lua")
+local KB = dofile((arg[1] or ".") .. "/spec/sync_regressions/lib.lua")
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 
 print("\n== dead entries at the front of the queue ==")

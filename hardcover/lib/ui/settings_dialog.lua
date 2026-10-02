@@ -26,9 +26,11 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
 
+local Refresh = require("hardcover/lib/ui/refresh")
 local SettingsItems = require("hardcover/lib/settings_items")
 local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
+local Viewport = require("hardcover/lib/ui/viewport")
 
 local Screen = Device.screen
 
@@ -114,6 +116,7 @@ function SettingsScreen:buildRow(row, width, viewport)
     box,
   }
   tap.text = row.text
+  self.taps[#self.taps + 1] = { tap = tap, shows = row.text .. "|" .. tostring(row.checked) .. "|" .. tostring(row.dim) }
   return tap
 end
 
@@ -161,6 +164,9 @@ function SettingsScreen:buildTile(row, width, height, viewport)
   }
   tap.text = value
   tap.content_h = content:getSize().h + 2 * Theme.space.m
+  if height then -- the measuring pass builds these too, and is not drawn
+    self.taps[#self.taps + 1] = { tap = tap, shows = value .. "|" .. tostring(row.dim) }
+  end
   return tap
 end
 
@@ -202,7 +208,59 @@ function SettingsScreen:buildContent(rows, width, viewport)
   return content
 end
 
-function SettingsScreen:render()
+-- Where each row is and what it shows, for comparing after a re-render.
+function SettingsScreen:snapshot()
+  local snap = {}
+  for i, t in ipairs(self.taps or {}) do
+    snap[i] = { shows = t.shows, rect = Refresh.copy(t.tap.dimen) }
+  end
+  return snap
+end
+
+-- The part of the screen a re-render changed, read after it is painted: the rows
+-- that say something different, where they were and where they are. nil (the
+-- whole panel) when the rows cannot be compared one for one.
+function SettingsScreen:changedRegion(before)
+  local after = self:snapshot()
+  if #after ~= #before then return nil end
+  local clip = self.scroll and self.scroll.dimen or { x = 0, y = 0, w = Screen:getWidth(), h = Screen:getHeight() }
+  local region
+  for i, now in ipairs(after) do
+    local was = before[i]
+    local moved = not (Refresh.valid(was.rect) and Refresh.valid(now.rect))
+      or was.rect.y ~= now.rect.y or was.rect.h ~= now.rect.h or was.rect.x ~= now.rect.x
+    if was.shows ~= now.shows or moved then
+      if not (Refresh.valid(was.rect) and Refresh.valid(now.rect)) then return nil end
+      local both = Refresh.union(was.rect, now.rect)
+      region = Refresh.union(region, Viewport.intersect(both, clip) or nil)
+    end
+  end
+  if region then return region end
+  -- nothing the panel shows differs, or what differs is scrolled out of sight:
+  -- the smallest refresh there is
+  return { x = clip.x, y = clip.y, w = 1, h = 1 }
+end
+
+-- Painting is when the rows learn where they are.
+function SettingsScreen:paintTo(...)
+  InputContainer.paintTo(self, ...)
+  self.painted = true
+  self.pending_before = nil
+end
+
+--
+-- Draw the current level. `keep` says it is the same level with some rows changed
+-- (an option was ticked): the page then stays where it was scrolled to, and only
+-- the rows that changed are redrawn on the panel. Without it (a new level, the
+-- first draw) it starts at the top and redraws everything.
+--
+function SettingsScreen:render(keep)
+  -- an option's callback may ask for a redraw twice (the menu's updateItems and
+  -- our own); the second compares with what was last on screen, not with the
+  -- first one's unpainted result
+  local before = keep and (self.painted and self:snapshot() or self.pending_before) or nil
+  local offset = keep and self.scroll and self.scroll.getScrolledOffset and self.scroll:getScrolledOffset() or nil
+  self.taps = {}
   local opts, current = self.opts, self.current
   local items = current.items
   if current.source and current.source.sub_item_table_func then
@@ -215,7 +273,7 @@ function SettingsScreen:render()
     self.current = { title = title, items = children, source = item }
     self:render()
   end, function()
-    self:render()
+    self:render(true)
   end)
 
   if #self.stack > 0 then
@@ -253,6 +311,7 @@ function SettingsScreen:render()
       show_parent = self,
     }
     local scroll = self.scroll
+    self.taps = {} -- the first pass's rows are not the ones drawn
     content = self:buildContent(rows, width, function() return scroll.dimen end)
     scroll[1] = HorizontalGroup:new { Theme.hspan(M), content }
     body = scroll
@@ -271,6 +330,22 @@ function SettingsScreen:render()
     VerticalGroup:new { align = "left", title_bar, Theme.span("m"), body },
   }
   self[1] = self.frame
+
+  if offset and self.scroll and self.scroll.setScrolledOffset then
+    self.scroll:setScrolledOffset(offset)
+  end
+  self.painted = false
+  self.pending_before = before
+  if not before then
+    UIManager:setDirty(self, "ui")
+    return
+  end
+  Refresh.region(self, function() return self:changedRegion(before) end)
+end
+
+-- show() queues no refresh of its own: ask for the first full draw, which a small
+-- refresh queued in the same tick must not replace.
+function SettingsScreen:onShow()
   UIManager:setDirty(self, "ui")
 end
 

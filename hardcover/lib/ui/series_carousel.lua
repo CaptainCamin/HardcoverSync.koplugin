@@ -45,7 +45,9 @@ SeriesCarousel.__index = SeriesCarousel
 --   viewport      function returning the visible rectangle of the scroll area
 --   on_open       function(book_id), called when a cover is tapped
 --   image_loader  something with loadImages(urls, callback) -> batch, halt
---   on_change     function(), called after the strip changes, to repaint
+--   on_change     function(get_dimen), called after the strip changes, to repaint;
+--                 get_dimen returns the painted box that changed (a cover, or the
+--                 whole strip when a page was turned), so only that need be refreshed
 --
 function SeriesCarousel:new(opts)
   local o = setmetatable(opts, self)
@@ -239,7 +241,7 @@ end
 function SeriesCarousel:turn(direction)
   self.first = self.first + direction * self.per_page
   self:render()
-  if self.on_change then self.on_change() end
+  if self.on_change then self.on_change(function() return self.holder.dimen end) end
 end
 
 -- Ask for the covers on this page, in one batch.
@@ -263,9 +265,10 @@ function SeriesCarousel:loadCovers()
     -- the page was turned (or the screen closed) while this was on its way
     if generation ~= self.generation then return end
     for _, box in ipairs(boxes_by_url[url] or {}) do
-      box:setImage(content)
+      if box:setImage(content) and self.on_change then
+        self.on_change(function() return box.frame.dimen end)
+      end
     end
-    if self.on_change then self.on_change() end
   end)
   self.halt = halt
 end

@@ -26,6 +26,16 @@ local HEAVY = {
   "hardcover/lib/ui/signin_dialog",
   "hardcover/lib/ui/update_double_spin_widget",
   "hardcover/lib/ui/image_loader",
+  -- the screens built later: each pulls in the theme and a pile of widgets
+  "hardcover/lib/ui/home_dialog",
+  "hardcover/lib/ui/lists_dialog",
+  "hardcover/lib/ui/reviews_dialog",
+  "hardcover/lib/ui/settings_dialog",
+  "hardcover/lib/ui/reader_panel",
+  "hardcover/lib/ui/series_carousel",
+  "hardcover/lib/ui/cover_cells",
+  "hardcover/lib/ui/refresh",
+  "hardcover/lib/ui/theme",
 }
 
 local function read(path)

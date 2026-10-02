@@ -14,7 +14,7 @@
 --
 -- Expected: query returns nil, { status = 502, ... } for any such reply and
 -- syncPage queues the page.
-local KB = dofile((arg[1] or ".") .. "/spec/known_bugs/lib.lua")
+local KB = dofile((arg[1] or ".") .. "/spec/sync_regressions/lib.lua")
 KB.stub_koreader()
 
 local reply

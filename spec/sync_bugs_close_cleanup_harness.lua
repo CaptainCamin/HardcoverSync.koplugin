@@ -10,7 +10,7 @@
 -- Run with:  lua spec/sync_bugs_close_cleanup_harness.lua [plugin-root]
 
 local PLUGIN = arg[1] or "."
-local KB = dofile(PLUGIN .. "/spec/known_bugs/lib.lua")
+local KB = dofile(PLUGIN .. "/spec/sync_regressions/lib.lua")
 local App = KB.load_main()
 local support = KB.support
 local r = support.reporter()

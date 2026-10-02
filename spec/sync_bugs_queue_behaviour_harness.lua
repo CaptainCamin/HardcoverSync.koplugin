@@ -13,7 +13,7 @@
 -- Run with:  lua spec/sync_bugs_queue_behaviour_harness.lua [plugin-root]
 
 local PLUGIN = arg[1] or "."
-local KB = dofile(PLUGIN .. "/spec/known_bugs/lib.lua")
+local KB = dofile(PLUGIN .. "/spec/sync_regressions/lib.lua")
 KB.stub_koreader()
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local Api = require("hardcover/lib/hardcover_api")

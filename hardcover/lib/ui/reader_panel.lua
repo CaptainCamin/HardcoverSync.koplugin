@@ -27,6 +27,7 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
 
+local Refresh = require("hardcover/lib/ui/refresh")
 local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
 
@@ -163,8 +164,18 @@ function ReaderPanel:render()
     dimen = Geom:new { x = 0, y = 0, w = screen_w, h = screen_h },
     sheet,
   }
+  local old = self.sheet_rect
   self.sheet_top = screen_h - sheet:getSize().h
-  UIManager:setDirty(self, "ui")
+  self.sheet_rect = { x = 0, y = self.sheet_top, w = screen_w, h = sheet:getSize().h }
+  -- only the sheet is drawn over the page, so only the sheet's rows of the panel
+  -- need redrawing (and, when it changes height, where it used to be): not the
+  -- whole book page behind it
+  UIManager:setDirty(self, "ui", self:rect(Refresh.union(old, self.sheet_rect)))
+end
+
+-- a Geom for a {x, y, w, h}
+function ReaderPanel:rect(r)
+  return Geom:new { x = r.x, y = r.y, w = r.w, h = r.h }
 end
 
 function ReaderPanel:onTapOutside(_, ges)
@@ -176,7 +187,9 @@ end
 
 -- leaving the panel must repaint the page under it
 function ReaderPanel:onCloseWidget()
-  UIManager:setDirty(nil, "ui")
+  -- the page under the sheet is already in the framebuffer (close() repaints it);
+  -- the panel only needs to redraw where the sheet was
+  UIManager:setDirty(nil, "ui", self.sheet_rect and self:rect(self.sheet_rect) or nil)
 end
 
 function ReaderPanel:onClosePanel()

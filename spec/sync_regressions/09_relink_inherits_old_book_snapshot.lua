@@ -12,7 +12,7 @@
 -- book are merged into the new book's entry by SyncQueue:_ensure).
 --
 -- Expected: after relinking, nothing of the old book's identity is used.
-local KB = dofile((arg[1] or ".") .. "/spec/known_bugs/lib.lua")
+local KB = dofile((arg[1] or ".") .. "/spec/sync_regressions/lib.lua")
 KB.stub_koreader()
 
 table.unpack = table.unpack or unpack -- KOReader provides this on LuaJIT

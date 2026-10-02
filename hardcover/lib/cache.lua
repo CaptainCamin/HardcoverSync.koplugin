@@ -87,6 +87,7 @@ function Cache:queueMeta(filename)
   local reads = book_status.user_book_reads
   local current_read = reads and reads[#reads]
   return {
+    title = self.settings:readBookSetting(filename, "title"),
     book_id = book_status.book_id or self.settings:readBookSetting(filename, "book_id"),
     edition_id = (current_read and current_read.edition_id)
       or book_status.edition_id

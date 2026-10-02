@@ -7,7 +7,7 @@
 -- already holds, so the server goes BACK to 120.
 --
 -- Expected: the server keeps 200 (the queued 120 is older news).
-local KB = dofile((arg[1] or ".") .. "/spec/known_bugs/lib.lua")
+local KB = dofile((arg[1] or ".") .. "/spec/sync_regressions/lib.lua")
 local SyncQueue = require("hardcover/lib/sync_queue")
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 
