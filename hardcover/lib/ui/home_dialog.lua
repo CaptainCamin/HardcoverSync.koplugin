@@ -376,7 +376,7 @@ function HomeDialog:build()
   local column = self:buildColumn(width, nil)
   local body
   self.scroll = nil
-  if column:getSize().h > room - Theme.BUTTON_H then
+  if column:getSize().h > room then
     self.cover_cells = {}
     local gutter = 3 * (ScrollableContainer.scroll_bar_width or Screen:scaleBySize(6))
     width = screen_w - 2 * M - gutter

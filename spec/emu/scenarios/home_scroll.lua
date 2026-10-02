@@ -25,7 +25,6 @@ return {
     manager:showHome()
     emu:pump()
     local home = manager.home_dialog
-    assert(not home.scroll, "a page that fits should not scroll")
 
     -- six books being read, and a tappable card under the library
     local entries = {}

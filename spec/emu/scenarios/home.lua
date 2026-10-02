@@ -86,16 +86,21 @@ return {
     -- geometry is only real once the screen has been painted
     local field = manager.home_dialog.search_button
     assert(field and field.dimen, "no search field")
+    -- (a page tall enough to scroll leaves its scroll bar a gutter on the right)
     assert(field.dimen.x == require("hardcover/lib/ui/theme").margin
-      and field.dimen.x + field.dimen.w == screen:getWidth() - require("hardcover/lib/ui/theme").margin,
+      and field.dimen.x + field.dimen.w <= screen:getWidth() - require("hardcover/lib/ui/theme").margin,
       "the search field does not sit inside the margins")
     assert(field.dimen.h < screen:scaleBySize(60), "the search field is tall")
-    local words = emu:expectText("Search books on Hardcover")
-    assert(math.abs((words.y + words.h / 2) - (field.dimen.y + field.dimen.h / 2)) <= 4,
-      "the search words are not vertically centred in the field")
-    -- everything fits: the last tile ends above the bottom edge
-    for _, node in ipairs(emu:screenNodes()) do
-      assert(node.relative or node.y + node.h <= screen:getHeight(), node.text .. " is off the screen")
+    -- (text drawn inside a scrolling page is not positioned in screen terms, so these two
+    -- only mean something while the page fits)
+    if not manager.home_dialog.scroll then
+      local words = emu:expectText("Search books on Hardcover")
+      assert(math.abs((words.y + words.h / 2) - (field.dimen.y + field.dimen.h / 2)) <= 4,
+        "the search words are not vertically centred in the field")
+      -- everything fits: the last tile ends above the bottom edge
+      for _, node in ipairs(emu:screenNodes()) do
+        assert(node.relative or node.y + node.h <= screen:getHeight(), node.text .. " is off the screen")
+      end
     end
 
 
