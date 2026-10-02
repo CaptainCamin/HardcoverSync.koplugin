@@ -1,11 +1,16 @@
 # Changelog
 
+## 1.2.1
+
+### Added
+
+- Tap "your rating" on a book's details screen to rate it. It works offline: the rating shows straight away, is kept on the device, and is sent when you reconnect (or with Sync now). Setting it to 0 clears it. The book needs to be on one of your shelves.
+
 ## 1.2.0
 
 ### Added
 
 - Goals work offline. Making a goal, changing one, or archiving one with no connection is kept on the device, shows straight away on Home and the Goals screens marked "Waiting to sync", and is sent when the sync runs (when you reconnect, or with Sync now). A goal made offline gets its real identity from Hardcover when it is sent. Editing the same goal twice keeps the newest edit. If Hardcover refuses a change three times it is marked "Not sent" and waits; Sync now tries it again. The pending count in the Sync item includes goal changes.
-- Tap "your rating" on a book's details screen to rate it. It works offline: the rating shows straight away, is kept on the device, and is sent when you reconnect (or with Sync now). Setting it to 0 clears it. The book needs to be on one of your shelves.
 
 ## 1.1.5
 
