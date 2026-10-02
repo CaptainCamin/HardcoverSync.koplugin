@@ -123,6 +123,8 @@ function SyncQueue:enqueuePage(filepath, payload)
   entry.page_updated_at = os.time()
   entry.first_page_date = entry.first_page_date or os.date("%Y-%m-%d")
   entry.failures = nil
+  -- reading on changes the question being asked (and the user's earlier answer)
+  entry.conflict = nil
   self:persist()
   return entry
 end
@@ -209,7 +211,87 @@ end
 SyncQueue.MAX_REJECTIONS = 3
 
 function SyncQueue:isHeld(entry)
-  return type(entry) == "table" and (entry.failures or 0) >= SyncQueue.MAX_REJECTIONS
+  return type(entry) == "table"
+    and ((entry.failures or 0) >= SyncQueue.MAX_REJECTIONS or entry.conflict ~= nil)
+end
+
+-- When the cloud is ahead of a queued page by this many pages or more the user
+-- is asked which to keep; by less, the cloud quietly wins (a few pages is a
+-- re-read of the same stretch, not a different place in the book).
+SyncQueue.CONFLICT_PAGES = 5
+
+-- Entries waiting for the user's answer: a list of { filepath, entry }, ordered.
+function SyncQueue:conflicts()
+  local list = {}
+  for _, filepath in ipairs(self:filepaths()) do
+    local entry = self:get(filepath)
+    if type(entry) == "table" and entry.conflict then
+      list[#list + 1] = { filepath = filepath, entry = entry }
+    end
+  end
+  return list
+end
+
+function SyncQueue:conflictCount()
+  return #self:conflicts()
+end
+
+-- Apply the user's answer to one entry's conflict.
+--   page:   "cloud" keeps Hardcover's page and drops ours (remembering it as the
+--           place to resume); "local" sends ours.
+--   reread: "yes" sends a NEW read (the old one is never touched); "no" drops
+--           the queued progress.
+-- "later" is not an answer: it leaves everything as it is. Returns true when
+-- something changed.
+function SyncQueue:resolve(filepath, choice)
+  local entry = self:get(filepath)
+  if type(entry) ~= "table" or not entry.conflict then
+    return false
+  end
+  local kind = entry.conflict.kind
+
+  if kind == "page" and choice == "cloud" then
+    local resume = self.settings:readSetting("resume")
+    if type(resume) ~= "table" then
+      resume = {}
+      self.settings:saveSetting("resume", resume)
+    end
+    resume[filepath] = entry.conflict.cloud_page
+    self.settings:saveSetting("resume", resume)
+    entry.mapped_page = nil
+    entry.page_updated_at = nil
+  elseif kind == "page" and choice == "local" then
+    entry.force_page = true
+  elseif kind == "reread" and choice == "yes" then
+    entry.reread = true
+  elseif kind == "reread" and choice == "no" then
+    entry.mapped_page = nil
+    entry.page_updated_at = nil
+  else
+    return false
+  end
+
+  entry.conflict = nil
+  entry.failures = nil
+  if self:isEmpty(entry) then
+    self:pending()[filepath] = nil
+  end
+  self:persist()
+  return true
+end
+
+-- The place to jump to the next time this file is opened, set when the user
+-- chose Hardcover's page over this device's. Cleared once read.
+function SyncQueue:takeResumePage(filepath)
+  local resume = self.settings:readSetting("resume")
+  if type(resume) ~= "table" or resume[filepath] == nil then
+    return nil
+  end
+  local page = resume[filepath]
+  resume[filepath] = nil
+  self.settings:saveSetting("resume", resume)
+  self:persist()
+  return page
 end
 
 function SyncQueue:heldCount()
@@ -242,6 +324,8 @@ function SyncQueue:_clearSent(filepath, sent)
   if sent.page ~= nil and entry.mapped_page == sent.page and entry.page_updated_at == sent.page_at then
     entry.mapped_page = nil
     entry.page_updated_at = nil
+    entry.force_page = nil
+    entry.reread = nil
   end
   if sent.status ~= nil and entry.status_id == sent.status and entry.status_updated_at == sent.status_at then
     entry.status_id = nil
@@ -369,12 +453,55 @@ function SyncQueue:_flushEntry(api, filepath, opts)
       local reads = user_book.user_book_reads
       local current_read = reads and reads[#reads]
       local server_page = current_read and tonumber(current_read.progress_pages)
+      local finished = current and current ~= HARDCOVER.STATUS.READING and current ~= HARDCOVER.STATUS.TO_READ
 
-      -- Finished / Did Not Finish: do not quietly reopen it from a stale queue.
-      -- And never take the server backwards: if it is already further along,
-      -- the queued page is older news. Either way the page is dropped.
-      local skip = (current and current ~= HARDCOVER.STATUS.READING and current ~= HARDCOVER.STATUS.TO_READ)
-        or (server_page and server_page > op.value)
+      -- Finished / Did Not Finish with new progress here: this may be a
+      -- re-read, which only the user can say. The old read is never touched.
+      if finished and not entry.reread then
+        entry.conflict = { kind = "reread", local_page = op.value, cloud_status = current, cloud_page = server_page }
+        self:persist()
+        return false, "conflict"
+      end
+
+      -- The cloud is further along (read on another device). Far ahead: ask.
+      -- Slightly ahead: it wins quietly. Never take the server backwards
+      -- unless the user said to.
+      local skip = false
+      if not finished and server_page and server_page > op.value and not entry.force_page then
+        if server_page - op.value >= SyncQueue.CONFLICT_PAGES then
+          entry.conflict = { kind = "page", local_page = op.value, cloud_page = server_page }
+          self:persist()
+          return false, "conflict"
+        end
+        skip = true
+      end
+
+      if entry.reread and finished then
+        -- a new read first, then the book is being read again
+        local made = api:createRead(
+          user_book.id,
+          edition_id or user_book.edition_id,
+          op.value,
+          entry.first_page_date or os.date("%Y-%m-%d")
+        )
+        if not hasUserBook(made) then
+          countRejection(self, filepath)
+          return false
+        end
+        local reading = api:updateUserBook(
+          book_id,
+          HARDCOVER.STATUS.READING,
+          privacy_setting_id or made.privacy_setting_id,
+          edition_id
+        )
+        if not hasUserBook(reading) then
+          countRejection(self, filepath)
+          return false
+        end
+        user_book = reading
+        entry.reread = nil
+        skip = true
+      end
 
       if not skip then
         local result

@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.1.2
+
+### Added
+
+- Sync conflicts. If you read on this device offline and Hardcover is already well ahead (5 pages or more, say you carried on on another device), you are asked which to keep: Hardcover's page or this device's. If Hardcover has the book as Read or Did Not Finish but you have new progress here, you are asked whether you are re-reading it; yes starts a NEW read (the old one is never changed) and sets the book to Currently Reading. The questions come up after a sync, when you open the book, and under Settings > Sync > Resolve sync conflicts. "Decide later" keeps your change queued. Choosing Hardcover's page offers to jump there next time you open the book. If Hardcover is only a few pages ahead it quietly wins.
 
 ### Fixed
 
@@ -12,6 +16,7 @@ Offline sync (found by an audit of the queue):
 - Changes made while a sync is running are no longer erased when it finishes.
 - A book Hardcover keeps refusing is held after 3 tries instead of blocking every book behind it.
 - A failed sync is retried (30 s, 2 min, 10 min, 30 min) while you stay online, and closing a book or suspending syncs when you are already online.
+- Opening a book offline with no saved data no longer wakes the device every minute to look for the network; it waits for the network to return.
 - Closing or suspending records the page on screen, not the last one counted.
 - Reads started offline keep the day you began reading.
 - Re-linking a file to another book, removing a book, or setting the page by hand drops the queued changes they replace.
