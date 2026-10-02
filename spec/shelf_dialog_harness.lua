@@ -221,10 +221,16 @@ line to put the author on.
       -- Shelf rows still need their own decoration: the status label and rating are
   -- properties of a shelf entry, not of a book, so they are applied after the
   -- shared row shaping rather than inside it.
-  r.check("the status is shown as a mandatory label", type(item.mandatory) == "string"
-        and item.mandatory:find("Want to Read", 1, true) ~= nil,
+  -- The shelf already says the status and the details say the page count and
+  -- year, so a row is cover, title and author, and your rating when you have one.
+  r.check("rows are tall (five a page) and carry no keyboard letters",
+        lastSpec().files_per_page == 5 and lastSpec().is_enable_shortcut == false,
+        "files_per_page = " .. tostring(lastSpec().files_per_page) .. ", shortcuts = " .. tostring(lastSpec().is_enable_shortcut))
+  r.check("an unrated row has no right-hand column", item.mandatory == "",
         "mandatory = " .. tostring(item.mandatory))
-  r.check("a rating is appended to the status",
+  r.check("no page count or year clutters the row", item.pages == nil and not (item.title or ""):find("%(%d%d%d%d%)"),
+        "pages = " .. tostring(item.pages) .. ", title = " .. tostring(item.title))
+  r.check("a rating is the only thing in the right-hand column",
         (function()
           local rated = buildDialog({ entry({ user_rating = 4 }) })
           local r_item = (lastSpec().item_table or {})[1]
@@ -284,8 +290,7 @@ for _, case in ipairs({
   local spec = lastSpec()
   local item = spec and (spec.item_table or {})[1]
   r.check(case.name .. " builds a row", item ~= nil)
-  r.check(case.name .. " labels the status", item and type(item.mandatory) == "string"
-    and item.mandatory:find(case.name, 1, true) ~= nil,
+  r.check(case.name .. " does not repeat the shelf's own status on every row", item and item.mandatory == "",
     "mandatory = " .. tostring(item and item.mandatory))
 end
 

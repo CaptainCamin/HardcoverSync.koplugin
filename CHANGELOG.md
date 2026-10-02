@@ -4,6 +4,10 @@
 
 ### Changed
 
+* Shelf lists are cleaner and the covers bigger: five tall rows a page (was ten), each a cover, the title and the
+  author (with the series). The status (the shelf already says it), page count and year are gone from the rows, the
+  keyboard letter boxes no longer sit over the covers, and your rating shows on the right only when you have one.
+  Fixed a series position printed twice ("Series #3 #3").
 * The Home screen has a new look: a title bar, a "Currently reading" section with a card per book (cover, title,
   author and a progress bar with "pages read / pages"), then the shelves as buttons ("Want to Read  ·  42").
   Tapping a card opens that book. The reading list is saved, so Home opens instantly and works offline, and is

@@ -68,6 +68,8 @@ function HardcoverSearchDialog:init()
   local menu_class = self.compatibility_mode and Menu or SearchMenu
 
   self.menu = menu_class:new {
+    -- no Q/W/E letter boxes: they are for keyboards, and cover part of each cover
+    is_enable_shortcut = false,
     single_line = false,
     multilines_show_more_text = true,
     title = self.title or "Select book",
