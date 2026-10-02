@@ -267,6 +267,9 @@ function M.boot(opts)
 
   -- Text nodes with their painted rectangles, sorted top-to-bottom.
   function emu:screenNodes()
+    -- positions are only real once painted: paint before reading them
+    UIManager:setDirty(nil, "ui")
+    UIManager:_repaint()
     return Tree.collect(UIManager:getTopmostVisibleWidget() or {})
   end
 

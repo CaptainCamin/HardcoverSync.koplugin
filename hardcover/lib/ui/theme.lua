@@ -31,7 +31,6 @@ local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local CenterContainer = require("ui/widget/container/centercontainer")
-local TextBoxWidget = require("ui/widget/textboxwidget")
 local TitleBar = require("ui/widget/titlebar")
 
 local Screen = Device.screen
@@ -48,7 +47,8 @@ Theme.px = px
 
 -- text greys: black for everything that matters, dark grey for secondary text
 Theme.BLACK = Blitbuffer.COLOR_BLACK
-Theme.DARK_GREY = Blitbuffer.COLOR_DARK_GRAY
+-- 0x55: KOReader's own COLOR_DARK_GRAY is 0x88, which washes out on the panel
+Theme.DARK_GREY = Blitbuffer.COLOR_GRAY_5 or Blitbuffer.COLOR_DARK_GRAY
 Theme.WHITE = Blitbuffer.COLOR_WHITE
 
 -- spacing scale (scaled units: the same multiples everywhere)
@@ -239,6 +239,8 @@ function Theme.button(text, w, opts)
     box,
   }
   tap.label = label
+  tap.text = text -- what the button says (also how a test finds it)
+  tap.width = w
   return tap
 end
 

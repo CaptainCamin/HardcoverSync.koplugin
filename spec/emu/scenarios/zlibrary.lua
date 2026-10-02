@@ -1,5 +1,5 @@
 --[[--
-"Search in Z-library" on the book details screen.
+"Z-library" (the action bar button) on the book details screen.
 
 The Z-library plugin is separate, so a stand-in with the two methods the button
 relies on is placed where KOReader keeps plugin instances (the UI's array part).
@@ -38,10 +38,16 @@ return {
     emu:pump()
     dialog = UIManager:getTopmostVisibleWidget()
     assert(dialog and dialog.zlibrary_button, "no Z-library button although the plugin is there")
-    emu:expectText("Search in Z-library")
+    emu:expectText("Z-library")
     emu:expectText("Reviews")
     emu:shot("zlibrary_button")
 
+    -- three buttons share the bar, all inside the margins
+    local M = require("hardcover/lib/ui/theme").margin
+    for _, name in ipairs({ "shelf_button", "reviews_button", "zlibrary_button" }) do
+      local d = dialog[name].dimen
+      assert(d and d.x >= M and d.x + d.w <= emu.Screen:getWidth() - M, name .. " is outside the margins")
+    end
     local b = dialog.zlibrary_button.dimen
     emu:tapExpecting(b.x + math.floor(b.w / 2), b.y + math.floor(b.h / 2))
     assert(#plugin.searched == 1, "tapping the button did not search")

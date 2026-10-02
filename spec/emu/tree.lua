@@ -29,9 +29,14 @@ function M.instrument()
       class._emu_instrumented = true
       local paint = class.paintTo
       class.paintTo = function(self, bb, x, y)
+        -- only what is painted straight onto the screen has screen
+        -- coordinates; inside a ScrollableContainer the target is its own
+        -- buffer and the numbers would mean something else
         local ok, size = pcall(self.getSize, self)
-        if ok and size then
+        if ok and size and bb == require("device").screen.bb then
           self._emu_rect = { x = x, y = y, w = size.w, h = size.h }
+        else
+          self._emu_rect = nil
         end
         return paint(self, bb, x, y)
       end
@@ -117,7 +122,7 @@ function M.collect(root)
       y = rect and rect.y or nil,
       w = rect and rect.w or nil,
       h = rect and rect.h or nil,
-      relative = rect and rect.relative or true,
+      relative = (rect == nil) or rect.relative == true,
       class = class or widget.name or widget.class or "?",
     }
   end

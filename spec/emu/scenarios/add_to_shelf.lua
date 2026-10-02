@@ -38,6 +38,7 @@ return {
     -- the topmost (last drawn) node whose text is exactly `text`: "Read" is also
     -- part of "Want to Read" on the screen underneath
     local function tapText(text)
+      UIManager:_repaint() -- positions are only real once painted
       local node
       for _, n in ipairs(emu:screenNodes()) do
         if n.text == text then node = n end
