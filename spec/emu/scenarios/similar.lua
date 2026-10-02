@@ -4,7 +4,7 @@ order) that arrives after the screen is up, a tap opening that book, a book with
 ranking or a failed answer showing nothing (the screen carries on), and the offline
 case (no request at all).
 
-Screens: similar_strip, similar_none, similar_offline.
+Screens: similar_strip, similar_none, similar_with_series, similar_with_series_end.
 ]]
 
 local fixtures = require("fixtures")
@@ -76,6 +76,40 @@ return {
     UIManager:close(opened)
     emu:pump()
     assert(top() == details, "closing the book did not come back")
+    emu:closeAll()
+
+    -- on a book in a series too: "Similar to" first, then "More in <series>", both paging
+    -- and both opening their own books
+    fixtures.similar_ids = { 9, 4, 7, 2, 1, 3, 5, 6 }
+    details = manager:showBookDetail(103, 10301)
+    emu:pump()
+    assert(details.similar_carousel and details.carousel, "both strips are not there")
+    emu:shot("similar_with_series")
+    details.scroll:scrollToRatio(0, 1)
+    emu:shot("similar_with_series_end")
+    for _, expected in ipairs({ "Similar to The Left Hand of Darkness", "8 books", "More in Hainish Cycle" }) do
+      emu:expectText(expected)
+    end
+    local sim_first = details.similar_carousel.first
+    local ser_first = details.carousel.first
+    local function centre(w) return w.dimen.x + math.floor(w.dimen.w / 2), w.dimen.y + math.floor(w.dimen.h / 2) end
+    emu:tap(centre(details.similar_carousel.next))
+    emu:pump()
+    assert(details.similar_carousel.first > sim_first, "the similar strip did not turn")
+    assert(details.carousel.first == ser_first, "turning the similar strip turned the series strip")
+    emu:tap(centre(details.carousel.next))
+    emu:pump()
+    assert(details.carousel.first > ser_first, "the series strip did not turn")
+    -- a similar cover opens a similar book, a series cover opens a series book
+    emu:tap(centre(details.similar_carousel.targets[1]))
+    emu:pump()
+    local first_open = top()
+    assert(first_open ~= details and first_open.name == "hardcover_book_detail", "a similar cover did not open")
+    UIManager:close(first_open)
+    emu:pump()
+    emu:tap(centre(details.carousel.targets[1]))
+    emu:pump()
+    assert(top() ~= details and top().name == "hardcover_book_detail", "a series cover did not open")
     emu:closeAll()
 
     -- no ranking, or a failed answer: no strip, and nothing in its place
