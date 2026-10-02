@@ -8,6 +8,19 @@
 -- A shelf is the pair (user, status). Keying on the user means a different
 -- account never sees someone else's cached library.
 --
+-- Two files, because they are used very differently. The shelves are large (about
+-- 2 KB a book, so a 600 book shelf is over a megabyte, and a file of several
+-- shelves several megabytes) and only a shelf screen or a book's details need
+-- them. The counts and the reading list are tiny and are what the home screen
+-- reads and rewrites every time it opens, and the reading list changes whenever
+-- progress does. Kept in one file, opening Home parsed all the shelves and every
+-- change to a count rewrote them; kept apart, Home touches only the small file.
+-- (Counts and a reading list saved by an earlier version are still read from the
+-- shelf file until they are saved again.)
+--
+-- Saving what is already saved writes nothing: the home screen saves what it has
+-- just fetched, which for an unchanged library is the very same.
+--
 -- Every operation is best-effort: a cache that cannot be read or written must
 -- never break the screen that asked for it.
 
@@ -35,6 +48,40 @@ function ShelfCache:_store()
     self.store = ok and store or false
   end
   return self.store or nil
+end
+
+-- The small file's store: counts and the reading list. false once opening failed.
+function ShelfCache:_home()
+  if self.home == nil then
+    local path = self.home_path or (self.path and (self.path:gsub("%.lua$", "") .. "_home.lua"))
+    local ok, store = pcall(self.open, path)
+    self.home = ok and store or false
+  end
+  return self.home or nil
+end
+
+-- A saved table of this name: the small file's, else (saved by an earlier
+-- version) the shelf file's. `name` is "counts" or "reading".
+function ShelfCache:_read(name)
+  local home = self:_home()
+  local saved = home and home:readSetting(name)
+  if saved ~= nil then return saved end
+  local store = self:_store()
+  return store and store:readSetting(name) or nil
+end
+
+-- Structural equality of plain data (rows are tables of strings, numbers and
+-- nested tables).
+local function same(a, b)
+  if type(a) ~= type(b) then return false end
+  if type(a) ~= "table" then return a == b end
+  for k, v in pairs(a) do
+    if not same(v, b[k]) then return false end
+  end
+  for k in pairs(b) do
+    if a[k] == nil then return false end
+  end
+  return true
 end
 
 local function shelfKey(user_id, status_id)
@@ -96,6 +143,16 @@ function ShelfCache:put(user_id, status_id, entries, complete)
     shelves = {}
     store:saveSetting("shelves", shelves)
   end
+
+  -- the list that was just loaded is the one already saved (the usual case when
+  -- a shelf is opened again): nothing to write, unless the saved day would be
+  -- out of date, which is the one thing a reader sees of it
+  local saved = shelves[shelfKey(user_id, status_id)]
+  if saved and saved.complete == (complete and true or false) and same(saved.entries, kept)
+    and os.date("%Y-%m-%d", saved.saved_at or 0) == os.date("%Y-%m-%d") then
+    return true
+  end
+
   shelves[shelfKey(user_id, status_id)] = {
     entries = kept,
     complete = complete and true or false,
@@ -111,16 +168,16 @@ end
 -- is as good a count as any. A shelf with neither has no entry, so the caller can
 -- show nothing instead of a made up zero.
 function ShelfCache:counts(user_id, status_ids)
-  local store = self:_store()
   local out = {}
-  if not store then return out end
+  if not (self:_home() or self:_store()) then return out end
 
-  local saved = store:readSetting("counts")
+  local saved = self:_read("counts")
   local mine = saved and saved[tostring(user_id or 0)]
 
   for _, status_id in ipairs(status_ids or {}) do
     local n = mine and mine["s" .. status_id]
     if n == nil then
+      -- only now is the (large) shelf file read
       local shelf = self:get(user_id, status_id)
       if shelf and shelf.complete then n = #shelf.entries end
     end
@@ -130,7 +187,7 @@ function ShelfCache:counts(user_id, status_ids)
 end
 
 function ShelfCache:putCounts(user_id, counts)
-  local store = self:_store()
+  local store = self:_home()
   if not store or type(counts) ~= "table" then return false end
 
   local saved = store:readSetting("counts")
@@ -143,7 +200,9 @@ function ShelfCache:putCounts(user_id, counts)
   for status_id, n in pairs(counts) do
     mine["s" .. status_id] = n
   end
-  saved[tostring(user_id or 0)] = mine
+  local who = tostring(user_id or 0)
+  if same(saved[who], mine) then return true end
+  saved[who] = mine
 
   return (pcall(store.flush, store))
 end
@@ -153,8 +212,7 @@ end
 -- must not stand in for a shelf. `entries` may be empty, which is a real answer
 -- (nothing being read); nil means never saved.
 function ShelfCache:reading(user_id)
-  local store = self:_store()
-  local saved = store and store:readSetting("reading")
+  local saved = self:_read("reading")
   local mine = saved and saved[tostring(user_id or 0)]
   if mine and type(mine.entries) == "table" then
     return mine.entries
@@ -162,7 +220,7 @@ function ShelfCache:reading(user_id)
 end
 
 function ShelfCache:putReading(user_id, entries)
-  local store = self:_store()
+  local store = self:_home()
   if not store or type(entries) ~= "table" then return false end
 
   local saved = store:readSetting("reading")
@@ -178,7 +236,9 @@ function ShelfCache:putReading(user_id, entries)
     copy.description = nil
     kept[i] = copy
   end
-  saved[tostring(user_id or 0)] = { entries = kept, saved_at = os.time() }
+  local who = tostring(user_id or 0)
+  if saved[who] and same(saved[who].entries, kept) then return true end
+  saved[who] = { entries = kept, saved_at = os.time() }
 
   return (pcall(store.flush, store))
 end
@@ -219,13 +279,27 @@ function ShelfCache:invalidate(user_id, status_ids)
     end
   end
 
+  -- counts and the reading list: the small file, and what an earlier version
+  -- saved in the shelf file
   local who = tostring(user_id or 0)
+  local home = self:_home()
   for _, name in ipairs({ "counts", "reading" }) do
-    local saved = store:readSetting(name)
-    if saved then saved[who] = nil end
+    local legacy = store:readSetting(name)
+    if legacy then legacy[who] = nil end
+    if home then
+      local mine = home:readSetting(name)
+      if not mine then
+        -- present but empty, so the older copy is not consulted again
+        mine = {}
+        home:saveSetting(name, mine)
+      end
+      mine[who] = nil
+    end
   end
 
-  return (pcall(store.flush, store))
+  local ok = (pcall(store.flush, store))
+  if home and home ~= store then ok = (pcall(home.flush, home)) and ok end
+  return ok
 end
 
 -- Everything, for sign out: the cache holds a user's library.
@@ -235,7 +309,15 @@ function ShelfCache:clear()
   store:saveSetting("shelves", nil)
   store:saveSetting("counts", nil)
   store:saveSetting("reading", nil)
-  return (pcall(store.flush, store))
+  local ok = (pcall(store.flush, store))
+
+  local home = self:_home()
+  if home and home ~= store then
+    home:saveSetting("counts", nil)
+    home:saveSetting("reading", nil)
+    ok = (pcall(home.flush, home)) and ok
+  end
+  return ok
 end
 
 return ShelfCache

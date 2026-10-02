@@ -593,6 +593,28 @@ check("online and it works: the fresh record wins", function()
   assert(fake[1].detail.book.title == "Fresh")
 end)
 
+check("online and it works: the saved shelves are never read", function()
+  online = true
+  local m = newManager()
+  local reads = 0
+  local real = m.shelf_cache.findEntry
+  m.shelf_cache.findEntry = function(...) reads = reads + 1; return real(...) end
+  m:showBookDetail(7)
+  pending_detail({ book = { title = "Fresh" } })
+  assert(reads == 0, "read the whole saved-shelves file to open details that loaded fine (" .. reads .. ")")
+end)
+
+check("offline: the saved shelves are read once", function()
+  online = false
+  local m = newManager()
+  savedBook(m)
+  local reads = 0
+  local real = m.shelf_cache.findEntry
+  m.shelf_cache.findEntry = function(...) reads = reads + 1; return real(...) end
+  m:showBookDetail(7)
+  assert(reads == 1, "reads: " .. reads)
+end)
+
 print("\n== the series card on book details ==")
 
 local function inSeries(book_id)
