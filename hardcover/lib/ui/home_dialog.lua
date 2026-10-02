@@ -1,12 +1,12 @@
--- The home screen: what you are reading now, then your shelves.
+-- The home screen: what you are reading now, then your shelves and lists.
 --
--- A title bar, a search field, then a column that is not scrolled: a
--- "Currently reading" section (the first book as a hero card with its cover,
--- title and progress, the rest as compact rows, as many as fit), then a
--- "Library" section of four count tiles, one per shelf. Not scrolling is deliberate. A
--- ScrollableContainer keeps tap ranges for children that are scrolled out of
--- view, and those can steal taps from the buttons that are on screen; with a
--- fixed column every tappable thing is where it is drawn.
+-- A title bar, then one column: a search field, a "Currently reading" section (the
+-- heading opens that shelf; every book is a card of the same size), a "Library"
+-- section of count tiles (the shelves and the lists), and an optional card the
+-- caller supplies (the reading goal). The column is as long as it needs to be; when
+-- it is taller than the screen the page scrolls, and every tap range is clipped to
+-- what the scroll area shows (see viewport.lua) so something scrolled out of view
+-- cannot take a tap meant for what is on screen. A page that fits is not scrolled.
 --
 -- Choosing a card opens that book; choosing a shelf opens it on top of this
 -- screen, so closing the shelf comes back here.
@@ -21,6 +21,7 @@ local IconWidget = require("ui/widget/iconwidget")
 local ImageWidget = require("ui/widget/imagewidget")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local ProgressWidget = require("ui/widget/progresswidget")
+local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
@@ -97,8 +98,9 @@ local function text(str, size, opts)
 end
 
 -- The wrapper that makes a card tappable (and only over what it draws)
-function HomeDialog:tappable(widget, book_id)
+function HomeDialog:tappable(widget, book_id, viewport)
   return TapRow:new {
+    viewport = viewport,
     callback = function()
       if self.open_book_cb then
         self.open_book_cb(book_id)
@@ -110,7 +112,7 @@ end
 
 -- A book you are reading: cover, title, author, progress. Every card is the same
 -- size, so the section reads as a tidy list however many books there are.
-function HomeDialog:buildCard(card, width)
+function HomeDialog:buildCard(card, width, viewport)
   local cw = Screen:scaleBySize(72)
   local ch = math.floor(cw * 1.5)
   local text_w = width - cw - Theme.line.hair * 2 - Theme.space.l
@@ -154,13 +156,13 @@ function HomeDialog:buildCard(card, width)
     align = "left",
     Theme.rule(width, false),
     Theme.span("s"),
-    self:tappable(row, card.book_id),
+    self:tappable(row, card.book_id, viewport),
     Theme.span("s"),
   }
 end
 
 -- One shelf tile: the count big, the name beside it. Tapping opens the shelf.
-function HomeDialog:buildTile(row, w, h)
+function HomeDialog:buildTile(row, w, h, viewport)
   local line = HorizontalGroup:new { align = "center" }
   local count = Home.countText(row.count)
   if count ~= "" then
@@ -182,36 +184,17 @@ end
 
 -- Build everything from the current rows and entries. Pure function of both, so
 -- a rebuild cannot leave a stale widget behind.
-function HomeDialog:build()
-  self:releaseCovers()
-  self.cover_cells = {}
-
-  local screen_w, screen_h = Screen:getWidth(), Screen:getHeight()
-  local M = Theme.margin
-  local width = screen_w - 2 * M
-  local function inset(widget)
-    return HorizontalGroup:new { Theme.hspan(M), widget }
-  end
-
-  local title_bar = Theme.titleBar {
-    title = self.title,
-    -- the cog opens the plugin's settings
-    left_icon = "appbar.settings",
-    left_callback = function()
-      if self.settings_cb then
-        self.settings_cb()
-      end
-    end,
-    close_callback = function() self:onClose() end,
-    show_parent = self,
-  }
-
+-- The column of everything on the home screen, laid out in `width`. `viewport`
+-- (a function returning the visible rectangle of the scroll area, or nil when the
+-- page is not scrolling) clips every tap range to what is on screen.
+function HomeDialog:buildColumn(width, viewport)
   -- The search field: a rounded outline that reads as an input, and opens the
   -- search box when tapped. The words are centred in it by a container of the
   -- field's own size (a frame given a height does not centre its text).
   local field_h = Screen:scaleBySize(52)
   local search_icon = Screen:scaleBySize(26)
   local field = TapRow:new {
+    viewport = viewport,
     callback = function()
       if self.search_cb then
         self.search_cb()
@@ -247,10 +230,10 @@ function HomeDialog:build()
     rows[#rows + 1] = { lists = true, title = _("More lists"), count = self.list_count }
   end
   for i = 1, #rows, 2 do
-    local pair = HorizontalGroup:new { self:buildTile(rows[i], tile_w, tile_h) }
+    local pair = HorizontalGroup:new { self:buildTile(rows[i], tile_w, tile_h, viewport) }
     if rows[i + 1] then
       table.insert(pair, Theme.hspan("m"))
-      table.insert(pair, self:buildTile(rows[i + 1], tile_w, tile_h))
+      table.insert(pair, self:buildTile(rows[i + 1], tile_w, tile_h, viewport))
     end
     table.insert(library, pair)
     if rows[i + 2] then table.insert(library, Theme.span("m")) end
@@ -258,9 +241,8 @@ function HomeDialog:build()
   self.library = library
 
   -- an optional card under the library (the reading goal): built by the caller,
-  -- at the page width, and counted in the room the reading list may use
-  local goal_card = self.goal_card_fn and self.goal_card_fn(width) or nil
-  local goal_h = goal_card and (goal_card:getSize().h + Theme.space.l) or 0
+  -- at the page width
+  local goal_card = self.goal_card_fn and self.goal_card_fn(width, viewport) or nil
 
   local column = VerticalGroup:new { align = "left" }
   table.insert(column, Theme.span("m"))
@@ -278,6 +260,7 @@ function HomeDialog:build()
   end
   table.insert(right, text("\226\128\186", "title", { bold = true }))
   local header = TapRow:new {
+    viewport = viewport,
     callback = function()
       if self.select_cb then
         self.select_cb({ status_id = HARDCOVER.STATUS.READING, title = _("Currently Reading") })
@@ -296,20 +279,10 @@ function HomeDialog:build()
     table.insert(column, Theme.span("l"))
   end
 
+  -- every card there is: the page scrolls when they do not all fit
   if #cards > 0 then
-    column:resetLayout() -- a VerticalGroup keeps its size until told otherwise
-    local room = screen_h - title_bar:getSize().h - column:getSize().h
-      - Theme.space.m - library:getSize().h - goal_h - Theme.space.m - Theme.space.l
-    for i, card in ipairs(cards) do
-      local widget = self:buildCard(card, width)
-      local h = widget:getSize().h
-      -- always show the first, so the section never reads as empty
-      if i > 1 and h > room then
-        widget:free()
-        break
-      end
-      room = room - h
-      table.insert(column, widget)
+    for _i, card in ipairs(cards) do
+      table.insert(column, self:buildCard(card, width, viewport))
     end
     table.insert(column, Theme.span("m"))
   end
@@ -319,6 +292,55 @@ function HomeDialog:build()
     table.insert(column, goal_card)
   end
   column:resetLayout() -- children were added since its size was last read
+  return column
+end
+
+-- Build everything from the current rows and entries. Pure function of both, so
+-- a rebuild cannot leave a stale widget behind.
+function HomeDialog:build()
+  self:releaseCovers()
+  self.cover_cells = {}
+
+  local screen_w, screen_h = Screen:getWidth(), Screen:getHeight()
+  local M = Theme.margin
+
+  local title_bar = Theme.titleBar {
+    title = self.title,
+    -- the cog opens the plugin's settings
+    left_icon = "appbar.settings",
+    left_callback = function()
+      if self.settings_cb then
+        self.settings_cb()
+      end
+    end,
+    close_callback = function() self:onClose() end,
+    show_parent = self,
+  }
+  local room = screen_h - title_bar:getSize().h
+
+  -- First at full width. If that is taller than the screen, again narrower (to
+  -- leave the scroll bar its gutter) inside a scrolling container, with every tap
+  -- clipped to what the container shows (see viewport.lua). A page that fits is
+  -- not scrolled at all, so nothing changes for it.
+  local width = screen_w - 2 * M
+  local column = self:buildColumn(width, nil)
+  local body
+  self.scroll = nil
+  if column:getSize().h > room then
+    self.cover_cells = {}
+    local gutter = 3 * (ScrollableContainer.scroll_bar_width or Screen:scaleBySize(6))
+    width = screen_w - 2 * M - gutter
+    self.scroll = ScrollableContainer:new {
+      dimen = Geom:new { x = 0, y = 0, w = screen_w, h = room },
+      show_parent = self,
+    }
+    local scroll = self.scroll
+    column = self:buildColumn(width, function() return scroll.dimen end)
+    scroll[1] = HorizontalGroup:new { Theme.hspan(M), column }
+    body = scroll
+  else
+    body = HorizontalGroup:new { Theme.hspan(M), column }
+  end
 
   self.title_bar = title_bar
   self.frame = FrameContainer:new {
@@ -331,7 +353,7 @@ function HomeDialog:build()
     VerticalGroup:new {
       align = "left",
       title_bar,
-      inset(column),
+      body,
     },
   }
   self.dimen = Geom:new { x = 0, y = 0, w = screen_w, h = screen_h }

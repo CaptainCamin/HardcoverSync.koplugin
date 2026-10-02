@@ -156,14 +156,14 @@ return {
     emu:pump()
     local home = manager.home_dialog
     home.list_count = 5
-    home.goal_card_fn = function(width)
+    home.goal_card_fn = function(width, viewport)
       local g = GOALS[1]
       local p = pace(g)
       local out = VerticalGroup:new { align = "left" }
       local more = text("\226\128\186", "title", { bold = true })
       table.insert(out, Theme.sectionHeader("Goal", width, more))
       table.insert(out, Theme.span("s"))
-      table.insert(out, TapRow:new { callback = function() end, VerticalGroup:new { align = "left",
+      table.insert(out, TapRow:new { callback = function() end, viewport = viewport, VerticalGroup:new { align = "left",
         text(g.name, "body", { bold = true, width = width }),
         Theme.span("xs"),
         HorizontalGroup:new { align = "bottom", text(tostring(p.progress), "display", { bold = true }), Theme.hspan("s"),
