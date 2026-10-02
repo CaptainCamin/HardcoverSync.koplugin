@@ -12,7 +12,7 @@
 -- the flush then sends userId = null for every entry.
 --
 -- Expected: when the lookup itself failed, keep the entry and send nothing.
-local KB = dofile((arg[1] or ".") .. "/spec/known_bugs/lib.lua")
+local KB = dofile((arg[1] or ".") .. "/spec/sync_regressions/lib.lua")
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 
 print("\n== a failed lookup must not look like a missing book ==")

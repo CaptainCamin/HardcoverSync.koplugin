@@ -46,13 +46,12 @@ end
 -- Prefers the widget's own close() because that is what dismisses an InfoMessage
 -- correctly and fires its dismiss_callback; UIManager:close is the fallback for
 -- anything without one. The "full" setDirty afterwards is not decoration: after
--- the panel has been covered by a message, a partial refresh can leave a ghost
--- of it, and a full repaint is cheap on e-ink compared to a wrong screen.
+-- the panel has been covered by a message. (No forced full-panel flash here: it
+-- would black out the screen on every "Loading..." that closes.)
 function SD.close(message)
   if not message then return end
   if type(message.close) == "function" then
     message:close()
-    UIManager:setDirty("all", "full")
   else
     UIManager:close(message)
   end

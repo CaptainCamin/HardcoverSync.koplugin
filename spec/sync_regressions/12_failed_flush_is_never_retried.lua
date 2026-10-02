@@ -13,7 +13,7 @@
 --
 -- Expected: a failed flush while connected schedules a retry with backoff, and
 -- suspend/close flush whenever the device is already online.
-local KB = dofile((arg[1] or ".") .. "/spec/known_bugs/lib.lua")
+local KB = dofile((arg[1] or ".") .. "/spec/sync_regressions/lib.lua")
 local App, sched = KB.load_main()
 local User = require("hardcover/lib/user")
 User.settings = { readSetting = function() return 1 end, updateSetting = function() end }

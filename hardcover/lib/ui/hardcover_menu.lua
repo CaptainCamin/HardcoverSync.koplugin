@@ -27,6 +27,7 @@ local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local ICON = require("hardcover/lib/constants/icons")
 local SETTING = require("hardcover/lib/constants/settings")
 local VERSION = require("hardcover_version")
+local SyncConflicts = require("hardcover/lib/sync_conflicts")
 
 local HardcoverMenu = {}
 HardcoverMenu.__index = HardcoverMenu
@@ -397,6 +398,7 @@ function HardcoverMenu:getSubMenuItems(book_view)
       separator = true
     },
     self:getSyncMenuItem(),
+    self:conflictCount() > 0 and self:getSyncConflictsMenuItem(),
     -- OAuth sign-in/out. Only offered when hardcover_config.lua supplies a
     -- client_id; with a static API key there is nothing to sign in to.
     -- In the file browser always; in the reader only when there is something to do
@@ -578,6 +580,38 @@ Settings:
   }
 end
 
+-- The Sync item's sibling: shown only while a book's offline progress disagrees
+-- with Hardcover and the user has not yet said which to keep.
+function HardcoverMenu:conflictCount()
+  return self.sync_queue and self.sync_queue.conflictCount and self.sync_queue:conflictCount() or 0
+end
+
+function HardcoverMenu:getSyncConflictsMenuItem()
+  return {
+    text_func = function()
+      return SyncConflicts.menuText(self.sync_queue:conflictCount())
+    end,
+    enabled_func = function()
+      return self.enabled and self.sync_queue:conflictCount() > 0
+    end,
+    callback = function(menu_instance)
+      -- loaded here, not at the top: the dialog pulls in the whole picker and theme
+      require("hardcover/lib/ui/sync_conflict_dialog").show {
+        queue = self.sync_queue,
+        on_done = function(resolved)
+          if menu_instance and menu_instance.updateItems then menu_instance:updateItems() end
+          -- answers are only useful once they are sent
+          if resolved > 0 then
+            self:withWifiThen(function() self.on_flush_sync_queue() end, true)
+          end
+        end,
+      }
+    end,
+    keep_menu_open = true,
+    tile = _("Conflicts"),
+  }
+end
+
 -- Sync now / pending changes: one definition for the menu and the home screen's
 -- settings.
 function HardcoverMenu:getSyncMenuItem()
@@ -703,6 +737,9 @@ function HardcoverMenu:getHomeSettingsItems(opts)
   local items = {}
   if opts.sync ~= false then
     items[1] = self:getSyncMenuItem()
+    if self:conflictCount() > 0 then
+      items[#items + 1] = self:getSyncConflictsMenuItem()
+    end
   end
   if opts.account ~= false and self.auth and self.auth:usingOAuth() then
     local account = self:getAccountMenuItem()
@@ -772,6 +809,10 @@ function HardcoverMenu:removeCurrentRead(menu_instance)
   Background.run(function()
     local result = Api:removeRead(self.state.book_status.id)
     if result and result.id then
+      -- the book is off the shelf: a queued page or status must not put it back
+      if self.sync_queue and self.ui and self.ui.document then
+        self.sync_queue:clear(self.ui.document.file)
+      end
       self.state.book_status = {}
       menu_instance:updateItems()
     end
@@ -792,6 +833,15 @@ function HardcoverMenu:savePage(current_read, edition_page, menu_instance)
     end
 
     if result then
+      -- the page just set supersedes any older page still queued
+      if self.sync_queue and self.ui and self.ui.document then
+        local queued = self.sync_queue:get(self.ui.document.file)
+        if type(queued) == "table" then
+          queued.mapped_page = nil
+          queued.page_updated_at = nil
+          self.sync_queue:save(self.ui.document.file, queued)
+        end
+      end
       self.state.book_status = result
       menu_instance:updateItems()
     else

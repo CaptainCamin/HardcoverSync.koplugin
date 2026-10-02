@@ -27,6 +27,7 @@ local VerticalSpan = require("ui/widget/verticalspan")
 local _ = require("gettext")
 
 local Lists = require("hardcover/lib/lists")
+local Refresh = require("hardcover/lib/ui/refresh")
 local Shelf = require("hardcover/lib/shelf")
 local SeriesCarousel = require("hardcover/lib/ui/series_carousel")
 local Theme = require("hardcover/lib/ui/theme")
@@ -410,7 +411,14 @@ function BookDetailDialog:init()
         if self.on_open_book then self.on_open_book(book_id) end
       end,
       image_loader = self.image_loader or require("hardcover/lib/ui/image_loader"),
-      on_change = function() UIManager:setDirty(self, "ui") end,
+      -- a cover or a turned page redraws its own box, not the panel
+      on_change = function(get_dimen)
+        if get_dimen then
+          Refresh.box(self, get_dimen, viewport)
+        else
+          UIManager:setDirty(self, "ui")
+        end
+      end,
     }
     add(Theme.span("l"))
     add(self.carousel.widget)
@@ -526,7 +534,9 @@ function BookDetailDialog:placeCover(bb, width, height)
       scale_factor = 0,
     },
   }
-  UIManager:setDirty(self, "ui")
+  -- only the cover's box changed
+  local cell = self.cover_cell
+  Refresh.box(self, function() return cell.dimen end, function() return self.scroll and self.scroll.dimen end)
 end
 
 -- Stop fetching and give back the pictures' memory (the cover, and the

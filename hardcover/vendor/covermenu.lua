@@ -6,6 +6,8 @@ local logger = require("logger")
 local _ = require("gettext")
 local ImageLoader = require("hardcover/lib/ui/image_loader")
 local RenderImage = require("ui/renderimage")
+local Geom = require("ui/geometry")
+local Refresh = require("hardcover/lib/ui/refresh")
 
 --local BookInfoManager = require("bookinfomanager")
 
@@ -182,6 +184,9 @@ function CoverMenu:updateItems(select_number, no_recalculate_dimen)
 
             item.entry.cover_bb = RenderImage:renderImageData(content, #content, false, item.cover_w, item.cover_h)
             item.entry.cover_bb:setAllocated(1)
+            -- where the placeholder was, so it is covered if the picture is a
+            -- different size (the frame is all that changes when a cover arrives)
+            local was = item.cover_frame and Refresh.copy(item.cover_frame.dimen)
             item:update()
 
             self.show_parent.dithered = item._has_cover_image
@@ -191,9 +196,14 @@ function CoverMenu:updateItems(select_number, no_recalculate_dimen)
                 -- MosaicMenuItem may exceed its own dimen in its paintTo
                 -- with its "description" hint
                 return "ui", item.refresh_dimen, self.show_parent.dithered
-              else
-                return "ui", item[1].dimen, self.show_parent.dithered
               end
+              -- just the cover's frame, not the whole row of text beside it
+              local now = item.cover_frame and Refresh.copy(item.cover_frame.dimen)
+              local box = Refresh.union(was, now)
+              if box and was and now then
+                return "ui", Geom:new(box), self.show_parent.dithered
+              end
+              return "ui", item[1].dimen, self.show_parent.dithered
             end
 
             UIManager:setDirty(self.show_parent, refreshfunc)

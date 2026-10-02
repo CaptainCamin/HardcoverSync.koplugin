@@ -193,7 +193,11 @@ function M.boot(opts)
   require("document/canvascontext"):init(Device)
   require("ui/bidi").setup(nil)
 
+  -- the probe wraps the framebuffer's refresh calls, which UIManager captures at
+  -- load time, so it goes in first
+  local probe = require("probe").install(Device.screen)
   local UIManager = require("ui/uimanager")
+  probe:hook(UIManager)
   local Screen = Device.screen
   local BB = require("ffi/blitbuffer")
 
@@ -208,6 +212,7 @@ function M.boot(opts)
     DataStorage = DataStorage,
     Event = require("ui/event"),
     Tree = Tree,
+    probe = probe,
     out = M.out_dir(),
     shots = {},
   }

@@ -105,7 +105,7 @@ return {
 
 
     -- every cover the fixture has was drawn: two pictures, one placeholder
-    assert(#dialog.cover_bbs == 2, "expected 2 covers drawn, got " .. #(dialog.cover_bbs or {}))
+    assert(#dialog.covers:list() == 2, "expected 2 covers drawn, got " .. #dialog.covers:list())
 
     --[[--
     A tap on empty space below the shelves opens nothing: the cards answer only

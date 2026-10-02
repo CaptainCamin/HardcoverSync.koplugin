@@ -12,7 +12,7 @@
 --
 -- Expected: the page that preceded the status change reaches the server
 -- (the entry records page_updated_at / status_updated_at, so order is known).
-local KB = dofile((arg[1] or ".") .. "/spec/known_bugs/lib.lua")
+local KB = dofile((arg[1] or ".") .. "/spec/sync_regressions/lib.lua")
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 
 print("\n== page then Finished, replayed ==")

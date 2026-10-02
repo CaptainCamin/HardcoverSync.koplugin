@@ -8,8 +8,40 @@
 
 ### Fixed
 
-- Home: a swipe up or down now also moves the page itself (not only through the scroll container), and the page starts scrolling as soon as it would crowd the bottom of the screen, so the goals card at the bottom can be reached.
+- Home: a swipe up or down now also moves the page itself (not only through the scroll container), so the goals card at the bottom can be reached.
 - Home: the Goals heading is always shown under the Library, even with no current goal (or before goals have loaded), so the Goals screen and "New goal" are always reachable.
+
+## 1.1.2
+
+### Added
+
+- Sync conflicts. If you read on this device offline and Hardcover is already well ahead (5 pages or more, say you carried on on another device), you are asked which to keep: Hardcover's page or this device's. If Hardcover has the book as Read or Did Not Finish but you have new progress here, you are asked whether you are re-reading it; yes starts a NEW read (the old one is never changed) and sets the book to Currently Reading. The questions come up after a sync, when you open the book, and under Settings > Sync > Resolve sync conflicts. "Decide later" keeps your change queued. Choosing Hardcover's page offers to jump there next time you open the book. If Hardcover is only a few pages ahead it quietly wins.
+
+### Fixed
+
+Offline sync (found by an audit of the queue):
+
+- Replaying queued progress no longer moves Hardcover back when you have read further on another device, and the book you have open never shows as further back than the cloud.
+- A failed lookup, an unknown user, or a CDN error page (502/503/429) no longer creates or overwrites a book, throws, or loses the page; the change stays queued.
+- The last page before "Finished" is now sent before the book is marked Finished.
+- Changes made while a sync is running are no longer erased when it finishes.
+- A book Hardcover keeps refusing is held after 3 tries instead of blocking every book behind it.
+- A failed sync is retried (30 s, 2 min, 10 min, 30 min) while you stay online, and closing a book or suspending syncs when you are already online.
+- Opening a book offline with no saved data no longer wakes the device every minute to look for the network; it waits for the network to return.
+- Closing or suspending records the page on screen, not the last one counted.
+- Reads started offline keep the day you began reading.
+- Re-linking a file to another book, removing a book, or setting the page by hand drops the queued changes they replace.
+- Ambiguous token-refresh failures (5xx, garbled reply) no longer re-send a refresh token that may already be spent.
+- A malformed queue file no longer breaks every sync check.
+
+### Changed
+
+- Fewer and smaller screen refreshes on e-ink. A cover arriving, the counts and reading list landing on Home, the
+  sign-in progress bar stepping, a tick in Settings and the reader panel opening or closing now redraw only the part
+  of the screen that changed instead of the whole panel (opening Home went from five full-screen refreshes to one),
+  covers already decoded are reused when a screen rebuilds, Settings keeps its scroll position when you tick an
+  option, and Home no longer rewrites (or reads) the saved shelves just to save its counts. Page turns while
+  reading are unchanged: they cost nothing.
 
 ## 1.1.1
 

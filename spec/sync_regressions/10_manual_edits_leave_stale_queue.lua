@@ -13,7 +13,7 @@
 -- mapped_page, but the menu paths clear nothing).
 --
 -- Expected: both paths drop the queued entry they supersede.
-local KB = dofile((arg[1] or ".") .. "/spec/known_bugs/lib.lua")
+local KB = dofile((arg[1] or ".") .. "/spec/sync_regressions/lib.lua")
 KB.stub_koreader()
 
 -- the menu pulls in a large widget tree; unknown KOReader modules become inert

@@ -205,4 +205,112 @@ check("a shelf row keeps what the detail screen needs", function()
   assert(text:find("Author") and text:find("Series") and text:find("Description"), "rows: " .. text)
 end)
 
+print("\n== the home screen's small file ==")
+
+-- two files, as on a device: the shelves, and the counts and reading list
+local function newPair()
+  local stores = {}
+  local opened = {}
+  local c = ShelfCache:new {
+    path = "/data/shelf_cache.lua",
+    open = function(path)
+      opened[#opened + 1] = path
+      stores[path] = stores[path] or newStore()
+      return stores[path]
+    end,
+  }
+  return c, stores, opened
+end
+
+check("counts and the reading list live in a file of their own", function()
+  local c, stores = newPair()
+  c:putCounts(1, { [1] = 5 })
+  c:putReading(1, { { book_id = 3, title = "T" } })
+  c:put(1, 1, { entry(1) }, true)
+  local small, big = stores["/data/shelf_cache_home.lua"], stores["/data/shelf_cache.lua"]
+  assert(small and small:readSetting("counts") and small:readSetting("reading"), "home data is not in the small file")
+  assert(big:readSetting("counts") == nil and big:readSetting("reading") == nil, "home data leaked into the shelf file")
+  assert(small:readSetting("shelves") == nil, "shelves leaked into the small file")
+end)
+
+check("opening home never reads the shelf file when the numbers are saved", function()
+  local c, stores = newPair()
+  c:putCounts(1, { [1] = 5, [2] = 3, [3] = 9, [5] = 0 })
+  c:putReading(1, { { book_id = 3, title = "T" } })
+  -- a later session: a new object over the same files, noting what it opens
+  local opened = {}
+  local later = ShelfCache:new {
+    path = "/data/shelf_cache.lua",
+    open = function(path) opened[#opened + 1] = path; stores[path] = stores[path] or newStore(); return stores[path] end,
+  }
+  local counts = later:counts(1, { 1, 2, 3, 5 })
+  assert(later:reading(1)[1].book_id == 3)
+  assert(counts[1] == 5 and counts[5] == 0, "counts did not come back")
+  for _, path in ipairs(opened) do
+    assert(path ~= "/data/shelf_cache.lua", "the shelf file was opened to read counts and the reading list")
+  end
+end)
+
+check("saving the counts it already has writes nothing", function()
+  local c, stores = newPair()
+  c:putCounts(1, { [1] = 5, [2] = 3 })
+  local small = stores["/data/shelf_cache_home.lua"]
+  local before = small.flushes
+  assert(c:putCounts(1, { [1] = 5, [2] = 3 }) == true)
+  assert(small.flushes == before, "an unchanged count was written again")
+  c:putCounts(1, { [1] = 6, [2] = 3 })
+  assert(small.flushes == before + 1, "a changed count was not written")
+  assert(c:counts(1, { 1 })[1] == 6)
+end)
+
+check("saving the reading list it already has writes nothing", function()
+  local c, stores = newPair()
+  c:putReading(1, { { book_id = 3, title = "T", progress_pages = 10 } })
+  local small = stores["/data/shelf_cache_home.lua"]
+  local before = small.flushes
+  c:putReading(1, { { book_id = 3, title = "T", progress_pages = 10, description = "dropped anyway" } })
+  assert(small.flushes == before, "an unchanged reading list was written again")
+  c:putReading(1, { { book_id = 3, title = "T", progress_pages = 11 } })
+  assert(small.flushes == before + 1, "progress did not reach disk")
+  assert(c:reading(1)[1].progress_pages == 11)
+end)
+
+check("a shelf that comes back unchanged is not rewritten, a changed one is", function()
+  local c, stores = newPair()
+  c:put(1, 1, { entry(1), entry(2) }, true)
+  local big = stores["/data/shelf_cache.lua"]
+  local before = big.flushes
+  c:put(1, 1, { entry(1), entry(2) }, true)
+  assert(big.flushes == before, "an unchanged shelf was written again")
+  c:put(1, 1, { entry(1), entry(2), entry(3) }, true)
+  assert(big.flushes == before + 1, "a changed shelf was not written")
+  c:put(1, 1, { entry(1), entry(2), entry(3) }, false)
+  assert(big.flushes == before + 2, "a shelf that stopped being complete was not written")
+end)
+
+check("counts and a reading list saved by an earlier version are still read", function()
+  local c, stores = newPair()
+  local big = newStore()
+  stores["/data/shelf_cache.lua"] = big
+  big:saveSetting("counts", { ["1"] = { s1 = 42 } })
+  big:saveSetting("reading", { ["1"] = { entries = { { book_id = 9, title = "Old" } } } })
+  assert(c:counts(1, { 1 })[1] == 42, "old counts were lost")
+  assert(c:reading(1)[1].book_id == 9, "the old reading list was lost")
+end)
+
+check("invalidate and clear empty the small file too, and the old copy does not return", function()
+  local c, stores = newPair()
+  local big = newStore()
+  stores["/data/shelf_cache.lua"] = big
+  big:saveSetting("counts", { ["1"] = { s1 = 42 } })
+  c:putCounts(1, { [1] = 7 })
+  c:putReading(1, { { book_id = 3, title = "T" } })
+  c:invalidate(1, { 1 })
+  assert(c:counts(1, { 1 })[1] == nil, "counts survived invalidate")
+  assert(c:reading(1) == nil, "the reading list survived invalidate")
+  c:putCounts(1, { [1] = 7 })
+  c:clear()
+  assert(c:counts(1, { 1 })[1] == nil and c:reading(1) == nil, "clear left home data behind")
+end)
+
 r.finish()

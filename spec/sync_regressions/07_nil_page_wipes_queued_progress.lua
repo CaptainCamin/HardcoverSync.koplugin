@@ -11,7 +11,7 @@
 --
 -- Expected: getRemotePagePercent returns the mapped page there, and/or enqueuePage
 -- ignores a nil page instead of clearing what is queued.
-local KB = dofile((arg[1] or ".") .. "/spec/known_bugs/lib.lua")
+local KB = dofile((arg[1] or ".") .. "/spec/sync_regressions/lib.lua")
 local PageMapper = require("hardcover/lib/page_mapper")
 
 print("\n== nil mapped page ==")

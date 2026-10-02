@@ -148,7 +148,7 @@ end)
 
 check("a refresh that fails outright loses nothing from the queue", function()
   -- (that such a refresh is re-attempted on every call is a separate known bug:
-  -- spec/known_bugs/13_refresh_token_replayed_after_5xx.lua)
+  -- spec/sync_regressions/13_refresh_token_replayed_after_5xx.lua)
   local queue = setup(function() return "error", { error = "http_500" } end)
   assert(queue:flush(Api, { user_id = 1 }) == false)
   assert(queue:pendingCount() == 3, "queued entries were lost")

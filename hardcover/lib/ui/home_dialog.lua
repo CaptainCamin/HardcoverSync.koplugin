@@ -19,7 +19,6 @@ local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local IconWidget = require("ui/widget/iconwidget")
-local ImageWidget = require("ui/widget/imagewidget")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local ProgressWidget = require("ui/widget/progresswidget")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
@@ -35,6 +34,8 @@ local Goals = require("hardcover/lib/goals")
 local GoalWidgets = require("hardcover/lib/ui/goal_widgets")
 local Home = require("hardcover/lib/home")
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
+local CoverCells = require("hardcover/lib/ui/cover_cells")
+local Refresh = require("hardcover/lib/ui/refresh")
 local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
 
@@ -70,27 +71,19 @@ function HomeDialog:init()
   self.ges_events.HomeSwipe = {
     GestureRange:new { ges = "swipe", range = function() return self.dimen end },
   }
+  -- the covers outlive a rebuild: Home rebuilds as its data arrives, and a picture
+  -- already decoded is reused rather than decoded again
+  self.covers = CoverCells:new {
+    window = self,
+    loader = function() return self.image_loader or require("hardcover/lib/ui/image_loader") end,
+  }
   self:build()
 end
 
 -- A cover box of the given size: the generic book icon until the picture
--- arrives (loadCovers swaps it in), so nothing moves when it does.
+-- arrives, so nothing moves when it does.
 function HomeDialog:coverCell(card, w, h)
-  local icon_size = math.floor(w * 0.5)
-  local cell = FrameContainer:new {
-    bordersize = Theme.line.hair,
-    padding = 0,
-    margin = 0,
-    CenterContainer:new {
-      dimen = Geom:new { w = w, h = h },
-      IconWidget:new { icon = "book.opened", width = icon_size, height = icon_size },
-    },
-  }
-  if card.cover_url then
-    self.cover_cells[card.cover_url] = self.cover_cells[card.cover_url] or {}
-    table.insert(self.cover_cells[card.cover_url], { cell = cell, w = w, h = h })
-  end
-  return cell
+  return self.covers:cell(card.cover_url, w, h)
 end
 
 local function progressBar(width, height, fraction)
@@ -187,7 +180,7 @@ function HomeDialog:buildTile(row, w, h, viewport)
     table.insert(line, Theme.hspan("m"))
   end
   table.insert(line, text(row.title, "small", { width = w - Theme.space.l }))
-  return TapRow:new {
+  local tile = TapRow:new {
     callback = function()
       if row.lists then
         if self.lists_cb then self.lists_cb() end
@@ -197,6 +190,11 @@ function HomeDialog:buildTile(row, w, h, viewport)
     end,
     Theme.box(w, h, line, { radius = 10 }),
   }
+  -- what the tile shows, so a rebuild can tell which tiles changed (and so which
+  -- part of the panel needs redrawing)
+  self.tiles[#self.tiles + 1] = { key = row.lists and "lists" or tostring(row.status_id or row.title),
+    shows = (row.title or "") .. "|" .. Home.countText(row.count), tile = tile }
+  return tile
 end
 
 -- Build everything from the current rows and entries. Pure function of both, so
@@ -350,8 +348,12 @@ end
 -- Build everything from the current rows and entries. Pure function of both, so
 -- a rebuild cannot leave a stale widget behind.
 function HomeDialog:build()
-  self:releaseCovers()
-  self.cover_cells = {}
+  self.covers:begin()
+  self.tiles = {}
+  self.painted = false
+  -- the entries this tree is drawn from: a rebuild is asked for after the new
+  -- ones are stored, and has to compare against what is on screen
+  self.built_entries = self.entries
 
   local screen_w, screen_h = Screen:getWidth(), Screen:getHeight()
   local M = Theme.margin
@@ -379,7 +381,8 @@ function HomeDialog:build()
   local body
   self.scroll = nil
   if column:getSize().h > room then
-    self.cover_cells = {}
+    -- the second pass rebuilds the tiles for the narrower column
+    self.tiles = {}
     local gutter = 3 * (ScrollableContainer.scroll_bar_width or Screen:scaleBySize(6))
     width = screen_w - 2 * M - gutter
     self.scroll = ScrollableContainer:new {
@@ -413,73 +416,110 @@ function HomeDialog:build()
   self.dimen = Geom:new { x = 0, y = 0, w = screen_w, h = screen_h }
   self[1] = self.frame
 
-  self:loadCovers()
+  self.covers:finish()
 end
 
--- Fetch each distinct cover and put it in its box(es). The loader answers from
--- the on-disk cache first and does not touch the network when offline.
-function HomeDialog:loadCovers()
-  local urls = {}
-  for url in pairs(self.cover_cells) do
-    urls[#urls + 1] = url
-  end
-  if #urls == 0 then return end
-  table.sort(urls)
+-- Painting is when the tiles learn where they are; until then a rebuild cannot
+-- say which part of the panel it changes.
+function HomeDialog:paintTo(...)
+  InputContainer.paintTo(self, ...)
+  self.painted = true
+  self.pending_before = nil
+end
 
-  local loader = self.image_loader or require("hardcover/lib/ui/image_loader")
-  self.cover_bbs = {}
-  local _batch, halt = loader:loadImages(urls, function(url, content)
-    if self.closed then return end
-    local cells = self.cover_cells and self.cover_cells[url]
-    if not cells then return end
-
-    local RenderImage = require("ui/renderimage")
-    for _, spec in ipairs(cells) do
-      local bb = RenderImage:renderImageData(content, #content, false, spec.w, spec.h)
-      if bb then
-        table.insert(self.cover_bbs, bb)
-        spec.cell[1] = CenterContainer:new {
-          dimen = Geom:new { w = spec.w, h = spec.h },
-          ImageWidget:new {
-            image = bb,
-            image_disposable = false,
-            width = spec.w,
-            height = spec.h,
-            scale_factor = 0,
-          },
-        }
-      end
-    end
-    UIManager:setDirty(self, "ui")
-  end)
-  self.cover_halt = halt
+-- UIManager:show() queues no refresh of its own (it relies on a full-panel
+-- fallback that only happens when nothing else is queued), and this screen queues
+-- small refreshes of its own as covers and counts arrive. Ask for the first
+-- full draw explicitly so it can never be skipped in favour of a small one.
+function HomeDialog:onShow()
+  UIManager:setDirty(self, "ui")
 end
 
 -- Stop fetching and give back the pictures' memory.
 function HomeDialog:releaseCovers()
-  if self.cover_halt then
-    self.cover_halt()
-    self.cover_halt = nil
-  end
-  for _, bb in ipairs(self.cover_bbs or {}) do
-    if bb.free then bb:free() end
-  end
-  self.cover_bbs = nil
+  self.covers:release()
 end
 
--- Build again from the current data (the counts, the books or the goals arrived).
+-- Build again from the current data (the counts, the books or the goals arrived),
+-- redrawing the whole page, or just what changed since it was last drawn.
+--
+-- A rebuild makes a new widget tree, but not everything on the screen changes:
+-- when counts arrive only the tiles do, when the reading list arrives only
+-- everything from its heading down. Redrawing the whole panel for a number in a
+-- tile costs the user a visible full-screen refresh, so the region is worked
+-- out from what is on screen before and after, and only that is refreshed.
+-- Before the first paint, when the layouts cannot be compared, or when the page
+-- scrolls (tile positions are then relative to the scrolled content), it is the
+-- whole panel.
+--
 -- A page the reader has scrolled down stays where it is: the data arrives a few
 -- seconds after the screen opens, which is exactly when someone is scrolling, and a
 -- page that jumps back to the top looks like a page that does not scroll.
 function HomeDialog:rebuild()
   local offset = self.scroll and self.scroll:getScrolledOffset().y or 0
+  -- two rebuilds before a paint (counts and the reading list arriving together)
+  -- compare with what was last on screen, not with the first one's unpainted tree
+  local before = self.painted and self:snapshot() or self.pending_before
+  local was_scrolling = self.scroll ~= nil
+
   if self[1] and type(self[1].free) == "function" then
     pcall(function() self[1]:free() end)
   end
   self[1] = nil
   self:build()
+  self.pending_before = before
   self:restoreScroll(offset)
-  UIManager:setDirty(self, "ui")
+
+  if not before or was_scrolling or self.scroll then
+    UIManager:setDirty(self, "ui")
+    return
+  end
+  Refresh.region(self, function() return self:changedRegion(before) end)
+end
+
+-- What is on screen now, for comparing after a rebuild: where each tile is and
+-- what it says, the reading heading's top, and the cards.
+function HomeDialog:snapshot()
+  local snap = { tiles = {}, cards = self.built_entries, count = 0 }
+  for _i, t in ipairs(self.tiles or {}) do
+    snap.tiles[t.key] = { shows = t.shows, rect = Refresh.copy(t.tile.dimen) }
+    snap.count = snap.count + 1
+    local r = t.tile.dimen
+    if Refresh.valid(r) then
+      snap.bottom = math.max(snap.bottom or 0, r.y + r.h)
+    end
+  end
+  snap.header = self.reading_header and Refresh.copy(self.reading_header.dimen)
+  return snap
+end
+
+-- The rectangle a rebuild changed, read after the new tree is painted; nil (the
+-- whole panel) when the two layouts cannot be compared tile for tile.
+function HomeDialog:changedRegion(before)
+  local after = self:snapshot()
+  if after.count ~= before.count then return nil end
+
+  if not Home.sameCards(before.cards, after.cards) then
+    -- everything from the reading heading down, where it was and where it is now
+    -- (the library moves when the list gets longer or shorter)
+    if not (before.header and after.header and before.bottom and after.bottom) then return nil end
+    local top = math.min(before.header.y, after.header.y)
+    local bottom = math.max(before.bottom, after.bottom)
+    return { x = 0, y = top, w = require("device").screen:getWidth(), h = bottom - top }
+  end
+
+  local region
+  for k, t in pairs(after.tiles) do
+    local old = before.tiles[k]
+    if not old then return nil end
+    if old.shows ~= t.shows then
+      if not Refresh.valid(t.rect) then return nil end
+      region = Refresh.union(region, t.rect)
+    end
+  end
+  -- nothing the panel shows differs: the smallest refresh there is
+  if region then return region end
+  return Refresh.valid(after.header) and { x = after.header.x, y = after.header.y, w = 1, h = 1 } or nil
 end
 
 -- Put a scrolled page back where it was (as far as the new page reaches).
