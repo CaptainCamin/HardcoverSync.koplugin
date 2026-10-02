@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Home: a swipe up or down now also moves the page itself (not only through the scroll container), and the page starts scrolling as soon as it would crowd the bottom of the screen, so the goals card at the bottom can be reached.
+
 ## 1.1.1
 
 ### Fixed

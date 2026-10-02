@@ -14,6 +14,7 @@
 local Blitbuffer = require("ffi/blitbuffer")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
+local GestureRange = require("ui/gesturerange")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
@@ -63,6 +64,12 @@ HomeDialog.MAX_CARDS = 3
 function HomeDialog:init()
   self.closed = false
   self.key_events.CloseHome = { { "Back" } }
+  -- A swipe up or down moves the page by a view. The scroll container does this itself
+  -- (and gets the swipe first, being a child); this is the same thing asked of the page
+  -- buttons' own mover, so a swipe still works where the container's does not.
+  self.ges_events.HomeSwipe = {
+    GestureRange:new { ges = "swipe", range = function() return self.dimen end },
+  }
   self:build()
 end
 
@@ -365,7 +372,7 @@ function HomeDialog:build()
   local body
   self.scroll = nil
   self.pager = nil
-  if column:getSize().h > room then
+  if column:getSize().h > room - ScrollPager.HEIGHT then
     self.cover_cells = {}
     local gutter = 3 * (ScrollableContainer.scroll_bar_width or Screen:scaleBySize(6))
     width = screen_w - 2 * M - gutter
@@ -500,6 +507,18 @@ function HomeDialog:onCloseWidget()
   self.closed = true
   self:releaseCovers()
   UIManager:setDirty(nil, "ui")
+end
+
+function HomeDialog:onHomeSwipe(_, ges)
+  if not self.pager then return false end
+  if ges.direction == "north" then
+    self.pager.go(1)
+  elseif ges.direction == "south" then
+    self.pager.go(-1)
+  else
+    return false
+  end
+  return true
 end
 
 function HomeDialog:onCloseHome()
