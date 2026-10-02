@@ -4,6 +4,7 @@ local json = require("json")
 
 local UIManager = require("ui/uimanager")
 local Network = require("hardcover/lib/network")
+local Notification = require("ui/widget/notification")
 
 local ConfirmBox = require("ui/widget/confirmbox")
 local InfoMessage = require("ui/widget/infomessage")
@@ -14,6 +15,7 @@ local Book = require("hardcover/lib/book")
 local BookSearch = require("hardcover/lib/book_search")
 local Home = require("hardcover/lib/home")
 local Goals = require("hardcover/lib/goals")
+local GoalQueue = require("hardcover/lib/goal_queue")
 local Lists = require("hardcover/lib/lists")
 local Reviews = require("hardcover/lib/reviews")
 local Shelf = require("hardcover/lib/shelf")
@@ -506,7 +508,7 @@ function DialogManager:showHome(done_callback)
       self:showLists()
     end,
     -- the saved goals, so the card is there at once and offline
-    goals = cache and cache:goals(user_id) or nil,
+    goals = self:shownGoals(cache and cache:goals(user_id) or nil),
     finished_offline = self:finishedOffline(),
     goal_cb = function(goal)
       self:showGoal(goal, nil)
@@ -572,7 +574,7 @@ function DialogManager:showHome(done_callback)
       local goals = Api:getGoals()
       if goals and UIManager:isWidgetShown(dialog) then
         if cache then cache:putGoals(user_id, goals) end
-        dialog.goals = goals
+        dialog.goals = self:shownGoals(goals)
         dialog.finished_offline = self:finishedOffline()
         dialog:rebuildSoon()
       end
@@ -816,6 +818,31 @@ function DialogManager:finishedOffline()
   return self.sync_queue and self.sync_queue:finishedCount() or 0
 end
 
+-- The goals as the screens show them: what Hardcover last said (or the saved copy),
+-- with the changes made offline and not yet sent laid over it, marked as waiting.
+function DialogManager:shownGoals(goals)
+  local queue = self.goal_queue
+  if queue and goals and not queue:isEmpty() then
+    return queue:apply(goals)
+  end
+  return goals
+end
+
+-- Goal changes are sent by the sync (see HardcoverApp:flushSyncQueue); this brings
+-- the saved copy and every screen up to date with what went through.
+function DialogManager:goalsFlushed(sent_goals, archived_keys)
+  if #sent_goals == 0 and #archived_keys == 0 then return end
+  local goals = self:savedGoals()
+  for _, entry in ipairs(sent_goals) do
+    -- a goal made here has its real id now
+    goals = Goals.upsert(Goals.remove(goals, entry.key), entry.goal)
+  end
+  for _, key in ipairs(archived_keys) do
+    goals = Goals.remove(goals, key)
+  end
+  self:applyGoals(goals)
+end
+
 function DialogManager:showGoals(done_callback)
   local user_id = User:getId()
   local cache = self.shelf_cache
@@ -829,7 +856,7 @@ function DialogManager:showGoals(done_callback)
   if cached and not online then note = goalsNote(saved_at, _("Offline.")) end
 
   local dialog = require("hardcover/lib/ui/goals_dialog"):new {
-    goals = cached,
+    goals = self:shownGoals(cached),
     finished_offline = self:finishedOffline(),
     note = note,
     message = cached == nil and (online and _("Loading your goals\226\128\166") or _("Goals need an internet connection the first time.")) or nil,
@@ -843,8 +870,8 @@ function DialogManager:showGoals(done_callback)
       if done_callback then done_callback() end
     end,
   }
-  if cached and #cached == 0 then
-    dialog.message = _("No goals yet. Set one on hardcover.app and it will show up here.")
+  if cached and #(self:shownGoals(cached)) == 0 then
+    dialog.message = _("No goals yet. Tap New goal to set one.")
   end
   self.goals_dialog = dialog
   UIManager:show(dialog)
@@ -855,9 +882,9 @@ function DialogManager:showGoals(done_callback)
     if goals then
       if cache then cache:putGoals(user_id, goals) end
       dialog.open_cb = function(goal) self:showGoal(goal, nil) end
-      dialog:setGoals(goals, nil, self:finishedOffline())
+      dialog:setGoals(self:shownGoals(goals), nil, self:finishedOffline())
     elseif cached then
-      dialog:setGoals(cached, goalsNote(saved_at, _("Couldn't refresh.")), self:finishedOffline())
+      dialog:setGoals(self:shownGoals(cached), goalsNote(saved_at, _("Couldn't refresh.")), self:finishedOffline())
     else
       StatusDialogs.retry(err, _("Loading your goals"),
         function() self:showGoals(done_callback) end,
@@ -927,13 +954,14 @@ function DialogManager:applyGoals(goals, changed)
   local user_id = User:getId()
   if self.shelf_cache then self.shelf_cache:putGoals(user_id, goals) end
 
+  local shown = self:shownGoals(goals)
   local screen = self.goals_dialog
   if screen and UIManager:isWidgetShown(screen) then
-    screen:setGoals(goals, nil, self:finishedOffline())
+    screen:setGoals(shown, nil, self:finishedOffline())
   end
   local home = self.home_dialog
   if home and UIManager:isWidgetShown(home) then
-    home.goals = goals
+    home.goals = shown
     home.finished_offline = self:finishedOffline()
     home:rebuild()
   end
@@ -949,13 +977,46 @@ function DialogManager:savedGoals()
   return cache and cache:goals(User:getId()) or {}
 end
 
-function DialogManager:saveGoal(dialog, form, on_saved)
-  if not Network.connected() then
-    dialog:setMessage(_("You're offline. Your changes are kept here: save when you're connected."))
-    return
+-- the goal screen under a form is about a goal that is no longer listed
+function DialogManager:closeGoalScreen(goal_id)
+  local one = self.goal_dialog
+  if one and UIManager:isWidgetShown(one) and one.goal and one.goal.id == goal_id then
+    UIManager:close(one)
   end
+end
+
+-- Make a change wait for the connection: it shows at once everywhere, and the sync
+-- sends it. `goal` is what to show now (a goal, or nil for an archive).
+function DialogManager:queueGoalChange(dialog, apply_fn, on_saved, goal)
+  apply_fn()
+  self:applyGoals(self:savedGoals(), goal)
+  UIManager:close(dialog)
+  if on_saved and goal then on_saved(goal) end
+  UIManager:show(Notification:new { text = _("Saved on this device. It will sync when you're online.") })
+end
+
+function DialogManager:saveGoal(dialog, form, on_saved)
   if Api.auth and Api.auth:hasScope(Goals.WRITE_SCOPE) == false then
     dialog:setMessage(SIGN_IN_AGAIN)
+    return
+  end
+
+  local queue = self.goal_queue
+  local waiting = queue and (GoalQueue.isLocal(form.id) or queue:pendingFor(form.id))
+
+  -- Offline, or a change to this goal is already waiting (a goal made here has no
+  -- id on Hardcover yet, and a newer edit must not be overtaken): keep it here.
+  if queue and (not Network.connected() or waiting) then
+    local base
+    for _i, g in ipairs(self:savedGoals()) do if g.id == form.id then base = g end end
+    local goal = queue:queueSave(form, base)
+    self:queueGoalChange(dialog, function() end, on_saved, goal)
+    if Network.connected() and self.flush_goals then self.flush_goals() end
+    return
+  end
+
+  if not Network.connected() then
+    dialog:setMessage(_("You're offline. Your changes are kept here: save when you're connected."))
     return
   end
 
@@ -978,12 +1039,24 @@ function DialogManager:saveGoal(dialog, form, on_saved)
 end
 
 function DialogManager:archiveGoal(dialog, goal, on_saved)
-  if not Network.connected() then
-    dialog:setMessage(_("You're offline. Archiving needs a connection."))
-    return
-  end
   if Api.auth and Api.auth:hasScope(Goals.WRITE_SCOPE) == false then
     dialog:setMessage(SIGN_IN_AGAIN)
+    return
+  end
+
+  local queue = self.goal_queue
+  local waiting = queue and (GoalQueue.isLocal(goal.id) or queue:pendingFor(goal.id))
+  if queue and (not Network.connected() or waiting) then
+    queue:queueArchive(goal.id)
+    self:queueGoalChange(dialog, function() end, nil, nil)
+    self:closeGoalScreen(goal.id)
+    if on_saved then on_saved(nil) end
+    if Network.connected() and self.flush_goals then self.flush_goals() end
+    return
+  end
+
+  if not Network.connected() then
+    dialog:setMessage(_("You're offline. Archiving needs a connection."))
     return
   end
 
@@ -999,11 +1072,7 @@ function DialogManager:archiveGoal(dialog, goal, on_saved)
       return
     end
     UIManager:close(dialog)
-    -- the goal screen under the form is about a goal that is no longer listed
-    local one = self.goal_dialog
-    if one and UIManager:isWidgetShown(one) and one.goal and one.goal.id == goal.id then
-      UIManager:close(one)
-    end
+    self:closeGoalScreen(goal.id)
     if on_saved then on_saved(nil) end
   end)
 end
