@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Removed
+
+- Home: the "Page X of Y" bar is gone; the page scrolls by swiping, with the scroll bar at the side.
+
 ### Fixed
 
 - Home: a swipe up or down now also moves the page itself (not only through the scroll container), and the page starts scrolling as soon as it would crowd the bottom of the screen, so the goals card at the bottom can be reached.

@@ -65,8 +65,8 @@ function HomeDialog:init()
   self.closed = false
   self.key_events.CloseHome = { { "Back" } }
   -- A swipe up or down moves the page by a view. The scroll container does this itself
-  -- (and gets the swipe first, being a child); this is the same thing asked of the page
-  -- buttons' own mover, so a swipe still works where the container's does not.
+  -- (and gets the swipe first, being a child); this is the page asking too, so a swipe
+  -- still works where the container's does not.
   self.ges_events.HomeSwipe = {
     GestureRange:new { ges = "swipe", range = function() return self.dimen end },
   }
@@ -376,24 +376,20 @@ function HomeDialog:build()
   local column = self:buildColumn(width, nil)
   local body
   self.scroll = nil
-  self.pager = nil
-  if column:getSize().h > room - ScrollPager.HEIGHT then
+  if column:getSize().h > room - Theme.BUTTON_H then
     self.cover_cells = {}
     local gutter = 3 * (ScrollableContainer.scroll_bar_width or Screen:scaleBySize(6))
     width = screen_w - 2 * M - gutter
-    -- the page buttons take the bottom of the screen, so the page scrolls in what is left
     self.scroll = ScrollableContainer:new {
-      dimen = Geom:new { x = 0, y = 0, w = screen_w, h = room - ScrollPager.HEIGHT },
+      dimen = Geom:new { x = 0, y = 0, w = screen_w, h = room },
       show_parent = self,
     }
     local scroll = self.scroll
     column = self:buildColumn(width, function() return scroll.dimen end)
     scroll[1] = HorizontalGroup:new { Theme.hspan(M), column }
-    -- the container works out how far it can scroll when it first paints; the page
-    -- buttons need to know now, to say how many pages there are
+    -- the container works out how far it can scroll when it first paints
     scroll:initState()
-    self.pager = ScrollPager.new(scroll, screen_w)
-    body = VerticalGroup:new { align = "left", scroll, self.pager.widget }
+    body = scroll
   else
     body = HorizontalGroup:new { Theme.hspan(M), column }
   end
@@ -490,7 +486,7 @@ function HomeDialog:restoreScroll(offset)
   if not scroll or not offset or offset <= 0 then return end
   scroll:setScrolledOffset(Geom:new { x = 0, y = math.min(offset, scroll._max_scroll_offset_y or offset) })
   if type(scroll._updateScrollBars) == "function" then
-    scroll:_updateScrollBars() -- moves the scroll bar and the page buttons' label
+    scroll:_updateScrollBars() -- moves the scroll bar
   end
 end
 
@@ -515,13 +511,15 @@ function HomeDialog:onCloseWidget()
 end
 
 function HomeDialog:onHomeSwipe(_, ges)
-  if not self.pager then return false end
-  if ges.direction == "north" then
-    self.pager.go(1)
-  elseif ges.direction == "south" then
-    self.pager.go(-1)
-  else
-    return false
+  local scroll = self.scroll
+  if not scroll then return false end
+  local delta = ges.direction == "north" and 1 or ges.direction == "south" and -1 or nil
+  if not delta then return false end
+  local p = ScrollPager.position(scroll)
+  local target = math.max(0, math.min(p.max, p.offset + delta * p.step))
+  if target ~= p.offset then
+    -- scrollToRatio puts the middle of the view at a point of the whole page
+    scroll:scrollToRatio(nil, (target + p.step / 2) / (p.max + p.step))
   end
   return true
 end
