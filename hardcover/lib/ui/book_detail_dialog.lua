@@ -264,6 +264,7 @@ function BookDetailDialog:init()
   -- hairlines
   local cell_w = math.floor(width / 3)
   local cells = HorizontalGroup:new {}
+  self.rating_tap = nil
   for i, stat in ipairs(Shelf.detailStats(self.detail)) do
     local cell = CenterContainer:new {
       dimen = Geom:new { w = cell_w, h = Screen:scaleBySize(78) },
@@ -276,6 +277,7 @@ function BookDetailDialog:init()
         viewport = viewport,
         cell,
       }
+      self.rating_tap = cell
     end
     table.insert(cells, cell)
   end
