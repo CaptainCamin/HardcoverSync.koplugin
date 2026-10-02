@@ -26,6 +26,10 @@ return {
     emu:pump()
     local dialog = UIManager:getTopmostVisibleWidget()
     assert(dialog and dialog.zlibrary_button == nil, "a Z-library button without the plugin")
+    -- without the plugin the bar is Shelf | Reviews only
+    local n = 0
+    for _, child in ipairs(dialog.action_bar) do if child.callback then n = n + 1 end end
+    assert(n == 2, "the action bar should hold 2 buttons without Z-library, has " .. n)
     emu:shot("zlibrary_absent")
     emu:closeAll()
 
@@ -41,6 +45,13 @@ return {
     emu:expectText("Z-library")
     emu:expectText("Reviews")
     emu:shot("zlibrary_button")
+
+    -- it is the third button of the action bar, after Shelf and Reviews
+    local bar = dialog.action_bar
+    local buttons = {}
+    for _, child in ipairs(bar) do if child.callback then buttons[#buttons + 1] = child end end
+    assert(#buttons == 3 and buttons[1] == dialog.shelf_button and buttons[2] == dialog.reviews_button
+      and buttons[3] == dialog.zlibrary_button, "Z-library is not the third action-bar button")
 
     -- three buttons share the bar, all inside the margins
     local M = require("hardcover/lib/ui/theme").margin
