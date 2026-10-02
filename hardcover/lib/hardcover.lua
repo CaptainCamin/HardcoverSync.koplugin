@@ -6,7 +6,6 @@ local util = require("util")
 local UIManager = require("ui/uimanager")
 
 local Notification = require("ui/widget/notification")
-local InfoMessage = require("ui/widget/infomessage")
 
 local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
@@ -14,8 +13,6 @@ local Book = require("hardcover/lib/book")
 local User = require("hardcover/lib/user")
 
 local SETTING = require("hardcover/lib/constants/settings")
-
-local cache = {}
 
 local Hardcover = {}
 Hardcover.__index = Hardcover
@@ -74,60 +71,6 @@ function Hardcover:showLinkBookDialog(force_search, link_callback)
     end,
     search_value
   )
-end
-
-function Hardcover:cacheRandomBooks()
-  local user_id = User:getId()
-
-  local books, error = Api:getRandomToRead(user_id, 10)
-  if error then
-    UIManager:show(InfoMessage:new {
-      text = _("Error fetching to-read list"),
-      icon = "notice-warning",
-      timeout = 2
-    })
-    return
-  end
-
-  cache.random_books = books
-  return books
-end
-
-function Hardcover:showRandomBookDialog()
-  self.wifi:wifiPrompt(function(wifi_enabled)
-    -- Cache first: a warm list means no request at all, which is the whole
-    -- point of keeping it. Only a cold cache goes to the network, and when it
-    -- does the dialog is already on screen -- this used to fetch first, so a
-    -- cold cache meant the tap did nothing for the length of a request.
-    local cached = cache.random_books
-    local has_cache = cached and #cached > 0
-
-    local function reload()
-      return self:cacheRandomBooks()
-    end
-
-    self.dialog_manager:buildBookListDialog(
-      _("Suggest a book"),
-      has_cache and cached or {},
-      function()
-        Background.run(function()
-          local books = reload()
-          if books and #books > 0 then
-            self.dialog_manager:updateRandomBooks(books)
-          end
-        end)
-      end,
-      wifi_enabled,
-      has_cache and nil or function(callback)
-        Api:getRandomToReadAsync(User:getId(), 10, function(books, err)
-          if books and #books > 0 then
-            cache.random_books = books
-          end
-          callback(books, err)
-        end)
-      end
-    )
-  end)
 end
 
 function Hardcover:updateCurrentBookStatus(status, privacy_setting_id)

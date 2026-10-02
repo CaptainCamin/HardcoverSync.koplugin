@@ -444,31 +444,6 @@ function HardcoverApi:findBooks(title, author, userId)
   return self:search(title, author, userId)
 end
 
-function HardcoverApi:getRandomToRead(user_id, limit)
-  limit = limit or 10
-
-  local read_query = [[
-    query ($userId: Int!) {
-      user_books(where: { status_id: { _eq:1 }, user_id: { _eq: $userId }}) {
-        book_id
-      }
-    }
-  ]]
-  local results, err = self:query(read_query, { userId = user_id })
-  if not results or not results.user_books then
-    return {}, err
-  end
-
-  if not results or not results.user_books then
-    return {}
-  end
-
-  local ids = _t.map(results.user_books, function(result) return tonumber(result.book_id) end)
-  _t.shuffle(ids)
-
-  return self:hydrateBooks(_t.slice(ids, 1, limit), user_id)
-end
-
 function HardcoverApi:findUserBook(book_id, user_id)
   -- this may not be adequate, as (it's possible) there could be more than one read in progress? Maybe?
   local read_query = [[
@@ -648,6 +623,101 @@ function HardcoverApi:getShelf(user_id, status_id, offset, limit)
 end
 
 --
+-- How many books are on each of the given shelves, as { [status_id] = count }.
+--
+-- One aggregate per shelf, all in a single request. Each aliased aggregate counts
+-- as a top-level query against the rate limit, and a request may hold at most
+-- five, so that is the most shelves asked for at once.
+--
+function HardcoverApi:getShelfCounts(user_id, status_ids)
+  if not status_ids or #status_ids == 0 or #status_ids > 5 then
+    return nil
+  end
+
+  local parts = {}
+  for _, id in ipairs(status_ids) do
+    parts[#parts + 1] = string.format(
+      "s%d: user_books_aggregate(where: { user_id: { _eq: $userId }, status_id: { _eq: %d } }) { aggregate { count } }",
+      id, id)
+  end
+
+  local query = "query ($userId: Int!) {\n  " .. table.concat(parts, "\n  ") .. "\n}"
+
+  local results, err = self:query(query, { userId = user_id })
+  if not results then
+    return nil, err
+  end
+
+  local counts = {}
+  for _, id in ipairs(status_ids) do
+    local count = tonumber(_t.dig(results, "s" .. id, "aggregate", "count"))
+    if count then
+      counts[id] = count
+    end
+  end
+  return counts
+end
+
+--
+-- What you are reading now, for the home screen: the most recently updated
+-- books on the Currently Reading shelf, each with the progress of its latest
+-- read. Entries are the shelf's own shape (Shelf.normalizeEntry) plus
+-- `progress_pages` and `edition_pages`.
+--
+function HardcoverApi:getCurrentlyReading(user_id, limit)
+  limit = limit or 5
+
+  local query = [[
+    query ($userId: Int!, $statusId: Int!, $limit: Int!) {
+      user_books(
+        where: { user_id: { _eq: $userId }, status_id: { _eq: $statusId } }
+        order_by: { updated_at: desc }
+        limit: $limit
+      ) {
+        id
+        status_id
+        book {
+          book_id: id
+          title
+          pages
+          cached_image
+          contributions {
+            author {
+              name
+            }
+          }
+        }
+        user_book_reads(order_by: { id: desc }, limit: 1) {
+          progress_pages
+          edition {
+            pages
+          }
+        }
+      }
+    }
+  ]]
+
+  local results, err = self:query(query, {
+    userId = user_id,
+    statusId = 2,
+    limit = limit,
+  })
+  if not results or not results.user_books then
+    return nil, err or { completed = false }
+  end
+
+  return _t.map(results.user_books, function(user_book)
+    local entry = Shelf.normalizeEntry(user_book)
+    local read = _t.dig(user_book, "user_book_reads", 1)
+    if read then
+      entry.progress_pages = read.progress_pages
+      entry.edition_pages = _t.dig(read, "edition", "pages")
+    end
+    return entry
+  end)
+end
+
+--
 -- Full detail for one book, including description and community rating.
 -- `edition_id` is optional; when given, edition level fields are included.
 --
@@ -656,8 +726,8 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
 
   if edition_id then
     query = [[
-      query ($bookId: Int!, $userId: Int!) {
-        editions(where: { id: { _eq: $bookId } }) {
+      query ($editionId: Int!, $userId: Int!) {
+        editions(where: { id: { _eq: $editionId } }) {
           id
           edition_format
           reading_format_id
@@ -676,6 +746,7 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
             book_id: id
             title
             subtitle
+            cached_image
             release_year
             pages
             users_count
@@ -691,6 +762,7 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
             book_series {
               position
               series {
+                id
                 name
               }
             }
@@ -726,6 +798,7 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
           book_series {
             position
             series {
+              id
               name
             }
           }
@@ -739,7 +812,17 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
     ]]
   end
 
-  local results = self:query(query, { bookId = book_id, userId = user_id })
+  -- The edition query filters on the edition, so that is the id it needs. It
+  -- used to be sent the book id, so a linked edition either matched nothing
+  -- ("no response", retried forever) or a different book's edition.
+  local variables = { userId = user_id }
+  if edition_id then
+    variables.editionId = edition_id
+  else
+    variables.bookId = book_id
+  end
+
+  local results = self:query(query, variables)
   if not results then
     return nil
   end
@@ -781,6 +864,81 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
     user_book_id = user_book and user_book.id,
     status_id = user_book and user_book.status_id,
     user_rating = user_book and user_book.rating,
+  }
+end
+
+--
+-- The books in a series, in order, with the reader's own status on each.
+--
+-- Follows Hardcover's own recipe for a clean list (see their guide "Getting All
+-- Books in a Series"): leave out merged duplicates (those with a canonical
+-- book), partial editions and compilations, and take the most popular book at
+-- each position. Returns
+--   { id, name, is_completed, books = { { book_id, title, position,
+--     release_year, cover, status_id, rating }, ... } }
+-- or nil (and the error) when the request fails.
+--
+function HardcoverApi:getSeriesBooks(series_id, user_id)
+  if not series_id then return nil end
+
+  local query = [[
+    query ($seriesId: Int!, $userId: Int!) {
+      series_by_pk(id: $seriesId) {
+        id
+        name
+        is_completed
+        book_series(
+          where: {
+            compilation: { _eq: false }
+            book: { canonical_id: { _is_null: true }, is_partial_book: { _eq: false } }
+          }
+          distinct_on: position
+          order_by: [{ position: asc }, { book: { users_count: desc } }]
+        ) {
+          position
+          book {
+            book_id: id
+            title
+            release_year
+            cached_image
+            user_books(where: { user_id: { _eq: $userId } }) {
+              status_id
+              rating
+            }
+          }
+        }
+      }
+    }
+  ]]
+
+  local results, err = self:query(query, { seriesId = series_id, userId = user_id })
+  local series = results and results.series_by_pk
+  if not series then
+    return nil, err
+  end
+
+  local books = {}
+  for _, entry in ipairs(series.book_series or {}) do
+    local book = entry.book
+    if book and book.book_id then
+      local mine = _t.dig(book, "user_books", 1)
+      books[#books + 1] = {
+        book_id = book.book_id,
+        title = book.title,
+        position = entry.position,
+        release_year = book.release_year,
+        cover = Shelf.coverOf(book),
+        status_id = mine and mine.status_id,
+        rating = mine and mine.rating,
+      }
+    end
+  end
+
+  return {
+    id = series.id,
+    name = series.name,
+    is_completed = series.is_completed,
+    books = books,
   }
 end
 
@@ -1005,10 +1163,6 @@ end
 
 function HardcoverApi:findBookByIdentifiersAsync(identifiers, user_id, callback)
   async(callback, self.findBookByIdentifiers, self, identifiers, user_id)
-end
-
-function HardcoverApi:getRandomToReadAsync(user_id, limit, callback)
-  async(callback, self.getRandomToRead, self, user_id, limit)
 end
 
 return HardcoverApi

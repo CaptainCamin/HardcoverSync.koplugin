@@ -226,6 +226,221 @@ function Shelf.appendPage(entries, page, has_more)
   return result
 end
 
+-- U+00B7, as bytes so this reads the same on any Lua
+local MIDDOT = " \194\183 "
+
+-- 1234567 -> "1,234,567"
+local function withCommas(n)
+  local digits = string.format("%d", math.floor(tonumber(n) or 0))
+  local formatted = digits:reverse():gsub("(%d%d%d)", "%1,"):reverse()
+  return (formatted:gsub("^,", ""))
+end
+
+local function joinParts(parts)
+  if #parts == 0 then return nil end
+  return table.concat(parts, MIDDOT)
+end
+
+--
+-- What the book detail header and status lines say, as plain strings.
+--
+-- Kept out of the dialog so it can be tested without KOReader, and so the
+-- screen only has to lay out text: every field is a finished string or nil,
+-- never an empty string, so the dialog can simply skip what is missing.
+--
+--   title, subtitle   the book's name
+--   authors           "A. Author, B. Writer"
+--   series            "The Saga #3"
+--   facts             "2019 · 342 pages · Hardcover"
+--   mine              "Currently Reading · Your rating 4.5"   (the reader's own standing)
+--   community         "Community 4.2 (1,234 ratings) · 5,678 readers"
+--   description       the full text
+--   cover             { url, width, height } when there is a cover to fetch
+--
+function Shelf.detailSummary(detail)
+  detail = detail or {}
+  local book = detail.book or {}
+
+  local summary = {
+    title = (type(book.title) == "string" and book.title ~= "") and book.title or UNKNOWN_TITLE,
+    subtitle = (type(book.subtitle) == "string" and book.subtitle ~= "") and book.subtitle or nil,
+    description = (type(book.description) == "string" and book.description ~= "") and book.description or nil,
+  }
+
+  -- already a joined string, or nil when the book has no authors
+  summary.authors = authorNames(book)
+
+  summary.series = seriesName(book)
+
+  -- an edition's own release date is more precise than the book's year
+  local published
+  if type(book.release_date) == "string" then
+    published = book.release_date:match("^(%d%d%d%d)")
+  end
+  if not published and book.release_year then
+    published = tostring(book.release_year)
+  end
+
+  local facts = {}
+  if published then facts[#facts + 1] = published end
+  local pages = tonumber(book.pages)
+  if pages and pages > 0 then facts[#facts + 1] = string.format("%d pages", pages) end
+  local format = book.edition_format or formatFallback(book)
+  if format and format ~= "" then facts[#facts + 1] = format end
+  summary.facts = joinParts(facts)
+
+  local mine = {}
+  if detail.status_id then mine[#mine + 1] = Shelf.statusLabel(detail.status_id) end
+  local user_rating = tonumber(detail.user_rating)
+  if user_rating and user_rating > 0 then
+    local shown = user_rating % 1 == 0 and string.format("%d", user_rating) or string.format("%.1f", user_rating)
+    mine[#mine + 1] = "Your rating " .. shown
+  end
+  summary.mine = joinParts(mine)
+
+  -- 0 means nobody has rated it: "0.0 (0 ratings)" is noise, not a rating
+  local community = {}
+  local rating = tonumber(book.rating)
+  if rating and rating > 0 then
+    local text = string.format("Community %.1f", rating)
+    local count = tonumber(book.ratings_count)
+    if count and count > 0 then
+      text = text .. " (" .. withCommas(count) .. " ratings)"
+    end
+    community[#community + 1] = text
+  end
+  local readers = tonumber(book.users_count)
+  if readers and readers > 0 then
+    community[#community + 1] = withCommas(readers) .. " readers"
+  end
+  summary.community = joinParts(community)
+
+  summary.cover = Shelf.coverOf(book)
+
+  return summary
+end
+
+--
+-- The id of the series a book belongs to, for fetching the rest of it. Nil when
+-- the book is in no series (or the response did not carry an id).
+--
+function Shelf.seriesId(book)
+  local series = type(book) == "table" and book.book_series
+  if type(series) ~= "table" then return nil end
+  for _, entry in ipairs(series) do
+    local id = _t.dig(entry, "series", "id")
+    if id then return id end
+  end
+  return nil
+end
+
+-- how a book's place in its series reads: 1 -> "#1", 2.5 -> "#2.5"
+local function positionLabel(position)
+  local n = tonumber(position)
+  if not n then return "\226\128\162" end -- a bullet when there is no position
+  return string.format("#%g", n)
+end
+
+-- short enough to sit at the end of a row
+local SHORT_STATUS = {
+  [1] = "Want to Read",
+  [2] = "Reading",
+  [3] = "Read",
+  [5] = "Did Not Finish",
+}
+
+--
+-- The "more in this series" carousel, as plain data.
+--
+-- `series` is { name, is_completed, books = { { book_id, title, position,
+-- status_id, cover }, ... } } in series order. Returns nil when there is nothing
+-- to link to (the only book in the series is the one on screen).
+--
+--   title          "More in Hainish Cycle"
+--   subtitle       "9 books \194\183 complete"
+--   items          every book: { book_id, number = "#4", title, status =
+--                  "Read", current = bool, cover = { url, width, height } }
+--   current_index  where the book on screen is, so the strip can open on it
+--
+-- The strip is paged by the screen (Shelf.carouselWindow), not trimmed here.
+--
+function Shelf.seriesCard(series, current_book_id)
+  if type(series) ~= "table" or type(series.books) ~= "table" then return nil end
+
+  local items, current_index, others = {}, nil, 0
+  for i, book in ipairs(series.books) do
+    local current = book.book_id == current_book_id
+    if current then current_index = i else others = others + 1 end
+    items[i] = {
+      book_id = book.book_id,
+      number = positionLabel(book.position),
+      title = book.title or UNKNOWN_TITLE,
+      status = (not current) and SHORT_STATUS[book.status_id] or nil,
+      current = current,
+      cover = book.cover,
+    }
+  end
+  if others == 0 then return nil end
+
+  local subtitle = { string.format("%d books", #items) }
+  if series.is_completed == true then
+    subtitle[#subtitle + 1] = "complete"
+  elseif series.is_completed == false then
+    subtitle[#subtitle + 1] = "ongoing"
+  end
+
+  return {
+    title = "More in " .. (series.name or "this series"),
+    subtitle = table.concat(subtitle, MIDDOT),
+    items = items,
+    current_index = current_index,
+  }
+end
+
+--
+-- Which items a strip shows: `per_page` of `total`, starting at `first`.
+--
+-- With no `first`, the page that holds `centre` (the book on screen), as near
+-- the middle as the ends allow. Returns { first, last, has_prev, has_next }.
+--
+function Shelf.carouselWindow(total, per_page, first, centre)
+  total = math.max(0, total or 0)
+  per_page = math.max(1, per_page or 1)
+
+  if first == nil then
+    first = (centre or 1) - math.floor(per_page / 2)
+  end
+  first = math.max(1, math.min(first, math.max(1, total - per_page + 1)))
+
+  local last = math.min(total, first + per_page - 1)
+  return { first = first, last = last, has_prev = first > 1, has_next = last < total }
+end
+
+-- A book's cover as { url, width, height }, or nil when it has none.
+function Shelf.coverOf(book)
+  local image = type(book) == "table" and book.cached_image
+  if type(image) == "table" and type(image.url) == "string" and image.url ~= "" then
+    return { url = image.url, width = image.width, height = image.height }
+  end
+  return nil
+end
+
+-- The rows the header does not already say: publisher, language, ISBN, reads.
+local HEADER_LABELS = {
+  Author = true, Series = true, Format = true, Pages = true, Published = true,
+  ["Community rating"] = true, Readers = true, Description = true,
+}
+
+function Shelf.extraRows(book)
+  local rows = {}
+  for _, row in ipairs(Shelf.detailRows(book)) do
+    if not HEADER_LABELS[row.label] then
+      rows[#rows + 1] = row
+    end
+  end
+  return rows
+end
+
 local function addRow(rows, label, value)
   if value == nil or value == "" then
     return
@@ -271,8 +486,9 @@ function Shelf.detailRows(book)
 
   addRow(rows, "ISBN", book.isbn_13 or book.isbn_10)
 
+  -- 0 means nobody has rated it: "0.0 (0 ratings)" is noise, not a rating
   local rating = book.rating
-  if rating then
+  if rating and rating > 0 then
     if book.ratings_count then
       addRow(rows, "Community rating", string.format("%.1f (%d ratings)", rating, book.ratings_count))
     else

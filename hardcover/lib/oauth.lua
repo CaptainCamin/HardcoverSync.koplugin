@@ -93,7 +93,28 @@ function OAuth.tokenSetFrom(body, now)
     -- absolute expiry, computed once, so no clock skew maths at read time
     expires_at = (now or os.time()) + expires_in,
     obtained_at = now or os.time(),
+    -- what the user actually consented to, which can be narrower than what was
+    -- asked for; absent if the server does not say
+    scope = type(body.scope) == "string" and body.scope ~= "" and body.scope or nil,
   }
+end
+
+--
+-- Does a token set carry `scope`? nil when that is not recorded (no token, or
+-- one stored before scopes were kept), so the caller can tell "no" from
+-- "unknown". "all" grants everything.
+--
+function OAuth.hasScope(token_set, scope)
+  if not token_set or type(token_set.scope) ~= "string" or token_set.scope == "" then
+    return nil
+  end
+
+  for granted in token_set.scope:gmatch("[^%s,]+") do
+    if granted == scope or granted == "all" then
+      return true
+    end
+  end
+  return false
 end
 
 --
@@ -145,6 +166,11 @@ function OAuth.applyRefresh(previous, body, now)
 
   if previous and previous.obtained_at then
     fresh.obtained_at = previous.obtained_at
+  end
+
+  -- a refresh response need not repeat the scope; keep what was granted
+  if not fresh.scope and previous then
+    fresh.scope = previous.scope
   end
 
   return fresh

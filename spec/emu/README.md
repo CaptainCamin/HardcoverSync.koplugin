@@ -111,6 +111,7 @@ These all cost time to find, and each one looks like a plugin bug.
 | `KO_EMU_HOME` | `spec/emu/.home` | scratch data dir |
 | `KO_EMU_OUT` | `spec/emu/.out` | where PNGs and text dumps go |
 | `KO_EMU_W` / `KO_EMU_H` | `1200` / `1600` | emulated panel size |
+| `KO_EMU_DPI` | KOReader's default | screen density; KOReader scales fonts and spacing by it, so set it with the size (e.g. `300` for a Kindle Paperwhite) |
 
 Set the size to your device's real resolution. Layout bugs are frequently
 resolution-specific, and a screen that fits at 1200x1600 may not at 758x1024.

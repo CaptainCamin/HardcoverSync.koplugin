@@ -17,7 +17,7 @@ A KOReader plugin to update your [Hardcover.app](https://hardcover.app) reading 
 2. Set the application type to **Mobile, desktop, or CLI**, leave **Device
    Authorization Grant** enabled, and allow these scopes:
    `read:catalog read:catalog:search read:me:content read:library
-   write:library`
+   read:social write:library`
 3. Copy the **client id** into `hardcover_config.lua`:
 
    ```lua
@@ -132,17 +132,6 @@ published book, with a calculation like:
 In both cases, this may not exactly match the page of the published document, and can even be far off if there
 are large differences in the total pages.
 
-### Suggest a book
-
-The suggest a book menu item will display up to 10 books from your Want To Read list in random order. Selecting one of
-the books in the dialog will start a file search for that book on your device, based on the title. The plugin does not
-know which books you have or do not have on your device.
-
-The selected books/order are preserved when reopening the dialog (until KOReader is restarted), but you can use the
-refresh button in the upper left corner to get a new list of 10 books.
-
-![Suggest a book dialog displaying several books. There is a refresh icon in the upper left corner](https://github.com/user-attachments/assets/2564e0f1-2c62-4463-957f-421a47d792d6)
-
 ### Reading offline
 
 Progress tracking keeps working without a connection. After each successful sync the plugin saves a local copy of
@@ -166,13 +155,33 @@ If a sync fails, the changes stay queued and are retried later rather than dropp
 publisher, page count, language, publication year, ISBN, community rating, reader counts and the description,
 alongside your own status and rating.
 
+### Where things are
+
+The Hardcover menu is different in the reader and in the file browser.
+
+**In the reader** it is about the book you have open: linking it, tracking progress, status, rating, notes, book
+details, sync, and the tracking settings. If you are signed out, an `Account` entry appears so you can sign in.
+
+**In the file browser** it is about your library: `Home` comes first, followed by sync, account, settings and about.
+
+### Home screen
+
+`Hardcover` → `Home` (in the file browser) opens your home screen: your shelves (Currently Reading, Want to Read,
+Read, Did Not Finish) with how many books are on each. Choose a shelf to browse it; closing the shelf brings you
+back. It opens with the counts it last saved, so it also works with no connection, and refreshes them in the
+background.
+
+There is also a `Hardcover: Home` action, available wherever KOReader lists actions (gestures, profiles, quick
+menus), so you can open the home screen from anywhere, including while reading, or have another plugin launch it.
+
 ### Browsing your lists
 
-`Want to Read list` and `Currently Reading list` open your Hardcover shelves a page at a time, with cover images
-where available. Select a book to open its details. When more books are available, use the reload icon in the
-upper left to load the next page.
+Choosing a shelf on the home screen opens it, with cover images where available. Select a book to open its
+details. The whole shelf is loaded: the first books appear straight away and the rest arrive in the background. If
+loading is interrupted (for example by tapping the screen while it loads, or by losing your connection), a reload
+icon appears in the upper left so you can carry on from where the list stops.
 
-Both list items work whether or not a book is currently open.
+Lists you have opened are saved on the device, so they also open with no connection, showing the saved copy.
 
 ## Settings
 

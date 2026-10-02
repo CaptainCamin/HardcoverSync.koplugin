@@ -6,10 +6,11 @@ local NetworkManager = require("ui/network/manager")
 
 local ConfirmBox = require("ui/widget/confirmbox")
 local InfoMessage = require("ui/widget/infomessage")
-local FileSearcher = require("apps/filemanager/filemanagerfilesearcher")
 
 local Api = require("hardcover/lib/hardcover_api")
+local Background = require("hardcover/lib/background")
 local Book = require("hardcover/lib/book")
+local Home = require("hardcover/lib/home")
 local Shelf = require("hardcover/lib/shelf")
 local User = require("hardcover/lib/user")
 
@@ -189,72 +190,6 @@ function DialogManager:maybeConfirm(options)
 end
 
 --
--- A list of books whose rows hand off to the file searcher.
---
--- fetch, when given, makes this show-then-fetch: the dialog opens on an empty
--- list and fetch supplies the rows. "Suggest a book" needs that, because its
--- cached list is usually cold and the fetch used to run before the dialog
--- existed.
---
-function DialogManager:buildBookListDialog(title, items, icon_callback, disable_wifi_after, fetch)
-  discard(self.search_dialog)
-  self.search_dialog = nil
-
-  self.search_dialog = require("hardcover/lib/ui/search_dialog"):new {
-    compatibility_mode = self.settings:compatibilityMode(),
-    title = title,
-    items = items or {},
-    loading = fetch ~= nil,
-    left_icon_callback = icon_callback,
-    left_icon = "cre.render.reload",
-    select_book_cb = function(book)
-      local clean_title = book.title:gsub("^The ", ""):gsub("^An ", ""):gsub("^A ", ""):gsub(" ?%(%d+%)$", "")
-
-      FileSearcher.search_path = G_reader_settings:readSetting("home_dir")
-      FileSearcher.search_string = clean_title
-      self.ui.filesearcher.case_sensitive = false
-      self.ui.filesearcher.include_subfolders = true
-      self.ui.filesearcher.include_metadata = true
-      self.ui.filesearcher:doSearch()
-    end,
-    close_callback = function()
-      if disable_wifi_after then
-        UIManager:nextTick(function()
-          self.wifi:wifiDisablePrompt()
-        end)
-      end
-    end
-  }
-
-  UIManager:show(self.search_dialog)
-
-  if not fetch then return end
-
-  local loading = StatusDialogs.loading(_("Loading…"))
-
-  fetch(function(items, err)
-    StatusDialogs.close(loading)
-    if not UIManager:isWidgetShown(self.search_dialog) then return end
-
-    if err or not items then
-      StatusDialogs.retry(err or _("no response"), _("Loading the list"),
-        function()
-          self:buildBookListDialog(title, nil, icon_callback, disable_wifi_after, fetch)
-        end,
-        function() UIManager:close(self.search_dialog) end)
-      return
-    end
-
-    if #items == 0 then
-      self.search_dialog:setEmptyState(_("No books found on Want to Read list"))
-      return
-    end
-
-    self.search_dialog:setItems(title, items)
-  end)
-end
-
---
 -- Re-run a search against the dialog already on screen.
 --
 -- The dialog is shown, so there is nothing to show first here -- but the error
@@ -283,10 +218,6 @@ function DialogManager:updateSearchResults(search)
                                 self.search_dialog.active_item)
     self.search_dialog.search_value = search
   end)
-end
-
-function DialogManager:updateRandomBooks(books)
-  self.search_dialog:setItems(self.search_dialog.title, books)
 end
 
 function DialogManager:journalEntryForm(text, document, page, remote_pages, mapped_page, event_type)
@@ -426,6 +357,102 @@ end
 -- The user can close the dialog while the request is in flight, so every write
 -- below is guarded on isWidgetShown. Updating a freed widget crashes.
 --
+--
+-- The home screen: your shelves with their counts.
+--
+-- Shown at once from whatever counts were saved (so offline it still opens, with
+-- the last numbers), then refreshed in the background. Choosing a shelf opens it
+-- on top, so closing the shelf comes back here.
+--
+-- The plugin's settings, on top of whatever is showing.
+function DialogManager:showSettings()
+  require("hardcover/lib/ui/settings_dialog").show {
+    items = self.settings_items and self.settings_items() or {},
+  }
+end
+
+function DialogManager:showHome(done_callback)
+  local user_id = User:getId()
+  local cache = self.shelf_cache
+  local ids = Home.statusIds()
+
+  discard(self.home_dialog)
+  self.home_dialog = nil
+
+  local saved_counts = cache and cache:counts(user_id, ids) or {}
+  local saved_reading = cache and cache:reading(user_id) or {}
+
+  local dialog = require("hardcover/lib/ui/home_dialog"):new {
+    rows = Home.rows(saved_counts),
+    entries = saved_reading,
+    select_cb = function(row)
+      self:showShelf(row.status_id, row.title)
+    end,
+    open_book_cb = function(book_id)
+      self:showBookDetail(book_id)
+    end,
+    settings_cb = function()
+      self:showSettings()
+    end,
+    close_callback = function()
+      if done_callback then done_callback() end
+    end,
+  }
+  self.home_dialog = dialog
+
+  UIManager:show(dialog)
+
+  if not NetworkManager:isConnected() then
+    return
+  end
+
+  -- Two requests, one after the other, each independent of the other's outcome.
+  Background.run(function()
+    local counts = Api:getShelfCounts(user_id, ids)
+
+    -- failed or cancelled: the saved numbers are still on screen, leave them
+    if counts and UIManager:isWidgetShown(dialog) then
+      if cache then
+        cache:putCounts(user_id, counts)
+      end
+      -- a refresh that changed nothing repaints nothing
+      if not Home.sameCounts(counts, saved_counts, ids) then
+        dialog:setRows(Home.rows(counts))
+      end
+    end
+
+    if not UIManager:isWidgetShown(dialog) then
+      return
+    end
+
+    local entries = Api:getCurrentlyReading(user_id, 5)
+    if not entries or not UIManager:isWidgetShown(dialog) then
+      return
+    end
+
+    if cache then
+      cache:putReading(user_id, entries)
+    end
+    if not Home.sameCards(entries, saved_reading) then
+      dialog:setReading(entries)
+    end
+  end)
+end
+
+-- How many books each request asks for. The loop below keeps asking until a page
+-- comes back empty rather than until one comes back short, so a server that
+-- returns fewer than requested still yields the whole shelf.
+local SHELF_PAGE_SIZE = 50
+
+-- A tap cancels a request in flight (KOReader's rule for a dismissable
+-- subprocess). Loading a long shelf takes several requests, and the reader will
+-- tap while it runs, so a cancelled page is asked for again this many times
+-- before the load gives up.
+local SHELF_PAGE_RETRIES = 3
+
+-- A shelf this long is not being loaded to be read; stop rather than loop.
+local SHELF_MAX_PAGES = 200
+
 function DialogManager:showShelf(status_id, title, done_callback)
   local user_id = User:getId()
   local cache = self.shelf_cache
@@ -433,39 +460,29 @@ function DialogManager:showShelf(status_id, title, done_callback)
   discard(self.shelf_dialog)
   self.shelf_dialog = nil
 
-  -- What was fetched last time, if anything. Shown at once, so the list is
-  -- there before (or without) the network; the fetch below then refreshes it.
-  local cached = cache and cache:getPage(user_id, status_id, 0)
+  -- The whole list as it was last loaded, if it ever was. Shown at once, so the
+  -- shelf is there before (or without) the network; the load below then
+  -- refreshes it.
+  local cached = cache and cache:get(user_id, status_id)
 
-  self.shelf_dialog = require("hardcover/lib/ui/shelf_dialog"):new {
+  local dialog = require("hardcover/lib/ui/shelf_dialog"):new {
     compatibility_mode = self.settings:compatibilityMode(),
     title = title,
     status_id = status_id,
-    -- Empty until the fetch lands. Passing a nil here would reach the API as a
+    -- Empty until the load lands. Passing a nil here would reach the API as a
     -- nil offset and silently refetch page one forever.
     entries = {},
     has_more = false,
     offset = 0,
-    page_size = 20,
+    page_size = SHELF_PAGE_SIZE,
+    -- Only used by the reload icon, which is shown when a load was interrupted
+    -- and the shelf is not complete: it carries on from where the list stops.
     fetch_page = function(offset, limit, callback)
-      local saved = cache and cache:getPage(user_id, status_id, offset)
-
       if not NetworkManager:isConnected() then
-        -- Offline: serve the page if it was seen before, otherwise say so.
-        if saved then
-          callback(saved.entries, nil, saved.has_more)
-        else
-          callback(nil, _("not available offline"))
-        end
+        callback(nil, _("not available offline"))
         return
       end
-
-      Api:getShelfAsync(user_id, status_id, offset, limit, function(entries, err, has_more)
-        if entries and cache then
-          cache:putPage(user_id, status_id, offset, entries, has_more)
-        end
-        callback(entries, err, has_more)
-      end)
+      Api:getShelfAsync(user_id, status_id, offset, limit, callback)
     end,
     select_entry_cb = function(entry)
       self:showBookDetail(entry.book_id, nil, done_callback)
@@ -476,14 +493,13 @@ function DialogManager:showShelf(status_id, title, done_callback)
       end
     end,
   }
+  self.shelf_dialog = dialog
 
-  UIManager:show(self.shelf_dialog)
-
-  local dialog = self.shelf_dialog
+  UIManager:show(dialog)
 
   if cached and #cached.entries > 0 then
     dialog.offset = #cached.entries
-    dialog:setEntries(cached.entries, cached.has_more)
+    dialog:setEntries(cached.entries, not cached.complete)
   end
 
   -- Offline there is nothing to wait for: say what is being shown and stop.
@@ -503,39 +519,116 @@ function DialogManager:showShelf(status_id, title, done_callback)
   -- reader is waiting on it, so say so.
   local loading = not cached and StatusDialogs.loading(_("Loading your shelf…")) or nil
 
-  Api:getShelfAsync(user_id, status_id, 0, dialog.page_size,
-    function(entries, err, has_more)
-      if loading then StatusDialogs.close(loading) end
-      if not UIManager:isWidgetShown(dialog) then return end
+  -- Load the whole shelf, a page at a time, in the background. Rows appear as
+  -- they arrive when there is nothing saved to show; with a saved list on
+  -- screen the fresh one replaces it once it is complete, so the list never
+  -- shrinks to its first page while it refreshes.
+  Background.run(function()
+    local fresh, seen = {}, {}
+    local offset, retries, pages = 0, 0, 0
+    local complete, failure = false, nil
 
-      if err or not entries then
-        -- The saved list is still right there; failing to refresh it is not
-        -- worth interrupting for.
-        if cached then return end
+    local function stopLoading()
+      if loading then
+        StatusDialogs.close(loading)
+        loading = nil
+      end
+    end
 
-        -- Offer the retry rather than an error the user can only dismiss and
-        -- start again. Recursion is safe: it rebuilds the dialog and shows it
-        -- again, and the fetch below is the same code.
-        StatusDialogs.retry(err, _("Loading your shelf"),
-          function()
-            self:showShelf(status_id, title, done_callback)
-          end,
-          function() end)
+    while true do
+      -- closed while loading: nothing left to update
+      if not UIManager:isWidgetShown(dialog) then
+        stopLoading()
         return
       end
 
+      if not NetworkManager:isConnected() then
+        failure = _("no internet connection")
+        break
+      end
+
+      local entries, err = Api:getShelf(user_id, status_id, offset, SHELF_PAGE_SIZE)
+
+      if not UIManager:isWidgetShown(dialog) then
+        stopLoading()
+        return
+      end
+
+      if entries == nil then
+        if type(err) == "table" and err.completed == false and retries < SHELF_PAGE_RETRIES then
+          retries = retries + 1
+        else
+          failure = err
+          break
+        end
+      else
+        retries = 0
+        pages = pages + 1
+        offset = offset + #entries
+
+        for _, entry in ipairs(entries) do
+          -- the shelf can change while it loads, shifting later rows into
+          -- earlier pages; do not show a book twice
+          local id = entry.user_book_id or entry.book_id
+          if id == nil or not seen[id] then
+            if id ~= nil then seen[id] = true end
+            fresh[#fresh + 1] = entry
+          end
+        end
+
+        if #entries == 0 then
+          complete = true
+          break
+        end
+
+        stopLoading()
+        if not cached then
+          dialog.offset = #fresh
+          dialog:setEntries(fresh, true, true)
+        end
+
+        if pages >= SHELF_MAX_PAGES then
+          break
+        end
+      end
+    end
+
+    stopLoading()
+    if not UIManager:isWidgetShown(dialog) then return end
+
+    if complete then
       if cache then
-        cache:putPage(user_id, status_id, 0, entries, has_more)
+        cache:put(user_id, status_id, fresh, true)
       end
-
-      if #entries == 0 then
+      if #fresh == 0 then
         dialog:setEmptyState(_("No books on this shelf yet"))
-        return
+      else
+        dialog.offset = #fresh
+        dialog:setEntries(fresh, false, true)
       end
+      return
+    end
 
-      dialog.offset = #entries
-      dialog:setEntries(entries, has_more and #entries > 0)
-    end)
+    -- Interrupted. A saved list is still right there, and failing to refresh it
+    -- is not worth interrupting for.
+    if cached then return end
+
+    if #fresh > 0 then
+      -- Keep what arrived. The reload icon stays so the reader can carry on.
+      if cache then
+        cache:put(user_id, status_id, fresh, false)
+      end
+      return
+    end
+
+    -- Nothing arrived and nothing was saved: offer the retry rather than an
+    -- error the reader can only dismiss and start again.
+    StatusDialogs.retry(failure, _("Loading your shelf"),
+      function()
+        self:showShelf(status_id, title, done_callback)
+      end,
+      function() end)
+  end)
 end
 
 --
@@ -605,9 +698,44 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
     if done_callback then
       done_callback()
     end
+
+    self:loadSeries(dialog, detail.book, user_id)
   end)
 
   return dialog
+end
+
+--
+-- The "more in this series" card for a book's detail screen.
+--
+-- The screen is already showing the book; the rest of the series arrives in the
+-- background and is added when it does. Tapping a row opens that book's details
+-- on top of this one, so Close comes back here. Nothing is fetched offline (the
+-- screen simply has no card) or for a book that is in no series.
+--
+function DialogManager:loadSeries(dialog, book, user_id)
+  local series_id = Shelf.seriesId(book)
+  if not series_id or not NetworkManager:isConnected() then
+    return
+  end
+
+  Background.run(function()
+    local series = Api:getSeriesBooks(series_id, user_id)
+
+    -- failed, cancelled by a tap, or the screen was closed meanwhile
+    if not series or not UIManager:isWidgetShown(dialog) then
+      return
+    end
+
+    local card = Shelf.seriesCard(series, book.book_id)
+    if not card then
+      return
+    end
+
+    dialog:setSeries(card, function(book_id)
+      self:showBookDetail(book_id)
+    end)
+  end)
 end
 
 --

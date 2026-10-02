@@ -2,13 +2,26 @@
 
 ## 0.6.0
 
+### Changed
+
+* The Home screen has a new look: a title bar, a "Currently reading" section with a card per book (cover, title,
+  author and a progress bar with "pages read / pages"), then the shelves as buttons ("Want to Read  ·  42").
+  Tapping a card opens that book. The reading list is saved, so Home opens instantly and works offline, and is
+  refreshed in the background (the screen only repaints if something changed).
+
+### Removed
+
+* Removed the `Suggest a book` feature: the menu item, the `Hardcover: Suggest a book` gesture action and the
+  search-for-this-book-on-your-device dialog behind it. A gesture you had bound to that action will no longer do
+  anything and can be unbound in KOReader's gesture settings.
+
 ### Performance
 
 * Changing a book's status, removing a read, setting the page, rating, changing visibility, linking a book or
-  edition, automatic linking, suggesting a book, marking a book finished, and the "update progress" gesture
+  edition, automatic linking, marking a book finished, and the "update progress" gesture
   no longer freeze KOReader while they wait on Hardcover. Saving a journal entry still waits for the reply
   (the dialog needs the result to answer), but now shows "Saving..." first so you can see the tap registered.
-* Screens that load a list or details from Hardcover (shelves, search, editions, book details, suggested books)
+* Screens that load a list or details from Hardcover (shelves, search, editions, book details)
   no longer freeze KOReader while waiting for the reply. The requests now run in the background, so the
   "Loading..." message is actually drawn first, and a tap cancels the request. Previously they ran in-process
   (KOReader logged "unwrapped dismissableRunInSubprocess(), falling back to blocking in-process run") and the
@@ -23,6 +36,17 @@
 
 ### Fixed
 
+* Book details: the page could scroll sideways by a couple of pixels, showing a heavy bar above the Close button
+  whenever a cover was shown. The cover's frame border was not counted in the header's width, and the content was
+  as wide as the dialog even though a scroll bar takes room off it.
+* Book details: most books showed only a title. A book with no subtitle (and every book shown from the saved
+  copy) lost its status, metadata and description, because a missing subtitle cut the layout short.
+* Book details: the Back key now closes the screen, including the loading screen; it was bound to nothing.
+* Book details: opening the details of a book linked to a specific edition looked up the wrong edition (it
+  was sent the book's id), so it failed or showed another book. It now uses the edition's id.
+* Book details: long titles, authors and series now wrap instead of running off the screen, the metadata
+  labels line up in a fixed column, the full description is shown and scrolls (it was cut off after a few
+  lines), and a book with no ratings no longer shows "0.0 (0 ratings)".
 * Error messages for a failed list no longer print `table: 0x...`; they say what happened.
 * Opening a list with no connection no longer tries to download covers it does not have, which each waited
   out a timeout.
@@ -31,7 +55,7 @@
 * The screen is now refreshed after closing the book details and sign-in screens. KOReader repaints what was
   underneath but only refreshes an e-ink panel if the closing widget asks for it, and these two never did,
   so the closed screen could stay visible until something else triggered a refresh.
-* Retrying a list that failed to load (shelves, search, edition lists, suggested books) no longer leaves the
+* Retrying a list that failed to load (shelves, search, edition lists) no longer leaves the
   failed screen underneath the new one, which showed up again after closing the new one.
 * OAuth: the access token is now resolved (and refreshed) before the request is handed to its subprocess.
   Previously a refresh ran inside the subprocess, so the new tokens reached disk but not the running
@@ -51,10 +75,35 @@
   during a sync no longer leaves syncing disabled until KOReader restarts.
 * An empty cover list no longer triggers a request for a missing URL.
 
+### Changed
+
+* The Hardcover menu is now two menus. In the reader it is only about the open book: linking, tracking, status,
+  rating, notes, book details, sync and the tracking settings (plus `Account`, but only while you are signed
+  out). In the file browser it is about your library: `Home` first, then sync, account, settings and about.
+  The `Want to Read list` and `Currently Reading list` entries are gone: choose a shelf from `Home` instead.
+
 ### Added
 
-* Your shelves work offline. Want to Read, Currently Reading and any other list are saved on the device as
-  you browse them (each page you load is kept), so you can open them with no connection. When a saved list
+* Book details now shows the rest of the book's series as a carousel of covers: "More in <series>", how many
+  books it has and whether it is complete, and each cover with its number, title and your own status (Read,
+  Reading, Want to Read). Tapping a cover opens that book's details on top, so Close brings you back. The book on
+  screen has a heavy border and is not tappable. A longer series is paged with arrows either side. The series
+  is fetched in the background after the details appear, and is left out offline.
+* The home screen has a settings cog in its title bar that opens the plugin's settings in a screen of their own (options show
+  a tick, groups open and have a Back row), with Sync and the Hardcover account (sign in / out) at the top. The reader menu's Settings holds the account too, so you can sign out there, so they can be reached when Home is launched from another plugin.
+* A generic book icon is shown where the cover goes, for a book with no cover, while a cover loads, and when it
+  cannot be fetched, so every book's details have the same layout.
+* A new book details layout: the cover sits beside the title, author, series and a line of facts (year, pages,
+  format); under it your own status and rating, then what the community makes of the book; then the
+  description under an "About" heading, and the remaining details (publisher, language, ISBN) under "Details".
+  The cover comes from the cover cache, so a cover you have seen also shows offline, and is released when the
+  screen closes.
+* A home screen: `Hardcover` → `Home`, or the new `Hardcover: Home` action (a gesture, profile or another plugin
+  can launch it). It lists your shelves (Currently Reading, Want to Read, Read, Did Not Finish) with how many
+  books are on each, opens at once from the counts it last saved (so it works offline), and refreshes them in
+  the background. Choosing a shelf opens it on top, so closing it comes back to the home screen.
+* Your shelves work offline. Want to Read, Currently Reading and any other list are saved on the device
+  after they load, so you can open them with no connection. When a saved list
   exists it appears immediately and refreshes quietly in the background; offline you are told it is the saved
   copy and when it was saved. Tapping a book offline shows the details that were saved with the list
   (author, series, rating, description), without edition fields such as publisher and ISBN. Covers you have
@@ -64,9 +113,10 @@
   dropping the update. Pending changes are queued on disk, so they survive closing the book or
   quitting KOReader, and are sent automatically once you are back online. A `Pending sync` menu
   item shows what is waiting, lets you send it by hand, and lets you discard it.
-* Your shelves are now browsable: `Want to Read list` and `Currently Reading list` open as paged
-  lists with covers, your rating, and the book's status. Tapping a row opens its details, and the
-  icon in the title bar loads the next page.
+* Your shelves are now browsable: `Want to Read list` and `Currently Reading list` open as lists with
+  covers, your rating, and the book's status. Tapping a row opens its details. The whole shelf is loaded, not
+  just the first page: the rest arrives in the background while you browse, without moving you off the page
+  you are on, and a reload icon in the title bar appears only if loading was interrupted so you can carry on.
 * Sign in from the plugin using OAuth's Device Authorization Grant, which needs no browser on the
   reader: the plugin shows a short code, you approve it on a phone or computer, and it keeps the
   connection fresh. Set `client_id` in `hardcover_config.lua` to enable it.
@@ -98,9 +148,13 @@
   twice, so the plugin never retries a refresh whose outcome it does not know. If that happens you
   are asked to sign in again rather than being silently locked out.
 * The requested scopes are `read:catalog read:catalog:search read:me:content read:library
-  write:library`. There is no `write:journal` scope: requesting one fails the whole authorization
+  read:social write:library`. There is no `write:journal` scope: requesting one fails the whole authorization
   with `invalid_scope`. Reading journals and writing journal entries are both covered by the
   library scopes.
+* `read:social` is what allows reading other readers' reviews. Your Hardcover app must allow it (asking for a
+  scope the app does not allow fails the whole sign in), and a sign in made before this change does not have it:
+  sign out and sign in again once reviews arrive. The plugin now records which scopes each sign in was
+  granted, so it can tell a missing scope from a failed request.
 * Signing out now clears the stored tokens from disk as well as memory. Previously they survived a
   restart, so signing out appeared not to work.
 

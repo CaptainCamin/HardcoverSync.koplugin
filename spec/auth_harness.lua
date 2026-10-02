@@ -509,6 +509,85 @@ check("a slow_down lengthens the wait rather than hammering", function()
   end
 end)
 
+-- ---------------------------------------------------------------- granted scopes
+
+print("\n== which scopes a sign in was granted ==")
+
+local function signedIn(scope)
+  local a, settings = newAuth()
+  a.tokens = nil
+  a:_persist({ access_token = "a", refresh_token = "r", token_type = "Bearer",
+    expires_at = os.time() + 3600, obtained_at = os.time(), scope = scope })
+  return a, settings
+end
+
+check("a granted scope is reported as granted", function()
+  local a = signedIn("read:catalog read:library read:social")
+  eq(a:hasScope("read:social"), true, "read:social")
+  eq(a:hasScope("read:library"), true, "read:library")
+end)
+
+check("a scope that was not granted is reported as not granted", function()
+  local a = signedIn("read:catalog read:library")
+  eq(a:hasScope("read:social"), false, "read:social")
+end)
+
+check("a token with no recorded scope is 'unknown', not 'not granted'", function()
+  -- Tokens stored before scopes were kept look like this. Saying false would
+  -- send people to sign in again for something they may already have.
+  local a = signedIn(nil)
+  eq(a:hasScope("read:social"), nil, "read:social")
+end)
+
+check("nobody signed in is unknown", function()
+  local a = newAuth()
+  eq(a:hasScope("read:social"), nil, "read:social")
+end)
+
+check("a personal access token is unknown", function()
+  local a = newAuth { config = { token = "pat" } }
+  eq(a:hasScope("read:social"), nil, "read:social")
+end)
+
+check("the 'all' scope grants everything", function()
+  eq(signedIn("all"):hasScope("read:social"), true, "all")
+end)
+
+check("a scope is matched whole, not as part of another", function()
+  -- read:library:public must not satisfy read:library, nor vice versa by prefix
+  local a = signedIn("read:library:public")
+  eq(a:hasScope("read:library"), false, "read:library")
+  eq(a:hasScope("read:social"), false, "read:social")
+end)
+
+check("the scope is taken from the token response and survives a restart", function()
+  local tokens = OAuth.tokenSetFrom({ access_token = "a", refresh_token = "r", scope = "read:social read:library" }, os.time())
+  eq(tokens.scope, "read:social read:library", "scope in token set")
+  local a, settings = signedIn(tokens.scope)
+  local reloaded = Auth:new { settings = settings, config = { client_id = "test-client" }, client = clientDouble({}) }
+  eq(reloaded:hasScope("read:social"), true, "after reload")
+end)
+
+check("a refresh that does not repeat the scope keeps the one granted", function()
+  local previous = { access_token = "old", refresh_token = "r1", obtained_at = 1, scope = "read:social" }
+  local fresh = OAuth.applyRefresh(previous, { access_token = "new", refresh_token = "r2" }, os.time())
+  eq(fresh.scope, "read:social", "scope after refresh")
+  local narrowed = OAuth.applyRefresh(previous, { access_token = "new", refresh_token = "r2", scope = "read:library" }, os.time())
+  eq(narrowed.scope, "read:library", "a stated scope wins")
+end)
+
+check("signing out forgets the scope", function()
+  local a, settings = signedIn("read:social")
+  a:clear()
+  eq(settings.store.scope, nil, "scope on disk")
+  eq(a:hasScope("read:social"), nil, "scope in memory")
+end)
+
+check("the plugin asks for read:social at sign in", function()
+  local Config = dofile(PLUGIN .. "/hardcover/lib/default_config.lua")
+  assert(Config.scope:find("read:social", 1, true), "default_config.lua does not request read:social")
+end)
+
 print("")
 print(string.format("  %d passed, %d failed", results.passed, results.failed))
 os.exit(results.failed == 0 and 0 or 1)

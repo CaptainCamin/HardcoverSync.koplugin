@@ -18,7 +18,10 @@ return {
 
   -- Scope set requested at sign-in. There is no separate write:journal scope;
   -- journal reads and writes are both covered by the library scopes.
-  scope = "read:catalog read:catalog:search read:me:content read:library write:library",
+  -- read:social is what allows reading other readers' reviews. The OAuth app
+  -- must allow every scope listed here: asking for one it does not allow fails
+  -- the whole sign-in with invalid_scope.
+  scope = "read:catalog read:catalog:search read:me:content read:library read:social write:library",
 
   -- Personal access token. Left empty on purpose: sign in from the plugin
   -- instead. A token set here is used only when client_id is empty.

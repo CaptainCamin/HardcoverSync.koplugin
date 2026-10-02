@@ -37,87 +37,122 @@ end
 
 local function entry(id, title) return { book_id = id, title = title or ("Book " .. id), status_id = 1 } end
 
-print("\n== storing and reading pages ==")
+print("\n== storing and reading a shelf ==")
 
-check("a stored page comes back with its paging flag and a timestamp", function()
+check("a stored list comes back with its completeness and a timestamp", function()
   local c = newCache()
-  assert(c:putPage(1, 1, 0, { entry(1), entry(2) }, true))
-  local page = c:getPage(1, 1, 0)
-  assert(#page.entries == 2 and page.has_more == true and page.saved_at, "page lost data")
+  assert(c:put(1, 1, { entry(1), entry(2) }, true))
+  local shelf = c:get(1, 1)
+  assert(#shelf.entries == 2 and shelf.complete == true and shelf.saved_at, "list lost data")
 end)
 
-check("an unseen page is nil", function()
-  local c = newCache()
-  assert(c:getPage(1, 1, 0) == nil)
-  c:putPage(1, 1, 0, { entry(1) }, false)
-  assert(c:getPage(1, 1, 20) == nil)
+check("an unseen shelf is nil", function()
+  assert(newCache():get(1, 1) == nil)
 end)
 
-check("pages are kept by offset", function()
+check("a partial list is marked as partial", function()
   local c = newCache()
-  c:putPage(1, 1, 0, { entry(1) }, true)
-  c:putPage(1, 1, 20, { entry(2) }, false)
-  assert(c:getPage(1, 1, 20).entries[1].book_id == 2)
-  assert(c:getPage(1, 1, 0).entries[1].book_id == 1)
+  c:put(1, 1, { entry(1) }, false)
+  assert(c:get(1, 1).complete == false)
 end)
 
-check("refreshing the first page drops the later ones (their offsets shifted)", function()
+check("saving again replaces the list", function()
   local c = newCache()
-  c:putPage(1, 1, 0, { entry(1) }, true)
-  c:putPage(1, 1, 20, { entry(2) }, false)
-  c:putPage(1, 1, 0, { entry(9) }, true)
-  assert(c:getPage(1, 1, 20) == nil, "a stale later page survived")
-  assert(c:getPage(1, 1, 0).entries[1].book_id == 9)
+  c:put(1, 1, { entry(1), entry(2), entry(3) }, true)
+  c:put(1, 1, { entry(9) }, true)
+  local shelf = c:get(1, 1)
+  assert(#shelf.entries == 1 and shelf.entries[1].book_id == 9, "old rows survived")
 end)
 
 check("each write reaches disk", function()
   local c, store = newCache()
-  c:putPage(1, 1, 0, { entry(1) }, false)
+  c:put(1, 1, { entry(1) }, true)
   assert(store.flushes == 1, "flushes: " .. store.flushes)
 end)
 
 check("an empty shelf is cacheable (it is an answer)", function()
   local c = newCache()
-  assert(c:putPage(1, 1, 0, {}, false))
-  assert(c:getPage(1, 1, 0) and #c:getPage(1, 1, 0).entries == 0)
+  assert(c:put(1, 1, {}, true))
+  assert(c:get(1, 1) and #c:get(1, 1).entries == 0)
 end)
 
-check("pages far down a large library are not kept", function()
+check("the caller's rows are not modified", function()
   local c = newCache()
-  assert(c:putPage(1, 1, 400, { entry(1) }, false) == false)
-  assert(c:getPage(1, 1, 400) == nil)
+  local rows = { { book_id = 1, description = string.rep("x", 5000) } }
+  c:put(1, 1, rows, true)
+  assert(#rows[1].description == 5000, "the original row was truncated")
+end)
+
+check("a very long shelf is kept, but marked incomplete", function()
+  local c = newCache()
+  local rows = {}
+  for i = 1, 3200 do rows[i] = entry(i) end
+  c:put(1, 1, rows, true)
+  local shelf = c:get(1, 1)
+  assert(#shelf.entries == 3000, "kept " .. #shelf.entries)
+  assert(shelf.complete == false, "a truncated list claimed to be complete")
+end)
+
+print("\n== descriptions ==")
+
+check("a long description is shortened", function()
+  local c = newCache()
+  c:put(1, 1, { { book_id = 1, description = string.rep("a", 5000) } }, true)
+  local d = c:get(1, 1).entries[1].description
+  assert(#d < 700 and #d > 500, "length " .. #d)
+end)
+
+check("shortening never splits a multi-byte character", function()
+  local c = newCache()
+  -- 3-byte characters, so any cut that is not a multiple of 3 lands mid-character
+  local text = string.rep("\228\184\150", 400) -- U+4E16 as bytes
+  for _, extra in ipairs({ "", "a", "ab" }) do
+    c:put(1, 1, { { book_id = 1, description = extra .. text } }, true)
+    local d = c:get(1, 1).entries[1].description
+    -- strip the ellipsis, then what is left must be whole characters
+    local body = d:gsub("\226\128\166$", "")
+    local ok = true
+    local i = 1 + #extra
+    body = body:sub(1 + #extra)
+    assert(#body % 3 == 0, "cut inside a character (extra=" .. #extra .. ", left " .. #body .. " bytes)")
+  end
+end)
+
+check("a short description is left alone", function()
+  local c = newCache()
+  c:put(1, 1, { { book_id = 1, description = "short" } }, true)
+  assert(c:get(1, 1).entries[1].description == "short")
 end)
 
 print("\n== scoping ==")
 
 check("shelves are separate per status", function()
   local c = newCache()
-  c:putPage(1, 1, 0, { entry(1) }, false)
-  assert(c:getPage(1, 2, 0) == nil)
+  c:put(1, 1, { entry(1) }, true)
+  assert(c:get(1, 2) == nil)
 end)
 
 check("another account never sees this account's shelf", function()
   local c = newCache()
-  c:putPage(1, 1, 0, { entry(1) }, false)
-  assert(c:getPage(2, 1, 0) == nil, "a different user read the cached library")
+  c:put(1, 1, { entry(1) }, true)
+  assert(c:get(2, 1) == nil, "a different user read the cached library")
   assert(c:findEntry(2, 1) == nil, "a different user found a cached book")
 end)
 
 check("clear removes everything", function()
-  local c, store = newCache()
-  c:putPage(1, 1, 0, { entry(1) }, false)
-  c:putPage(1, 2, 0, { entry(2) }, false)
+  local c = newCache()
+  c:put(1, 1, { entry(1) }, true)
+  c:put(1, 2, { entry(2) }, true)
   assert(c:clear())
-  assert(c:getPage(1, 1, 0) == nil and c:getPage(1, 2, 0) == nil)
+  assert(c:get(1, 1) == nil and c:get(1, 2) == nil)
 end)
 
 print("\n== finding a book ==")
 
-check("a book is found across shelves and pages", function()
+check("a book is found across shelves", function()
   local c = newCache()
-  c:putPage(1, 1, 0, { entry(1) }, true)
-  c:putPage(1, 2, 0, { entry(5, "Five") }, false)
-  c:putPage(1, 1, 20, { entry(7, "Seven") }, false)
+  c:put(1, 1, { entry(1), entry(7, "Seven") }, true)
+  c:put(1, 2, { entry(5, "Five") }, true)
   assert(c:findEntry(1, 5).title == "Five")
   assert(c:findEntry(1, 7).title == "Seven")
   assert(c:findEntry(1, 99) == nil)
@@ -134,8 +169,8 @@ end)
 check("a store that cannot be opened fails soft, once", function()
   local n = 0
   local c = ShelfCache:new { path = "/x", open = function() n = n + 1 error("corrupt") end }
-  assert(c:getPage(1, 1, 0) == nil)
-  assert(c:putPage(1, 1, 0, { entry(1) }, false) == false)
+  assert(c:get(1, 1) == nil)
+  assert(c:put(1, 1, { entry(1) }, false) == false)
   assert(c:findEntry(1, 1) == nil)
   assert(c:clear() == false)
   assert(n == 1, "retried a broken file " .. n .. " times")
@@ -145,7 +180,7 @@ check("a failing flush does not raise", function()
   local store = newStore()
   store.flush = function() error("disk full") end
   local c = newCache(store)
-  c:putPage(1, 1, 0, { entry(1) }, false) -- must not raise
+  c:put(1, 1, { entry(1) }, false) -- must not raise
 end)
 
 print("\n== details from a cached row ==")

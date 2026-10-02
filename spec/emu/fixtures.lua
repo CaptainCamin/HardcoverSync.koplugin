@@ -53,19 +53,28 @@ local function book_row(id, title, year, pages, opts)
     contributions = opts.contributions or {
       { author = { name = opts.author or "Ursula K. Le Guin" } },
     },
-    cached_image = opts.no_image and nil or {
+    -- Not `opts.no_image and nil or {...}`: `a and nil or b` is always b, because
+    -- nil is falsy, so every "no cover" book here used to have a cover and the
+    -- no-cover layout was never exercised.
+    cached_image = (not opts.no_image) and {
       url = opts.image_url or "https://covers.hardcover.app/fixture/" .. id .. ".jpg",
       width = 300,
       height = 450,
-    },
+    } or nil,
     book_series = opts.series and {
-      { position = opts.series_position or 2, series = { name = opts.series } },
+      { position = opts.series_position or 2,
+        series = { id = opts.series_id or (100 + #opts.series), name = opts.series } },
     } or {},
   }
 end
 
 M.books = {
-  book_row(101, "The Dispossessed", 1974, 341, { author = "Ursula K. Le Guin" }),
+  book_row(101, "The Dispossessed", 1974, 341, {
+    author = "Ursula K. Le Guin",
+    series = "Hainish Cycle",
+    series_id = 12,
+    series_position = 5,
+  }),
   book_row(102, "A Wizard of Earthsea", 1968, 183, {
     author = "Ursula K. Le Guin",
     series = "Earthsea",
@@ -74,7 +83,8 @@ M.books = {
   book_row(103, "The Left Hand of Darkness", 1969, 304, {
     author = "Ursula K. Le Guin",
     series = "Hainish Cycle",
-    series_position = 2,
+    series_id = 12,
+    series_position = 4,
   }),
   book_row(104, "The Tombs of Atuan", 1971, 192, {
     author = "Ursula K. Le Guin",
@@ -92,6 +102,18 @@ M.books = {
     series = "A Very Long Series Name That Also Does Not Fit",
   }),
   book_row(107, "The Fifth Season", 2015, 468, { author = "N. K. Jemisin", users_count = 90000 }),
+  -- A description long enough that the detail page has to scroll vertically,
+  -- which is when the scroll container's vertical bar narrows the viewport.
+  book_row(109, "A Book With A Very Long Description", 2001, 612, {
+    author = "Fixture Author",
+    series = "The Long Series",
+    series_id = 14,
+    series_position = 12,
+    description = string.rep(
+      "This paragraph stands in for a publisher's blurb, which on a real book can run to many lines. " ..
+      "It repeats so the page is tall enough to scroll, and so a layout that is a few pixels too wide " ..
+      "for its scroll container shows up as a sideways scroll bar. ", 18),
+  }),
   book_row(108, "The Obelisk Gate", 2016, 448, { author = "N. K. Jemisin" }),
 }
 
@@ -125,6 +147,85 @@ do
       no_image = (i % 7 == 0), -- no-cover rows land throughout the list
     })
   end
+end
+
+--[[--
+The books of a series, as Api:getSeriesBooks returns them.
+
+Hainish Cycle is real enough to read: some read, one being read, one wanted, the
+rest not on a shelf. The long series has 24 books, with the fixture book 109 at
+position 12, so the card has to show a window with "earlier" and "more" rows.
+]]
+function M.cover_url(id) return "https://covers.hardcover.app/fixture/" .. id .. ".jpg" end
+
+M.series_books = {}
+do
+  local hainish = {
+    { 301, "Rocannon's World", 1, 3 }, { 302, "Planet of Exile", 2, 3 },
+    { 303, "City of Illusions", 3, 2 }, { 103, "The Left Hand of Darkness", 4, 2 },
+    { 101, "The Dispossessed", 5, 1 }, { 304, "The Word for World Is Forest", 6, nil },
+    { 305, "The Telling", 7, nil }, { 306, "Four Ways to Forgiveness", 8, nil },
+  }
+  local books = {}
+  for _, b in ipairs(hainish) do
+    books[#books + 1] = {
+      book_id = b[1], title = b[2], position = b[3], status_id = b[4],
+      -- one book has no cover, so the carousel's placeholder is exercised
+      cover = (b[1] ~= 306) and { url = M.cover_url(b[1]) } or nil,
+    }
+  end
+  M.series_books[12] = { id = 12, name = "Hainish Cycle", is_completed = true, books = books }
+
+  local long_books = {}
+  for i = 1, 24 do
+    long_books[i] = {
+      book_id = (i == 12) and 109 or (400 + i),
+      title = (i == 12) and "A Book With A Very Long Description" or ("Volume " .. i .. " of the Long Series"),
+      position = i,
+      status_id = (i < 12) and 3 or nil,
+      cover = { url = M.cover_url((i == 12) and 109 or (400 + i)) },
+    }
+  end
+  M.series_books[14] = { id = 14, name = "The Long Series", is_completed = false, books = long_books }
+end
+
+-- how many books are on each shelf, as the home screen's count query returns them
+M.shelf_counts = { [2] = 3, [1] = 42, [3] = 130, [5] = 2 }
+
+-- what Api:getCurrentlyReading returns: three books in progress, the last with
+-- no cover (so the placeholder is drawn)
+M.currently_reading = {
+  { book_id = 101, title = "The Dispossessed", authors = "Ursula K. Le Guin", pages = 341,
+    progress_pages = 120, edition_pages = 341,
+    cached_image = { url = "https://covers.hardcover.app/fixture/101.jpg", width = 300, height = 450 } },
+  { book_id = 102, title = "A Wizard of Earthsea", authors = "Ursula K. Le Guin", pages = 183,
+    progress_pages = 20, edition_pages = 183,
+    cached_image = { url = "https://covers.hardcover.app/fixture/102.jpg", width = 300, height = 450 } },
+  { book_id = 105, title = "The Hundred Thousand Kingdoms", authors = "N. K. Jemisin", pages = 418,
+    progress_pages = 300, edition_pages = 418 },
+}
+
+--[[--
+Put the synthetic cover (spec/emu/fixtures/cover.png) into the plugin's real
+cover cache under `url`.
+
+The detail screen fetches covers through the cover loader, which answers from
+this cache before it touches the network. Seeding it means the real loader, the
+real cache and the real image renderer all run, with no network and no mocking
+of any of them.
+]]
+local VARIANTS = { "cover.png", "cover_b.png", "cover_c.png" }
+
+function M.seed_cover(url, variant)
+  local root = package.searchpath("hardcover/lib/shelf", package.path):match("^(.*)/hardcover/lib/shelf%.lua$")
+  local file = assert(io.open(root .. "/spec/emu/fixtures/" .. VARIANTS[variant or 1], "rb"),
+    "a cover fixture is missing: run spec/emu/make_cover.py")
+  local bytes = file:read("*a")
+  file:close()
+
+  local cache = require("hardcover/lib/ui/image_loader"):getCache()
+  assert(cache, "the cover cache could not be opened (no ffi/sha2 or lfs?)")
+  assert(cache:put(url, bytes), "could not write the cover into the cache")
 end
 
 M.books_by_id = {}
@@ -211,6 +312,25 @@ function M.install(opts)
     -- A short page tells the dialog there is nothing more to fetch.
     local has_more = (#source > offset + limit)
     return entries, nil, has_more
+  end
+
+  Api.getSeriesBooks = function(_, series_id, user_id)
+    record("getSeriesBooks")
+    return M.series_books[series_id]
+  end
+
+  Api.getShelfCounts = function(_, user_id, status_ids)
+    record("getShelfCounts")
+    local counts = {}
+    for _, id in ipairs(status_ids or {}) do
+      counts[id] = M.shelf_counts[id]
+    end
+    return counts
+  end
+
+  Api.getCurrentlyReading = function(_, user_id, limit)
+    record("getCurrentlyReading")
+    return deepcopy(M.currently_reading)
   end
 
   Api.getBookDetail = function(_, book_id, user_id, edition_id)

@@ -110,10 +110,22 @@ end
 -- The dialog is built and shown empty, so this is what fills it. The item table
 -- is swapped rather than appended because the menu's cover cache is keyed on it.
 --
-function ShelfDialog:setEntries(entries, has_more)
+--
+-- `keep_position` stays on the page being viewed. Rows that arrive while the
+-- reader is already browsing would otherwise send them back to page one each
+-- time (switchItemTable resets to the first page unless it is given an item
+-- number to show).
+--
+function ShelfDialog:setEntries(entries, has_more, keep_position)
   self.entries = entries or {}
   self.has_more = has_more and #self.entries > 0
-  self.menu:switchItemTable(self.title, self:parseItems(self.entries))
+
+  local item_number
+  if keep_position and self.menu.page and self.menu.perpage then
+    item_number = (self.menu.page - 1) * self.menu.perpage + 1
+  end
+
+  self.menu:switchItemTable(self.title, self:parseItems(self.entries), item_number)
   self:updatePager()
   UIManager:setDirty(self, "ui")
 end

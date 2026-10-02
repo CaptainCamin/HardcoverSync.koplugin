@@ -73,17 +73,19 @@ function HardcoverApp:onDispatcherRegisterActions()
     general = true,
   })
 
+  -- A button for the home screen: it appears wherever KOReader lists actions
+  -- (gestures, profiles, quick menus), so another plugin can launch it too.
+  Dispatcher:registerAction("hardcover_home", {
+    category = "none",
+    event = "HardcoverHome",
+    title = _("Hardcover: Home"),
+    general = true,
+  })
+
   Dispatcher:registerAction("hardcover_update_progress", {
     category = "none",
     event = "HardcoverUpdateProgress",
     title = _("Hardcover: Update progress"),
-    general = true,
-  })
-
-  Dispatcher:registerAction("hardcover_random_books", {
-    category = "none",
-    event = "HardcoverSuggestBook",
-    title = _("Hardcover: Suggest a book"),
     general = true,
   })
 end
@@ -158,6 +160,11 @@ function HardcoverApp:init()
     page_mapper = self.page_mapper,
     settings = self.settings,
     shelf_cache = self.shelf_cache,
+    -- the settings, for the home screen's Settings button; read when asked, as
+    -- the menu is built after this
+    settings_items = function()
+      return self.menu and self.menu:getHomeSettingsItems() or {}
+    end,
     state = self.state,
     ui = self.ui,
     wifi = self.wifi
@@ -309,6 +316,11 @@ function HardcoverApp:onHardcoverLink()
   end)
 end
 
+function HardcoverApp:onHardcoverHome()
+  self.dialog_manager:showHome()
+  return true
+end
+
 function HardcoverApp:onHardcoverTrack()
   self.settings:setSync(true)
   UIManager:nextTick(function()
@@ -357,10 +369,6 @@ function HardcoverApp:onHardcoverUpdateProgress()
       icon = "notice-warning",
     })
   end
-end
-
-function HardcoverApp:onHardcoverSuggestBook()
-  self.hardcover:showRandomBookDialog()
 end
 
 function HardcoverApp:onSettingsChanged(field, change, original_value)
