@@ -13,8 +13,6 @@ local Device = require("device")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
-local IconWidget = require("ui/widget/iconwidget")
-local ImageWidget = require("ui/widget/imagewidget")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local LeftContainer = require("ui/widget/container/leftcontainer")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
@@ -23,6 +21,7 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
 
+local CoverCells = require("hardcover/lib/ui/cover_cells")
 local Lists = require("hardcover/lib/lists")
 local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
@@ -47,6 +46,13 @@ function ListsDialog:init()
   self.title = self.title or _("Lists")
   self.dimen = Geom:new { x = 0, y = 0, w = Screen:getWidth(), h = Screen:getHeight() }
   self.key_events.CloseLists = { { "Back" } }
+  -- pictures already decoded are kept across rebuilds (see cover_cells.lua)
+  self.covers = CoverCells:new {
+    window = self,
+    loader = function() return self.image_loader or require("hardcover/lib/ui/image_loader") end,
+    -- a cover scrolled out of view needs no refresh
+    clip = function() return self.scroll and self.scroll.dimen or nil end,
+  }
   self:build()
 end
 
@@ -63,19 +69,7 @@ end
 
 -- a cover box of the final size, with the generic book icon until the picture comes
 function ListsDialog:coverCell(url, w, h)
-  local icon_size = math.floor(w * 0.5)
-  local cell = FrameContainer:new {
-    bordersize = Theme.line.hair,
-    padding = 0,
-    margin = 0,
-    CenterContainer:new {
-      dimen = Geom:new { w = w, h = h },
-      IconWidget:new { icon = "book.opened", width = icon_size, height = icon_size },
-    },
-  }
-  self.cover_cells[url] = self.cover_cells[url] or {}
-  table.insert(self.cover_cells[url], { cell = cell, w = w, h = h })
-  return cell
+  return self.covers:cell(url, w, h)
 end
 
 -- One list: its first covers, its name over its small print, and a chevron.
@@ -158,8 +152,7 @@ function ListsDialog:buildContent(width, viewport)
 end
 
 function ListsDialog:build()
-  self:releaseCovers()
-  self.cover_cells = {}
+  self.covers:begin()
 
   local screen_w, screen_h = Screen:getWidth(), Screen:getHeight()
   local M = Theme.margin
@@ -177,7 +170,7 @@ function ListsDialog:build()
   local body
   self.scroll = nil
   if content:getSize().h + Theme.space.m > room then
-    self.cover_cells = {}
+    self.covers:begin() -- the first pass's boxes are not used
     local gutter = 3 * (ScrollableContainer.scroll_bar_width or Screen:scaleBySize(6))
     width = screen_w - 2 * M - gutter
     self.scroll = ScrollableContainer:new {
@@ -203,50 +196,19 @@ function ListsDialog:build()
     VerticalGroup:new { align = "left", title_bar, body },
   }
   self[1] = self.frame
-  self:loadCovers()
+  self.covers:finish()
 end
 
--- Fetch each distinct cover and put it in its box(es); the loader answers from the
--- on-disk cache first and does not touch the network when offline.
-function ListsDialog:loadCovers()
-  local urls = {}
-  for url in pairs(self.cover_cells) do urls[#urls + 1] = url end
-  if #urls == 0 then return end
-  table.sort(urls)
-
-  local loader = self.image_loader or require("hardcover/lib/ui/image_loader")
-  self.cover_bbs = {}
-  local _batch, halt = loader:loadImages(urls, function(url, content)
-    if self.closed then return end
-    local cells = self.cover_cells and self.cover_cells[url]
-    if not cells then return end
-    local RenderImage = require("ui/renderimage")
-    for _i, spec in ipairs(cells) do
-      local bb = RenderImage:renderImageData(content, #content, false, spec.w, spec.h)
-      if bb then
-        table.insert(self.cover_bbs, bb)
-        spec.cell[1] = CenterContainer:new {
-          dimen = Geom:new { w = spec.w, h = spec.h },
-          ImageWidget:new {
-            image = bb, image_disposable = false, width = spec.w, height = spec.h, scale_factor = 0,
-          },
-        }
-      end
-    end
-    UIManager:setDirty(self, "ui")
-  end)
-  self.cover_halt = halt
+-- UIManager:show() queues no refresh of its own (it relies on a full-panel
+-- fallback that only happens when nothing else is queued), and this screen queues
+-- small refreshes of its own as covers and counts arrive. Ask for the first
+-- full draw explicitly so it can never be skipped in favour of a small one.
+function ListsDialog:onShow()
+  UIManager:setDirty(self, "ui")
 end
 
 function ListsDialog:releaseCovers()
-  if self.cover_halt then
-    self.cover_halt()
-    self.cover_halt = nil
-  end
-  for _i, bb in ipairs(self.cover_bbs or {}) do
-    if bb.free then bb:free() end
-  end
-  self.cover_bbs = nil
+  self.covers:release()
 end
 
 function ListsDialog:rebuild()

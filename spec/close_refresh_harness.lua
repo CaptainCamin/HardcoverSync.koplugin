@@ -123,7 +123,7 @@ local function detail() return { frame = { dimen = {} } } end
 drive("hardcover/lib/ui/book_detail_dialog", "book detail: onClose", detail, "onClose")
 drive("hardcover/lib/ui/book_detail_dialog", "book detail: onCloseDetail", detail, "onCloseDetail")
 
-local function home() return { cover_halt = function() end } end
+local function home() return { covers = { release = function() end } } end
 drive("hardcover/lib/ui/home_dialog", "home: onClose", home, "onClose")
 drive("hardcover/lib/ui/home_dialog", "home: onCloseWidget", home, "onCloseWidget")
 
