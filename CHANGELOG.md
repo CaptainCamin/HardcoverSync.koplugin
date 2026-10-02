@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.1
+
+### Fixed
+
+* The About box crashed KOReader when it was online. It compares the newest GitHub release with the installed
+  version, and a tag starting with "v" (this repository's releases are `v0.9.0` and so on) made that comparison
+  fail. Release tags are now read tolerantly ("v0.9.0", "0.9", anything else is simply ignored), prereleases are
+  not offered as updates, and a bad answer from GitHub can no longer raise out of the check.
+
 ## 0.9.0
 
 ### Added
