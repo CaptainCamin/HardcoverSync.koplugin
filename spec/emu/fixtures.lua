@@ -47,9 +47,10 @@ local function book_row(id, title, year, pages, opts)
     rating = opts.rating or 4.2,
     ratings_count = opts.ratings_count or 120,
     description = opts.description or
-      "A fixture description, long enough to wrap across several lines in the " ..
-      "detail dialog so wrapping and page-count behaviour are actually visible " ..
-      "in a screenshot rather than being a single tidy line.",
+      "A lone envoy arrives on a frozen world to bring its people into a league " ..
+      "of planets, and finds that nothing about the place, its politics, its " ..
+      "weather or its customs, is what he was told to expect. Long enough to wrap " ..
+      "across several lines, so wrapping and page-count behaviour are visible.",
     contributions = opts.contributions or {
       { author = { name = opts.author or "Ursula K. Le Guin" } },
     },
