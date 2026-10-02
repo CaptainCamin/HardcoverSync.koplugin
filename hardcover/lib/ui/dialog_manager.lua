@@ -1,4 +1,5 @@
 local _ = require("gettext")
+local T = require("ffi/util").template
 local json = require("json")
 
 local UIManager = require("ui/uimanager")
@@ -19,6 +20,7 @@ local User = require("hardcover/lib/user")
 
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local SETTING = require("hardcover/lib/constants/settings")
+local VERSION = require("hardcover_version")
 
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 
@@ -454,6 +456,24 @@ function DialogManager:showSearchResults(query, books)
   end
 end
 
+-- At most once a day, ask GitHub whether there is a newer release and remember
+-- the answer (the Settings row shows it). A newer version is mentioned once.
+function DialogManager:checkForUpdate()
+  local Updater = require("hardcover/lib/updater")
+  if not Updater.due(self.settings) then return end
+  require("hardcover/lib/github"):latestReleaseAsync(function(release)
+    if not release then return end
+    local before = Updater.available(self.settings, VERSION)
+    Updater.remember(self.settings, release)
+    if release.version and not (before and before.version == release.version) then
+      UIManager:show(InfoMessage:new {
+        text = T(_("Hardcover Sync %1 is available. Install it from Settings."), release.version),
+        timeout = 5,
+      })
+    end
+  end)
+end
+
 function DialogManager:showHome(done_callback)
   local user_id = User:getId()
   local cache = self.shelf_cache
@@ -487,6 +507,7 @@ function DialogManager:showHome(done_callback)
   self.home_dialog = dialog
 
   UIManager:show(dialog)
+  self:checkForUpdate()
 
   if not NetworkManager:isConnected() then
     return

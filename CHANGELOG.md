@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+* Update checker: Settings has "Check for updates" (shows "Update available: vX" once one is known) and a
+  "Check for updates automatically" tick. When on, Home asks GitHub at most once a day and mentions a new
+  version once. "Install" downloads the release zip, checks it, swaps it in for the installed folder (the old
+  copy is kept until the new one is in place) and offers to restart KOReader. Needs `unzip`, which KOReader
+  devices ship.
+
 ## 1.0.0
 
 ### Changed
