@@ -130,4 +130,26 @@ function GoalWidgets.homeCard(goal, p, width, viewport, on_goal, on_all)
   return out
 end
 
+--
+-- The card when there is no current goal to show (none made, none running, or they
+-- have not loaded): the same "Goals ›" heading, and a line saying where to go. The
+-- Goals screen is where a goal is made.
+--
+function GoalWidgets.homeEmpty(width, viewport, on_all)
+  local out = VerticalGroup:new { align = "left" }
+  local more = text("\226\128\186", "title", { bold = true })
+  table.insert(out, TapRow:new {
+    callback = on_all,
+    viewport = viewport,
+    Theme.sectionHeader(_("Goals"), width, more),
+  })
+  table.insert(out, Theme.span("s"))
+  table.insert(out, TapRow:new {
+    callback = on_all,
+    viewport = viewport,
+    text(_("No current goal. Tap to see your goals or set a new one."), "small", { grey = true, width = width }),
+  })
+  return out
+end
+
 return GoalWidgets

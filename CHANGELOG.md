@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.3
+
+### Removed
+
+- Home: the "Page X of Y" bar is gone; the page scrolls by swiping, with the scroll bar at the side.
+
+### Fixed
+
+- Home: the Goals heading is always shown under the Library, even with no current goal (or before goals have loaded), so the Goals screen and "New goal" are always reachable.
+
 ## 1.1.2
 
 ### Added
