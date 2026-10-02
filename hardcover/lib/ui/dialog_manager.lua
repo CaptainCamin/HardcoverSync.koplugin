@@ -10,6 +10,7 @@ local InfoMessage = require("ui/widget/infomessage")
 local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
 local Book = require("hardcover/lib/book")
+local BookSearch = require("hardcover/lib/book_search")
 local Home = require("hardcover/lib/home")
 local Shelf = require("hardcover/lib/shelf")
 local User = require("hardcover/lib/user")
@@ -371,6 +372,85 @@ function DialogManager:showSettings()
   }
 end
 
+--
+-- Search for books from the home screen.
+--
+-- Type, submit, see a list, tap a book for its details. One search is two
+-- requests (the search, then the books' details) against a limit of 60 a
+-- minute, so it only runs on submit, never while typing.
+--
+function DialogManager:showSearchInput(initial)
+  local input
+  local function submit()
+    local query = BookSearch.normalize(input:getInputText())
+    if not query then return end
+    UIManager:close(input)
+    self:searchBooks(query)
+  end
+  input = require("ui/widget/inputdialog"):new {
+    title = _("Search books"),
+    input = initial or "",
+    input_hint = _("Title or author"),
+    buttons = { {
+      {
+        text = _("Cancel"),
+        callback = function() UIManager:close(input) end,
+      },
+      {
+        text = _("Search"),
+        is_enter_default = true,
+        callback = submit,
+      },
+    } },
+  }
+  UIManager:show(input)
+  input:onShowKeyboard()
+  return input
+end
+
+function DialogManager:searchBooks(query)
+  if not NetworkManager:isConnected() then
+    StatusDialogs.error(_("Searching needs an internet connection."))
+    return
+  end
+
+  local loading = StatusDialogs.loading(_("Searching…"))
+  Api:findBooksAsync(query, nil, User:getId(), function(books, err)
+    StatusDialogs.close(loading)
+
+    -- nil is a failure; an empty list is an answer
+    if not books then
+      StatusDialogs.retry(err, _("Searching for books"),
+        function() self:searchBooks(query) end,
+        function() end)
+      return
+    end
+
+    self:showSearchResults(query, BookSearch.cap(books))
+  end)
+end
+
+function DialogManager:showSearchResults(query, books)
+  discard(self.search_results_dialog)
+
+  local dialog = require("hardcover/lib/ui/shelf_dialog"):new {
+    compatibility_mode = self.settings:compatibilityMode(),
+    title = BookSearch.title(query),
+    entries = books,
+    has_more = false,
+    offset = #books,
+    select_entry_cb = function(entry)
+      self:showBookDetail(entry.book_id)
+    end,
+  }
+  self.search_results_dialog = dialog
+  UIManager:show(dialog)
+
+  if #books == 0 then
+    dialog:setEmptyState(_("No results"))
+  end
+end
+
 function DialogManager:showHome(done_callback)
   local user_id = User:getId()
   local cache = self.shelf_cache
@@ -393,6 +473,9 @@ function DialogManager:showHome(done_callback)
     end,
     settings_cb = function()
       self:showSettings()
+    end,
+    search_cb = function()
+      self:showSearchInput()
     end,
     close_callback = function()
       if done_callback then done_callback() end

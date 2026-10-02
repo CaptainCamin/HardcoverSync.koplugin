@@ -81,6 +81,7 @@ local HomeDialog = InputContainer:extend {
   select_cb = nil,
   open_book_cb = nil,
   settings_cb = nil,
+  search_cb = nil,
   close_callback = nil,
 }
 
@@ -250,12 +251,30 @@ function HomeDialog:build()
     table.insert(shelves, VerticalSpan:new { width = Screen:scaleBySize(6) })
   end
 
+  -- The search button sits above everything else; its height comes off the room
+  -- the cards have.
+  local search_button = Button:new {
+    text = _("Search books"),
+    width = width,
+    text_font_size = 20,
+    padding_v = Screen:scaleBySize(10),
+    callback = function()
+      if self.search_cb then
+        self.search_cb()
+      end
+    end,
+  }
+  self.search_button = search_button
+
   local column = VerticalGroup:new { align = "left" }
+  table.insert(column, VerticalSpan:new { width = gap })
+  table.insert(column, search_button)
   table.insert(column, VerticalSpan:new { width = gap })
 
   local cards = Home.cards(self.entries)
   if #cards > 0 then
     local room = screen_h - title_bar:getSize().h - shelves:getSize().h - 3 * gap
+      - search_button:getSize().h - 2 * gap
       - self:sectionTitle(_("Currently reading"), width):getSize().h
     table.insert(column, self:sectionTitle(_("Currently reading"), width))
     table.insert(column, VerticalSpan:new { width = Screen:scaleBySize(6) })

@@ -234,6 +234,8 @@ be on the first menu screen (sync, your account, the settings and About) is behi
 
 `Hardcover` in the file browser menu opens your home screen:
 
+* **Search books**: the button at the top opens a box for a title or author. Submitting shows the first 25 matches as
+  a list of covers; tap one for its details, and close the list to come back. It needs a connection.
 * **Currently reading**: a card for each book you are reading, with its cover, author and a progress bar
   (`pages read / pages`). Tap a card to open that book's details.
 * **Shelves**: Currently Reading, Want to Read, Read and Did Not Finish, each with how many books are on it. Choose
