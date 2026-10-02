@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.0
+
+### Added
+
+* Sort your shelves. The button in the upper left of a shelf (Want to Read, Currently Reading, Read, Did Not Finish)
+  opens a Sort by menu: date added (newest or oldest first), title, author, year published, pages (shortest or
+  longest first), most readers on Hardcover, community rating, or your own rating. The order is remembered for each
+  shelf, shown in the title, and works offline. If a load was interrupted, "Load the rest of the list" is at the top of
+  the same menu.
+
 ## 0.8.0
 
 ### Added

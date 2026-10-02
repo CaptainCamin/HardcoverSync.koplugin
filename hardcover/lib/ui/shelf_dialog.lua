@@ -4,6 +4,7 @@
 -- covers, paging and compatibility mode behave identically. Selecting a row
 -- opens BookDetailDialog; the left icon loads the next page.
 
+local ButtonDialog = require("ui/widget/buttondialog")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
 local InputContainer = require("ui/widget/container/inputcontainer")
@@ -14,6 +15,7 @@ local _ = require("gettext")
 local SearchMenu = require("hardcover/lib/ui/search_menu")
 local Shelf = require("hardcover/lib/shelf")
 local ListRow = require("hardcover/lib/ui/list_row")
+local ShelfSort = require("hardcover/lib/shelf_sort")
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 
 local Screen = Device.screen
@@ -31,6 +33,12 @@ local ShelfDialog = InputContainer:extend {
   select_entry_cb = nil,
   close_callback = nil,
   compatibility_mode = true,
+  -- a shelf can be re-ordered (search results are in relevance order and cannot):
+  -- the left icon is then the sort button, `sort_key` the order, and
+  -- `on_sort_change(key)` is told when it changes so it can be remembered
+  sortable = false,
+  sort_key = nil,
+  on_sort_change = nil,
 }
 
 function ShelfDialog:createListItem(entry)
@@ -78,15 +86,15 @@ function ShelfDialog:init()
     -- ten rows of 64px); and no Q/W/E letter boxes, which are for keyboards
     files_per_page = 5,
     is_enable_shortcut = false,
-    title = self.title,
+    title = self:displayTitle(),
     fullscreen = true,
     is_borderless = true,
     is_popout = false,
     item_table = self:parseItems(self.entries),
     width = self.width,
     height = self.height,
-    title_bar_left_icon = self.has_more and "cre.render.reload" or nil,
-    onLeftButtonTap = self.has_more and function() self:loadMore() end or nil,
+    title_bar_left_icon = self:leftIcon(),
+    onLeftButtonTap = self:leftAction(),
     onMenuSelect = function(_, entry)
       if self.select_entry_cb then
         self.select_entry_cb(entry)
@@ -105,8 +113,33 @@ function ShelfDialog:init()
   self[1] = self.container
 end
 
+-- The title-bar icon and what it does: the sort button on a shelf, otherwise the
+-- reload icon that appears when a load was interrupted.
+function ShelfDialog:leftIcon()
+  if self.sortable then return "appbar.menu" end
+  return self.has_more and "cre.render.reload" or nil
+end
+
+function ShelfDialog:leftAction()
+  if self.sortable then
+    return function() self:showSortMenu() end
+  end
+  return self.has_more and function() self:loadMore() end or nil
+end
+
+-- the title, with the order when it is not the usual one
+function ShelfDialog:displayTitle()
+  if self.sortable and self.sort_key and self.sort_key ~= ShelfSort.DEFAULT and ShelfSort.isKey(self.sort_key) then
+    return self.title .. " \194\183 " .. ShelfSort.label(self.sort_key)
+  end
+  return self.title
+end
+
 function ShelfDialog:parseItems(entries)
   local items = {}
+  if self.sortable then
+    entries = ShelfSort.sort(entries, self.sort_key)
+  end
   for _, entry in ipairs(entries or {}) do
     table.insert(items, self:createListItem(entry))
   end
@@ -134,7 +167,7 @@ function ShelfDialog:setEntries(entries, has_more, keep_position)
     item_number = (self.menu.page - 1) * self.menu.perpage + 1
   end
 
-  self.menu:switchItemTable(self.title, self:parseItems(self.entries), item_number)
+  self.menu:switchItemTable(self:displayTitle(), self:parseItems(self.entries), item_number)
   self:updatePager()
   UIManager:setDirty(self, "ui")
 end
@@ -153,7 +186,7 @@ end
 function ShelfDialog:setEmptyState(message)
   self.empty_state = message
   self.has_more = false
-  self.menu:switchItemTable(self.title, {
+  self.menu:switchItemTable(self:displayTitle(), {
     {
       text = message,
       mandatory = "",
@@ -170,13 +203,64 @@ end
 -- is no next page, or it invites a tap that does nothing.
 --
 function ShelfDialog:updatePager()
-  if self.has_more then
-    self.menu.title_bar_left_icon = "cre.render.reload"
-    self.menu.onLeftButtonTap = function() self:loadMore() end
-  else
-    self.menu.title_bar_left_icon = nil
-    self.menu.onLeftButtonTap = nil
+  self.menu.title_bar_left_icon = self:leftIcon()
+  self.menu.onLeftButtonTap = self:leftAction()
+end
+
+--
+-- The sort menu: every order, the current one ticked; and, when a load was
+-- interrupted, a way to carry on (the reload icon is the sort button on a shelf).
+--
+function ShelfDialog:showSortMenu()
+  if self.sort_menu then
+    UIManager:close(self.sort_menu)
+    self.sort_menu = nil
   end
+
+  local buttons = {}
+  if self.has_more and self.fetch_page then
+    buttons[#buttons + 1] = { {
+      text = _("Load the rest of the list"),
+      callback = function()
+        UIManager:close(self.sort_menu)
+        self.sort_menu = nil
+        self:loadMore()
+      end,
+    } }
+  end
+
+  local current = self.sort_key or ShelfSort.DEFAULT
+  for _, option in ipairs(ShelfSort.OPTIONS) do
+    buttons[#buttons + 1] = { {
+      text = (option.key == current and "\226\156\147 " or "") .. option.label,
+      callback = function()
+        UIManager:close(self.sort_menu)
+        self.sort_menu = nil
+        self:setSort(option.key)
+      end,
+    } }
+  end
+
+  self.sort_menu = ButtonDialog:new {
+    title = _("Sort by"),
+    title_align = "center",
+    buttons = buttons,
+  }
+  UIManager:show(self.sort_menu)
+end
+
+-- Re-order the list and go back to its first page.
+function ShelfDialog:setSort(key)
+  if not ShelfSort.isKey(key) or key == self.sort_key then
+    return
+  end
+  self.sort_key = key
+  if self.on_sort_change then
+    self.on_sort_change(key)
+  end
+  self.menu:switchItemTable(self:displayTitle(), self:parseItems(self.entries))
+  self:updatePager()
+  UIManager:setDirty(self, "ui")
 end
 
 --
@@ -203,7 +287,7 @@ function ShelfDialog:loadMore()
     self.entries = Shelf.appendPage(self.entries, entries, has_more and #entries > 0)
 
     -- Swap in a fresh item table; keeps the menu's cover cache consistent
-    self.menu:switchItemTable(self.title, self:parseItems(self.entries))
+    self.menu:switchItemTable(self:displayTitle(), self:parseItems(self.entries))
     self:updatePager()
 
     UIManager:setDirty(self, "ui")

@@ -160,7 +160,15 @@ local function newManager()
   infos, retries, loadings = {}, {}, 0
   stack, ticks, fake = {}, {}, {}
   return setmetatable({
-    settings = { compatibilityMode = function() return false end },
+    settings = (function()
+      local store = {}
+      return {
+        compatibilityMode = function() return false end,
+        readSetting = function(_, key) return store[key] end,
+        updateSetting = function(_, key, value) store[key] = value end,
+        store = store,
+      }
+    end)(),
     shelf_cache = ShelfCache:new { path = "/x", open = function() return store end },
   }, { __index = DialogManager })
 end

@@ -144,7 +144,7 @@ real_require("hardcover/lib/hardcover_api").getShelfAsync = function() end
 
 local function manager()
   stack = {}
-  return setmetatable({ settings = { compatibilityMode = function() return false end } },
+  return setmetatable({ settings = { compatibilityMode = function() return false end, readSetting = function() return nil end, updateSetting = function() end } },
     { __index = DialogManager })
 end
 

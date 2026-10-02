@@ -23,6 +23,8 @@ return {
       local image = b.cached_image
       if image and image.url then fixtures.seed_cover(image.url, b.book_id % 3 + 1) end
     end
+    -- the emulated settings file outlives a run: start from the default order
+    settings:updateSetting(require("hardcover/lib/constants/settings").SHELF_SORT, nil)
     fixtures.install({ settings = settings })
 
     local DialogManager = require("hardcover/lib/ui/dialog_manager")
@@ -163,5 +165,35 @@ return {
 
     print(string.format("  %d rows, %d pages, all with file markers",
       #items, menu.page_num))
+
+    --[[--
+    Sorting. The title bar's left button opens the sort menu; choosing Title
+    re-orders the rows (articles ignored, so "Babel" before "The Lathe of
+    Heaven"), with real taps, and the order is remembered for the next time the
+    shelf opens.
+    ]]
+    local UIManager_ = require("ui/uimanager")
+    local left = menu.title_bar.left_button
+    assert(left and left.dimen, "the shelf has no sort button")
+    emu:tapExpecting(left.dimen.x + 5, left.dimen.y + 5)
+    emu:expectText("Sort by")
+    emu:expectText("Date added (newest first)")
+    emu:shot("shelf_sort_menu")
+
+    local choice = emu:expectText("Title (A")
+    emu:tapExpecting(choice.x + 5, choice.y + 5)
+    assert(menu.item_table[1].title == "Babel", "sorting by title left " .. tostring(menu.item_table[1].title) .. " first")
+    emu:expectText("Babel")
+    emu:expectText("Want to Read \194\183 Title")
+    emu:shot("shelf_sorted_title")
+
+    local saved = settings:readSetting(require("hardcover/lib/constants/settings").SHELF_SORT)
+    assert(type(saved) == "table" and saved[tostring(HARDCOVER.STATUS.TO_READ)] == "title", "the choice was not remembered")
+
+    -- opened again, it keeps that order
+    emu:closeAll()
+    manager:showShelf(HARDCOVER.STATUS.TO_READ, "Want to Read")
+    emu:pump()
+    assert(manager.shelf_dialog.menu.item_table[1].title == "Babel", "the remembered order was not applied")
   end,
 }

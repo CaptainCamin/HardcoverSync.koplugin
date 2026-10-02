@@ -82,6 +82,7 @@ end
 package.preload["ui/uimanager"] = function()
   return {
     show = function(self, widget) self._shown = widget return widget end,
+    close = function(self, widget) self._closed = widget end,
     setDirty = function() end,
     scheduleIn = function(_, _, fn, ...) if type(fn) == "function" then fn(...) end end,
     unschedule = function() end,
@@ -112,6 +113,17 @@ package.preload["ui/widget/confirmbox"] = function()
     setmetatable(o, M)
     o.show = function() M.last = o end
     o.free = function() end
+    return o
+  end
+  return M
+end
+
+-- The sort menu: record the buttons it is given
+package.preload["ui/widget/buttondialog"] = function()
+  local M = { last = nil }
+  M.new = function(_, o)
+    o = o or {}
+    M.last = o
     return o
   end
   return M
@@ -402,6 +414,82 @@ do
   d:setEntries({ entry() }, false)
   r.check("returns to the first page when it is not", got == nil,
     "item number " .. tostring(got))
+end
+
+-- ---------------------------------------------------------------- sorting a shelf
+print("\n== sorting a shelf ==")
+do
+  local ButtonDialog = require("ui/widget/buttondialog")
+  local function titles(spec)
+    local out = {}
+    for i, item in ipairs(spec.item_table) do out[i] = item.title end
+    return table.concat(out, "|")
+  end
+  local function shelf(opts)
+    opts = opts or {}
+    opts.sortable = true
+    local entries = {
+      entry({ book_id = 1, title = "The Zebra", authors = "Ann Zed", pages = 100 }),
+      entry({ book_id = 2, title = "Apple", authors = "Bob Young", pages = 300 }),
+      entry({ book_id = 3, title = "Mango", authors = "Cy Xu", pages = 200 }),
+    }
+    record.specs = {}
+    local d = ShelfDialog:new {
+      title = "Want to Read", entries = entries, status_id = 1, sortable = true,
+      sort_key = opts.sort_key, on_sort_change = opts.on_sort_change, has_more = opts.has_more or false,
+      fetch_page = opts.has_more and function() end or nil,
+    }
+    return d, lastSpec()
+  end
+
+  local d, spec = shelf()
+  r.check("a shelf's left icon is the sort button, even when nothing is left to load", spec.title_bar_left_icon == "appbar.menu"
+    and type(spec.onLeftButtonTap) == "function", tostring(spec.title_bar_left_icon))
+  r.check("it opens in the arrival order by default", titles(spec) == "The Zebra|Apple|Mango", titles(spec))
+
+  local changed
+  d, spec = shelf({ on_sort_change = function(k) changed = k end })
+  d:setSort("title")
+  r.check("choosing a sort re-orders the rows (articles ignored)", titles(spec) == "Apple|Mango|The Zebra", titles(spec))
+  r.check("and tells the owner, so the choice can be remembered", changed == "title")
+  d:setSort("pages_asc")
+  r.check("another sort replaces it", titles(spec) == "The Zebra|Mango|Apple", titles(spec))
+  changed = nil
+  d:setSort("pages_asc")
+  r.check("choosing the current sort again does nothing", changed == nil)
+  d:setSort("nonsense")
+  r.check("an unknown sort is ignored", titles(spec) == "The Zebra|Mango|Apple")
+
+  d, spec = shelf({ sort_key = "author" })
+  r.check("a remembered sort is applied when the shelf opens (author by surname)", titles(spec) == "Mango|Apple|The Zebra", titles(spec))
+  r.check("the entries themselves keep their arrival order (counts and the saved copy depend on it)",
+    d.entries[1].book_id == 1 and d.entries[2].book_id == 2 and d.entries[3].book_id == 3)
+
+  d, spec = shelf({ sort_key = "title" })
+  d:showSortMenu()
+  local dialog = ButtonDialog.last
+  local labels = {}
+  for _, row in ipairs(dialog.buttons) do labels[#labels + 1] = row[1].text end
+  r.check("the sort menu lists every order", #labels == 11, #labels .. " rows")
+  r.check("the current order is ticked, only that one", labels[3]:find("\226\156\147", 1, true) ~= nil
+    and (table.concat(labels):gsub("\226\156\147", "")) ~= table.concat(labels)
+    and select(2, table.concat(labels):gsub("\226\156\147", "")) == 1)
+  dialog.buttons[4][1].callback() -- Author
+  r.check("choosing from the menu sorts by it", titles(spec) == "Mango|Apple|The Zebra", titles(spec))
+
+  d, spec = shelf({ has_more = true })
+  d:showSortMenu()
+  r.check("a shelf whose load was interrupted offers to carry on in the sort menu",
+    ButtonDialog.last.buttons[1][1].text:find("Load the rest", 1, true) ~= nil)
+  d, spec = shelf()
+  d:showSortMenu()
+  r.check("a complete shelf does not", ButtonDialog.last.buttons[1][1].text:find("Load the rest", 1, true) == nil)
+
+  -- search results are in relevance order: no sort button, reload icon as before
+  record.specs = {}
+  ShelfDialog:new { title = "x", entries = { entry() }, has_more = true, status_id = 1 }
+  local plain = lastSpec()
+  r.check("a list that is not a shelf has no sort button", plain.title_bar_left_icon == "cre.render.reload")
 end
 
 r.finish()
