@@ -21,6 +21,7 @@ local FrameContainer = require("ui/widget/container/framecontainer")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local InfoMessage = require("ui/widget/infomessage")
 local Size = require("ui/size")
+local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
@@ -50,10 +51,14 @@ function SignInDialog:init()
     is_title = true,
   }
 
-  self.instructions = TextWidget:new {
-    text = T(_("On a phone or computer, go to:\n%1\n\nand enter this code:\n\n%2"), self.device.verification_uri, self.device.user_code),
-    face = Font:getFace("cfont", 16),
+  -- A text BOX: TextWidget is one line and ignores newlines, so this sentence
+  -- (with the web address in it) ran off both edges of the screen and the code
+  -- was cut off. The code is shown large below, so it is not repeated here.
+  self.instructions = TextBoxWidget:new {
+    text = T(_("On a phone or computer, go to:\n%1\n\nand enter this code:"), self.device.verification_uri),
+    face = Font:getFace("cfont", 18),
     width = self.width,
+    alignment = "center",
   }
 
   -- the code itself, large: it is the one thing the user has to transcribe

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.1
+
+### Fixed
+
+* The sign-in screen's instructions ran off both edges of the screen, cutting off the web address. They now wrap
+  and are centred.
+
 ## 0.7.0
 
 ### Changed (packaging)
