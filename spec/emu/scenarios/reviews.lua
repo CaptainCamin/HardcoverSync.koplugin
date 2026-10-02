@@ -188,7 +188,7 @@ return {
     local before = #review_calls()
     local was = NetworkManager.isConnected
     NetworkManager.isConnected = function() return false end
-    -- the plugin also trusts KOReader\'s own record of the connection, so go offline in both
+    -- the plugin also trusts KOReader's own record of the connection, so go offline in both
     local was_state = NetworkManager.getConnectionState
     NetworkManager.getConnectionState = function() return false end
     manager:showReviews(103)

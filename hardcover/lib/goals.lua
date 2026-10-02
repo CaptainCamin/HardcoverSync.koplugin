@@ -133,6 +133,9 @@ function Goals.pace(goal, today, extra)
     over = today >= goal.end_days,
     upcoming = today < goal.start_days,
     extra = extra or 0,
+    -- changed here and not sent yet (see goal_queue.lua); held: Hardcover refused it
+    pending = goal.pending and true or false,
+    held = goal.held and true or false,
   }
 
   local remaining = goal.target - progress

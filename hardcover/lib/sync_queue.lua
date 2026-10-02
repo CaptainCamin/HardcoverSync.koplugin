@@ -553,11 +553,6 @@ function SyncQueue:flush(api, opts)
     return false
   end
 
-  -- Without a user id every lookup would be sent with a null id
-  if opts.user_id == nil then
-    return false
-  end
-
   local paths = {}
   for _, filepath in ipairs(self:filepaths()) do
     if not self:isHeld(self:get(filepath)) then
@@ -566,6 +561,11 @@ function SyncQueue:flush(api, opts)
   end
   if #paths == 0 then
     return self:heldCount() == 0
+  end
+
+  -- Without a user id every lookup would be sent with a null id
+  if opts.user_id == nil then
+    return false
   end
 
   self.flushing = true

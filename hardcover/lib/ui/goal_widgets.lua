@@ -42,8 +42,9 @@ function GoalWidgets.bar(width, height, p, no_tick)
   }
 end
 
--- "46" big, "/ 70 books" beside it, and a "+1 finished offline" pill when a book
--- finished here has not been counted by Hardcover yet
+-- "46" big, "/ 70 books" beside it, a "+1 finished offline" pill when a book finished
+-- here has not been counted by Hardcover yet, and a "Waiting to sync" pill when the
+-- goal itself was changed here and not sent
 function GoalWidgets.figure(p)
   local row = HorizontalGroup:new {
     align = "bottom",
@@ -54,6 +55,11 @@ function GoalWidgets.figure(p)
   if p.extra and p.extra > 0 then
     table.insert(row, Theme.hspan("m"))
     table.insert(row, Theme.pill(string.format(_("+%d finished offline"), p.extra), { size = "small" }))
+  end
+  if p.pending then
+    -- a change made here that Hardcover has not got yet
+    table.insert(row, Theme.hspan("m"))
+    table.insert(row, Theme.pill(p.held and _("Not sent") or _("Waiting to sync"), { size = "small" }))
   end
   return row
 end

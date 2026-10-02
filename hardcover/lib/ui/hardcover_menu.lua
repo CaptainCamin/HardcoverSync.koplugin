@@ -582,6 +582,11 @@ end
 
 -- The Sync item's sibling: shown only while a book's offline progress disagrees
 -- with Hardcover and the user has not yet said which to keep.
+-- everything waiting to be sent: progress and status changes, and goal changes
+function HardcoverMenu:pendingTotal()
+  return self.sync_queue:pendingCount() + (self.goal_queue and self.goal_queue:count() or 0)
+end
+
 function HardcoverMenu:conflictCount()
   return self.sync_queue and self.sync_queue.conflictCount and self.sync_queue:conflictCount() or 0
 end
@@ -617,7 +622,7 @@ end
 function HardcoverMenu:getSyncMenuItem()
   return {
     text_func = function()
-      local pending = self.sync_queue:pendingCount()
+      local pending = self:pendingTotal()
       if pending > 0 then
         return T(_("Sync pending changes (%1)"), pending)
       end
@@ -627,7 +632,7 @@ function HardcoverMenu:getSyncMenuItem()
     -- stays enabled: tapping it is how the user learns they are saved and
     -- will sync later.
     enabled_func = function()
-      return self.enabled and self.sync_queue:hasPending()
+      return self.enabled and (self.sync_queue:hasPending() or self:pendingTotal() > 0)
     end,
     callback = function()
       -- Syncing genuinely needs a connection, but the confirmation message
