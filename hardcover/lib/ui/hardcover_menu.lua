@@ -114,6 +114,143 @@ function HardcoverMenu:mainMenu()
   }
 end
 
+-- The panel for the open book (see ui/reader_panel.lua). It is the same actions
+-- the reader menu has, reached from big buttons: each one runs the menu item it
+-- stands for, handed a stand-in menu whose updateItems redraws the panel, so the
+-- panel and the menu cannot disagree about what an action does.
+local STATUS_LABELS = {
+  [HARDCOVER.STATUS.TO_READ] = "Want to Read",
+  [HARDCOVER.STATUS.READING] = "Currently Reading",
+  [HARDCOVER.STATUS.FINISHED] = "Read",
+  [HARDCOVER.STATUS.DNF] = "Did Not Finish",
+}
+
+local function findItem(items, prefix)
+  for _, item in ipairs(items) do
+    local text = item.text or (item.text_func and item.text_func())
+    if type(text) == "string" and text:find(prefix, 1, true) == 1 then return item end
+  end
+end
+
+function HardcoverMenu:showReaderPanel()
+  if not (self.ui and self.ui.document) then
+    UIManager:show(InfoMessage:new { text = _("Open a book first.") })
+    return
+  end
+
+  local panel
+  local shim = { updateItems = function() if panel then panel:render() end end }
+
+  -- run a menu item: a list opens as a settings-style screen, anything else is
+  -- called as the menu would
+  local function run(item)
+    if not item then return end
+    local children = item.sub_item_table_func and item.sub_item_table_func() or item.sub_item_table
+    if children then
+      local text = item.text or (item.text_func and item.text_func()) or ""
+      require("hardcover/lib/ui/settings_dialog").show {
+        title = (text:gsub("[:%s]+$", "")),
+        items = children,
+        on_close = function() shim.updateItems() end,
+      }
+    elseif item.callback then
+      item.callback(shim)
+    end
+  end
+
+  local function enabled(item)
+    if not item then return false end
+    if item.enabled_func then return item.enabled_func() and true or false end
+    return true
+  end
+
+  local function model()
+    local linked = self.settings:bookLinked()
+    local status = self.state.book_status or {}
+    local doc_title = self.ui.doc_props and self.ui.doc_props.display_title
+    local title = (linked and self.settings:getLinkedTitle()) or doc_title or _("This book")
+
+    local view = self:getSubMenuItems(true)
+    local status_items = self:getStatusSubMenuItems()
+    local pages_item = findItem(status_items, "Update page")
+    local note_item = findItem(status_items, "Add a note")
+    local rating_item = findItem(status_items, "Update rating") or findItem(status_items, "Set rating")
+    local settings_item = findItem(view, "Settings")
+    local link_item = findItem(view, "Linked book") or findItem(view, "Link book")
+    local edition_item = findItem(view, "Change edition")
+    local status_item = findItem(view, "Update status")
+
+    local pills = {}
+    if not linked then
+      pills[1] = { text = _("Not linked to Hardcover") }
+    elseif status.status_id and STATUS_LABELS[status.status_id] then
+      pills[1] = { text = _(STATUS_LABELS[status.status_id]), filled = true }
+    end
+
+    local bits = {}
+    local reads = status.user_book_reads
+    local read = reads and reads[#reads]
+    local pages = self.settings:pages()
+    if linked and pages then
+      bits[#bits + 1] = T(_("Page %1 of %2"), read and read.progress_pages or 0, pages)
+    end
+    if status.rating then
+      bits[#bits + 1] = T(_("Rated %1"), tostring(status.rating))
+    end
+
+    local actions = {}
+    local function add(text, item, extra)
+      local action = { text = text, enabled = enabled(item), run = function() run(item) end }
+      for k, v in pairs(extra or {}) do action[k] = v end
+      actions[#actions + 1] = action
+    end
+
+    if linked then
+      add(_("Status"), status_item)
+      add(_("Set page"), pages_item)
+      add(_("Rating"), rating_item)
+      add(_("Add a note"), note_item)
+      actions[#actions + 1] = {
+        text = _("Details"), enabled = self.enabled,
+        run = function()
+          self:withWifiThen(function()
+            self.dialog_manager:showBookDetail(self.settings:getLinkedBookId(), self.settings:getLinkedEditionId())
+          end, true)
+        end,
+      }
+      actions[#actions + 1] = {
+        text = _("Reviews"), enabled = self.enabled,
+        run = function()
+          self:withWifiThen(function()
+            self.dialog_manager:showReviews(self.settings:getLinkedBookId())
+          end, true)
+        end,
+      }
+      add(_("Change edition"), edition_item)
+      add(_("Settings"), settings_item)
+    else
+      add(_("Link this book"), link_item, { primary = true, wide = true })
+      add(_("Settings"), settings_item, { wide = true })
+    end
+
+    return {
+      title = title,
+      linked = linked,
+      pills = pills,
+      line = #bits > 0 and table.concat(bits, "  \194\183  ") or nil,
+      track = linked and {
+        checked = self.settings:syncEnabled(),
+        toggle = function() self.settings:setSync(not self.settings:syncEnabled()) end,
+      } or nil,
+      actions = actions,
+    }
+  end
+
+  if self.settings:bookLinked() then self.cache:cacheUserBook() end
+  panel = require("hardcover/lib/ui/reader_panel").show { model = model }
+  return panel
+end
+
 -- Two menus from one definition, because the reader and the file browser have
 -- different jobs.
 --
