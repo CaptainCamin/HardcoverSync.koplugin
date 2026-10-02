@@ -69,8 +69,15 @@ return {
     -- the search button is at the top, above the cards, and the cards still fit
     local order = {}
     for i, node in ipairs(emu:screenNodes()) do order[node.text] = order[node.text] or i end
-    assert(order["Search books"] and order["Currently reading"]
-      and order["Search books"] < order["Currently reading"], "the search button is not above the cards")
+    -- on the "Currently reading" line, after it, and small (the text nodes carry
+    -- no coordinates here, so the order they are drawn in and the button's own
+    -- rectangle are what can be checked)
+    assert(order["Currently reading"] and order["Search books"]
+      and order["Currently reading"] < order["Search books"], "the search button is not after the heading")
+    local button = manager.home_dialog.search_button
+    assert(button and button.dimen and button.dimen.w < require("device").screen:getWidth() / 2,
+      "the search button is wide again")
+    assert(button.dimen.h < require("device").screen:scaleBySize(60), "the search button is tall again")
 
     local rows = dialog.rows
     assert(#rows == 4 and rows[1].title == "Currently Reading",
