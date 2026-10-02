@@ -1231,6 +1231,8 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
     -- only when the Z-library plugin is there: no button that does nothing
     on_zlibrary = Zlibrary.available(self.ui) and function(d) self:searchZlibrary(d) end or nil,
     on_shelf = function(d) self:chooseShelf(d) end,
+    -- tapping your rating: works offline, the rating waits to be sent
+    on_rating = function(d) self:rateBook(d) end,
     -- only when signed in with OAuth (the write scope is an OAuth thing)
     on_lists = self:canChooseLists() and function(d) self:chooseLists(d) end or nil,
     -- these open on top of the details, so closing them comes back here
@@ -1256,7 +1258,7 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
   -- What a shelf row already knows, shown when the network cannot supply the
   -- full record. Book level only: edition fields are not on a shelf row.
   local function showSaved()
-    dialog:setDetail(Shelf.detailFromEntry(saved_entry()))
+    dialog:setDetail(self:withPendingRating(Shelf.detailFromEntry(saved_entry())))
     StatusDialogs.info(_("Offline: showing saved details"))
     if done_callback then
       done_callback()
@@ -1298,7 +1300,7 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
       return
     end
 
-    dialog:setDetail(detail)
+    dialog:setDetail(self:withPendingRating(detail))
     if done_callback then
       done_callback()
     end
@@ -1647,6 +1649,57 @@ function DialogManager:forgetShelves(old_status_id, new_status_id)
   if old_status_id then ids[#ids + 1] = old_status_id end
   if new_status_id then ids[#ids + 1] = new_status_id end
   self.shelf_cache:invalidate(User:getId(), ids)
+end
+
+-- A rating set offline and not yet sent shows in place of the one on record.
+function DialogManager:withPendingRating(detail)
+  local queue = self.rating_queue
+  local waiting = queue and detail and detail.user_book_id and queue:get(detail.user_book_id)
+  if waiting then detail.user_rating = waiting > 0 and waiting or nil end
+  return detail
+end
+
+-- Rate the book on the details screen. The rating is shown at once and kept in
+-- the rating queue, so it works without a connection; it is sent now if there is
+-- one, or when the connection is back.
+function DialogManager:rateBook(dialog)
+  local detail = dialog.detail
+  if not (detail and detail.book) then return end
+
+  local queue = self.rating_queue
+  if not (detail.user_book_id and queue) then
+    StatusDialogs.info(_("Put this book on a shelf to rate it."))
+    return
+  end
+
+  local rating = tonumber(detail.user_rating)
+  local SpinWidget = require("ui/widget/spinwidget")
+  UIManager:show(SpinWidget:new {
+    ok_always_enabled = rating == nil,
+    value = rating or 2.5,
+    value_min = 0,
+    value_max = 5,
+    value_step = 0.5,
+    value_hold_step = 2,
+    precision = "%.1f",
+    ok_text = _("Save"),
+    title_text = _("Set Rating"),
+    -- 0 clears the rating
+    callback = function(spin)
+      queue:queue(detail.user_book_id, spin.value)
+      if UIManager:isWidgetShown(dialog) then dialog:setRating(spin.value) end
+      if Network.connected() then
+        if self.flush_goals then self.flush_goals() end
+      else
+        StatusDialogs.info(_("You're offline. Your rating is kept and will be sent when you're connected."))
+      end
+    end,
+  })
+end
+
+-- A queued rating went through: the saved shelves show the old one.
+function DialogManager:ratingSent(_user_book_id, user_book)
+  self:forgetShelves(user_book and user_book.status_id, nil)
 end
 
 function DialogManager:saveShelf(dialog, status_id)

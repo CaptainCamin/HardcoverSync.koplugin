@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.1
+## 1.2.2
 
 ### Fixed
 
@@ -9,6 +9,12 @@ Found by sending real goal requests to Hardcover for the first time:
 - Making a goal works. Hardcover requires a `conditions` field on every goal request, and the plugin never sent one, so a new goal was refused.
 - Archiving a goal works. Hardcover wants the whole goal sent with the archive flag, not just the flag.
 - Editing a goal no longer shows 0 progress until the next refresh: Hardcover answers a change without the goal, so the plugin now reads the goal back. A goal's own filters (set on the website) are kept when you edit it.
+
+## 1.2.1
+
+### Added
+
+- Tap "your rating" on a book's details screen to rate it. It works offline: the rating shows straight away, is kept on the device, and is sent when you reconnect (or with Sync now). Setting it to 0 clears it. The book needs to be on one of your shelves.
 
 ## 1.2.0
 
