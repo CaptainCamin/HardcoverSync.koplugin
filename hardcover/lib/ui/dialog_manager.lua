@@ -14,6 +14,7 @@ local BookSearch = require("hardcover/lib/book_search")
 local Home = require("hardcover/lib/home")
 local Reviews = require("hardcover/lib/reviews")
 local Shelf = require("hardcover/lib/shelf")
+local Zlibrary = require("hardcover/lib/zlibrary")
 local User = require("hardcover/lib/user")
 
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
@@ -757,6 +758,8 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
     detail = nil,
     loading = true,
     on_reviews = function() self:showReviews(book_id) end,
+    -- only when the Z-library plugin is there: no button that does nothing
+    on_zlibrary = Zlibrary.available(self.ui) and function(d) self:searchZlibrary(d) end or nil,
     on_shelf = function(d) self:chooseShelf(d) end,
   }
 
@@ -822,6 +825,24 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
 end
 
 --
+-- Search for the book on screen in the Z-library plugin (a separate plugin, found
+-- by what it can do). Its own results screen opens on top of this one.
+function DialogManager:searchZlibrary(dialog)
+  local detail = dialog and dialog.detail
+  -- the details carry authors as contributions: the summary joins them
+  local summary = detail and detail.book and Shelf.detailSummary(detail) or {}
+  local ok, why = Zlibrary.search(self.ui, { title = summary.title, authors = summary.authors })
+  if ok then return end
+
+  if why == "not_installed" then
+    StatusDialogs.info(_("The Z-library plugin is not installed or not enabled."))
+  elseif why == "no_title" then
+    StatusDialogs.info(_("This book has no title to search for."))
+  else
+    StatusDialogs.info(_("Could not open the Z-library search."))
+  end
+end
+
 -- Other readers' reviews of a book, opened from its details screen.
 --
 -- Nothing is fetched until this is called, and then one request per page of

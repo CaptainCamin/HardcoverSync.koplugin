@@ -147,6 +147,9 @@ return {
     reviews, so try the ones to hand and settle for an empty answer.
     ]]
     local Reviews = require("hardcover/lib/reviews")
+    -- the shelves above used up the burst allowance (10 requests, then one a
+    -- second): let it refill so a 429 is not mistaken for a broken screen
+    os.execute("sleep 12")
     local review_book
     for _, id in ipairs({ first_book_id, series_book_id }) do
       if id and not review_book then
@@ -172,7 +175,8 @@ return {
         top = UIManager:getTopmostVisibleWidget()
         if not (top and top.name == "hardcover_reviews_dialog" and not top.message) then os.execute("sleep 1") end
       until (top and top.name == "hardcover_reviews_dialog" and not top.message) or os.time() > dialog_deadline
-      assert(top and top.name == "hardcover_reviews_dialog", "the reviews screen did not open")
+      assert(top and top.name == "hardcover_reviews_dialog", "the reviews screen did not open; on top: "
+        .. tostring(top and top.name) .. " / " .. tostring(top and top.text))
       assert(not top.message or top.message == "No reviews yet", "the reviews screen is still loading")
       emu:shot("live_reviews")
       emu:closeAll()

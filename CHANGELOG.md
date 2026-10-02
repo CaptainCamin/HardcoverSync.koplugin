@@ -4,6 +4,12 @@
 
 ### Added
 
+* **Search in Z-library** on the book details screen, beside Reviews, when the Z-library plugin
+  ([ZlibraryKO/zlibrary.koplugin](https://github.com/ZlibraryKO/zlibrary.koplugin)) is installed: it runs that
+  plugin's own search for the book's title and first author, and its results screen opens on top. With no Z-library
+  plugin there is no button. It relies on that plugin's internals (it has no public API), so a future version of it
+  may need this adjusting; if its search cannot be started it opens its search screen with the text filled in
+  instead.
 * Read other people's reviews of a book. The book details screen has a **Reviews** button under the description. It
   opens a full-screen list, most liked first, ten to a page: the reader's name (or "A reader" when their account is
   private), their rating (like `4.5*`), the likes, and the start of the review. Long reviews end in "Read more" and

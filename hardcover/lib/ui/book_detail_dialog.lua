@@ -42,6 +42,8 @@ local BookDetailDialog = FocusManager:extend {
   detail = nil,
   -- called with no arguments when Reviews is tapped; no callback, no button
   on_reviews = nil,
+  -- present only when the Z-library plugin is installed (see hardcover/lib/zlibrary.lua)
+  on_zlibrary = nil,
   width = nil,
   height = nil,
 }
@@ -320,19 +322,39 @@ function BookDetailDialog:init()
   -- right under About; it scrolls with the page, so its tap is cut to the
   -- visible area (see viewport.lua) or it could catch taps meant for Close.
   self.reviews_button = nil
-  if self.on_reviews then
-    self.reviews_button = Button:new {
-      text = _("Reviews"),
-      width = math.floor(width * 0.5),
+  self.zlibrary_button = nil
+  local extras = {}
+  local gap = 12
+  local share = self.on_reviews and self.on_zlibrary and 0.46 or 0.5
+  local function extra_button(text, field, handler, fraction)
+    local button = Button:new {
+      text = text,
+      width = math.floor(width * fraction),
       text_font_size = 18,
       bordersize = Size.border.thin,
       callback = function()
-        if self.on_reviews then self.on_reviews() end
+        local fn = self[handler]
+        if fn then fn(self) end
       end,
     }
-    Viewport.limitButton(self.reviews_button, function() return self.scroll and self.scroll.dimen end)
+    Viewport.limitButton(button, function() return self.scroll and self.scroll.dimen end)
+    self[field] = button
+    extras[#extras + 1] = button
+  end
+  if self.on_reviews then
+    extra_button(_("Reviews"), "reviews_button", "on_reviews", share)
+  end
+  if self.on_zlibrary then
+    extra_button(_("Search in Z-library"), "zlibrary_button", "on_zlibrary", self.on_reviews and 0.52 or 0.6)
+  end
+  if #extras > 0 then
+    local row = HorizontalGroup:new {}
+    for i, button in ipairs(extras) do
+      if i > 1 then table.insert(row, HorizontalSpan:new { width = gap }) end
+      table.insert(row, button)
+    end
     add(VerticalSpan:new { width = 14 })
-    add(self.reviews_button)
+    add(row)
   end
 
   -- "More in this series": a strip of covers, paged with arrows; tapping one
@@ -426,8 +448,11 @@ function BookDetailDialog:init()
   if self.carousel and self.carousel.paged then
     table.insert(self.layout, { self.carousel.prev, self.carousel.next })
   end
-  if self.reviews_button then
-    table.insert(self.layout, { self.reviews_button })
+  if self.reviews_button or self.zlibrary_button then
+    local row = {}
+    if self.reviews_button then row[#row + 1] = self.reviews_button end
+    if self.zlibrary_button then row[#row + 1] = self.zlibrary_button end
+    table.insert(self.layout, row)
   end
   table.insert(self.layout, { shelf_button, close_button })
 

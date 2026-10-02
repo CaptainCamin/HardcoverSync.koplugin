@@ -299,9 +299,13 @@ never in a real installation.
 ]]
 function M.real_settings(emu, ui)
   local HardcoverSettings = require("hardcover/lib/hardcover_settings")
-  return HardcoverSettings:new(
+  local settings = HardcoverSettings:new(
     emu.DataStorage:getSettingsDir() .. "/hardcoversync_settings.lua",
     ui or emu:stub_ui())
+  -- The emulated settings file outlives a run, and the live scenario stores the
+  -- real account's id in it: every fixture scenario must start as the fixture user.
+  settings:updateSetting(require("hardcover/lib/constants/settings").USER_ID, M.USER_ID)
+  return settings
 end
 
 --[[--

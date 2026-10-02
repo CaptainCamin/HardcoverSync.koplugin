@@ -652,13 +652,13 @@ check("Reviews: a button under About that calls back, and none without a callbac
   }
   assert(d.reviews_button, "no Reviews button")
   assert(d.reviews_button.text == "Reviews")
-  assert(contains(d.content_group, d.reviews_button), "the button is not in the page")
-  -- below About: after the description, not before it
+  -- below About: after the description, not before it (the buttons sit in a row)
   local pos = {}
   for i, child in ipairs(d.content_group) do
     if child == d.description_text then pos.about = i end
-    if child == d.reviews_button then pos.button = i end
+    if child == d.reviews_button or contains(child, d.reviews_button) then pos.button = i end
   end
+  assert(pos.button, "the button is not in the page")
   assert(pos.about and pos.button and pos.button > pos.about, "the button is not below About")
   d.reviews_button.callback()
   assert(opened == 1, "tapping it did not open the reviews")
@@ -667,6 +667,32 @@ check("Reviews: a button under About that calls back, and none without a callbac
   -- still there after the series arrives and the body is rebuilt
   d:setSeries(nil, nil)
   assert(d.reviews_button, "the rebuild lost the button")
+end)
+
+print("\n== the Z-library button ==")
+
+check("there is a Z-library button only when there is something to hand the search to", function()
+  local none = BookDetailDialog:new { detail = detail({ title = "T", description = "About it." }) }
+  assert(none.zlibrary_button == nil, "a button that would do nothing")
+  local got
+  local d = BookDetailDialog:new {
+    detail = detail({ title = "T", description = "About it." }),
+    on_zlibrary = function(dialog) got = dialog end,
+  }
+  assert(d.zlibrary_button and d.zlibrary_button.text == "Search in Z-library")
+  assert(contains(d.content_group, d.zlibrary_button) == false, "the button should sit in a row, not loose in the page")
+  d.zlibrary_button.callback()
+  assert(got == d, "the handler was not given the dialog")
+end)
+
+check("it shares a row with Reviews, and both survive a rebuild", function()
+  local d = BookDetailDialog:new {
+    detail = detail(FULL), on_reviews = function() end, on_zlibrary = function() end,
+  }
+  assert(d.reviews_button and d.zlibrary_button)
+  assert(d.reviews_button.width + d.zlibrary_button.width < d.content_width, "the two buttons do not fit one row")
+  d:setSeries(nil, nil)
+  assert(d.reviews_button and d.zlibrary_button, "the rebuild lost a button")
 end)
 
 print("\n== the shelf button ==")
