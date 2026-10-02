@@ -513,6 +513,23 @@ function M.install(opts)
     return entries, nil, total > offset + limit
   end
 
+  -- Books like this: M.similar_ids is the ranking; the books are the shelf books
+  Api.getSimilarBooks = function(_, book_id)
+    record("getSimilarBooks")
+    calls[#calls].args = { book_id = book_id }
+    if M.similar_fail then return nil, { completed = false } end
+    local entries = {}
+    for _, i in ipairs(M.similar_ids or {}) do
+      local b = M.shelf_books[i]
+      if b then
+        local e = require("hardcover/lib/shelf").normalizeEntry({ book = b })
+        e.user_book_id = nil
+        entries[#entries + 1] = e
+      end
+    end
+    return entries
+  end
+
   -- Adding a book to lists. The writes are recorded and kept (so a second
   -- getBookLists sees them), and fail with M.list_write_fail when it is set (a
   -- string, or a table such as { errors = { "insufficient_scope" }, status = 403 }).
