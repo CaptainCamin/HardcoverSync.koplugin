@@ -12,12 +12,14 @@ local UIManager = require("ui/uimanager")
 local NetworkMgr = require("ui/network/manager")
 local logger = require("logger")
 
+local ConfirmBox = require("ui/widget/confirmbox")
 local InfoMessage = require("ui/widget/infomessage")
 local SpinWidget = require("ui/widget/spinwidget")
 
 local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
 local Github = require("hardcover/lib/github")
+local Updater = require("hardcover/lib/updater")
 local User = require("hardcover/lib/user")
 local _t = require("hardcover/lib/table_util")
 
@@ -272,6 +274,95 @@ function HardcoverMenu:getSubMenuItems(book_view)
   end)
 end
 
+-- Updates: look for a newer release and install it. The result of the daily
+-- background check (see DialogManager:checkForUpdate) is remembered in the
+-- settings, so the row says so without asking GitHub again.
+function HardcoverMenu:installUpdate(release)
+  local dir = Updater.pluginDir()
+  if not dir then
+    UIManager:show(InfoMessage:new { text = _("Can't tell where the plugin is installed.") })
+    return
+  end
+  local progress = InfoMessage:new { text = _("Downloading the update…"), timeout = 120 }
+  UIManager:show(progress)
+  UIManager:nextTick(function()
+    local ok, installed, err = pcall(Updater.install, release, dir)
+    UIManager:close(progress)
+    if not ok then installed, err = false, installed end
+    if not installed then
+      UIManager:show(InfoMessage:new { text = T(_("The update failed: %1"), tostring(err)) })
+      return
+    end
+    self.settings:updateSetting(SETTING.UPDATE_AVAILABLE, false)
+    if Device:canRestart() then
+      UIManager:show(ConfirmBox:new {
+        text = T(_("Hardcover Sync %1 is installed. Restart KOReader to use it?"), release.version),
+        ok_text = _("Restart"),
+        ok_callback = function() UIManager:restartKOReader() end,
+      })
+    else
+      UIManager:show(InfoMessage:new {
+        text = T(_("Hardcover Sync %1 is installed. Restart KOReader to use it."), release.version),
+      })
+    end
+  end)
+end
+
+function HardcoverMenu:showRelease(release)
+  if not release.version then
+    UIManager:show(InfoMessage:new {
+      text = T(_("Hardcover Sync is up to date (v%1)."), table.concat(VERSION, ".")),
+    })
+    return
+  end
+  local notes = release.notes and release.notes ~= "" and ("\n\n" .. release.notes:sub(1, 600)) or ""
+  UIManager:show(ConfirmBox:new {
+    text = T(_("Version %1 is available (you have v%2).%3"), release.version, table.concat(VERSION, "."), notes),
+    ok_text = release.zip_url and _("Install") or _("OK"),
+    cancel_text = _("Later"),
+    ok_callback = function()
+      if release.zip_url then self:installUpdate(release) end
+    end,
+  })
+end
+
+function HardcoverMenu:getUpdateMenuItems()
+  return {
+    {
+      text_func = function()
+        local found = Updater.available(self.settings, VERSION)
+        if found then return T(_("Update available: v%1"), found.version) end
+        return _("Check for updates")
+      end,
+      callback = function()
+        local checking = InfoMessage:new { text = _("Checking for updates…"), timeout = 10 }
+        UIManager:show(checking)
+        Github:latestReleaseAsync(function(release)
+          UIManager:close(checking)
+          if not release then
+            UIManager:show(InfoMessage:new { text = _("Couldn't reach GitHub. Try again when you're online.") })
+            return
+          end
+          Updater.remember(self.settings, release)
+          self:showRelease(release)
+        end)
+      end,
+      keep_menu_open = true,
+    },
+    {
+      text = _("Check for updates automatically"),
+      checked_func = function()
+        return self.settings:readSetting(SETTING.UPDATE_CHECK) ~= false
+      end,
+      callback = function()
+        self.settings:updateSetting(SETTING.UPDATE_CHECK,
+          self.settings:readSetting(SETTING.UPDATE_CHECK) == false)
+      end,
+      keep_menu_open = true,
+    },
+  }
+end
+
 -- About: version, project, settings file. Lives in the settings screen, which is
 -- where the file browser's Hardcover entry (it opens Home) puts everything that
 -- used to be the first menu screen.
@@ -474,6 +565,9 @@ function HardcoverMenu:getHomeSettingsItems(opts)
     items[#items + 1] = account
   end
   for _, item in ipairs(self:getSettingsSubMenuItems()) do
+    items[#items + 1] = item
+  end
+  for _, item in ipairs(self:getUpdateMenuItems()) do
     items[#items + 1] = item
   end
   if opts.about ~= false then

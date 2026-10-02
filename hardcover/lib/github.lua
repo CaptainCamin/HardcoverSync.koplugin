@@ -49,7 +49,12 @@ function Github.newerVersion(tag, current)
   return nil
 end
 
-function Github:newestRelease()
+--
+-- The newest release, or nil when GitHub can't be reached or answers oddly:
+-- { tag, version (only when newer than the installed one), notes, zip_url }.
+-- Blocks for at most RELEASE_TIMEOUT seconds; callers use the Async wrapper.
+--
+function Github:latestRelease()
   local responseBody = {}
 
   -- A timeout is essential. This request used to have none, so on a device with
@@ -59,7 +64,7 @@ function Github:newestRelease()
   -- until something forces a repaint.
   socketutil:set_timeout(RELEASE_TIMEOUT, RELEASE_TIMEOUT)
 
-  local ok, res, code, responseHeaders = pcall(http.request, {
+  local ok, res, code = pcall(http.request, {
     url = RELEASE_API,
     sink = ltn12.sink.table(responseBody),
   })
@@ -75,12 +80,36 @@ function Github:newestRelease()
     if not decoded_ok or type(data) ~= "table" or #data == 0 then
       return nil
     end
-    local tag = data[1].tag_name
+    local release = data[1]
+    local tag = release.tag_name
     if type(tag) ~= "string" then
       return nil
     end
-    return Github.newerVersion(tag, VERSION)
+
+    local zip_url
+    if type(release.assets) == "table" then
+      for _, asset in ipairs(release.assets) do
+        if type(asset) == "table" and type(asset.name) == "string"
+          and asset.name:match("%.koplugin%.zip$") then
+          zip_url = asset.browser_download_url
+          break
+        end
+      end
+    end
+
+    return {
+      tag = tag,
+      version = Github.newerVersion(tag, VERSION),
+      notes = type(release.body) == "string" and release.body or nil,
+      zip_url = type(zip_url) == "string" and zip_url or nil,
+    }
   end
+end
+
+-- The version of the newest release if it is newer than the installed one.
+function Github:newestRelease()
+  local release = self:latestRelease()
+  return release and release.version or nil
 end
 
 --
@@ -90,6 +119,13 @@ end
 -- appear immediately and fill in the version comparison if the answer arrives.
 -- See the timeout note above for what the blocking version cost.
 --
+function Github:latestReleaseAsync(callback)
+  UIManager:nextTick(function()
+    local ok, release = pcall(Github.latestRelease, Github)
+    callback(ok and release or nil)
+  end)
+end
+
 function Github:newestReleaseAsync(callback)
   UIManager:nextTick(function()
     -- never let a bad answer from GitHub raise out of a scheduled task

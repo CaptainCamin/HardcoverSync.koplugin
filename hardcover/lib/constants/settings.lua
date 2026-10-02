@@ -16,6 +16,9 @@ local Settings = {
     FREQUENCY = "frequency",
     PROGRESS = "progress",
   },
+  UPDATE_AVAILABLE = "update_available",
+  UPDATE_CHECK = "update_check",
+  UPDATE_LAST_CHECK = "update_last_check",
   USER_ID = "user_id",
 }
 
