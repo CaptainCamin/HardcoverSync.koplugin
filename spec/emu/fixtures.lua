@@ -62,13 +62,19 @@ local function book_row(id, title, year, pages, opts)
       height = 450,
     } or nil,
     book_series = opts.series and {
-      { position = opts.series_position or 2, series = { name = opts.series } },
+      { position = opts.series_position or 2,
+        series = { id = opts.series_id or (100 + #opts.series), name = opts.series } },
     } or {},
   }
 end
 
 M.books = {
-  book_row(101, "The Dispossessed", 1974, 341, { author = "Ursula K. Le Guin" }),
+  book_row(101, "The Dispossessed", 1974, 341, {
+    author = "Ursula K. Le Guin",
+    series = "Hainish Cycle",
+    series_id = 12,
+    series_position = 5,
+  }),
   book_row(102, "A Wizard of Earthsea", 1968, 183, {
     author = "Ursula K. Le Guin",
     series = "Earthsea",
@@ -77,7 +83,8 @@ M.books = {
   book_row(103, "The Left Hand of Darkness", 1969, 304, {
     author = "Ursula K. Le Guin",
     series = "Hainish Cycle",
-    series_position = 2,
+    series_id = 12,
+    series_position = 4,
   }),
   book_row(104, "The Tombs of Atuan", 1971, 192, {
     author = "Ursula K. Le Guin",
@@ -100,7 +107,8 @@ M.books = {
   book_row(109, "A Book With A Very Long Description", 2001, 612, {
     author = "Fixture Author",
     series = "The Long Series",
-    series_position = 3,
+    series_id = 14,
+    series_position = 12,
     description = string.rep(
       "This paragraph stands in for a publisher's blurb, which on a real book can run to many lines. " ..
       "It repeats so the page is tall enough to scroll, and so a layout that is a few pixels too wide " ..
@@ -139,6 +147,39 @@ do
       no_image = (i % 7 == 0), -- no-cover rows land throughout the list
     })
   end
+end
+
+--[[--
+The books of a series, as Api:getSeriesBooks returns them.
+
+Hainish Cycle is real enough to read: some read, one being read, one wanted, the
+rest not on a shelf. The long series has 24 books, with the fixture book 109 at
+position 12, so the card has to show a window with "earlier" and "more" rows.
+]]
+M.series_books = {}
+do
+  local hainish = {
+    { 301, "Rocannon's World", 1, 3 }, { 302, "Planet of Exile", 2, 3 },
+    { 303, "City of Illusions", 3, 2 }, { 103, "The Left Hand of Darkness", 4, 2 },
+    { 101, "The Dispossessed", 5, 1 }, { 304, "The Word for World Is Forest", 6, nil },
+    { 305, "The Telling", 7, nil }, { 306, "Four Ways to Forgiveness", 8, nil },
+  }
+  local books = {}
+  for _, b in ipairs(hainish) do
+    books[#books + 1] = { book_id = b[1], title = b[2], position = b[3], status_id = b[4] }
+  end
+  M.series_books[12] = { id = 12, name = "Hainish Cycle", is_completed = true, books = books }
+
+  local long_books = {}
+  for i = 1, 24 do
+    long_books[i] = {
+      book_id = (i == 12) and 109 or (400 + i),
+      title = (i == 12) and "A Book With A Very Long Description" or ("Volume " .. i .. " of the Long Series"),
+      position = i,
+      status_id = (i < 12) and 3 or nil,
+    }
+  end
+  M.series_books[14] = { id = 14, name = "The Long Series", is_completed = false, books = long_books }
 end
 
 -- how many books are on each shelf, as the home screen's count query returns them
@@ -249,6 +290,11 @@ function M.install(opts)
     -- A short page tells the dialog there is nothing more to fetch.
     local has_more = (#source > offset + limit)
     return entries, nil, has_more
+  end
+
+  Api.getSeriesBooks = function(_, series_id, user_id)
+    record("getSeriesBooks")
+    return M.series_books[series_id]
   end
 
   Api.getShelfCounts = function(_, user_id, status_ids)

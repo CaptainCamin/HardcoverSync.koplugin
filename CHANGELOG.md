@@ -77,6 +77,13 @@
 
 ### Added
 
+* Book details now shows the rest of the book's series as a card: "More in <series>", how many books it has
+  and whether it is complete, and one row per book with your own status on it (Read, Reading, Want to Read).
+  Tapping a row opens that book's details on top, so Close brings you back. The book on screen is shown bold
+  and is not tappable. A long series is shown as a window around the book on screen ("6 earlier", "5 more").
+  The series is fetched in the background after the details appear, and is left out offline.
+* A generic book icon is shown where the cover goes, for a book with no cover, while a cover loads, and when it
+  cannot be fetched, so every book's details have the same layout.
 * A new book details layout: the cover sits beside the title, author, series and a line of facts (year, pages,
   format); under it your own status and rating, then what the community makes of the book; then the
   description under an "About" heading, and the remaining details (publisher, language, ISBN) under "Details".

@@ -68,6 +68,7 @@ local widgets = {
   ["ui/widget/textboxwidget"] = widget("TextBox"),
   ["ui/widget/button"] = widget("Button"),
   ["ui/widget/imagewidget"] = widget("Image"),
+  ["ui/widget/iconwidget"] = widget("Icon"),
   ["ui/renderimage"] = { renderImageData = function() return _G.FAKE_BB end },
   ["ui/widget/horizontalgroup"] = widget("HGroup"),
   ["ui/widget/horizontalspan"] = widget("HSpan"),
@@ -185,7 +186,8 @@ print("\n== the header ==")
 check("the title is bold and wraps", function()
   local d = BookDetailDialog:new { detail = detail({ title = string.rep("Long ", 40) }) }
   assert(d.title_text.kind == "TextBox" and d.title_text.bold == true)
-  assert(d.title_text.width == d.content_width, "no cover, so it should span the content width")
+  local cover_w = math.floor(d.content_width * 0.30)
+  assert(d.title_text.width == d.content_width - cover_w - 15, "title width " .. tostring(d.title_text.width))
 end)
 
 check("with a cover, the text sits beside it in the width that is left", function()
@@ -202,21 +204,27 @@ check("the cover box has a fixed size, so the text does not move when the pictur
   assert(box.w == math.floor(d.content_width * 0.30) and box.h == math.floor(box.w * 1.5), "box " .. box.w .. "x" .. box.h)
 end)
 
-check("no cover, no box and no fetch", function()
+check("no cover: a generic placeholder in the same box, and nothing is fetched", function()
   local loader = fakeLoader()
   local d = BookDetailDialog:new { detail = detail({ title = "T" }), image_loader = loader }
-  assert(d.cover_cell == nil and #loader.urls == 0)
-  assert(d.content_group[1] == d.content_group[1] and d.content_group[1].kind ~= "HGroup", "header has a cover column with no cover")
+  assert(d.cover_cell, "no cover box")
+  assert(#loader.urls == 0, "fetched a cover for a book that has none")
+  local icon = d.cover_cell[1][1]
+  assert(icon.kind == "Icon" and icon.icon == "book.opened", "the placeholder is not the book icon")
+  assert(d.content_group[1].kind == "HGroup", "the header layout changed for a book with no cover")
 end)
 
-check("content is narrower than the dialog, leaving room for the scroll bars", function()
-  -- ScrollableContainer calls content wider than its viewport "scrollable
-  -- sideways" and draws a horizontal scroll bar; the vertical bar takes
-  -- 3 * scroll_bar_width off the viewport. Content as wide as the dialog is
-  -- always too wide by that.
+check("the placeholder is the same size as a real cover, so the layout is the same", function()
+  local without = BookDetailDialog:new { detail = detail({ title = "T" }), image_loader = fakeLoader() }
+  local with = BookDetailDialog:new { detail = detail(FULL), image_loader = fakeLoader() }
+  assert(without.cover_cell[1].dimen.w == with.cover_cell[1].dimen.w
+    and without.cover_cell[1].dimen.h == with.cover_cell[1].dimen.h, "box sizes differ")
+  assert(without.title_text.width == with.title_text.width, "the text column moves with the cover")
+end)
+
+check("while a cover loads, the box shows the placeholder", function()
   local d = BookDetailDialog:new { detail = detail(FULL), image_loader = fakeLoader() }
-  assert(d.content_width < d.width, "content is as wide as the dialog (" .. d.content_width .. ")")
-  assert(d.width - d.content_width >= 18, "gutter is only " .. (d.width - d.content_width))
+  assert(d.cover_cell[1][1].kind == "Icon", "the box is empty until the picture arrives")
 end)
 
 print("\n== the cover ==")
@@ -367,6 +375,129 @@ check("a rating of zero is not shown as a community rating", function()
   assert(found, "a real rating disappeared")
 end)
 
+print("\n== the series card ==")
+
+local function seriesOf(n, opts)
+  opts = opts or {}
+  local books = {}
+  for i = 1, n do
+    books[i] = { book_id = 100 + i, title = "Book " .. i, position = i, status_id = (i == 1) and 3 or nil }
+  end
+  return { name = opts.name or "The Saga", is_completed = opts.is_completed, books = books }
+end
+
+check("every book is a row, the one on screen is marked, and your status shows", function()
+  local card = Shelf.seriesCard(seriesOf(4, { is_completed = true }), 103)
+  assert(card.title == "More in The Saga", card.title)
+  assert(card.subtitle == "4 books \194\183 complete", card.subtitle)
+  assert(#card.rows == 4)
+  assert(card.rows[1].text == "#1  Book 1 \194\183 Read", card.rows[1].text)
+  assert(card.rows[3].current == true and card.rows[3].text == "#3  Book 3 \194\183 this book", card.rows[3].text)
+  assert(card.rows[2].current == false and card.rows[2].book_id == 102)
+end)
+
+check("an ongoing series says so; an unknown one says nothing", function()
+  assert(Shelf.seriesCard(seriesOf(3, { is_completed = false }), 101).subtitle:find("ongoing", 1, true))
+  assert(Shelf.seriesCard(seriesOf(3), 101).subtitle == "3 books")
+end)
+
+check("a fractional position keeps its decimal", function()
+  local series = { name = "S", books = { { book_id = 1, title = "A", position = 2.5 }, { book_id = 2, title = "B", position = 3 } } }
+  assert(Shelf.seriesCard(series, 2).rows[1].text:find("#2.5", 1, true), Shelf.seriesCard(series, 2).rows[1].text)
+end)
+
+check("a book with no position still gets a row", function()
+  local series = { name = "S", books = { { book_id = 1, title = "A" }, { book_id = 2, title = "B", position = 1 } } }
+  assert(#Shelf.seriesCard(series, 2).rows == 2)
+end)
+
+check("there is no card when there is nothing to link to", function()
+  assert(Shelf.seriesCard(seriesOf(1), 101) == nil, "a card for a series of one")
+  assert(Shelf.seriesCard({ name = "S", books = {} }, 1) == nil)
+  assert(Shelf.seriesCard(nil, 1) == nil)
+  assert(Shelf.seriesCard({ name = "S" }, 1) == nil)
+end)
+
+check("a long series is a window around the current book", function()
+  local card = Shelf.seriesCard(seriesOf(30), 115, 10) -- book 115 is #15
+  local books, gaps = 0, {}
+  for _, row in ipairs(card.rows) do
+    if row.gap then gaps[#gaps + 1] = row.text else books = books + 1 end
+  end
+  assert(books == 10, "showed " .. books .. " books")
+  assert(#gaps == 2 and gaps[1]:find("earlier") and gaps[2]:find("more"), table.concat(gaps, ","))
+  local has_current = false
+  for _, row in ipairs(card.rows) do if row.current then has_current = true end end
+  assert(has_current, "the current book fell out of its own window")
+  assert(card.total == 30)
+end)
+
+check("the window stays inside the series at either end", function()
+  local first = Shelf.seriesCard(seriesOf(30), 101, 10)
+  assert(first.rows[1].gap == nil and first.rows[1].book_id == 101, "no gap before the first book")
+  assert(first.rows[#first.rows].gap, "nothing marks the books left out after the window")
+  local last = Shelf.seriesCard(seriesOf(30), 130, 10)
+  assert(last.rows[1].gap and last.rows[#last.rows].book_id == 130, "the window ran past the end")
+end)
+
+check("the series id is read from the book", function()
+  assert(Shelf.seriesId({ book_series = { { position = 1, series = { id = 12, name = "S" } } } }) == 12)
+  assert(Shelf.seriesId({ book_series = { { position = 1, series = { name = "S" } } } }) == nil, "invented an id")
+  assert(Shelf.seriesId({ book_series = {} }) == nil and Shelf.seriesId({}) == nil and Shelf.seriesId(nil) == nil)
+end)
+
+check("the dialog shows the card, and tapping a row opens that book", function()
+  local d = BookDetailDialog:new { detail = detail(FULL), image_loader = fakeLoader() }
+  assert(d.series_card == nil and #d.series_buttons == 0)
+  local opened
+  d:setSeries(Shelf.seriesCard(seriesOf(4), 102), function(id) opened = id end)
+  assert(d.series_card, "the card was not kept")
+  -- the book on screen is not a button; the other three are
+  assert(#d.series_buttons == 3, "buttons: " .. #d.series_buttons)
+  d.series_buttons[1].callback()
+  assert(opened == 101, "opened " .. tostring(opened))
+  d.series_buttons[2].callback()
+  assert(opened == 103, "opened " .. tostring(opened))
+end)
+
+check("the book on screen is not tappable", function()
+  local d = BookDetailDialog:new { detail = detail(FULL), image_loader = fakeLoader() }
+  d:setSeries(Shelf.seriesCard(seriesOf(3), 102), function() end)
+  for _, button in ipairs(d.series_buttons) do
+    assert(button.enabled == true and not button.text:find("this book"), "the current book is a button")
+  end
+end)
+
+check("the rows fit inside the dialog", function()
+  local d = BookDetailDialog:new { detail = detail(FULL), image_loader = fakeLoader() }
+  d:setSeries(Shelf.seriesCard(seriesOf(3), 102), function() end)
+  for _, button in ipairs(d.series_buttons) do
+    assert(button.width <= d.content_width, "a row is wider than the content (" .. button.width .. ")")
+  end
+end)
+
+check("the series rows come before Close in the focus order", function()
+  local d = BookDetailDialog:new { detail = detail(FULL), image_loader = fakeLoader() }
+  d:setSeries(Shelf.seriesCard(seriesOf(4), 102), function() end)
+  assert(#d.layout == 4, "layout rows: " .. #d.layout)
+  assert(d.layout[#d.layout][1].kind == "Button" and d.layout[#d.layout][1].text == "Close", "Close is not last")
+end)
+
+check("clearing the card removes it", function()
+  local d = BookDetailDialog:new { detail = detail(FULL), image_loader = fakeLoader() }
+  d:setSeries(Shelf.seriesCard(seriesOf(4), 102), function() end)
+  d:setSeries(nil)
+  assert(d.series_card == nil and #d.series_buttons == 0)
+end)
+
+check("adding the card keeps the cover (it is rebuilt, not lost)", function()
+  local loader = fakeLoader()
+  local d = BookDetailDialog:new { detail = detail(FULL), image_loader = loader }
+  d:setSeries(Shelf.seriesCard(seriesOf(4), 102), function() end)
+  assert(d.cover_cell, "the cover box disappeared on rebuild")
+  assert(#loader.urls == 2, "the cover is requested again on rebuild (from the cache): " .. #loader.urls)
+end)
+
 print("\n== the query behind it ==")
 
 local captured
@@ -389,11 +520,58 @@ check("a linked edition is looked up by its own id", function()
   assert(not captured.q:find("$bookId", 1, true), "the query still declares an unused $bookId")
 end)
 
+check("the detail queries ask for the series id, so the rest of the series can be fetched", function()
+  captured = nil
+  Api:getBookDetail(7, 1, nil)
+  assert(captured.q:match("series%s*{%s*id%s+name"), "the book query does not ask for series { id name }")
+  Api:getBookDetail(7, 1, 555)
+  assert(captured.q:match("series%s*{%s*id%s+name"), "the edition query does not ask for series { id name }")
+end)
+
 check("with no edition, the book id is used", function()
   captured = nil
   local result = Api:getBookDetail(7, 1, nil)
   assert(result and result.book.title == "T")
   assert(captured.vars.bookId == 7 and captured.vars.editionId == nil)
+end)
+
+print("\n== fetching a series ==")
+
+local function answerSeries(results, err)
+  Api.query = function(_, q, vars) captured = { q = q, vars = vars }; return results, err end
+end
+
+check("it follows Hardcover's recipe for a clean list", function()
+  answerSeries({ series_by_pk = { id = 12, name = "S", is_completed = true, book_series = {} } })
+  Api:getSeriesBooks(12, 1)
+  local q = captured.q
+  assert(captured.vars.seriesId == 12 and captured.vars.userId == 1)
+  assert(q:find("canonical_id: { _is_null: true }", 1, true), "merged duplicates are not excluded")
+  assert(q:find("is_partial_book: { _eq: false }", 1, true), "partial editions are not excluded")
+  assert(q:find("compilation: { _eq: false }", 1, true), "compilations are not excluded")
+  assert(q:find("distinct_on: position", 1, true), "more than one book per position")
+  assert(q:find("order_by: [{ position: asc }, { book: { users_count: desc } }]", 1, true), "the wrong book wins a position")
+end)
+
+check("rows come back flat, with your own status on each", function()
+  answerSeries({ series_by_pk = { id = 12, name = "Hainish Cycle", is_completed = true, book_series = {
+    { position = 1, book = { book_id = 301, title = "Rocannon's World", release_year = 1966, user_books = { { status_id = 3, rating = 4 } } } },
+    { position = 2, book = { book_id = 302, title = "Planet of Exile", user_books = {} } },
+  } } })
+  local series = Api:getSeriesBooks(12, 1)
+  assert(series.name == "Hainish Cycle" and series.is_completed == true and #series.books == 2)
+  assert(series.books[1].book_id == 301 and series.books[1].status_id == 3 and series.books[1].rating == 4)
+  assert(series.books[2].status_id == nil, "invented a status for a book you have not shelved")
+  assert(series.books[1].position == 1)
+end)
+
+check("a failed request returns nothing", function()
+  answerSeries(nil, { completed = false })
+  local series, err = Api:getSeriesBooks(12, 1)
+  assert(series == nil and err ~= nil)
+  answerSeries({ series_by_pk = nil })
+  assert(Api:getSeriesBooks(99, 1) == nil, "a series that does not exist")
+  assert(Api:getSeriesBooks(nil, 1) == nil)
 end)
 
 r.finish()

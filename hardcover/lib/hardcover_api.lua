@@ -703,6 +703,7 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
             book_series {
               position
               series {
+                id
                 name
               }
             }
@@ -738,6 +739,7 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
           book_series {
             position
             series {
+              id
               name
             }
           }
@@ -803,6 +805,79 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
     user_book_id = user_book and user_book.id,
     status_id = user_book and user_book.status_id,
     user_rating = user_book and user_book.rating,
+  }
+end
+
+--
+-- The books in a series, in order, with the reader's own status on each.
+--
+-- Follows Hardcover's own recipe for a clean list (see their guide "Getting All
+-- Books in a Series"): leave out merged duplicates (those with a canonical
+-- book), partial editions and compilations, and take the most popular book at
+-- each position. Returns
+--   { id, name, is_completed, books = { { book_id, title, position,
+--     release_year, status_id, rating }, ... } }
+-- or nil (and the error) when the request fails.
+--
+function HardcoverApi:getSeriesBooks(series_id, user_id)
+  if not series_id then return nil end
+
+  local query = [[
+    query ($seriesId: Int!, $userId: Int!) {
+      series_by_pk(id: $seriesId) {
+        id
+        name
+        is_completed
+        book_series(
+          where: {
+            compilation: { _eq: false }
+            book: { canonical_id: { _is_null: true }, is_partial_book: { _eq: false } }
+          }
+          distinct_on: position
+          order_by: [{ position: asc }, { book: { users_count: desc } }]
+        ) {
+          position
+          book {
+            book_id: id
+            title
+            release_year
+            user_books(where: { user_id: { _eq: $userId } }) {
+              status_id
+              rating
+            }
+          }
+        }
+      }
+    }
+  ]]
+
+  local results, err = self:query(query, { seriesId = series_id, userId = user_id })
+  local series = results and results.series_by_pk
+  if not series then
+    return nil, err
+  end
+
+  local books = {}
+  for _, entry in ipairs(series.book_series or {}) do
+    local book = entry.book
+    if book and book.book_id then
+      local mine = _t.dig(book, "user_books", 1)
+      books[#books + 1] = {
+        book_id = book.book_id,
+        title = book.title,
+        position = entry.position,
+        release_year = book.release_year,
+        status_id = mine and mine.status_id,
+        rating = mine and mine.rating,
+      }
+    end
+  end
+
+  return {
+    id = series.id,
+    name = series.name,
+    is_completed = series.is_completed,
+    books = books,
   }
 end
 

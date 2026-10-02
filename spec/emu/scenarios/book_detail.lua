@@ -142,21 +142,43 @@ return {
     ]]
     local _, typical = build_detail(emu, { book_id = 103, edition_id = 10301 })
     emu:pump()
-    for _, expected in ipairs({ "The Left Hand of Darkness", "Hainish Cycle #2", "Fixture Press", "English" }) do
+    for _, expected in ipairs({ "The Left Hand of Darkness", "Hainish Cycle #4", "Fixture Press", "English" }) do
       emu:expectText(expected)
     end
     assert(typical.cover_bb, "the cover never arrived in its box")
-    emu:shot("book_detail_typical")
     assert_no_sideways_scroll(typical, "the typical book")
 
     --[[--
-    No cover at all (the fixture has no image url): no box is reserved, and
-    nothing is fetched.
+    The series card. The book's own series arrives in the background and is added
+    to the open screen: the book on screen is bold and not tappable, the others
+    show your status on them, and tapping one opens that book on top.
+    ]]
+    assert(typical.series_card, "the series card never arrived")
+    for _, expected in ipairs({ "More in Hainish Cycle", "8 books", "Rocannon's World", "this book", "The Telling" }) do
+      emu:expectText(expected)
+    end
+    emu:shot("book_detail_typical")
+
+    local first = typical.series_buttons[1]
+    assert(first, "the card has no tappable rows")
+    first.callback()
+    emu:pump()
+    local sibling = emu.UIManager:getTopmostVisibleWidget()
+    assert(sibling ~= typical, "tapping a series row did not open that book")
+    assert(emu.UIManager:isWidgetShown(typical), "opening a book from the card closed the one underneath")
+    emu.UIManager:close(sibling)
+    assert(emu.UIManager:getTopmostVisibleWidget() == typical, "closing the sibling did not come back to this book")
+
+    --[[--
+    No cover at all (the fixture has no image url): the same box holds a generic
+    book icon, and nothing is fetched.
     ]]
     local _, bare = build_detail(emu, { book_id = 105 })
     emu:pump()
     emu:expectText("The Hundred Thousand Kingdoms")
-    assert(bare.cover_cell == nil, "a cover box was reserved for a book with no cover")
+    assert(bare.series_card == nil, "a book in no series got a series card")
+    assert(bare.cover_cell, "a book with no cover has no placeholder box")
+    assert(bare.cover_bb == nil, "a picture was rendered for a book with no cover")
     emu:shot("book_detail_nocover")
     assert_no_sideways_scroll(bare, "the book with no cover")
 
@@ -172,6 +194,26 @@ return {
     emu:shot("book_detail_long")
     assert(long.scroll._v_scroll_bar, "the long description did not make the page scroll; lengthen the fixture")
     assert_no_sideways_scroll(long, "the long-description book")
+
+    --[[--
+    A long series is a window around the book on screen, not a second page: the
+    rows it cut off become "N earlier" / "N more".
+    ]]
+    assert(long.series_card and long.series_card.total == 24, "the long series did not load")
+    local texts = {}
+    for _, row in ipairs(long.series_card.rows) do texts[#texts + 1] = row.text end
+    assert(#long.series_card.rows == 12, "expected 10 books and 2 gap rows, got " .. #long.series_card.rows)
+    emu:expectText("earlier")
+    emu:expectText("more")
+
+    -- the series card, scrolled into view: put it first by dropping the long blurb
+    local _, series_demo = build_detail(emu, { book_id = 109 })
+    emu:pump()
+    series_demo.detail.book.description = "A shorter description, so the series card is on the first screen."
+    series_demo:rebuild()
+    emu:pump()
+    emu:shot("book_detail_series_long")
+    assert_no_sideways_scroll(series_demo, "the long series card")
 
     print(string.format("  detail rendered in both menu modes"))
   end,

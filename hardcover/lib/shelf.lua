@@ -323,6 +323,104 @@ function Shelf.detailSummary(detail)
   return summary
 end
 
+--
+-- The id of the series a book belongs to, for fetching the rest of it. Nil when
+-- the book is in no series (or the response did not carry an id).
+--
+function Shelf.seriesId(book)
+  local series = type(book) == "table" and book.book_series
+  if type(series) ~= "table" then return nil end
+  for _, entry in ipairs(series) do
+    local id = _t.dig(entry, "series", "id")
+    if id then return id end
+  end
+  return nil
+end
+
+-- how a book's place in its series reads: 1 -> "#1", 2.5 -> "#2.5"
+local function positionLabel(position)
+  local n = tonumber(position)
+  if not n then return "\226\128\162" end -- a bullet when there is no position
+  return string.format("#%g", n)
+end
+
+-- short enough to sit at the end of a row
+local SHORT_STATUS = {
+  [1] = "Want to Read",
+  [2] = "Reading",
+  [3] = "Read",
+  [5] = "Did Not Finish",
+}
+
+--
+-- The "more in this series" card, as plain rows.
+--
+-- `series` is { name, is_completed, books = { { book_id, title, position,
+-- status_id }, ... } } in series order. Returns nil when there is nothing to
+-- link to (the only book in the series is the one on screen).
+--
+-- A long series is shown as a window around the current book, with "N earlier"
+-- and "N more" rows, so the card stays a card and not a second page.
+--
+--   title     "More in Hainish Cycle"
+--   subtitle  "9 books \194\183 complete"
+--   rows      { { book_id, text, current }, ... }  or  { { gap = true, text } }
+--
+function Shelf.seriesCard(series, current_book_id, max_rows)
+  if type(series) ~= "table" or type(series.books) ~= "table" then return nil end
+  max_rows = max_rows or 10
+
+  local books = series.books
+  local current_index, others = nil, 0
+  for i, book in ipairs(books) do
+    if book.book_id == current_book_id then
+      current_index = i
+    else
+      others = others + 1
+    end
+  end
+  if others == 0 then return nil end
+
+  local rows = {}
+  for i, book in ipairs(books) do
+    local current = book.book_id == current_book_id
+    local text = positionLabel(book.position) .. "  " .. (book.title or UNKNOWN_TITLE)
+    local note = current and "this book" or SHORT_STATUS[book.status_id]
+    if note then text = text .. MIDDOT .. note end
+    rows[i] = { book_id = book.book_id, text = text, current = current }
+  end
+
+  local first, last = 1, #rows
+  if #rows > max_rows then
+    local centre = current_index or 1
+    first = math.max(1, math.min(centre - math.floor(max_rows / 2), #rows - max_rows + 1))
+    last = first + max_rows - 1
+  end
+
+  local shown = {}
+  if first > 1 then
+    shown[#shown + 1] = { gap = true, text = string.format("%d earlier", first - 1) }
+  end
+  for i = first, last do shown[#shown + 1] = rows[i] end
+  if last < #rows then
+    shown[#shown + 1] = { gap = true, text = string.format("%d more", #rows - last) }
+  end
+
+  local subtitle = { string.format("%d books", #rows) }
+  if series.is_completed == true then
+    subtitle[#subtitle + 1] = "complete"
+  elseif series.is_completed == false then
+    subtitle[#subtitle + 1] = "ongoing"
+  end
+
+  return {
+    title = "More in " .. (series.name or "this series"),
+    subtitle = table.concat(subtitle, MIDDOT),
+    rows = shown,
+    total = #rows,
+  }
+end
+
 -- The rows the header does not already say: publisher, language, ISBN, reads.
 local HEADER_LABELS = {
   Author = true, Series = true, Format = true, Pages = true, Published = true,

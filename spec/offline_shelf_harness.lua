@@ -84,6 +84,14 @@ Api.getShelf = function(_, _, _, offset, limit)
   if nextpage == nil then return {}, nil, false end
   return nextpage[1], nextpage[2], false
 end
+local series_results, series_calls
+Api.getSeriesBooks = function(_, series_id)
+  series_calls = series_calls + 1
+  if not coroutine.running() then seen_in_coroutine = false end
+  local nextresult = table.remove(series_results, 1)
+  if nextresult == nil then return nil, { completed = false } end
+  return nextresult
+end
 local count_results, count_calls
 Api.getShelfCounts = function()
   count_calls = count_calls + 1
@@ -113,6 +121,7 @@ local function fakeClass(path)
     end
     o.setEmptyState = function(self, m) self.empty = m end
     o.setDetail = function(self, d) self.detail = d end
+    o.setSeries = function(self, card, on_open) self.series = card; self.on_open_book = on_open end
     o.setRows = function(self, rows) self.rows = rows; self.row_updates = (self.row_updates or 0) + 1 end
     o.free = function() end
     fake[#fake + 1] = o
@@ -134,6 +143,7 @@ local function newManager()
   api_calls, pending_shelf, pending_detail = {}, nil, nil
   shelf_pages, seen_in_coroutine = {}, true
   count_results, count_calls = {}, 0
+  series_results, series_calls = {}, 0
   infos, retries, loadings = {}, {}, 0
   stack, ticks, fake = {}, {}, {}
   return setmetatable({
@@ -467,6 +477,88 @@ check("online and it works: the fresh record wins", function()
   m:showBookDetail(7)
   pending_detail({ book = { title = "Fresh" } })
   assert(fake[1].detail.book.title == "Fresh")
+end)
+
+print("\n== the series card on book details ==")
+
+local function inSeries(book_id)
+  return { book = { book_id = book_id, title = "T", book_series = { { position = 2, series = { id = 12, name = "Hainish" } } } } }
+end
+local HAINISH = { name = "Hainish", is_completed = true, books = {
+  { book_id = 7, title = "Seven", position = 2 }, { book_id = 8, title = "Eight", position = 3, status_id = 3 } } }
+
+check("online, the rest of the series is fetched in the background and added", function()
+  online = true
+  local m = newManager()
+  series_results = { HAINISH }
+  m:showBookDetail(7)
+  pending_detail(inSeries(7))
+  assert(series_calls == 1, "series requests: " .. series_calls)
+  assert(seen_in_coroutine, "the series request ran on the main thread (it would freeze the UI)")
+  local d = fake[1]
+  assert(d.series and d.series.title == "More in Hainish", "the card was not added")
+  assert(#d.series.rows == 2 and d.series.rows[1].current == true)
+end)
+
+check("tapping a row opens that book's details on top", function()
+  online = true
+  local m = newManager()
+  series_results = { HAINISH }
+  m:showBookDetail(7)
+  pending_detail(inSeries(7))
+  fake[1].on_open_book(8)
+  assert(#fake == 2, "no second details screen: " .. #fake)
+  assert(api_calls[#api_calls] == "detail", "the sibling's details were not requested")
+end)
+
+check("offline, no series request is made and the screen is left alone", function()
+  online = false
+  local m = newManager()
+  m.shelf_cache:put(1, 1, { { book_id = 7, title = "Seven", book_series = { { position = 2, series = { id = 12, name = "H" } } } } }, true)
+  m:showBookDetail(7) -- shown from the saved row
+  assert(series_calls == 0, "asked for a series while offline")
+  assert(fake[1].series == nil)
+end)
+
+check("a book in no series asks for nothing", function()
+  online = true
+  local m = newManager()
+  m:showBookDetail(7)
+  pending_detail({ book = { book_id = 7, title = "T" } })
+  assert(series_calls == 0, "asked for the series of a book that is in none")
+end)
+
+check("a failed series request leaves the screen as it is, without an error", function()
+  online = true
+  local m = newManager()
+  series_results = {} -- the stub answers a failure
+  m:showBookDetail(7)
+  pending_detail(inSeries(7))
+  assert(fake[1].series == nil and #retries == 0 and #infos == 0, "interrupted for a failed series request")
+end)
+
+check("a series of one book gets no card", function()
+  online = true
+  local m = newManager()
+  series_results = { { name = "Solo", books = { { book_id = 7, title = "Seven", position = 1 } } } }
+  m:showBookDetail(7)
+  pending_detail(inSeries(7))
+  assert(fake[1].series == nil)
+end)
+
+check("an answer that arrives after the screen was closed is ignored", function()
+  online = true
+  local m = newManager()
+  series_results = { HAINISH }
+  local real = Api.getSeriesBooks
+  Api.getSeriesBooks = function(...)
+    UIManager_close(fake[1])
+    return real(...)
+  end
+  m:showBookDetail(7)
+  pending_detail(inSeries(7))
+  Api.getSeriesBooks = real
+  assert(fake[1].series == nil, "updated a screen that was closed")
 end)
 
 r.finish()

@@ -16,6 +16,7 @@ local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
+local IconWidget = require("ui/widget/iconwidget")
 local ImageWidget = require("ui/widget/imagewidget")
 local InfoMessage = require("ui/widget/infomessage")
 local LeftContainer = require("ui/widget/container/leftcontainer")
@@ -109,15 +110,15 @@ function BookDetailDialog:init()
   lays out what exists. The cover box is sized up front and filled in when the
   image arrives, so the text does not move when it does.
   ]]
-  local cover_width, cover_height = 0, 0
+  -- The cover box is always there, so every book's header looks the same: the
+  -- picture when there is one, and a generic book icon while it loads, if it
+  -- never does (offline, a failed fetch), or when the book has no cover at all.
+  local cover_width = math.floor(width * 0.30)
+  local cover_height = math.floor(cover_width * 1.5)
   local cover_gap = 15
   -- the frame around the cover adds its border on both sides of the picture box
   local cover_border = Size.border.thin
-  if summary.cover then
-    cover_width = math.floor(width * 0.30)
-    cover_height = math.floor(cover_width * 1.5)
-  end
-  local text_width = summary.cover and (width - cover_width - 2 * cover_border - cover_gap) or width
+  local text_width = width - cover_width - 2 * cover_border - cover_gap
 
   -- TextWidget is one line and reads max_width, not width; anything that may be
   -- long (a title, an author list) is a TextBoxWidget, which wraps to width.
@@ -165,26 +166,24 @@ function BookDetailDialog:init()
     self.facts_text = nil
   end
 
-  self.cover_cell = nil
-  local header = column
-  if summary.cover then
-    -- an empty box of the cover's size; loadCover swaps the picture in
-    self.cover_cell = FrameContainer:new {
-      bordersize = cover_border,
-      padding = 0,
-      margin = 0,
-      CenterContainer:new {
-        dimen = Geom:new { w = cover_width, h = cover_height },
-        VerticalSpan:new { height = 0 },
-      },
-    }
-    header = HorizontalGroup:new {
-      align = "top",
-      self.cover_cell,
-      HorizontalSpan:new { width = cover_gap },
-      column,
-    }
-  end
+  -- a box of the cover's size holding the placeholder; loadCover swaps the
+  -- picture in if one arrives
+  local icon_size = math.floor(cover_width * 0.5)
+  self.cover_cell = FrameContainer:new {
+    bordersize = cover_border,
+    padding = 0,
+    margin = 0,
+    CenterContainer:new {
+      dimen = Geom:new { w = cover_width, h = cover_height },
+      IconWidget:new { icon = "book.opened", width = icon_size, height = icon_size },
+    },
+  }
+  local header = HorizontalGroup:new {
+    align = "top",
+    self.cover_cell,
+    HorizontalSpan:new { width = cover_gap },
+    column,
+  }
 
   -- the reader's own standing with the book, then what everyone else makes of it
   self.status_text = nil
@@ -288,6 +287,13 @@ function BookDetailDialog:init()
   add(self.status_text)
   add(self.community_text)
 
+  -- "More in this series": a bordered card whose rows open the other books
+  self.series_buttons = {}
+  if self.series_card then
+    add(VerticalSpan:new { height = 14 })
+    add(self:buildSeriesCard(width))
+  end
+
   if self.description_text then
     add(VerticalSpan:new { height = 14 })
     add(heading(_("About")))
@@ -362,7 +368,12 @@ function BookDetailDialog:init()
     self.content_container,
   }
 
-  self.layout = { { close_button } }
+  -- keyboard / d-pad focus: each tappable series row, then Close
+  self.layout = {}
+  for _, button in ipairs(self.series_buttons) do
+    table.insert(self.layout, { button })
+  end
+  table.insert(self.layout, { close_button })
 
   self[1] = self.frame
 
@@ -419,18 +430,85 @@ function BookDetailDialog:releaseCover()
 end
 
 --
--- Fill in the detail after the fetch lands.
+-- The "more in this series" card.
 --
--- Rebuilds by re-running init, which is correct here because every widget in the
--- body is a pure function of self.detail -- see the note in init. Freeing the
--- old body first matters: Menu/ScrollableContainer hold Blitbuffers, and leaving
--- them for the garbage collector is how a dialog ends up painting a freed
--- widget's _bb.
+-- A bordered box: a heading, how many books there are, then one row per book.
+-- Rows are buttons without a border, left-aligned, so the whole line is a tap
+-- target; the book on screen is bold and disabled (nothing to open), and rows
+-- the window cut off ("3 earlier", "5 more") are plain text.
 --
-function BookDetailDialog:setDetail(detail)
-  self.detail = detail
-  self.loading = false
+function BookDetailDialog:buildSeriesCard(width)
+  local card = self.series_card
+  local border = Size.border.thin
+  local padding = Size.padding.default
+  local inner = width - 2 * border - 2 * padding
 
+  local box = VerticalGroup:new { align = "left" }
+  table.insert(box, TextWidget:new {
+    text = card.title,
+    face = Font:getFace("cfont", 17),
+    bold = true,
+    max_width = inner,
+  })
+  table.insert(box, TextWidget:new {
+    text = card.subtitle,
+    face = Font:getFace("cfont", 14),
+    max_width = inner,
+  })
+  table.insert(box, VerticalSpan:new { height = 6 })
+
+  for _, row in ipairs(card.rows) do
+    if row.gap then
+      table.insert(box, TextWidget:new {
+        text = "\226\128\166 " .. row.text, -- an ellipsis, then "3 earlier"
+        face = Font:getFace("cfont", 14),
+        max_width = inner,
+      })
+    else
+      local button = Button:new {
+        text = row.text,
+        width = inner,
+        bordersize = 0,
+        margin = 0,
+        align = "left",
+        text_font_size = 16,
+        text_font_bold = row.current == true,
+        enabled = not row.current,
+        callback = function()
+          if self.on_open_book then
+            self.on_open_book(row.book_id)
+          end
+        end,
+      }
+      table.insert(box, button)
+      if not row.current then
+        table.insert(self.series_buttons, button)
+      end
+    end
+  end
+
+  return FrameContainer:new {
+    bordersize = border,
+    padding = padding,
+    margin = 0,
+    box,
+  }
+end
+
+--
+-- Show the rest of the series once it has been fetched.
+--
+-- `card` is Shelf.seriesCard's result (nil clears it); `on_open_book(book_id)`
+-- is called when a row is tapped.
+--
+function BookDetailDialog:setSeries(card, on_open_book)
+  self.series_card = card
+  self.on_open_book = on_open_book
+  self:rebuild()
+end
+
+-- Rebuild the whole body from the current state, dropping what it held.
+function BookDetailDialog:rebuild()
   -- a rebuild means a new cover box; drop the old picture and any fetch for it
   self:releaseCover()
 
@@ -442,6 +520,21 @@ function BookDetailDialog:setDetail(detail)
   self:init()
 
   UIManager:setDirty(self, "ui")
+end
+
+--
+-- Fill in the detail after the fetch lands.
+--
+-- Rebuilds by re-running init, which is correct here because every widget in the
+-- body is a pure function of self.detail -- see the note in init. Freeing the
+-- old body first matters: Menu/ScrollableContainer hold Blitbuffers, and leaving
+-- them for the garbage collector is how a dialog ends up painting a freed
+-- widget's _bb.
+--
+function BookDetailDialog:setDetail(detail)
+  self.detail = detail
+  self.loading = false
+  self:rebuild()
 end
 
 function BookDetailDialog:onShowDetail()

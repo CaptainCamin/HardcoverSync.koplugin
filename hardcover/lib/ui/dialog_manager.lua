@@ -663,9 +663,44 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
     if done_callback then
       done_callback()
     end
+
+    self:loadSeries(dialog, detail.book, user_id)
   end)
 
   return dialog
+end
+
+--
+-- The "more in this series" card for a book's detail screen.
+--
+-- The screen is already showing the book; the rest of the series arrives in the
+-- background and is added when it does. Tapping a row opens that book's details
+-- on top of this one, so Close comes back here. Nothing is fetched offline (the
+-- screen simply has no card) or for a book that is in no series.
+--
+function DialogManager:loadSeries(dialog, book, user_id)
+  local series_id = Shelf.seriesId(book)
+  if not series_id or not NetworkManager:isConnected() then
+    return
+  end
+
+  Background.run(function()
+    local series = Api:getSeriesBooks(series_id, user_id)
+
+    -- failed, cancelled by a tap, or the screen was closed meanwhile
+    if not series or not UIManager:isWidgetShown(dialog) then
+      return
+    end
+
+    local card = Shelf.seriesCard(series, book.book_id)
+    if not card then
+      return
+    end
+
+    dialog:setSeries(card, function(book_id)
+      self:showBookDetail(book_id)
+    end)
+  end)
 end
 
 --
