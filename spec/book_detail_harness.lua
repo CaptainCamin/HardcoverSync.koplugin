@@ -696,28 +696,32 @@ check("Reviews: an action bar button that calls back, and none without a callbac
   assert(d.reviews_button, "the rebuild lost the button")
 end)
 
-check("Similar: an action bar button that calls back with the dialog, and none without a callback", function()
-  local got
-  local d
-  d = BookDetailDialog:new {
-    detail = detail({ title = "T", description = "About it." }),
-    on_reviews = function() end,
-    on_similar = function(dialog) got = dialog end,
-  }
-  assert(d.similar_button and d.similar_button.text == "Similar", "no Similar button")
-  d.similar_button.callback()
-  assert(got == d, "tapping it did not open the similar books")
-  local none = BookDetailDialog:new { detail = detail({ title = "T" }), on_reviews = function() end }
-  assert(none.similar_button == nil, "a Similar button with nothing to open")
-  d:setSeries(nil, nil)
-  assert(d.similar_button, "the rebuild lost the button")
-  local all = BookDetailDialog:new {
-    detail = detail(FULL), on_lists = function() end, on_reviews = function() end,
-    on_similar = function() end, on_zlibrary = function() end,
-  }
-  assert(all.similar_button and all.reviews_button and all.zlibrary_button and all.lists_button)
-  local used = all.lists_button.width + all.reviews_button.width + all.similar_button.width + all.zlibrary_button.width
-  assert(used < all.content_width, "the buttons do not fit one row")
+check("Readers also liked: a strip of covers above the series, tapping one opens that book", function()
+  local opened = {}
+  local d = BookDetailDialog:new { detail = detail({ title = "T", description = "About it." }) }
+  assert(d.similar_card == nil and d.similar_carousel == nil)
+  local card = { title = "Readers also liked", subtitle = "6 books", items = {} }
+  for i = 1, 6 do card.items[i] = { book_id = 100 + i, number = "Author " .. i, title = "Book " .. i, current = false } end
+  d:setSimilar(card, function(id) opened[#opened + 1] = id end)
+  assert(d.similar_carousel and contains(d.content_group, d.similar_carousel.widget), "the strip is not in the page")
+  d.similar_carousel.targets[1].callback()
+  d.similar_carousel.targets[2].callback()
+  assert(opened[1] == 101 and opened[2] == 102, "tapping a cover did not open that book")
+  assert(d.similar_carousel.paged and #d.layout >= 3, "the arrows are not in the focus layout")
+  -- with the series too, similar is first and both are in the page
+  d:setSeries(card, function() end)
+  assert(d.carousel and d.similar_carousel)
+  local at = {}
+  for i, child in ipairs(d.content_group) do
+    if child == d.similar_carousel.widget then at.similar = i end
+    if child == d.carousel.widget then at.series = i end
+    if child == d.description_text then at.about = i end
+  end
+  assert(at.about < at.similar and at.similar < at.series, "wrong order of About, similar, series")
+  d:releaseCover()
+  assert(d.similar_carousel == nil and d.carousel == nil, "releasing left a strip")
+  d:setSimilar(nil, nil)
+  assert(d.similar_carousel == nil, "clearing left the strip")
 end)
 
 print("\n== the Z-library button ==")

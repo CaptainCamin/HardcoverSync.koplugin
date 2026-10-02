@@ -137,6 +137,7 @@ local function fakeClass(path)
     o.setEmptyState = function(self, m) self.empty = m end
     o.setDetail = function(self, d) self.detail = d end
     o.setSeries = function(self, card, on_open) self.series = card; self.on_open_book = on_open end
+    o.setSimilar = function(self, card, on_open) self.similar = card; self.on_open_similar = on_open end
     o.setReading = function(self, entries) self.entries = entries; self.reading_updates = (self.reading_updates or 0) + 1 end
     o.setRows = function(self, rows) self.rows = rows; self.row_updates = (self.row_updates or 0) + 1 end
     o.free = function() end
