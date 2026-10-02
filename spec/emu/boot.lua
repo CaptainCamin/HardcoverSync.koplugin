@@ -185,6 +185,11 @@ function M.boot(opts)
   if opts.debug then dbg:turnOn() end
 
   local Device = require("device")
+  -- The desktop emulator says it has no touch screen, so KOReader's scroll
+  -- containers register no swipe or drag handlers at all and nothing scrolls. Every
+  -- e-reader this plugin runs on is touch: behave like one, so a scenario can scroll a
+  -- page with a real gesture and see what a reader sees.
+  Device.isTouchDevice = function() return true end
   require("document/canvascontext"):init(Device)
   require("ui/bidi").setup(nil)
 
