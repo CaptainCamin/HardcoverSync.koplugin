@@ -11,6 +11,10 @@ on:
       tag:
         description: 'Tag to create, e.g. v0.7.0 (must match the version in _meta.lua)'
         required: true
+      prerelease:
+        description: 'Publish as a pre-release from this branch (tag like v1.0.2-preview; the _meta.lua match is skipped, and it is never "latest")'
+        required: false
+        default: 'false'
 
 jobs:
   build:
@@ -40,7 +44,7 @@ jobs:
       # or the App Store (which compares the tag with _meta.lua) would loop on
       # "update available".
       - name: Check the tag matches _meta.lua
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.prerelease != 'true'
         run: |
           version=$(sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' _meta.lua | head -1)
           tag="${{ github.event.inputs.tag }}"
@@ -54,5 +58,6 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           target_commitish: ${{ github.sha }}
+          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
           generate_release_notes: true
           files: ${{ runner.temp }}/hardcoversync.koplugin.zip
