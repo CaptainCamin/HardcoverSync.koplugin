@@ -251,13 +251,15 @@ function HomeDialog:build()
     table.insert(shelves, VerticalSpan:new { width = Screen:scaleBySize(6) })
   end
 
-  -- The search button sits above everything else; its height comes off the room
-  -- the cards have.
+  -- A small button, on the same line as the "Currently reading" heading (or
+  -- alone, right-aligned, when nothing is being read), so the top of the screen
+  -- stays uncrowded. Not full width: it is a shortcut, not the main thing here.
   local search_button = Button:new {
     text = _("Search books"),
-    width = width,
-    text_font_size = 20,
-    padding_v = Screen:scaleBySize(10),
+    text_font_size = 15,
+    padding_h = Screen:scaleBySize(10),
+    padding_v = Screen:scaleBySize(3),
+    margin = 0,
     callback = function()
       if self.search_cb then
         self.search_cb()
@@ -268,16 +270,23 @@ function HomeDialog:build()
 
   local column = VerticalGroup:new { align = "left" }
   table.insert(column, VerticalSpan:new { width = gap })
-  table.insert(column, search_button)
-  table.insert(column, VerticalSpan:new { width = gap })
 
   local cards = Home.cards(self.entries)
+  local heading = #cards > 0 and self:sectionTitle(_("Currently reading"), width) or nil
+  local header_row = HorizontalGroup:new { align = "center" }
+  if heading then
+    table.insert(header_row, heading)
+  end
+  table.insert(header_row, HorizontalSpan:new {
+    width = math.max(0, width - (heading and heading:getSize().w or 0) - search_button:getSize().w),
+  })
+  table.insert(header_row, search_button)
+  table.insert(column, header_row)
+  table.insert(column, VerticalSpan:new { width = Screen:scaleBySize(6) })
+
   if #cards > 0 then
     local room = screen_h - title_bar:getSize().h - shelves:getSize().h - 3 * gap
-      - search_button:getSize().h - 2 * gap
-      - self:sectionTitle(_("Currently reading"), width):getSize().h
-    table.insert(column, self:sectionTitle(_("Currently reading"), width))
-    table.insert(column, VerticalSpan:new { width = Screen:scaleBySize(6) })
+      - header_row:getSize().h - Screen:scaleBySize(6) - gap
     local shown = 0
     for _, card in ipairs(cards) do
       local widget = self:buildCard(card, width, m)
