@@ -1,13 +1,58 @@
-# Hardcover.app for KOReader
+# Hardcover Sync for KOReader
 
-A KOReader plugin to update your [Hardcover.app](https://hardcover.app) reading status
+A KOReader plugin to track your reading on [Hardcover.app](https://hardcover.app) and browse your library: a home
+screen with what you are reading and your shelves, book details with the rest of the series, offline shelves, and
+progress and status syncing.
+
+This is a fork of Billiam's [hardcoverapp.koplugin](https://github.com/Billiam/hardcoverapp.koplugin), and keeps
+all of its tracking features (linking books, progress and status syncing, notes and journal entries, automatic
+linking). Thank you to Billiam for the original plugin. It installs as `hardcoversync.koplugin`, so it can sit next
+to the original in KOReader's App Store, but **the two must not be installed together** (they register the same
+actions and menus): remove `hardcoverapp.koplugin` from your plugins folder first. Your settings carry over.
+
+<p>
+<img src="docs/screenshots/home.png" width="23%" alt="Home screen">
+<img src="docs/screenshots/shelf.png" width="23%" alt="A shelf">
+<img src="docs/screenshots/book-details.png" width="23%" alt="Book details with the series carousel">
+<img src="docs/screenshots/settings.png" width="23%" alt="Settings">
+</p>
+
+*(Rendered in a desktop KOReader with placeholder covers and sample books.)*
+
+## What this fork adds
+
+* **A home screen**: what you are currently reading (cover, author, progress), your shelves with their counts, and a
+  settings cog. Open it from the file browser menu or with the `Hardcover: Home` action, so another plugin or a
+  gesture can launch it.
+* **A separate menu for the reader and the file browser**: tracking and book information while reading; your library
+  everywhere else.
+* **Shelves as cover lists**: the whole shelf loads in the background, in full-screen rows with covers, and is saved
+  for offline use.
+* **A redesigned book details screen**, with the cover, ratings, your status, the description, and a carousel of
+  covers for the rest of the series. Tap one to open it. Books with no cover get a placeholder.
+* **Sign in with your Hardcover account** (OAuth device flow) instead of pasting an API key; no config file needed.
+* **Offline tracking**: progress and status changes made offline are queued and pushed when you reconnect, with a
+  `Sync now` button that greys out when nothing is waiting.
+* **A settings screen** reachable from the home screen and the reader, with Sync and your account at the top.
+* **Fixes and speed**: the e-ink screen is now refreshed when menus close, requests run in the background instead of
+  freezing the screen, covers are cached, and long shelves load completely. See the [changelog](CHANGELOG.md).
+* **Removed**: the "Suggest a book" feature.
 
 ## Installation
 
-1. Download and extract the latest release: https://github.com/Billiam/hardcoverapp.koplugin/releases/latest
-2. Rename `hardcover_config.example.lua` to `hardcover_config.lua` and set it up as described below
-3. Copy the `hardcoverapp.koplugin` folder to the KOReader plugins folder on your device
-4. Restart KOReader
+**From the KOReader App Store** ([appstore.koplugin](https://github.com/omer-faruq/appstore.koplugin)): search for
+"Hardcover Sync". Forks with no stars are hidden by default; turn on "include zero-star forks" in the App Store's
+settings if it does not appear.
+
+**By hand:**
+
+1. Download the latest release: https://github.com/CaptainCamin/HardcoverSync.koplugin/releases/latest
+   (`hardcoversync.koplugin.zip`) and extract it
+2. Copy the `hardcoversync.koplugin` folder to the KOReader plugins folder on your device
+3. Restart KOReader
+
+Signing in needs no config file (see below). Rename `hardcover_config.example.lua` to `hardcover_config.lua` only to
+use your own OAuth app or an API key.
 
 ## Signing in
 
@@ -245,25 +290,19 @@ default for KOReader versions prior to v2024.07
 Everything except the live API calls can be checked without a device or an API token:
 
 ```bash
-./spec/run_all.sh
+./spec/run_all.sh                # LuaJIT if installed (as KOReader uses)
+LUA=lua5.1 ./spec/run_all.sh     # plain Lua 5.1, as CI does
 ```
 
-That runs, in order: a Lua 5.1 syntax check over every file, the pure-module specs, a structural check of the
-generated GraphQL, and the dialog, menu, and app harnesses (the last three load the real plugin code against
-stubbed KOReader widgets and drive it).
+That runs a syntax check over every file, the `busted` specs of the original plugin, and the harnesses in
+`spec/*_harness.lua`, which load the real plugin code against small stand-ins for KOReader's widgets and drive it
+(menus, dialogs, OAuth, the offline queue, shelf loading and so on).
 
-Individually:
+**Real KOReader.** `spec/emu/run.sh` renders the plugin's screens, and drives them with taps, in a headless desktop
+KOReader build. See [spec/emu/README.md](spec/emu/README.md). `spec/emu/scenarios/live.lua` does the same against
+the real Hardcover API with an access token file you supply
+(`KO_LIVE_TOKEN_FILE=... spec/emu/run.sh live`); it never runs by default, and the token is never printed or logged.
 
-| Command | What it covers |
-|---|---|
-| `lua spec/runner.lua` | pure-module specs (`spec/lib/*_spec.lua`) |
-| `lua spec/graphql_syntax_check.lua` | generated queries are well formed |
-| `lua spec/ui_harness.lua` | the shelf and book detail dialogs |
-| `lua spec/menu_harness.lua` | menu items and their callbacks |
-| `lua spec/oauth_client_harness.lua` | OAuth HTTP layer, form encoding, error decoding |
-| `lua spec/auth_harness.lua` | OAuth token lifecycle and refresh safety |
-| `lua spec/app_harness.lua` | offline tracking and sync lifecycle |
-
-`spec/verify_live.sh` is separate because it needs a real API token. It runs the new queries against Hardcover
-and reports which fields are actually present — useful for catching schema changes that documentation has not
-caught up with yet.
+**Packaging.** `./spec/package_release.sh [output-dir]` builds and verifies `hardcoversync.koplugin.zip` (the name
+comes from `_meta.lua`). Pushing a version tag runs the same script in the release workflow and publishes the zip as
+a GitHub Release, which is what KOReader's App Store installs from.

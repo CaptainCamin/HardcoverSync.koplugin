@@ -125,6 +125,14 @@ do
           "authors was " .. tostring(ListRow.row(base()).authors))
 end
 
+-- ---------------------------------------------------------------- year
+do
+  local book = { book_id = 1, title = "Dune", release_year = 1965 }
+  r.check("the year is on the title by default", ListRow.row(book).title == "Dune (1965)", ListRow.row(book).title)
+  r.check("year = false leaves it off", ListRow.row(book, { year = false }).title == "Dune",
+          ListRow.row(book, { year = false }).title)
+end
+
 -- ---------------------------------------------------------------- series
 -- `series` was assigned three times in the old code and the last write won, so
 -- the series position was silently discarded whenever language was present.
@@ -135,8 +143,10 @@ do
   r.check("series name is kept", row.series and row.series:find("Hainish", 1, true) ~= nil,
           "series was " .. tostring(row.series))
   r.check("series position is kept",
-          row.series and row.series:find("#2", 1, true) ~= nil,
-          "series was " .. tostring(row.series))
+          row.series_index == 2,
+          "series_index was " .. tostring(row.series_index))
+  r.check("the position is not also in the name (ListMenu appends it, so it printed twice)",
+          row.series and not row.series:find("#", 1, true), "series was " .. tostring(row.series))
 
   -- Language used to be carried in the `series` field, conflating two things.
   local with_lang = ListRow.row(base({

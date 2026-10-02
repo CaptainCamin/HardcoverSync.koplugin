@@ -102,7 +102,7 @@ fi
 # into the emulated plugins dir. No copy, no re-zip: a harness run tests the
 # files as they are, including uncommitted ones.
 mkdir -p "$KO_HOME/plugins"
-ln -sfn "$PLUGIN_ROOT" "$KO_HOME/plugins/hardcoverapp.koplugin"
+ln -sfn "$PLUGIN_ROOT" "$KO_HOME/plugins/hardcoversync.koplugin"
 
 FAILED=0
 for s in "${SELECTED[@]}"; do

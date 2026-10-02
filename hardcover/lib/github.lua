@@ -7,7 +7,7 @@ local UIManager = require("ui/uimanager")
 
 local VERSION = require("hardcover_version")
 
-local RELEASE_API = "https://api.github.com/repos/billiam/hardcoverapp.koplugin/releases?per_page=1"
+local RELEASE_API = "https://api.github.com/repos/CaptainCamin/HardcoverSync.koplugin/releases?per_page=1"
 
 -- How long to wait for GitHub before giving up and showing the About box
 -- without the version comparison. Kept short: this runs while the user is

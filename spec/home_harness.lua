@@ -238,6 +238,17 @@ check("a shelf button reads 'Name  middot  count', or just the name", function()
   assert(Home.rowLabel({ title = "Read" }) == "Read")
 end)
 
+print("\n== the shelf query ==")
+
+check("a shelf is ordered with a tie-breaker, so paging by offset neither skips nor repeats books", function()
+  answer({ user_books = {} })
+  Api:getShelf(7, 3, 0, 100)
+  -- date_added is a date: many books share one, and ties can come back in a
+  -- different order on each request (607 of 613 loaded against the real API)
+  assert(captured.q:find("order_by: [{ date_added: desc }, { id: desc }]", 1, true),
+    "no tie-breaker on the shelf order")
+end)
+
 print("\n== the reading query ==")
 
 check("it asks for the reading shelf, newest first, five, with the latest read", function()

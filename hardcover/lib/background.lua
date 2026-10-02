@@ -19,6 +19,7 @@
 -- for a dismissable subprocess); the call inside the block then reports
 -- failure, which each caller already handles.
 local Trapper = require("ui/trapper")
+local UIManager = require("ui/uimanager")
 
 local Background = {}
 
@@ -27,6 +28,23 @@ function Background.run(fn)
     return fn()
   end
   Trapper:wrap(fn)
+end
+
+--
+-- Wait `seconds` without freezing the UI: schedule this block to carry on later
+-- and hand control back to KOReader meanwhile. Only possible inside a wrapped
+-- block; elsewhere it returns at once, so a caller that is not wrapped just
+-- retries immediately.
+--
+function Background.sleep(seconds)
+  local co = coroutine.running()
+  if not co then
+    return
+  end
+  UIManager:scheduleIn(seconds, function()
+    coroutine.resume(co)
+  end)
+  coroutine.yield()
 end
 
 return Background

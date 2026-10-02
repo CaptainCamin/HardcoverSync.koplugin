@@ -108,6 +108,7 @@ end
 --
 -- Build one row.
 --
+-- opts.year = false leaves the release year off the title.
 -- opts.compatibility_mode (default true) selects the single-line `text` form
 -- used by the stock Menu; the SearchMenu path wants title/authors laid out
 -- separately instead. `title` is set either way, because ListMenu reads it.
@@ -117,7 +118,7 @@ function ListRow.row(book, opts)
   book = book or {}
 
   local title = decode(book.title, _("Unknown Title"))
-  if book.release_year and book.release_year ~= "" then
+  if opts.year ~= false and book.release_year and book.release_year ~= "" then
     title = title .. " (" .. tostring(book.release_year) .. ")"
   end
 
@@ -153,10 +154,11 @@ function ListRow.row(book, opts)
   local series_entry = book.book_series and book.book_series[1] or nil
   local series_name = series_entry and series_entry.series and series_entry.series.name or nil
   if series_name then
+    -- The name only: ListMenu appends " #<series_index>" itself, so putting the
+    -- position in both printed it twice ("Series #3 #3").
     row.series = series_name
     local position = series_entry.position
     if position then
-      row.series = series_name .. " #" .. tostring(position)
       row.series_index = position
     end
   end

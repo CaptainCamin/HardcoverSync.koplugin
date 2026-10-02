@@ -442,7 +442,14 @@ end
 -- How many books each request asks for. The loop below keeps asking until a page
 -- comes back empty rather than until one comes back short, so a server that
 -- returns fewer than requested still yields the whole shelf.
-local SHELF_PAGE_SIZE = 50
+--
+-- 100, not 50: a 600-book shelf is 7 requests instead of 13. Hardcover allows
+-- 10 requests back to back and then one a second (60 a minute), and a quick
+-- connection loading page after page uses the burst up -- seen against the real
+-- API, where the later pages came back 429. The API accepts far more per request
+-- (500 was fine) but each book carries its description for the offline copy, so
+-- a page is already 70-140 KB.
+local SHELF_PAGE_SIZE = 100
 
 -- A tap cancels a request in flight (KOReader's rule for a dismissable
 -- subprocess). Loading a long shelf takes several requests, and the reader will
@@ -452,6 +459,11 @@ local SHELF_PAGE_RETRIES = 3
 
 -- A shelf this long is not being loaded to be read; stop rather than loop.
 local SHELF_MAX_PAGES = 200
+
+-- Told to slow down (HTTP 429): wait, then ask for the same page again. The
+-- bucket refills at one request a second, so a couple of seconds is enough; a
+-- load that is still refused after this many waits gives up like any failure.
+local SHELF_RATE_LIMIT_WAITS = 5
 
 function DialogManager:showShelf(status_id, title, done_callback)
   local user_id = User:getId()
@@ -526,6 +538,7 @@ function DialogManager:showShelf(status_id, title, done_callback)
   Background.run(function()
     local fresh, seen = {}, {}
     local offset, retries, pages = 0, 0, 0
+    local rate_waits = 0
     local complete, failure = false, nil
 
     local function stopLoading()
@@ -557,6 +570,9 @@ function DialogManager:showShelf(status_id, title, done_callback)
       if entries == nil then
         if type(err) == "table" and err.completed == false and retries < SHELF_PAGE_RETRIES then
           retries = retries + 1
+        elseif type(err) == "table" and err.status == 429 and rate_waits < SHELF_RATE_LIMIT_WAITS then
+          rate_waits = rate_waits + 1
+          Background.sleep(2 * rate_waits)
         else
           failure = err
           break

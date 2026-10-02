@@ -34,23 +34,24 @@ local ShelfDialog = InputContainer:extend {
 }
 
 function ShelfDialog:createListItem(entry)
-  local item = ListRow.row(entry, { compatibility_mode = self.compatibility_mode })
+  local item = ListRow.row(entry, { compatibility_mode = self.compatibility_mode, year = false })
 
-  -- Shelf rows carry two things a search row does not: the reader's status for
-  -- the book, and their rating. Both decorate the mandatory column rather than
-  -- being derived inside list_row, because they are properties of a shelf
-  -- entry rather than of a book.
-  local mandatory_parts = { Shelf.statusLabel(entry.status_id) }
-
+  -- A shelf list is covers, titles and authors, and nothing else: the shelf
+  -- already says the status, and the page count is on the details screen. The
+  -- year go with them (they are in the details). The right-hand column is left
+  -- for the one thing that is yours -- your rating --
+  -- and is absent when there is none, so the text gets the room.
+  --
+  -- Empty, never nil: ListMenu concatenates it (BD.wrap(self.mandatory)), and a
+  -- nil there aborts drawing the whole page, which then reads "No items".
+  item.pages = nil
+  item.mandatory = ""
   if entry.user_rating and entry.user_rating > 0 then
     -- Format without the trailing .0, so a whole rating reads "5*" not "5.0*"
     local rating = entry.user_rating
-    local formatted = rating % 1 == 0 and string.format("%d", rating)
-                                   or string.format("%.1f", rating)
-    table.insert(mandatory_parts, formatted .. "*")
+    item.mandatory = (rating % 1 == 0 and string.format("%d", rating)
+                                       or string.format("%.1f", rating)) .. "*"
   end
-
-  item.mandatory = table.concat(mandatory_parts, "  ")
   item.entry = entry
 
   return item
@@ -63,16 +64,24 @@ function ShelfDialog:init()
   self.offset = self.offset or #(self.entries or {})
   self.loading = self.loading or false
 
-  self.width = math.min(Screen:getWidth() - Screen:scaleBySize(50), Screen:scaleBySize(600))
-  self.height = Screen:getHeight() - Screen:scaleBySize(50)
+  -- the whole screen: no margin, no rounded frame, so the covers can sit flush
+  -- against the edge
+  self.width = Screen:getWidth()
+  self.height = Screen:getHeight()
 
   local menu_class = self.compatibility_mode and Menu or SearchMenu
 
   self.menu = menu_class:new {
     single_line = false,
     multilines_show_more_text = true,
+    -- five tall rows, so the covers are big enough to recognise (the default is
+    -- ten rows of 64px); and no Q/W/E letter boxes, which are for keyboards
+    files_per_page = 5,
+    is_enable_shortcut = false,
     title = self.title,
     fullscreen = true,
+    is_borderless = true,
+    is_popout = false,
     item_table = self:parseItems(self.entries),
     width = self.width,
     height = self.height,

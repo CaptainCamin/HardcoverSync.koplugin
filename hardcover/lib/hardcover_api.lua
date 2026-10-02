@@ -16,7 +16,7 @@ local VERSION = require("hardcover_version")
 
 local api_url = "https://api.hardcover.app/v1/graphql"
 
-local user_agent = T("hardcoverapp.koplugin/%1 (https://github.com/billiam/hardcoverapp.koplugin)",
+local user_agent = T("hardcoversync.koplugin/%1 (https://github.com/CaptainCamin/HardcoverSync.koplugin)",
   table.concat(VERSION, "."))
 
 local HardcoverApi = {
@@ -567,7 +567,11 @@ function HardcoverApi:getShelf(user_id, status_id, offset, limit)
     query ($userId: Int!, ]] .. status_var .. [[$offset: Int!, $limit: Int!) {
       user_books(
         where: { user_id: { _eq: $userId } ]] .. status_filter .. [[ }
-        order_by: { date_added: desc }
+        # date_added is a date, so many books share a value, and the server may
+        # order ties differently on each request: paging by offset then skips
+        # some books and repeats others (607 of 613 loaded against the real
+        # API). id breaks the ties.
+        order_by: [{ date_added: desc }, { id: desc }]
         offset: $offset
         limit: $limit
       ) {

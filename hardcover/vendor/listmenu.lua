@@ -524,28 +524,31 @@ function ListMenuItem:update()
         end
       end
       -- add Series metadata if requested
-      if bookinfo.series then
+      -- (a local: this used to assign bookinfo.series, which is the row itself
+      -- here, so every redraw appended " #n" again: "Series #3 #3")
+      local series = bookinfo.series
+      if series then
         if bookinfo.series_index then
-          bookinfo.series = BD.auto(bookinfo.series .. " #" .. bookinfo.series_index)
+          series = BD.auto(series .. " #" .. bookinfo.series_index)
         else
-          bookinfo.series = BD.auto(bookinfo.series)
+          series = BD.auto(series)
         end
         if series_mode == "append_series_to_title" then
           if title then
-            title = title .. " - " .. bookinfo.series
+            title = title .. " - " .. series
           else
-            title = bookinfo.series
+            title = series
           end
         end
         if not authors then
           if series_mode == "append_series_to_authors" or series_mode == "series_in_separate_line" then
-            authors = bookinfo.series
+            authors = series
           end
         else
           if series_mode == "append_series_to_authors" then
-            authors = authors .. " - " .. bookinfo.series
+            authors = authors .. " - " .. series
           elseif series_mode == "series_in_separate_line" then
-            authors = bookinfo.series .. "\n" .. authors
+            authors = series .. "\n" .. authors
             -- as we'll fit 3 lines instead of 2, we can avoid some loops by starting from a lower font size
             fontsize_title = _fontSize(17, 21)
             fontsize_authors = _fontSize(15, 19)

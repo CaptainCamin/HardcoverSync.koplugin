@@ -1,9 +1,30 @@
 # Changelog
 
-## 0.6.0
+## 0.7.0
+
+### Changed (packaging)
+
+* The plugin now installs as `hardcoversync.koplugin` ("Hardcover Sync"), so it can be listed in KOReader's App Store
+  next to the original `hardcoverapp.koplugin` instead of being mistaken for it. **Remove the old
+  `hardcoverapp.koplugin` folder before installing**: the two register the same menus and actions. Settings carry
+  over. The About box and update check now point at this repository.
+* `spec/package_release.sh` takes the archive name from `_meta.lua`, so the release workflow's zip is
+  `hardcoversync.koplugin.zip` however the repository is checked out.
+
+### Fixed
+
+* Long shelves no longer lose books while loading: the shelf was ordered by date added only, and many books share a
+  date, so paging could skip some books and repeat others (607 of 613 books loaded against the real API). Books are
+  now ordered by date added, then id.
+* Loading a long shelf no longer fails when Hardcover says to slow down (HTTP 429, after 10 quick requests): it
+  waits and asks again. Pages are also 100 books instead of 50, so a long shelf needs about half as many requests.
 
 ### Changed
 
+* Shelf lists are cleaner and the covers bigger: five tall rows a page (was ten), each a cover, the title and the
+  author (with the series). The status (the shelf already says it), page count and year are gone from the rows, the
+  keyboard letter boxes no longer sit over the covers, and your rating shows on the right only when you have one.
+  The list now fills the whole screen. Fixed a series position printed twice ("Series #3 #3").
 * The Home screen has a new look: a title bar, a "Currently reading" section with a card per book (cover, title,
   author and a progress bar with "pages read / pages"), then the shelves as buttons ("Want to Read  ·  42").
   Tapping a card opens that book. The reading list is saved, so Home opens instantly and works offline, and is

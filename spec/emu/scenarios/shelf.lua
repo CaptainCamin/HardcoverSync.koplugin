@@ -18,6 +18,11 @@ return {
 
   run = function(emu)
     local settings = fixtures.real_settings(emu)
+    -- covers for the shelf's books (every seventh has none), from the real cache
+    for _, b in ipairs(fixtures.shelf_books) do
+      local image = b.cached_image
+      if image and image.url then fixtures.seed_cover(image.url, b.book_id % 3 + 1) end
+    end
     fixtures.install({ settings = settings })
 
     local DialogManager = require("hardcover/lib/ui/dialog_manager")
@@ -49,10 +54,15 @@ return {
         i, tostring(item.text)))
     end
 
-    -- Covers and status labels come straight from the API response, so a
-    -- fixture change that breaks that mapping surfaces here.
+    -- Covers come straight from the API response, so a fixture change that
+    -- breaks that mapping surfaces here. Rows carry no status label (the shelf
+    -- is the status) and no keyboard letters; a rating shows when there is one.
     assert(items[1].cover_url, "first row lost its cover url")
-    assert(items[1].mandatory, "first row lost its status label")
+    assert(items[1].mandatory == "", "an unrated row has a right-hand label: " .. tostring(items[1].mandatory))
+    assert(menu.is_enable_shortcut == false, "the keyboard letter boxes are back")
+    local rated = false
+    for _, item in ipairs(items) do rated = rated or (item.mandatory ~= "") end
+    assert(rated, "no row shows a rating (the fixture has rated books)")
 
     -- The title has to be on screen; if the dialog silently failed to build its
     -- menu, that is where it shows.
@@ -76,6 +86,10 @@ return {
     local painted = emu:screenText()
     assert(not painted:find("hardcover-", 1, true),
            "the synthetic file marker is being painted as a book name:\n" .. painted)
+
+    -- ListMenu appended " #n" to the series on every redraw ("Series #3 #3")
+    assert(not painted:find("#%d+ #%d+"), "a series position is printed twice")
+    assert(not painted:find("%(19%d%d%)"), "the year is back on the shelf rows")
 
     local _, nodes = emu:shot("shelf_page1")
 
