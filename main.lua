@@ -160,6 +160,11 @@ function HardcoverApp:init()
     page_mapper = self.page_mapper,
     settings = self.settings,
     shelf_cache = self.shelf_cache,
+    -- the settings, for the home screen's Settings button; read when asked, as
+    -- the menu is built after this
+    settings_items = function()
+      return self.menu and self.menu:getSettingsSubMenuItems() or {}
+    end,
     state = self.state,
     ui = self.ui,
     wifi = self.wifi

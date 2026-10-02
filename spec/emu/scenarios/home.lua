@@ -107,6 +107,41 @@ return {
     emu:closeAll()
 
     --[[--
+    Settings: a button on the home screen opens the same settings the menu has,
+    in a screen of their own. Real taps throughout: into the list, on an option
+    (which must flip the saved setting and redraw its tick), into a submenu and
+    back out.
+    ]]
+    local SETTING = require("hardcover/lib/constants/settings")
+    manager.settings_items = function()
+      return require("hardcover/lib/ui/hardcover_menu"):new({ settings = settings }):getSettingsSubMenuItems()
+    end
+    manager:showHome()
+    emu:pump()
+    emu:shot("home_again")
+    local button = emu:expectText("Settings")
+    emu:tapExpecting(button.x + 5, button.y + 5)
+    local top = UIManager:getTopmostVisibleWidget()
+    assert(top ~= manager.home_dialog, "tapping Settings opened nothing")
+    emu:expectText("Automatically link by ISBN")
+    emu:shot("home_settings")
+
+    local before = settings:readSetting(SETTING.LINK_BY_ISBN) == true
+    local option = emu:expectText("Automatically link by ISBN")
+    emu:tapExpecting(option.x + 5, option.y + 5)
+    assert((settings:readSetting(SETTING.LINK_BY_ISBN) == true) ~= before,
+      "tapping an option did not change the setting")
+
+    local sub = emu:expectText("Track progress settings")
+    emu:tapExpecting(sub.x + 5, sub.y + 5)
+    emu:expectText("Back")
+    emu:shot("home_settings_sub")
+    local back = emu:expectText("Back")
+    emu:tapExpecting(back.x + 5, back.y + 5)
+    emu:expectText("Automatically link by ISBN")
+    emu:closeAll()
+
+    --[[--
     Nothing saved and the count query failing (as when offline): the screen still
     opens, and shows no number rather than a made-up zero.
     ]]

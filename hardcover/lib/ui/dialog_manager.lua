@@ -364,6 +364,13 @@ end
 -- the last numbers), then refreshed in the background. Choosing a shelf opens it
 -- on top, so closing the shelf comes back here.
 --
+-- The plugin's settings, on top of whatever is showing.
+function DialogManager:showSettings()
+  require("hardcover/lib/ui/settings_dialog").show {
+    items = self.settings_items and self.settings_items() or {},
+  }
+end
+
 function DialogManager:showHome(done_callback)
   local user_id = User:getId()
   local cache = self.shelf_cache
@@ -383,6 +390,9 @@ function DialogManager:showHome(done_callback)
     end,
     open_book_cb = function(book_id)
       self:showBookDetail(book_id)
+    end,
+    settings_cb = function()
+      self:showSettings()
     end,
     close_callback = function()
       if done_callback then done_callback() end

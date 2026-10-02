@@ -80,6 +80,7 @@ local HomeDialog = InputContainer:extend {
   entries = {},
   select_cb = nil,
   open_book_cb = nil,
+  settings_cb = nil,
   close_callback = nil,
 }
 
@@ -241,6 +242,18 @@ function HomeDialog:build()
     })
     table.insert(shelves, VerticalSpan:new { width = Screen:scaleBySize(6) })
   end
+
+  table.insert(shelves, Button:new {
+    text = _("Settings"),
+    width = width,
+    text_font_size = 20,
+    padding_v = Screen:scaleBySize(10),
+    callback = function()
+      if self.settings_cb then
+        self.settings_cb()
+      end
+    end,
+  })
 
   local column = VerticalGroup:new { align = "left" }
   table.insert(column, VerticalSpan:new { width = gap })
