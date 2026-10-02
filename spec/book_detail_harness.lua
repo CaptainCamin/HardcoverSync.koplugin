@@ -185,21 +185,21 @@ print("\n== the header ==")
 check("the title is bold and wraps", function()
   local d = BookDetailDialog:new { detail = detail({ title = string.rep("Long ", 40) }) }
   assert(d.title_text.kind == "TextBox" and d.title_text.bold == true)
-  assert(d.title_text.width == d.width, "no cover, so it should span the width")
+  assert(d.title_text.width == d.content_width, "no cover, so it should span the content width")
 end)
 
 check("with a cover, the text sits beside it in the width that is left", function()
   local d = BookDetailDialog:new { detail = detail(FULL), image_loader = fakeLoader() }
   assert(d.cover_cell, "no cover box")
-  local cover_w = math.floor(d.width * 0.30)
-  assert(d.title_text.width == d.width - cover_w - 15, "title width " .. tostring(d.title_text.width))
+  local cover_w = math.floor(d.content_width * 0.30)
+  assert(d.title_text.width == d.content_width - cover_w - 15, "title width " .. tostring(d.title_text.width))
   assert(d.content_group[1].kind == "HGroup", "header is not cover-beside-text")
 end)
 
 check("the cover box has a fixed size, so the text does not move when the picture arrives", function()
   local d = BookDetailDialog:new { detail = detail(FULL), image_loader = fakeLoader() }
   local box = d.cover_cell[1].dimen
-  assert(box.w == math.floor(d.width * 0.30) and box.h == math.floor(box.w * 1.5), "box " .. box.w .. "x" .. box.h)
+  assert(box.w == math.floor(d.content_width * 0.30) and box.h == math.floor(box.w * 1.5), "box " .. box.w .. "x" .. box.h)
 end)
 
 check("no cover, no box and no fetch", function()
@@ -207,6 +207,16 @@ check("no cover, no box and no fetch", function()
   local d = BookDetailDialog:new { detail = detail({ title = "T" }), image_loader = loader }
   assert(d.cover_cell == nil and #loader.urls == 0)
   assert(d.content_group[1] == d.content_group[1] and d.content_group[1].kind ~= "HGroup", "header has a cover column with no cover")
+end)
+
+check("content is narrower than the dialog, leaving room for the scroll bars", function()
+  -- ScrollableContainer calls content wider than its viewport "scrollable
+  -- sideways" and draws a horizontal scroll bar; the vertical bar takes
+  -- 3 * scroll_bar_width off the viewport. Content as wide as the dialog is
+  -- always too wide by that.
+  local d = BookDetailDialog:new { detail = detail(FULL), image_loader = fakeLoader() }
+  assert(d.content_width < d.width, "content is as wide as the dialog (" .. d.content_width .. ")")
+  assert(d.width - d.content_width >= 18, "gutter is only " .. (d.width - d.content_width))
 end)
 
 print("\n== the cover ==")
@@ -263,15 +273,15 @@ print("\n== text that must fit ==")
 
 check("single-line text is limited with max_width, the field TextWidget reads", function()
   local d = BookDetailDialog:new { detail = detail({ title = "T", rating = 4, users_count = 10 }) }
-  assert(d.status_text.max_width == d.width, "status max_width " .. tostring(d.status_text.max_width))
-  assert(d.community_text.max_width == d.width, "community max_width " .. tostring(d.community_text.max_width))
+  assert(d.status_text.max_width == d.content_width, "status max_width " .. tostring(d.status_text.max_width))
+  assert(d.community_text.max_width == d.content_width, "community max_width " .. tostring(d.community_text.max_width))
   local loading = BookDetailDialog:new { loading = true }
   assert(loading.loading_text.max_width == loading.width, "loading text is not limited")
 end)
 
 check("detail labels sit in a fixed-width column and values wrap", function()
   local d = BookDetailDialog:new { detail = detail({ title = "T", publisher = { name = "Harper" }, isbn_13 = "123" }) }
-  local want = math.floor(d.width * 0.32)
+  local want = math.floor(d.content_width * 0.32)
   assert(#d.meta_rows == 2, "rows: " .. #d.meta_rows)
   for _, row in ipairs(d.meta_rows) do
     assert(row[1].kind == "Left" and row[1].dimen.w == want, "label column is not fixed")

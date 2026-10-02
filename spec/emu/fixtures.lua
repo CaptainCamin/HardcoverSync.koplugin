@@ -53,11 +53,14 @@ local function book_row(id, title, year, pages, opts)
     contributions = opts.contributions or {
       { author = { name = opts.author or "Ursula K. Le Guin" } },
     },
-    cached_image = opts.no_image and nil or {
+    -- Not `opts.no_image and nil or {...}`: `a and nil or b` is always b, because
+    -- nil is falsy, so every "no cover" book here used to have a cover and the
+    -- no-cover layout was never exercised.
+    cached_image = (not opts.no_image) and {
       url = opts.image_url or "https://covers.hardcover.app/fixture/" .. id .. ".jpg",
       width = 300,
       height = 450,
-    },
+    } or nil,
     book_series = opts.series and {
       { position = opts.series_position or 2, series = { name = opts.series } },
     } or {},
@@ -92,6 +95,17 @@ M.books = {
     series = "A Very Long Series Name That Also Does Not Fit",
   }),
   book_row(107, "The Fifth Season", 2015, 468, { author = "N. K. Jemisin", users_count = 90000 }),
+  -- A description long enough that the detail page has to scroll vertically,
+  -- which is when the scroll container's vertical bar narrows the viewport.
+  book_row(109, "A Book With A Very Long Description", 2001, 612, {
+    author = "Fixture Author",
+    series = "The Long Series",
+    series_position = 3,
+    description = string.rep(
+      "This paragraph stands in for a publisher's blurb, which on a real book can run to many lines. " ..
+      "It repeats so the page is tall enough to scroll, and so a layout that is a few pixels too wide " ..
+      "for its scroll container shows up as a sideways scroll bar. ", 18),
+  }),
   book_row(108, "The Obelisk Gate", 2016, 448, { author = "N. K. Jemisin" }),
 }
 
@@ -125,6 +139,30 @@ do
       no_image = (i % 7 == 0), -- no-cover rows land throughout the list
     })
   end
+end
+
+-- how many books are on each shelf, as the home screen's count query returns them
+M.shelf_counts = { [2] = 3, [1] = 42, [3] = 130, [5] = 2 }
+
+--[[--
+Put the synthetic cover (spec/emu/fixtures/cover.png) into the plugin's real
+cover cache under `url`.
+
+The detail screen fetches covers through the cover loader, which answers from
+this cache before it touches the network. Seeding it means the real loader, the
+real cache and the real image renderer all run, with no network and no mocking
+of any of them.
+]]
+function M.seed_cover(url)
+  local root = package.searchpath("hardcover/lib/shelf", package.path):match("^(.*)/hardcover/lib/shelf%.lua$")
+  local file = assert(io.open(root .. "/spec/emu/fixtures/cover.png", "rb"),
+    "spec/emu/fixtures/cover.png is missing: run spec/emu/make_cover.py")
+  local bytes = file:read("*a")
+  file:close()
+
+  local cache = require("hardcover/lib/ui/image_loader"):getCache()
+  assert(cache, "the cover cache could not be opened (no ffi/sha2 or lfs?)")
+  assert(cache:put(url, bytes), "could not write the cover into the cache")
 end
 
 M.books_by_id = {}
@@ -211,6 +249,15 @@ function M.install(opts)
     -- A short page tells the dialog there is nothing more to fetch.
     local has_more = (#source > offset + limit)
     return entries, nil, has_more
+  end
+
+  Api.getShelfCounts = function(_, user_id, status_ids)
+    record("getShelfCounts")
+    local counts = {}
+    for _, id in ipairs(status_ids or {}) do
+      counts[id] = M.shelf_counts[id]
+    end
+    return counts
   end
 
   Api.getBookDetail = function(_, book_id, user_id, edition_id)

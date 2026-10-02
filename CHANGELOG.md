@@ -29,6 +29,9 @@
 
 ### Fixed
 
+* Book details: the page could scroll sideways by a couple of pixels, showing a heavy bar above the Close button
+  whenever a cover was shown. The cover's frame border was not counted in the header's width, and the content was
+  as wide as the dialog even though a scroll bar takes room off it.
 * Book details: most books showed only a title. A book with no subtitle (and every book shown from the saved
   copy) lost its status, metadata and description, because a missing subtitle cut the layout short.
 * Book details: the Back key now closes the screen, including the loading screen; it was bound to nothing.

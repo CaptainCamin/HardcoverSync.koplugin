@@ -13,6 +13,8 @@
 #   KO_EMU_APP   KOReader install (default /Applications/KOReader.app)
 #   KO_EMU_OUT   output dir       (default spec/emu/.out)
 #   KO_EMU_W/H   screen size      (default 1200x1600)
+#   KO_EMU_DPI   screen density   (default: KOReader's own, which is NOT a device's;
+#                set it to match, e.g. 300 for a Kindle Paperwhite)
 set -uo pipefail
 
 EMU_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -43,6 +45,7 @@ export DISABLE_TOUCH=1
 
 SCREEN_W="${KO_EMU_W:-1200}"
 SCREEN_H="${KO_EMU_H:-1600}"
+SCREEN_DPI="${KO_EMU_DPI:-}"
 
 # Screen geometry is read from this setting by frontend/device/sdl/device.lua,
 # which is the only supported way to size the emulated panel.
@@ -52,6 +55,7 @@ return {
   ["device_id"] = "koreader-emu-harness",
   ["dev_no_c_blitter"] = true,
   ["language"] = "en",
+${SCREEN_DPI:+  ["screen_dpi"] = $SCREEN_DPI,}
 }
 EOF
 

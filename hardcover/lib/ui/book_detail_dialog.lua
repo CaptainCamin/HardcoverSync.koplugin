@@ -90,6 +90,19 @@ function BookDetailDialog:init()
   local book = (self.detail or {}).book or {}
 
   --[[--
+  The width the content may use.
+
+  ScrollableContainer treats any content wider than its viewport as scrolling
+  sideways and draws a horizontal scrollbar -- and once the page also scrolls
+  vertically, its vertical scrollbar takes 3 * scroll_bar_width off that
+  viewport. Content as wide as the dialog is therefore always "too wide" by that
+  gutter. Everything below is laid out in `width`, which leaves it free.
+  ]]
+  local gutter = 3 * (ScrollableContainer.scroll_bar_width or Screen:scaleBySize(6))
+  local width = self.width - gutter
+  self.content_width = width
+
+  --[[--
   Header: the cover beside the title block, like a book's back cover.
 
   Every line is a finished string from Shelf.detailSummary or nil, so this only
@@ -98,11 +111,13 @@ function BookDetailDialog:init()
   ]]
   local cover_width, cover_height = 0, 0
   local cover_gap = 15
+  -- the frame around the cover adds its border on both sides of the picture box
+  local cover_border = Size.border.thin
   if summary.cover then
-    cover_width = math.floor(self.width * 0.30)
+    cover_width = math.floor(width * 0.30)
     cover_height = math.floor(cover_width * 1.5)
   end
-  local text_width = summary.cover and (self.width - cover_width - cover_gap) or self.width
+  local text_width = summary.cover and (width - cover_width - 2 * cover_border - cover_gap) or width
 
   -- TextWidget is one line and reads max_width, not width; anything that may be
   -- long (a title, an author list) is a TextBoxWidget, which wraps to width.
@@ -155,7 +170,7 @@ function BookDetailDialog:init()
   if summary.cover then
     -- an empty box of the cover's size; loadCover swaps the picture in
     self.cover_cell = FrameContainer:new {
-      bordersize = Size.border.thin,
+      bordersize = cover_border,
       padding = 0,
       margin = 0,
       CenterContainer:new {
@@ -178,7 +193,7 @@ function BookDetailDialog:init()
       text = summary.mine,
       face = Font:getFace("cfont", 17),
       bold = true,
-      max_width = self.width,
+      max_width = width,
     }
   end
   self.community_text = nil
@@ -186,7 +201,7 @@ function BookDetailDialog:init()
     self.community_text = TextWidget:new {
       text = summary.community,
       face = Font:getFace("cfont", 15),
-      max_width = self.width,
+      max_width = width,
     }
   end
 
@@ -195,7 +210,7 @@ function BookDetailDialog:init()
       text = text,
       face = Font:getFace("cfont", 17),
       bold = true,
-      max_width = self.width,
+      max_width = width,
     }
   end
 
@@ -207,7 +222,7 @@ function BookDetailDialog:init()
     self.description_text = TextBoxWidget:new {
       text = summary.description,
       face = Font:getFace("cfont", 16),
-      width = self.width,
+      width = width,
       alignment = "left",
     }
   end
@@ -220,7 +235,7 @@ function BookDetailDialog:init()
   The value wraps, so a long value stays on screen.
   ]]
   self.meta_rows = {}
-  local label_width = math.floor(self.width * 0.32)
+  local label_width = math.floor(width * 0.32)
   for _, row in ipairs(Shelf.extraRows(book)) do
     local label = TextWidget:new {
       text = row.label,
@@ -234,7 +249,7 @@ function BookDetailDialog:init()
     local value = TextBoxWidget:new {
       text = tostring(row.value),
       face = Font:getFace("cfont", 15),
-      width = self.width - label_width - 20,
+      width = width - label_width - 20,
       alignment = "left",
     }
     table.insert(self.meta_rows, HorizontalGroup:new {
