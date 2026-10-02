@@ -13,6 +13,7 @@ local Background = require("hardcover/lib/background")
 local Book = require("hardcover/lib/book")
 local BookSearch = require("hardcover/lib/book_search")
 local Home = require("hardcover/lib/home")
+local Lists = require("hardcover/lib/lists")
 local Reviews = require("hardcover/lib/reviews")
 local Shelf = require("hardcover/lib/shelf")
 local Zlibrary = require("hardcover/lib/zlibrary")
@@ -933,6 +934,8 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
     -- only when the Z-library plugin is there: no button that does nothing
     on_zlibrary = Zlibrary.available(self.ui) and function(d) self:searchZlibrary(d) end or nil,
     on_shelf = function(d) self:chooseShelf(d) end,
+    -- only when signed in with OAuth (the write scope is an OAuth thing)
+    on_lists = self:canChooseLists() and function(d) self:chooseLists(d) end or nil,
     -- these open on top of the details, so closing them comes back here
     on_series = function(_, name) self:searchBooks(name) end,
     on_author = function(_, name) self:searchBooks(name) end,
@@ -1146,6 +1149,187 @@ function DialogManager:chooseShelf(dialog)
   picker = require("hardcover/lib/ui/picker").new {
     title = detail.status_id and _("Move to shelf") or _("Add to shelf"),
     rows = rows,
+  }
+  UIManager:show(picker)
+end
+
+-- Signed in with OAuth, so there is a sign-in whose scopes can say whether it may
+-- change lists.
+function DialogManager:canChooseLists()
+  local auth = Api.auth
+  return auth ~= nil and auth:usingOAuth() and not auth:needsReauth()
+end
+
+local function listsNeedNewSignIn()
+  StatusDialogs.info(_("Sign out and back in (Settings > Account) to add books to lists."), 6)
+end
+
+-- The lists screen, when it is open underneath, shows the new size of a list.
+function DialogManager:refreshListsScreen(list_id, count)
+  local screen = self.lists_dialog
+  if not (screen and UIManager:isWidgetShown(screen)) then return end
+  local changed = false
+  for _i, row in ipairs(screen.mine or {}) do
+    if row.id == list_id and row.count ~= count then
+      row.count = count
+      changed = true
+    end
+  end
+  if changed then screen:rebuild() end
+end
+
+-- Put the book on the details screen on your lists, or take it off, one tick box
+-- per list (a book can be on many).
+--
+-- Online only, like the shelf: each tap is sent at once. Which lists the book is on
+-- comes from one request, kept on the details screen so opening the picker again
+-- asks nothing. Where a "New list" row would go: first in the picker's rows (see
+-- showListsPicker), creating the list with a name prompt, then adding the book.
+--
+function DialogManager:chooseLists(dialog)
+  local detail = dialog.detail
+  if not (detail and detail.book and detail.book.book_id) then return end
+
+  if not NetworkManager:isConnected() then
+    StatusDialogs.info(_("You are offline. Changing a list needs a connection."))
+    return
+  end
+
+  -- a sign-in known to lack the scope would only fail: say what to do instead
+  -- (nil, as with a personal token, is "cannot tell": try and see)
+  if Api.auth and Api.auth:hasScope(Lists.WRITE_SCOPE) == false then
+    listsNeedNewSignIn()
+    return
+  end
+
+  if detail.lists then
+    self:showListsPicker(dialog)
+    return
+  end
+
+  local loading = StatusDialogs.loading(_("Loading your lists\226\128\166"))
+  Api:getBookListsAsync(detail.book.book_id, function(rows, err)
+    StatusDialogs.close(loading)
+    if not UIManager:isWidgetShown(dialog) then return end
+
+    if not rows then
+      StatusDialogs.retry(err, _("Loading your lists"),
+        function() self:chooseLists(dialog) end,
+        function() end)
+      return
+    end
+    detail.lists = rows
+    self:showListsPicker(dialog)
+  end)
+end
+
+function DialogManager:showListsPicker(dialog)
+  local detail = dialog.detail
+  local book_id = detail.book.book_id
+  local state = detail.lists
+  if #state == 0 then
+    StatusDialogs.info(_("You have no lists yet. Make one on hardcover.app and it will show up here."), 5)
+    return
+  end
+
+  local picker
+  local open = true
+
+  -- the details screen names the lists once the picker is done with them
+  local function syncDetail()
+    if UIManager:isWidgetShown(dialog) then dialog:setLists(detail.lists) end
+  end
+  local function close()
+    if not open then return end
+    open = false
+    UIManager:close(picker)
+    syncDetail()
+  end
+
+  local function redraw(r)
+    require("hardcover/lib/ui/picker").setRow(picker, "list_" .. r.id, Lists.pickerLabel(r), not r.busy)
+  end
+  local function changed(r)
+    r.busy = nil
+    redraw(r)
+    self:refreshListsScreen(r.id, r.count)
+    if not open then syncDetail() end -- the answer came after the picker was closed
+  end
+  -- the tick stays as it was; say why
+  local function failed(r, err)
+    r.busy = nil
+    redraw(r)
+    if Lists.isScopeError(err) then
+      listsNeedNewSignIn()
+    else
+      StatusDialogs.error(string.format(_("Could not change \"%s\": %s"), r.name, StatusDialogs.describe(err)))
+    end
+  end
+
+  local function toggle(r)
+    if r.busy then return end
+    if not NetworkManager:isConnected() then
+      StatusDialogs.info(_("You are offline. Changing a list needs a connection."))
+      return
+    end
+    r.busy = true
+    redraw(r)
+
+    if not r.on then
+      -- the end of the list: Lists.insertObject
+      Api:addToListAsync(book_id, r.id, r.count, function(added, err)
+        if not added then return failed(r, err) end
+        Lists.markAdded(r, added.id)
+        changed(r)
+      end)
+      return
+    end
+
+    local function remove(list_book_id)
+      Api:removeFromListAsync(list_book_id, function(removed, err)
+        if not removed then return failed(r, err) end
+        Lists.markRemoved(r)
+        changed(r)
+      end)
+    end
+    if r.list_book_id then
+      remove(r.list_book_id)
+      return
+    end
+    -- added a moment ago and Hardcover's answer did not say which row it made:
+    -- look it up (one request) rather than guess
+    Api:getBookListsAsync(book_id, function(fresh, err)
+      local found
+      for _i, f in ipairs(fresh or {}) do
+        if f.id == r.id then found = f end
+      end
+      if not found then return failed(r, err or { message = _("the list was not found") }) end
+      if not found.on then
+        Lists.markRemoved(r) -- already off it
+        return changed(r)
+      end
+      if not found.list_book_id then return failed(r, { message = _("no answer from Hardcover") }) end
+      remove(found.list_book_id)
+    end)
+  end
+
+  local rows = {}
+  for _i, r in ipairs(state) do
+    rows[#rows + 1] = {
+      id = "list_" .. r.id,
+      text = Lists.pickerLabel(r),
+      callback = function() toggle(r) end,
+    }
+  end
+  rows[#rows + 1] = { text = _("Done"), callback = close }
+
+  picker = require("hardcover/lib/ui/picker").new {
+    title = _("Add to lists"),
+    rows = rows,
+    close_callback = function()
+      open = false
+      syncDetail()
+    end,
   }
   UIManager:show(picker)
 end

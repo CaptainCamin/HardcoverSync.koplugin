@@ -271,6 +271,24 @@ M.lists_me = { {
 -- how many books each list holds when opened (the shelf fixture is long)
 M.list_sizes = { [1] = 7, [2] = 4, [3] = 1, [4] = 0, [106] = 18 }
 
+-- which books are on which of your lists: list id -> book id -> the list_books row's
+-- id (so book 103 starts with two ticks, and unticking has an id to delete)
+M.list_members = { [1] = { [103] = 501 }, [3] = { [103] = 502 } }
+
+-- A sign-in as Api.auth sees it, for the lists button (OAuth only) and its scope
+-- check: `granted` is true (has write:lists), false (known to lack it) or nil (cannot
+-- tell, as with a sign-in stored before scopes were kept).
+function M.fake_auth(granted)
+  return {
+    usingOAuth = function() return true end,
+    needsReauth = function() return false end,
+    hasScope = function(_, scope)
+      assert(scope == "write:lists", "asked about " .. tostring(scope))
+      return granted
+    end,
+  }
+end
+
 M.shelf_counts = { [2] = 3, [1] = 42, [3] = 130, [5] = 2 }
 
 -- what Api:getCurrentlyReading returns: three books in progress, the last with
@@ -442,6 +460,51 @@ function M.install(opts)
       entries[#entries + 1] = Lists.entry({ id = 50000 + i, position = i - 1, date_added = "2026-01-01", book = b }, ranked)
     end
     return entries, nil, total > offset + limit
+  end
+
+  -- Adding a book to lists. The writes are recorded and kept (so a second
+  -- getBookLists sees them), and fail with M.list_write_fail when it is set (a
+  -- string, or a table such as { errors = { "insufficient_scope" }, status = 403 }).
+  -- Nothing here, or anywhere in the specs, sends a request to Hardcover.
+  local members = deepcopy(M.list_members)
+  local sizes = {}
+  for _, list in ipairs((opts.lists_me or M.lists_me)[1].lists) do sizes[list.id] = list.books_count end
+  local next_list_book = 60000
+
+  Api.getBookLists = function(_, book_id)
+    record("getBookLists", { book_id = book_id })
+    if M.book_lists_fail then return nil, { completed = false } end
+    local mine = deepcopy((opts.lists_me or M.lists_me)[1].lists)
+    for _, list in ipairs(mine) do
+      local row_id = members[list.id] and members[list.id][book_id]
+      list.books_count = sizes[list.id]
+      list.list_books = row_id and { { id = row_id } } or {}
+    end
+    return require("hardcover/lib/lists").membership({ lists = mine })
+  end
+
+  Api.addToList = function(_, book_id, list_id, position)
+    record("addToList", { book_id = book_id, list_id = list_id, position = position })
+    if M.list_write_fail then return nil, M.list_write_fail end
+    next_list_book = next_list_book + 1
+    members[list_id] = members[list_id] or {}
+    members[list_id][book_id] = next_list_book
+    sizes[list_id] = (sizes[list_id] or 0) + 1
+    return { id = next_list_book }
+  end
+
+  Api.removeFromList = function(_, list_book_id)
+    record("removeFromList", { id = list_book_id })
+    if M.list_write_fail then return nil, M.list_write_fail end
+    for list_id, books in pairs(members) do
+      for book_id, row_id in pairs(books) do
+        if row_id == list_book_id then
+          books[book_id] = nil
+          sizes[list_id] = math.max(0, (sizes[list_id] or 0) - 1)
+        end
+      end
+    end
+    return { id = list_book_id }
   end
 
   Api.getSeriesBooks = function(_, series_id, user_id)

@@ -8,6 +8,12 @@
   Home shows the first three books you are reading; the "Currently reading" heading, which now says how many
   you are reading, opens the rest.
 
+### Added
+
+* Add a book to your lists from its details screen: a Lists button opens your lists with a tick box each; tap to
+  add or remove, and the details name the lists the book is on. It needs a new sign-in permission (write:lists):
+  if yours predates it, the button says to sign out and back in (Settings > Account). Online only.
+
 ## 1.0.5
 
 ### Added

@@ -1264,6 +1264,89 @@ function HardcoverApi:removeUserBook(user_book_id)
   return nil, err
 end
 
+--
+-- Which of your own lists a book is on: every list of yours (id, name, size, ranked)
+-- and, for each, the list_books row that is this book if it is there (its id is what
+-- removing needs). The lists you follow cannot be added to, so they are not asked
+-- for. Works with the scopes every sign-in has. Returns rows (see
+-- Lists.membership), or nil and the error.
+--
+function HardcoverApi:getBookLists(book_id)
+  local query = [[
+    query ($bookId: Int!) {
+      me {
+        lists(order_by: [{ updated_at: desc }, { id: desc }]) {
+          id
+          name
+          books_count
+          ranked
+          privacy_setting_id
+          list_books(where: { book_id: { _eq: $bookId } }) {
+            id
+          }
+        }
+      }
+    }
+  ]]
+
+  local results, err = self:query(query, { bookId = book_id })
+  local me = results and results.me
+  if type(me) == "table" and me[1] ~= nil then me = me[1] end
+  if type(me) ~= "table" then
+    return nil, err or { completed = false }
+  end
+  return Lists.membership(me)
+end
+
+--
+-- Put a book on one of your lists (needs the write:lists scope, see Lists.WRITE_SCOPE).
+-- `position` is where in the list; the caller passes the end (Lists.insertObject).
+-- Returns { id = the new list_books row's id (nil if the answer did not carry
+-- one) }, or nil and the error: Hardcover's own text when it refused, the request's
+-- error table otherwise.
+--
+-- Written by analogy with insert_user_book (a payload with `error` and an id); the
+-- answer is read loosely so a slightly different payload still counts as done.
+--
+function HardcoverApi:addToList(book_id, list_id, position)
+  local query = [[
+    mutation ($object: ListBookInput!) {
+      insert_list_book(object: $object) {
+        error
+        id
+      }
+    }
+  ]]
+
+  local result, err = self:query(query, { object = Lists.insertObject(book_id, list_id, position) })
+  local inserted = result and result.insert_list_book
+  if type(inserted) == "table" then
+    if type(inserted.error) == "string" and inserted.error ~= "" then
+      return nil, inserted.error
+    end
+    return { id = Lists.listBookId(inserted) }
+  end
+  return nil, err or { completed = false }
+end
+
+-- Take a book off a list, by the id of its list_books row. Returns { id } or nil
+-- and the error.
+function HardcoverApi:removeFromList(list_book_id)
+  local query = [[
+    mutation ($id: Int!) {
+      delete_list_book(id: $id) {
+        id
+      }
+    }
+  ]]
+
+  local result, err = self:query(query, { id = list_book_id })
+  if result and type(result.delete_list_book) == "table" then
+    return result.delete_list_book
+  end
+  return nil, err or { completed = false }
+end
+
 function HardcoverApi:updateRating(user_book_id, rating)
   local query = [[
     mutation ($id: Int!, $rating: numeric) {
@@ -1366,6 +1449,18 @@ end
 
 function HardcoverApi:getListsAsync(callback)
   async(callback, self.getLists, self)
+end
+
+function HardcoverApi:getBookListsAsync(book_id, callback)
+  async(callback, self.getBookLists, self, book_id)
+end
+
+function HardcoverApi:addToListAsync(book_id, list_id, position, callback)
+  async(callback, self.addToList, self, book_id, list_id, position)
+end
+
+function HardcoverApi:removeFromListAsync(list_book_id, callback)
+  async(callback, self.removeFromList, self, list_book_id)
 end
 
 function HardcoverApi:getListCountAsync(callback)
