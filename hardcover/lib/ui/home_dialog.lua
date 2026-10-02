@@ -182,7 +182,9 @@ function HomeDialog:buildTile(row, w, h, viewport)
   table.insert(line, text(row.title, "small", { width = w - Theme.space.l }))
   return TapRow:new {
     callback = function()
-      if row.lists then
+      if row.goals then
+        if self.goals_cb then self.goals_cb() end
+      elseif row.lists then
         if self.lists_cb then self.lists_cb() end
       elseif self.select_cb then
         self.select_cb(row)
@@ -256,6 +258,11 @@ function HomeDialog:buildColumn(width, viewport)
   end
   if self.lists_cb then
     rows[#rows + 1] = { lists = true, title = _("More lists"), count = self.list_count }
+  end
+  -- a tile straight to the goals, so they are one tap away however the page lays out
+  if self.goals_cb then
+    local n = type(self.goals) == "table" and #self.goals or nil
+    rows[#rows + 1] = { goals = true, title = _("Goals"), count = (n and n > 0) and n or nil }
   end
   for i = 1, #rows, 2 do
     local pair = HorizontalGroup:new { self:buildTile(rows[i], tile_w, tile_h, viewport) }
