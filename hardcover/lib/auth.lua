@@ -23,11 +23,14 @@ local OAuthClient = require("hardcover/lib/oauth_client")
 -- read:social: other readers' reviews (and other users' generated content)
 -- read:users: those readers' names (without it a review's `user` is null)
 -- write:library: status/progress updates AND reading journal entries
+-- write:lists: adding books to your lists and taking them off (Lists.WRITE_SCOPE).
+--   Reading lists needs nothing new. A sign-in from before this was asked for
+--   lacks it: the lists button then says to sign out and back in.
 --
 -- There is no separate write:journal scope: requesting one fails the whole
 -- authorization with `invalid_scope`. Journal writes are part of
 -- write:library, and read:journal is implied by read:library.
-local DEFAULT_SCOPE = "read:catalog read:catalog:search read:me:content read:library read:social read:users write:library"
+local DEFAULT_SCOPE = "read:catalog read:catalog:search read:me:content read:library read:social read:users write:library write:lists"
 
 local Auth = {}
 Auth.__index = Auth

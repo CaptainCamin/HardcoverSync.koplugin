@@ -16,6 +16,9 @@
   card opens that goal (you against pace, what finishing takes). Pace, days left and "books a week to finish"
   are worked out on the device, so goals read the same offline from the saved copy ("Offline. Showing your
   goals as of ..."), and a book you finish offline is counted straight away ("+1 finished offline").
+* Add a book to your lists from its details screen: a Lists button opens your lists with a tick box each; tap to
+  add or remove, and the details name the lists the book is on. It needs a new sign-in permission (write:lists):
+  if yours predates it, the button says to sign out and back in (Settings > Account). Online only.
 
 ## 1.0.5
 
