@@ -178,7 +178,15 @@ function HardcoverMenu:showReaderPanel()
     local settings_item = findItem(view, "Settings")
     local link_item = findItem(view, "Linked book") or findItem(view, "Link book")
     local edition_item = findItem(view, "Change edition")
-    local status_item = findItem(view, "Update status")
+    -- just the statuses (and Remove); page, note and rating have buttons of their own
+    local status_item = findItem(view, "Update status") and {
+      text = _("Update status"),
+      enabled_func = function() return self.enabled and self.settings:bookLinked() end,
+      sub_item_table_func = function()
+        local all = self:getStatusSubMenuItems()
+        return { all[1], all[2], all[3], all[4], all[5] }
+      end,
+    }
 
     local pills = {}
     if not linked then
