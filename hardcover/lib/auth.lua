@@ -21,12 +21,13 @@ local OAuthClient = require("hardcover/lib/oauth_client")
 -- read:me:content: the user id we key local state on
 -- read:library: shelf listings and reading progress
 -- read:social: other readers' reviews (and other users' generated content)
+-- read:users: those readers' names (without it a review's `user` is null)
 -- write:library: status/progress updates AND reading journal entries
 --
 -- There is no separate write:journal scope: requesting one fails the whole
 -- authorization with `invalid_scope`. Journal writes are part of
 -- write:library, and read:journal is implied by read:library.
-local DEFAULT_SCOPE = "read:catalog read:catalog:search read:me:content read:library read:social write:library"
+local DEFAULT_SCOPE = "read:catalog read:catalog:search read:me:content read:library read:social read:users write:library"
 
 local Auth = {}
 Auth.__index = Auth

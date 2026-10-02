@@ -521,6 +521,15 @@ local function signedIn(scope)
   return a, settings
 end
 
+check("sign-in asks for read:users, which is what lets Hardcover name reviewers", function()
+  for _, file in ipairs({ "hardcover/lib/auth.lua", "hardcover/lib/default_config.lua" }) do
+    local f = assert(io.open(PLUGIN .. "/" .. file)); local src = f:read("*a"); f:close()
+    local scope = src:match('scope = "([^"]+)"') or src:match('DEFAULT_SCOPE = "([^"]+)"')
+    assert(scope and (" " .. scope .. " "):find(" read:users ", 1, true), file .. " does not request read:users")
+    assert((" " .. scope .. " "):find(" read:social ", 1, true), file .. " lost read:social")
+  end
+end)
+
 check("a granted scope is reported as granted", function()
   local a = signedIn("read:catalog read:library read:social")
   eq(a:hasScope("read:social"), true, "read:social")
