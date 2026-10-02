@@ -1083,10 +1083,33 @@ function HardcoverApi:updateUserBook(book_id, status_id, privacy_setting_id, edi
     edition_id = edition_id
   }
 
-  local result = self:query(query, { object = update_args })
+  local result, err = self:query(query, { object = update_args })
   if result and result.insert_user_book then
-    return result.insert_user_book.user_book
+    local inserted = result.insert_user_book
+    if inserted.user_book then
+      return inserted.user_book
+    end
+    return nil, inserted.error
   end
+  return nil, err
+end
+
+-- Take a book out of the library altogether (its status, rating and reads go
+-- with it). Returns { id = user_book_id } on success.
+function HardcoverApi:removeUserBook(user_book_id)
+  local query = [[
+    mutation ($id: Int!) {
+      delete_user_book(id: $id) {
+        id
+      }
+    }
+  ]]
+
+  local result, err = self:query(query, { id = user_book_id })
+  if result and result.delete_user_book then
+    return result.delete_user_book
+  end
+  return nil, err
 end
 
 function HardcoverApi:updateRating(user_book_id, rating)
@@ -1199,6 +1222,14 @@ end
 
 function HardcoverApi:getReviewsAsync(book_id, limit, offset, callback)
   async(callback, self.getReviews, self, book_id, limit, offset)
+end
+
+function HardcoverApi:updateUserBookAsync(book_id, status_id, privacy_setting_id, edition_id, callback)
+  async(callback, self.updateUserBook, self, book_id, status_id, privacy_setting_id, edition_id)
+end
+
+function HardcoverApi:removeUserBookAsync(user_book_id, callback)
+  async(callback, self.removeUserBook, self, user_book_id)
 end
 
 function HardcoverApi:findBooksAsync(title, author, user_id, callback)

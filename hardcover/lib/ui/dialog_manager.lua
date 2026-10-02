@@ -743,6 +743,7 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
     detail = nil,
     loading = true,
     on_reviews = function() self:showReviews(book_id) end,
+    on_shelf = function(d) self:chooseShelf(d) end,
   }
 
   UIManager:show(dialog)
@@ -865,6 +866,130 @@ function DialogManager:showReviews(book_id, done_callback)
       return
     end
     dialog:addPage(rows, raw_count, 0)
+  end)
+end
+
+-- Put the book on the details screen on a shelf, or take it off.
+--
+-- Online only: the change is sent at once and the screen is updated from the
+-- answer, so offline there is nothing honest to show. (It does not touch the
+-- offline sync queue, which is for reading progress.)
+--
+function DialogManager:chooseShelf(dialog)
+  local detail = dialog.detail
+  if not (detail and detail.book and detail.book.book_id) then return end
+
+  if not NetworkManager:isConnected() then
+    StatusDialogs.info(_("You are offline. Changing a shelf needs a connection."))
+    return
+  end
+
+  local ButtonDialog = require("ui/widget/buttondialog")
+  local picker
+  local rows = {}
+
+  for _i, choice in ipairs(Shelf.statusChoices()) do
+    local current = detail.status_id == choice.status_id
+    rows[#rows + 1] = { {
+      -- a bullet marks where the book is now; choosing it again does nothing
+      text = (current and "\226\128\162 " or "") .. _(choice.label),
+      callback = function()
+        UIManager:close(picker)
+        if not current then
+          self:saveShelf(dialog, choice.status_id)
+        end
+      end,
+    } }
+  end
+
+  if detail.user_book_id then
+    rows[#rows + 1] = { {
+      text = _("Remove from library"),
+      callback = function()
+        UIManager:close(picker)
+        StatusDialogs.confirm {
+          text = string.format(_("Remove \"%s\" from your library? Your status, rating and reading history for it are deleted."),
+            tostring(detail.book.title or "")),
+          ok_text = _("Remove"),
+          ok_callback = function() self:removeFromShelf(dialog) end,
+        }
+      end,
+    } }
+  end
+
+  rows[#rows + 1] = { {
+    text = _("Cancel"),
+    callback = function() UIManager:close(picker) end,
+  } }
+
+  picker = ButtonDialog:new {
+    title = detail.status_id and _("Move to shelf") or _("Add to shelf"),
+    title_align = "center",
+    buttons = rows,
+  }
+  UIManager:show(picker)
+end
+
+-- The saved shelves and counts that a change of status makes wrong.
+function DialogManager:forgetShelves(old_status_id, new_status_id)
+  if not self.shelf_cache then return end
+  local ids = {}
+  if old_status_id then ids[#ids + 1] = old_status_id end
+  if new_status_id then ids[#ids + 1] = new_status_id end
+  self.shelf_cache:invalidate(User:getId(), ids)
+end
+
+function DialogManager:saveShelf(dialog, status_id)
+  local detail = dialog.detail
+  local old_status_id = detail.status_id
+  local in_library = detail.user_book_id ~= nil or old_status_id ~= nil
+
+  local loading = StatusDialogs.loading(_("Saving to your shelf…"))
+
+  -- the edition is only passed when the book is new to the library: for a book
+  -- already on a shelf, the upsert must not switch the edition it is read in
+  Api:updateUserBookAsync(detail.book.book_id, status_id, nil,
+    (not in_library) and detail.book.edition_id or nil,
+    function(user_book, err)
+      StatusDialogs.close(loading)
+
+      if not user_book then
+        StatusDialogs.retry(err, _("Saving to your shelf"),
+          function() self:saveShelf(dialog, status_id) end,
+          function() end)
+        return
+      end
+
+      -- the change happened whether or not the screen is still there
+      self:forgetShelves(old_status_id, status_id)
+      if UIManager:isWidgetShown(dialog) then
+        dialog:setStatus(status_id, user_book.id or detail.user_book_id)
+      end
+    end)
+end
+
+function DialogManager:removeFromShelf(dialog)
+  local detail = dialog.detail
+  local old_status_id = detail.status_id
+  local user_book_id = detail.user_book_id
+  if not user_book_id then return end
+
+  local loading = StatusDialogs.loading(_("Removing from your library…"))
+
+  Api:removeUserBookAsync(user_book_id, function(removed, err)
+    StatusDialogs.close(loading)
+
+    if not removed then
+      StatusDialogs.retry(err, _("Removing from your library"),
+        function() self:removeFromShelf(dialog) end,
+        function() end)
+      return
+    end
+
+    self:forgetShelves(old_status_id, nil)
+    if UIManager:isWidgetShown(dialog) then
+      dialog:setStatus(nil, nil)
+    end
   end)
 end
 

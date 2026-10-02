@@ -11,6 +11,14 @@
   show" until tapped; "Load more reviews" fetches the next ten. Reviews are fetched in the background and only when
   you open them (one request per page), say so when you are offline, and offer a retry when a request fails.
 
+* Add a book to a shelf, or change its status, from its details screen. The row under the details now has a **Shelf**
+  button next to Close: it says **Add to shelf** for a book that is not in your library, and **Shelf: Currently
+  Reading** (or Want to Read, Read, Did Not Finish) for one that is. Tapping it lists the four shelves, plus **Remove
+  from library** (after a confirmation) when the book is in it. The status line and the button update in place, keeping
+  the cover and your place on the page. It works from search results, shelves and the series carousel, runs in the
+  background, offers a retry if it fails, and needs a connection (offline it says so and changes nothing). Your saved
+  shelves, their counts and the reading list are refreshed rather than left showing the old status.
+
 ## 0.8.0
 
 ### Added
