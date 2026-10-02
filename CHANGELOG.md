@@ -18,6 +18,15 @@ Offline sync (found by an audit of the queue):
 - Ambiguous token-refresh failures (5xx, garbled reply) no longer re-send a refresh token that may already be spent.
 - A malformed queue file no longer breaks every sync check.
 
+### Changed
+
+- Fewer and smaller screen refreshes on e-ink. A cover arriving, the counts and reading list landing on Home, the
+  sign-in progress bar stepping, a tick in Settings and the reader panel opening or closing now redraw only the part
+  of the screen that changed instead of the whole panel (opening Home went from five full-screen refreshes to one),
+  covers already decoded are reused when a screen rebuilds, Settings keeps its scroll position when you tick an
+  option, and Home no longer rewrites (or reads) the saved shelves just to save its counts. Page turns while
+  reading are unchanged: they cost nothing.
+
 ## 1.1.1
 
 ### Fixed

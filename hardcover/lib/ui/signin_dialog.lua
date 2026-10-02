@@ -26,6 +26,7 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 
+local Refresh = require("hardcover/lib/ui/refresh")
 local Theme = require("hardcover/lib/ui/theme")
 
 local T = require("ffi/util").template
@@ -180,9 +181,20 @@ function SignInDialog:init()
   self[1] = self.frame
 end
 
+-- The bar and the line of words under it: the only parts of this screen that ever
+-- change while it waits. Read after a paint, when their positions are known.
+function SignInDialog:waitRegion()
+  local bar = self.wait_bar and self.wait_bar.dimen
+  if not Refresh.valid(bar) then return nil end
+  -- the status line sits under the bar, a small gap below it
+  local below = Theme.space.s + (self.status_text and self.status_text:getSize().h or 0)
+  return { x = bar.x, y = bar.y, w = bar.w, h = bar.h + below }
+end
+
 -- Move the waiting bar to how much of the code's life has passed, but only in
--- steps of a twentieth: it is redrawn with the screen's partial refresh, and a
--- redraw every few seconds for no visible change is the thing to avoid on e-ink.
+-- steps of a twentieth: a redraw every few seconds for no visible change is the
+-- thing to avoid on e-ink, and when it does move only the bar is redrawn, not
+-- the whole screen (this screen sits open for minutes).
 function SignInDialog:updateWait()
   local lifetime = tonumber(self.device and self.device.expires_in)
   if not (lifetime and lifetime > 0 and self.wait_bar) then return end
@@ -190,8 +202,14 @@ function SignInDialog:updateWait()
   local step_size = math.floor(fraction * 20) / 20
   if step_size ~= self.wait_bar.percentage then
     self.wait_bar:setPercentage(step_size)
-    UIManager:setDirty(self, "ui")
+    Refresh.region(self, function() return self:waitRegion() end)
   end
+end
+
+-- show() queues no refresh of its own and relies on a fallback that a small
+-- refresh queued in the same tick would suppress: ask for the first full draw.
+function SignInDialog:onShow()
+  UIManager:setDirty(self, "ui")
 end
 
 function SignInDialog:onShowSignIn()
@@ -201,7 +219,7 @@ end
 
 function SignInDialog:setStatus(text)
   self.status_text:setText(text)
-  UIManager:setDirty(self, "ui")
+  Refresh.region(self, function() return self:waitRegion() end)
 end
 
 --

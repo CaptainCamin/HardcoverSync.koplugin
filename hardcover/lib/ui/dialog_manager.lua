@@ -1173,12 +1173,21 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
   UIManager:show(dialog)
 
   local user_id = User:getId()
-  local saved = self.shelf_cache and self.shelf_cache:findEntry(user_id, book_id)
+  -- Looked up only when it is needed (offline, or the fetch failed): it reads the
+  -- whole saved-shelves file, which is megabytes for a big library.
+  local looked_up, found
+  local function saved_entry()
+    if not looked_up then
+      looked_up = true
+      found = self.shelf_cache and self.shelf_cache:findEntry(user_id, book_id)
+    end
+    return found
+  end
 
   -- What a shelf row already knows, shown when the network cannot supply the
   -- full record. Book level only: edition fields are not on a shelf row.
   local function showSaved()
-    dialog:setDetail(Shelf.detailFromEntry(saved))
+    dialog:setDetail(Shelf.detailFromEntry(saved_entry()))
     StatusDialogs.info(_("Offline: showing saved details"))
     if done_callback then
       done_callback()
@@ -1186,7 +1195,7 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
   end
 
   if not NetworkManager:isConnected() then
-    if saved then
+    if saved_entry() then
       showSaved()
     else
       StatusDialogs.retry(_("no internet connection"), _("Loading book details"),
@@ -1206,7 +1215,7 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
     if not UIManager:isWidgetShown(dialog) then return end
 
     if not detail then
-      if saved then
+      if saved_entry() then
         showSaved()
         return
       end
