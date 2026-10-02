@@ -317,6 +317,7 @@ function HomeDialog:buildColumn(width, viewport)
     end,
     Theme.sectionHeader(_("Currently reading"), width, right),
   }
+  self.reading_header = header
   table.insert(column, header)
   table.insert(column, Theme.span("m"))
 
@@ -340,6 +341,7 @@ function HomeDialog:buildColumn(width, viewport)
   if goal_card then
     table.insert(column, Theme.span("l"))
     table.insert(column, goal_card)
+    table.insert(column, Theme.span("l")) -- room under the last card when scrolled to the end
   end
   column:resetLayout() -- children were added since its size was last read
   return column

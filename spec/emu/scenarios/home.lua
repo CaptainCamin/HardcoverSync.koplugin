@@ -130,7 +130,9 @@ return {
     --[[--
     The "Currently reading" heading is a button: it opens that shelf.
     ]]
-    local heading = emu:expectText("Currently reading")
+    -- (the heading's own rectangle: text drawn inside a scrolling page is not positioned in
+    -- screen terms)
+    local heading = manager.home_dialog.reading_header.dimen
     emu:tapExpecting(heading.x + 5, heading.y + 5)
     assert(manager.shelf_dialog and UIManager:isWidgetShown(manager.shelf_dialog),
       "tapping the heading did not open the Currently Reading shelf")
@@ -142,8 +144,9 @@ return {
     Choosing a shelf opens it on top, so closing it comes back here. A real tap
     on its button, not a call to the callback.
     ]]
-    local row = emu:expectText("Want to Read")
-    emu:tapExpecting(row.x + 5, row.y + 5)
+    -- (the first tile's own rectangle: library = heading, gap, then the rows of tiles)
+    local tile = dialog.library[3][1].dimen
+    emu:tapExpecting(tile.x + 5, tile.y + 5)
     assert(manager.shelf_dialog and UIManager:isWidgetShown(manager.shelf_dialog),
       "tapping a shelf did not open it")
     assert(UIManager:isWidgetShown(dialog), "opening a shelf closed the home screen")
