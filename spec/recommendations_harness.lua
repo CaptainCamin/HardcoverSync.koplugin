@@ -46,6 +46,7 @@ _G.require = function(name)
 end
 
 local Api = real_require("hardcover/lib/hardcover_api")
+local real_query = Api.query
 local Goals = real_require("hardcover/lib/goals")
 local Lists = real_require("hardcover/lib/lists")
 
@@ -110,6 +111,7 @@ check("the carousel card: author line, title, cover; nothing to show is nil", fu
   assert(card.items[1].book_id == 1 and card.items[1].title == "Book 1" and card.items[1].number == "A")
   assert(card.items[1].cover and card.items[1].cover.url == "u.jpg" and card.items[2].cover == nil)
   assert(card.items[1].current == false)
+  assert(card.title_first == true, "the bold line is the title, the author under it")
   assert(Recommendations.card(entries).title == "Similar books", "no title known")
   assert(Recommendations.card({}) == nil and Recommendations.card(nil) == nil)
 end)
@@ -144,6 +146,23 @@ check("a failed request is nil and the reason, at either step", function()
   answers(ok({ books_by_pk = { cached_similar_book_ids = { 1 } } }), fail({ status = 429 }))
   entries, err = Api:getSimilarBooks(5)
   assert(entries == nil and err and err.status == 429)
+end)
+
+print("\n== not cancellable ==")
+
+check("the strips' requests ignore touches (a dummy trap widget); an ordinary request can be cancelled", function()
+  local Trapper = real_require("ui/trapper")
+  local seen = {}
+  Trapper.dismissableRunInSubprocess = function(_, _, trap) seen[#seen + 1] = trap; return true, '200:{"data":{"x":1}}' end
+  Api.enabled = true
+  local Network = real_require("hardcover/lib/network")
+  Network.connected = function() return true end
+  Api.query = real_query
+  Api.auth = nil
+  assert(Api:query("query { x }", {}, true), "no answer")
+  assert(Api:query("query { x }", {}), "no answer")
+  assert(type(seen[1]) == "table" and seen[1].dismiss_callback == nil, "a background request got a real trap")
+  assert(seen[2] == true, "an ordinary request lost its trap")
 end)
 
 r.finish()

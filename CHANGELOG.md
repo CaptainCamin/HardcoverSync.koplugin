@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.4
+
+### Fixed
+
+- Touching the screen (scrolling the details page, say) no longer cancels the series and "Similar to" strips while they load: KOReader cancels any request in flight on a touch, so those two background requests are now exempt.
+- A long book title in the "Similar to" heading is cut short instead of running past the page edge and pushing the book count off it.
+
+### Changed
+
+- In the "Similar to" strip, the bold line under each cover is now the title and the author is under it (it was the other way round).
+
 ## 1.3.3
 
 ### Fixed

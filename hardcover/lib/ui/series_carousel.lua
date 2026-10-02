@@ -164,21 +164,30 @@ function SeriesCarousel:buildItem(item)
   local group = VerticalGroup:new { align = "center" }
   table.insert(group, box:widget())
   table.insert(group, VerticalSpan:new { width = 4 })
-  table.insert(group, TextWidget:new {
+  local number = TextWidget:new {
     text = item.number,
-    face = self.number_face,
-    bold = true,
+    face = self.card.title_first and self.status_face or self.number_face,
+    bold = not self.card.title_first,
     max_width = self.text_width,
-  })
-  table.insert(group, TextBoxWidget:new {
+  }
+  local title = TextBoxWidget:new {
     text = item.title,
     face = self.title_face,
-    bold = item.current,
+    bold = item.current or self.card.title_first,
     width = self.text_width,
     height = self.title_height,
     height_overflow_show_ellipsis = true,
     alignment = "center",
-  })
+  }
+  -- a series strip puts the book's number first, then its title; a strip of other
+  -- books (card.title_first) puts the bold title first, then the line under it (the author)
+  if self.card.title_first then
+    table.insert(group, title)
+    table.insert(group, number)
+  else
+    table.insert(group, number)
+    table.insert(group, title)
+  end
   -- a space, not nothing, so a book with no status takes the same room
   table.insert(group, TextWidget:new {
     text = item.status or " ",

@@ -111,11 +111,14 @@ end
 -- small button).
 --
 function Theme.sectionHeader(text, width, right)
+  -- a long heading is cut short (with an ellipsis) rather than pushing what is at the
+  -- end of the line past the edge
+  local room = right and math.max(0, width - right:getSize().w - Theme.space.m) or width
   local title = TextWidget:new {
     text = text,
     face = Theme.face("title"),
     bold = true,
-    max_width = width,
+    max_width = room,
     fgcolor = Theme.BLACK,
   }
   local line = HorizontalGroup:new { align = "center", title }

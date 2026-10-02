@@ -62,6 +62,24 @@ return {
     for _, expected in ipairs({ "Similar to The Lathe of Heaven", "4 books" }) do emu:expectText(expected) end
     emu:shot("similar_strip")
 
+    -- a very long title: the heading is cut short, never wider than the page
+    local real_open = details.on_open_similar
+    local long = {}
+    for i, item in ipairs(details.similar_card.items) do long[i] = item end
+    details:setSimilar({ title = "Similar to " .. string.rep("The Extraordinarily Long Title ", 6), subtitle = "20 books",
+      title_first = true, items = long }, function() end)
+    local width = details.similar_carousel.widget:getSize().w
+    local screen_w = emu.Screen:getWidth()
+    assert(width <= screen_w, "the heading is " .. width .. " wide on a " .. screen_w .. " screen")
+    assert(width <= details.similar_carousel.width, "the heading is wider than its strip: " .. width .. " > " .. details.similar_carousel.width)
+    emu:expectText("20 books")
+    emu:shot("similar_long_title")
+    details:setSimilar(details.similar_card, real_open)
+    UIManager:setDirty(nil, "full")
+    UIManager:_repaint()
+    details.scroll:scrollToRatio(0, 1)
+    strip = details.similar_carousel
+
     -- a tap on a cover opens that book on top of this one; closing comes back
     -- (the strip is below the first screenful: scroll to it, taps are only answered where
     -- the page is showing)

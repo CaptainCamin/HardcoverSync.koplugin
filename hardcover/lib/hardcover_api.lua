@@ -129,7 +129,10 @@ function HardcoverApi:me()
   return {}
 end
 
-function HardcoverApi:query(query, parameters)
+-- `background` is for what the reader did not ask for and is not waiting on (the series
+-- and similar books strips): KOReader cancels a request in flight when the screen is
+-- touched, and scrolling the page counts, so such a request must not be cancellable.
+function HardcoverApi:query(query, parameters, background)
   if not Network.connected() or not self.enabled then
     return
   end
@@ -146,7 +149,7 @@ function HardcoverApi:query(query, parameters)
 
   completed, content = Trapper:dismissableRunInSubprocess(function()
     return self:_query(query, parameters, headers)
-  end, true, true)
+  end, background and {} or true, true)
 
   if completed and content then
     local code, response = string.match(content, "^([^:]*):(.*)")
@@ -1160,7 +1163,7 @@ function HardcoverApi:getSimilarBooks(book_id, limit)
     query ($bookId: Int!) {
       books_by_pk(id: $bookId) { cached_similar_book_ids }
     }
-  ]], { bookId = book_id })
+  ]], { bookId = book_id }, true)
   local book = first and first.books_by_pk
   if type(book) == "table" and book[1] ~= nil then book = book[1] end
   if first == nil or (type(book) ~= "table" and first.books_by_pk ~= nil) then
@@ -1187,7 +1190,7 @@ function HardcoverApi:getSimilarBooks(book_id, limit)
         book_series { position series { name } }
       }
     }
-  ]], { ids = ids })
+  ]], { ids = ids }, true)
   if second == nil or type(second.books) ~= "table" then
     return nil, err2 or { completed = false }
   end
@@ -1388,7 +1391,7 @@ function HardcoverApi:getSeriesBooks(series_id, user_id)
     }
   ]]
 
-  local results, err = self:query(query, { seriesId = series_id, userId = user_id })
+  local results, err = self:query(query, { seriesId = series_id, userId = user_id }, true)
   local series = results and results.series_by_pk
   if not series then
     return nil, err
