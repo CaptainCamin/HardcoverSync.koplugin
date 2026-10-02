@@ -146,7 +146,7 @@ function SeriesCarousel:build()
     face = Font:getFace("cfont", 14),
     max_width = width,
   })
-  table.insert(self.widget, VerticalSpan:new { height = 8 })
+  table.insert(self.widget, VerticalSpan:new { width = 8 })
   table.insert(self.widget, self.holder)
 end
 
@@ -165,7 +165,7 @@ function SeriesCarousel:buildItem(item)
 
   local group = VerticalGroup:new { align = "center" }
   table.insert(group, box:widget())
-  table.insert(group, VerticalSpan:new { height = 4 })
+  table.insert(group, VerticalSpan:new { width = 4 })
   table.insert(group, TextWidget:new {
     text = item.number,
     face = self.number_face,

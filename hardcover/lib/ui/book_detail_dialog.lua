@@ -148,7 +148,7 @@ function BookDetailDialog:init()
   end
   if summary.authors then
     self.authors_text = wrapped(_("by") .. " " .. summary.authors, 17)
-    addTo(column, VerticalSpan:new { height = 6 })
+    addTo(column, VerticalSpan:new { width = 6 })
     addTo(column, self.authors_text)
   else
     self.authors_text = nil
@@ -161,7 +161,7 @@ function BookDetailDialog:init()
   end
   if summary.facts then
     self.facts_text = wrapped(summary.facts, 15)
-    addTo(column, VerticalSpan:new { height = 6 })
+    addTo(column, VerticalSpan:new { width = 6 })
     addTo(column, self.facts_text)
   else
     self.facts_text = nil
@@ -286,14 +286,14 @@ function BookDetailDialog:init()
   self.content_group = content
 
   add(header)
-  add(VerticalSpan:new { height = 14 })
+  add(VerticalSpan:new { width = 14 })
   add(self.status_text)
   add(self.community_text)
 
   if self.description_text then
-    add(VerticalSpan:new { height = 14 })
+    add(VerticalSpan:new { width = 14 })
     add(heading(_("About")))
-    add(VerticalSpan:new { height = 6 })
+    add(VerticalSpan:new { width = 6 })
     add(self.description_text)
   end
 
@@ -312,20 +312,20 @@ function BookDetailDialog:init()
       image_loader = self.image_loader or require("hardcover/lib/ui/image_loader"),
       on_change = function() UIManager:setDirty(self, "ui") end,
     }
-    add(VerticalSpan:new { height = 14 })
+    add(VerticalSpan:new { width = 14 })
     add(self.carousel.widget)
   end
 
   if #self.meta_rows > 0 then
-    add(VerticalSpan:new { height = 14 })
+    add(VerticalSpan:new { width = 14 })
     add(heading(_("Details")))
-    add(VerticalSpan:new { height = 6 })
+    add(VerticalSpan:new { width = 6 })
     for _, row in ipairs(self.meta_rows) do
       add(row)
     end
   end
 
-  add(VerticalSpan:new { height = 10 })
+  add(VerticalSpan:new { width = 10 })
 
   --[[--
   A full description plus every metadata row overflows a small e-ink screen, so

@@ -81,13 +81,13 @@ function SignInDialog:init()
 
   local content = VerticalGroup:new {
     self.title_text,
-    VerticalSpan:new { height = 10 },
+    VerticalSpan:new { width = 10 },
     self.instructions,
-    VerticalSpan:new { height = 10 },
+    VerticalSpan:new { width = 10 },
     self.code_text,
-    VerticalSpan:new { height = 10 },
+    VerticalSpan:new { width = 10 },
     self.status_text,
-    VerticalSpan:new { height = 15 },
+    VerticalSpan:new { width = 15 },
     HorizontalGroup:new { self.cancel_button },
   }
 
