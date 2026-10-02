@@ -13,6 +13,7 @@ local socketutil = require("socketutil")
 local Book = require("hardcover/lib/book")
 local Goals = require("hardcover/lib/goals")
 local Lists = require("hardcover/lib/lists")
+local Recommendations = require("hardcover/lib/recommendations")
 local Shelf = require("hardcover/lib/shelf")
 local VERSION = require("hardcover_version")
 
@@ -1149,6 +1150,51 @@ function HardcoverApi:getReviews(book_id, limit, offset)
 end
 
 --
+-- Books like this one: Hardcover's own similar-books ranking for `book_id`, as shelf
+-- entries in rank order. Two requests (the ids, then the books for them), both with
+-- the permissions the plugin already has. Returns entries, or nil, err. A book with
+-- no ranking yet gives an empty list, not an error.
+--
+function HardcoverApi:getSimilarBooks(book_id, limit)
+  local first, err = self:query([[
+    query ($bookId: Int!) {
+      books_by_pk(id: $bookId) { cached_similar_book_ids }
+    }
+  ]], { bookId = book_id })
+  local book = first and first.books_by_pk
+  if type(book) == "table" and book[1] ~= nil then book = book[1] end
+  if first == nil or (type(book) ~= "table" and first.books_by_pk ~= nil) then
+    return nil, err or { completed = false }
+  end
+
+  local ids = Recommendations.ids(type(book) == "table" and book.cached_similar_book_ids, limit)
+  if #ids == 0 then return {} end
+
+  local second, err2 = self:query([[
+    query ($ids: [Int!]) {
+      books(where: { id: { _in: $ids } }) {
+        book_id: id
+        title
+        release_year
+        pages
+        users_count
+        users_read_count
+        rating
+        ratings_count
+        description
+        contributions { author { name } }
+        cached_image
+        book_series { position series { name } }
+      }
+    }
+  ]], { ids = ids })
+  if second == nil or type(second.books) ~= "table" then
+    return nil, err2 or { completed = false }
+  end
+  return Recommendations.entries(ids, second.books)
+end
+
+--
 -- Full detail for one book, including description and community rating.
 -- `edition_id` is optional; when given, edition level fields are included.
 --
@@ -1715,6 +1761,10 @@ end
 
 function HardcoverApi:getShelfAsync(user_id, status_id, offset, limit, callback)
   async(callback, self.getShelf, self, user_id, status_id, offset, limit)
+end
+
+function HardcoverApi:getSimilarBooksAsync(book_id, callback)
+  async(callback, self.getSimilarBooks, self, book_id)
 end
 
 function HardcoverApi:getBookDetailAsync(book_id, user_id, edition_id, callback)

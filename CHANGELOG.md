@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0
+
+### Added
+
+- Similar books: a **Similar** button on a book's details screen opens Hardcover's own "readers also liked" ranking for that book (up to 20 books, in Hardcover's order). Tap one to see its details, and add it to a shelf from there. It needs no new permission, so there is nothing to sign in again for. It needs a connection and says so when offline.
+
 ## 1.2.2
 
 ### Fixed

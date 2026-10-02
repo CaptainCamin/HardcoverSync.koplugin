@@ -43,6 +43,8 @@ local BookDetailDialog = FocusManager:extend {
   -- called with no arguments when Lists is tapped (the lists to put the book on);
   -- no callback, no button
   on_lists = nil,
+  -- called with the dialog when Similar is tapped (books like this one); no callback, no button
+  on_similar = nil,
   -- present only when the Z-library plugin is installed (see hardcover/lib/zlibrary.lua)
   on_zlibrary = nil,
   -- tapping the series pill, the status pill or the author: called with the
@@ -345,11 +347,15 @@ function BookDetailDialog:init()
   -- scrolled away could catch a tap meant for what is over it.
   local labels = { { "shelf_button", Shelf.shelfButtonText((self.detail or {}).status_id), "on_shelf", true } }
   self.shelf_button, self.lists_button, self.reviews_button, self.zlibrary_button = nil, nil, nil, nil
+  self.similar_button = nil
   if self.on_lists then
     labels[#labels + 1] = { "lists_button", _("Lists"), "on_lists" }
   end
   if self.on_reviews then
     labels[#labels + 1] = { "reviews_button", _("Reviews"), "on_reviews" }
+  end
+  if self.on_similar then
+    labels[#labels + 1] = { "similar_button", _("Similar"), "on_similar" }
   end
   if self.on_zlibrary then
     labels[#labels + 1] = { "zlibrary_button", _("Z-library"), "on_zlibrary" }

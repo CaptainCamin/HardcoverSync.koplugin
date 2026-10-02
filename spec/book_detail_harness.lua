@@ -696,6 +696,30 @@ check("Reviews: an action bar button that calls back, and none without a callbac
   assert(d.reviews_button, "the rebuild lost the button")
 end)
 
+check("Similar: an action bar button that calls back with the dialog, and none without a callback", function()
+  local got
+  local d
+  d = BookDetailDialog:new {
+    detail = detail({ title = "T", description = "About it." }),
+    on_reviews = function() end,
+    on_similar = function(dialog) got = dialog end,
+  }
+  assert(d.similar_button and d.similar_button.text == "Similar", "no Similar button")
+  d.similar_button.callback()
+  assert(got == d, "tapping it did not open the similar books")
+  local none = BookDetailDialog:new { detail = detail({ title = "T" }), on_reviews = function() end }
+  assert(none.similar_button == nil, "a Similar button with nothing to open")
+  d:setSeries(nil, nil)
+  assert(d.similar_button, "the rebuild lost the button")
+  local all = BookDetailDialog:new {
+    detail = detail(FULL), on_lists = function() end, on_reviews = function() end,
+    on_similar = function() end, on_zlibrary = function() end,
+  }
+  assert(all.similar_button and all.reviews_button and all.zlibrary_button and all.lists_button)
+  local used = all.lists_button.width + all.reviews_button.width + all.similar_button.width + all.zlibrary_button.width
+  assert(used < all.content_width, "the buttons do not fit one row")
+end)
+
 print("\n== the Z-library button ==")
 
 check("there is a Z-library button only when there is something to hand the search to", function()
