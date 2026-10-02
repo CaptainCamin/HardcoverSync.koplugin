@@ -5,6 +5,7 @@
 ### Fixed
 
 - Home: a swipe up or down now also moves the page itself (not only through the scroll container), and the page starts scrolling as soon as it would crowd the bottom of the screen, so the goals card at the bottom can be reached.
+- Home: the Goals heading is always shown under the Library, even with no current goal (or before goals have loaded), so the Goals screen and "New goal" are always reachable.
 
 ## 1.1.1
 

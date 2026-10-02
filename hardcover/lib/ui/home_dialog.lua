@@ -209,10 +209,15 @@ function HomeDialog:buildGoalCard(width, viewport)
   if self.goal_card_fn then
     return self.goal_card_fn(width, viewport)
   end
-  if type(self.goals) ~= "table" or #self.goals == 0 then return nil end
+  -- with nothing to show, the heading is still there: it is the way to the Goals screen
+  local function empty()
+    if not self.goals_cb then return nil end
+    return GoalWidgets.homeEmpty(width, viewport, function() self.goals_cb() end)
+  end
+  if type(self.goals) ~= "table" or #self.goals == 0 then return empty() end
   local today = Goals.today()
   local goal = Goals.pick(self.goals, today)
-  if not goal then return nil end
+  if not goal then return empty() end
   local p = Goals.pace(goal, today, Goals.extra(goal, today, self.finished_offline))
   return GoalWidgets.homeCard(goal, p, width, viewport,
     function() if self.goal_cb then self.goal_cb(goal) end end,
