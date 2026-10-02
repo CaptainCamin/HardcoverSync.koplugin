@@ -41,7 +41,7 @@ end
 -- commas. It is only used as a fallback when `contributions` is absent, and
 -- both shapes are handled.
 --
-local function authorNames(book)
+local function authorList(book)
   local names = {}
 
   local function add(author)
@@ -88,6 +88,12 @@ local function authorNames(book)
     end
   end
 
+  return names
+end
+
+-- already a joined string, or nil when the book has no authors
+local function authorNames(book)
+  local names = authorList(book)
   if #names == 0 then
     return nil
   end
@@ -95,13 +101,23 @@ local function authorNames(book)
   return table.concat(names, ", ")
 end
 
-local function seriesName(book)
+-- the series' bare name, without the book's place in it; nil when in none
+local function seriesTitle(book)
   local series = _t.dig(book, "book_series", 1)
   if not series then
     return nil
   end
 
   local name = _t.dig(series, "series", "name") or series.name
+  if type(name) ~= "string" or name == "" then
+    return nil
+  end
+  return name
+end
+
+local function seriesName(book)
+  local series = _t.dig(book, "book_series", 1)
+  local name = seriesTitle(book)
   if not name then
     return nil
   end
@@ -289,6 +305,9 @@ function Shelf.detailSummary(detail)
   summary.authors = authorNames(book)
 
   summary.series = seriesName(book)
+  -- what tapping the series and the author search for
+  summary.series_title = seriesTitle(book)
+  summary.first_author = authorList(book)[1]
 
   -- an edition's own release date is more precise than the book's year
   local published

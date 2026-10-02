@@ -933,6 +933,10 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
     -- only when the Z-library plugin is there: no button that does nothing
     on_zlibrary = Zlibrary.available(self.ui) and function(d) self:searchZlibrary(d) end or nil,
     on_shelf = function(d) self:chooseShelf(d) end,
+    -- these open on top of the details, so closing them comes back here
+    on_series = function(_, name) self:searchBooks(name) end,
+    on_author = function(_, name) self:searchBooks(name) end,
+    on_status = function(_, status_id) self:showShelf(status_id, Shelf.statusLabel(status_id)) end,
   }
 
   UIManager:show(dialog)
