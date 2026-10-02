@@ -497,7 +497,7 @@ check("online, the rest of the series is fetched in the background and added", f
   assert(seen_in_coroutine, "the series request ran on the main thread (it would freeze the UI)")
   local d = fake[1]
   assert(d.series and d.series.title == "More in Hainish", "the card was not added")
-  assert(#d.series.rows == 2 and d.series.rows[1].current == true)
+  assert(#d.series.items == 2 and d.series.items[1].current == true)
 end)
 
 check("tapping a row opens that book's details on top", function()

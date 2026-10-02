@@ -31,10 +31,14 @@ end
 
 local function build_detail(emu, opts)
   local settings = fixtures.real_settings(emu)
-  -- every fixture cover is the same synthetic picture, served from the real
-  -- cover cache so the real loader and renderer run without a network
-  for _, id in ipairs({ 103, 106, 109 }) do
-    fixtures.seed_cover("https://covers.hardcover.app/fixture/" .. id .. ".jpg")
+  -- fixture covers are three synthetic pictures, served from the real cover
+  -- cache so the real loader and renderer run without a network
+  local ids = { 103, 106, 109 }
+  for _, series in pairs(fixtures.series_books) do
+    for _, b in ipairs(series.books) do ids[#ids + 1] = b.book_id end
+  end
+  for _, id in ipairs(ids) do
+    fixtures.seed_cover(fixtures.cover_url(id), id % 3 + 1)
   end
   fixtures.install({
     settings = settings,
@@ -149,23 +153,40 @@ return {
     assert_no_sideways_scroll(typical, "the typical book")
 
     --[[--
-    The series card. The book's own series arrives in the background and is added
-    to the open screen: the book on screen is bold and not tappable, the others
-    show your status on them, and tapping one opens that book on top.
+    The series carousel. The book's own series arrives in the background and is
+    added to the open screen: covers with numbers, the current book marked and not
+    tappable, the arrows paging, and a tap on a cover opening that book on top.
     ]]
-    assert(typical.series_card, "the series card never arrived")
-    for _, expected in ipairs({ "More in Hainish Cycle", "8 books", "Rocannon's World", "this book", "The Telling" }) do
+    local carousel = typical.carousel
+    assert(typical.series_card and carousel, "the series carousel never arrived")
+    for _, expected in ipairs({ "More in Hainish Cycle", "8 books", "#2", "#5" }) do
       emu:expectText(expected)
     end
     emu:shot("book_detail_typical")
 
-    local first = typical.series_buttons[1]
-    assert(first, "the card has no tappable rows")
-    first.callback()
+    local function centre(w) return w.dimen.x + math.floor(w.dimen.w / 2), w.dimen.y + math.floor(w.dimen.h / 2) end
+
+    if carousel.paged then
+      local before_first = carousel.first
+      emu:tap(centre(carousel.next))
+      emu:pump()
+      assert(carousel.first > before_first, "tapping the next arrow did not turn the page")
+      emu:shot("book_detail_carousel_page2")
+      local forward = carousel.first
+      emu:tap(centre(carousel.prev))
+      emu:pump()
+      -- the last page is clamped, so back is not always where it started
+      assert(carousel.first < forward, "tapping the previous arrow did not turn back")
+    end
+
+    -- the first other book's cover
+    local target = carousel.targets and carousel.targets[1]
+    assert(target, "the carousel has no tappable covers")
+    emu:tap(centre(target))
     emu:pump()
     local sibling = emu.UIManager:getTopmostVisibleWidget()
-    assert(sibling ~= typical, "tapping a series row did not open that book")
-    assert(emu.UIManager:isWidgetShown(typical), "opening a book from the card closed the one underneath")
+    assert(sibling ~= typical, "tapping a cover did not open that book")
+    assert(emu.UIManager:isWidgetShown(typical), "opening a book from the carousel closed the one underneath")
     emu.UIManager:close(sibling)
     assert(emu.UIManager:getTopmostVisibleWidget() == typical, "closing the sibling did not come back to this book")
 
@@ -196,24 +217,38 @@ return {
     assert_no_sideways_scroll(long, "the long-description book")
 
     --[[--
-    A long series is a window around the book on screen, not a second page: the
-    rows it cut off become "N earlier" / "N more".
+    A long series is paged, not listed: the book on screen starts on the page
+    that holds it, and there is more on either side.
     ]]
-    assert(long.series_card and long.series_card.total == 24, "the long series did not load")
-    local texts = {}
-    for _, row in ipairs(long.series_card.rows) do texts[#texts + 1] = row.text end
-    assert(#long.series_card.rows == 12, "expected 10 books and 2 gap rows, got " .. #long.series_card.rows)
-    emu:expectText("earlier")
-    emu:expectText("more")
+    assert(long.series_card and #long.series_card.items == 24, "the long series did not load")
+    assert(long.carousel and long.carousel.paged, "the long series is not paged")
+    emu:shot("book_detail_series_long")
 
-    -- the series card, scrolled into view: put it first by dropping the long blurb
+    -- the carousel on the first screen: drop the long blurb
     local _, series_demo = build_detail(emu, { book_id = 109 })
     emu:pump()
-    series_demo.detail.book.description = "A shorter description, so the series card is on the first screen."
+    series_demo.detail.book.description = "A shorter description, so the carousel is on the first screen."
     series_demo:rebuild()
     emu:pump()
-    emu:shot("book_detail_series_long")
-    assert_no_sideways_scroll(series_demo, "the long series card")
+    emu:shot("book_detail_series_short_description")
+    assert_no_sideways_scroll(series_demo, "the long series carousel")
+
+    --[[--
+    A tap on Close must close the screen, whatever is laid out beneath it.
+
+    ScrollableContainer paints its content in screen coordinates shifted by the
+    scroll offset, so a tappable widget scrolled out of view keeps a tap range at
+    that shifted position -- which can be directly over Close. Widgets nearer the
+    top of the event order win, so a series row below the visible area would take
+    the tap and open another book instead of closing this one.
+    ]]
+    local before = #emu.UIManager._window_stack
+    local c = series_demo.close_button.dimen
+    emu:tap(c.x + math.floor(c.w / 2), c.y + math.floor(c.h / 2))
+    assert(not emu.UIManager:isWidgetShown(series_demo),
+      "a tap on Close did not close the screen (a widget under it took the tap?)")
+    assert(#emu.UIManager._window_stack <= before - 1,
+      "tapping Close opened something instead of closing: the stack grew")
 
     print(string.format("  detail rendered in both menu modes"))
   end,

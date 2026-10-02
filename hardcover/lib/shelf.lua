@@ -315,10 +315,7 @@ function Shelf.detailSummary(detail)
   end
   summary.community = joinParts(community)
 
-  local image = book.cached_image
-  if type(image) == "table" and type(image.url) == "string" and image.url ~= "" then
-    summary.cover = { url = image.url, width = image.width, height = image.height }
-  end
+  summary.cover = Shelf.coverOf(book)
 
   return summary
 end
@@ -353,60 +350,39 @@ local SHORT_STATUS = {
 }
 
 --
--- The "more in this series" card, as plain rows.
+-- The "more in this series" carousel, as plain data.
 --
 -- `series` is { name, is_completed, books = { { book_id, title, position,
--- status_id }, ... } } in series order. Returns nil when there is nothing to
--- link to (the only book in the series is the one on screen).
+-- status_id, cover }, ... } } in series order. Returns nil when there is nothing
+-- to link to (the only book in the series is the one on screen).
 --
--- A long series is shown as a window around the current book, with "N earlier"
--- and "N more" rows, so the card stays a card and not a second page.
+--   title          "More in Hainish Cycle"
+--   subtitle       "9 books \194\183 complete"
+--   items          every book: { book_id, number = "#4", title, status =
+--                  "Read", current = bool, cover = { url, width, height } }
+--   current_index  where the book on screen is, so the strip can open on it
 --
---   title     "More in Hainish Cycle"
---   subtitle  "9 books \194\183 complete"
---   rows      { { book_id, text, current }, ... }  or  { { gap = true, text } }
+-- The strip is paged by the screen (Shelf.carouselWindow), not trimmed here.
 --
-function Shelf.seriesCard(series, current_book_id, max_rows)
+function Shelf.seriesCard(series, current_book_id)
   if type(series) ~= "table" or type(series.books) ~= "table" then return nil end
-  max_rows = max_rows or 10
 
-  local books = series.books
-  local current_index, others = nil, 0
-  for i, book in ipairs(books) do
-    if book.book_id == current_book_id then
-      current_index = i
-    else
-      others = others + 1
-    end
+  local items, current_index, others = {}, nil, 0
+  for i, book in ipairs(series.books) do
+    local current = book.book_id == current_book_id
+    if current then current_index = i else others = others + 1 end
+    items[i] = {
+      book_id = book.book_id,
+      number = positionLabel(book.position),
+      title = book.title or UNKNOWN_TITLE,
+      status = (not current) and SHORT_STATUS[book.status_id] or nil,
+      current = current,
+      cover = book.cover,
+    }
   end
   if others == 0 then return nil end
 
-  local rows = {}
-  for i, book in ipairs(books) do
-    local current = book.book_id == current_book_id
-    local text = positionLabel(book.position) .. "  " .. (book.title or UNKNOWN_TITLE)
-    local note = current and "this book" or SHORT_STATUS[book.status_id]
-    if note then text = text .. MIDDOT .. note end
-    rows[i] = { book_id = book.book_id, text = text, current = current }
-  end
-
-  local first, last = 1, #rows
-  if #rows > max_rows then
-    local centre = current_index or 1
-    first = math.max(1, math.min(centre - math.floor(max_rows / 2), #rows - max_rows + 1))
-    last = first + max_rows - 1
-  end
-
-  local shown = {}
-  if first > 1 then
-    shown[#shown + 1] = { gap = true, text = string.format("%d earlier", first - 1) }
-  end
-  for i = first, last do shown[#shown + 1] = rows[i] end
-  if last < #rows then
-    shown[#shown + 1] = { gap = true, text = string.format("%d more", #rows - last) }
-  end
-
-  local subtitle = { string.format("%d books", #rows) }
+  local subtitle = { string.format("%d books", #items) }
   if series.is_completed == true then
     subtitle[#subtitle + 1] = "complete"
   elseif series.is_completed == false then
@@ -416,9 +392,37 @@ function Shelf.seriesCard(series, current_book_id, max_rows)
   return {
     title = "More in " .. (series.name or "this series"),
     subtitle = table.concat(subtitle, MIDDOT),
-    rows = shown,
-    total = #rows,
+    items = items,
+    current_index = current_index,
   }
+end
+
+--
+-- Which items a strip shows: `per_page` of `total`, starting at `first`.
+--
+-- With no `first`, the page that holds `centre` (the book on screen), as near
+-- the middle as the ends allow. Returns { first, last, has_prev, has_next }.
+--
+function Shelf.carouselWindow(total, per_page, first, centre)
+  total = math.max(0, total or 0)
+  per_page = math.max(1, per_page or 1)
+
+  if first == nil then
+    first = (centre or 1) - math.floor(per_page / 2)
+  end
+  first = math.max(1, math.min(first, math.max(1, total - per_page + 1)))
+
+  local last = math.min(total, first + per_page - 1)
+  return { first = first, last = last, has_prev = first > 1, has_next = last < total }
+end
+
+-- A book's cover as { url, width, height }, or nil when it has none.
+function Shelf.coverOf(book)
+  local image = type(book) == "table" and book.cached_image
+  if type(image) == "table" and type(image.url) == "string" and image.url ~= "" then
+    return { url = image.url, width = image.width, height = image.height }
+  end
+  return nil
 end
 
 -- The rows the header does not already say: publisher, language, ISBN, reads.

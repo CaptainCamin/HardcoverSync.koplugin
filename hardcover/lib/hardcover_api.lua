@@ -816,7 +816,7 @@ end
 -- book), partial editions and compilations, and take the most popular book at
 -- each position. Returns
 --   { id, name, is_completed, books = { { book_id, title, position,
---     release_year, status_id, rating }, ... } }
+--     release_year, cover, status_id, rating }, ... } }
 -- or nil (and the error) when the request fails.
 --
 function HardcoverApi:getSeriesBooks(series_id, user_id)
@@ -841,6 +841,7 @@ function HardcoverApi:getSeriesBooks(series_id, user_id)
             book_id: id
             title
             release_year
+            cached_image
             user_books(where: { user_id: { _eq: $userId } }) {
               status_id
               rating
@@ -867,6 +868,7 @@ function HardcoverApi:getSeriesBooks(series_id, user_id)
         title = book.title,
         position = entry.position,
         release_year = book.release_year,
+        cover = Shelf.coverOf(book),
         status_id = mine and mine.status_id,
         rating = mine and mine.rating,
       }

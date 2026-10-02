@@ -156,6 +156,8 @@ Hainish Cycle is real enough to read: some read, one being read, one wanted, the
 rest not on a shelf. The long series has 24 books, with the fixture book 109 at
 position 12, so the card has to show a window with "earlier" and "more" rows.
 ]]
+function M.cover_url(id) return "https://covers.hardcover.app/fixture/" .. id .. ".jpg" end
+
 M.series_books = {}
 do
   local hainish = {
@@ -166,7 +168,11 @@ do
   }
   local books = {}
   for _, b in ipairs(hainish) do
-    books[#books + 1] = { book_id = b[1], title = b[2], position = b[3], status_id = b[4] }
+    books[#books + 1] = {
+      book_id = b[1], title = b[2], position = b[3], status_id = b[4],
+      -- one book has no cover, so the carousel's placeholder is exercised
+      cover = (b[1] ~= 306) and { url = M.cover_url(b[1]) } or nil,
+    }
   end
   M.series_books[12] = { id = 12, name = "Hainish Cycle", is_completed = true, books = books }
 
@@ -177,6 +183,7 @@ do
       title = (i == 12) and "A Book With A Very Long Description" or ("Volume " .. i .. " of the Long Series"),
       position = i,
       status_id = (i < 12) and 3 or nil,
+      cover = { url = M.cover_url((i == 12) and 109 or (400 + i)) },
     }
   end
   M.series_books[14] = { id = 14, name = "The Long Series", is_completed = false, books = long_books }
@@ -194,10 +201,12 @@ this cache before it touches the network. Seeding it means the real loader, the
 real cache and the real image renderer all run, with no network and no mocking
 of any of them.
 ]]
-function M.seed_cover(url)
+local VARIANTS = { "cover.png", "cover_b.png", "cover_c.png" }
+
+function M.seed_cover(url, variant)
   local root = package.searchpath("hardcover/lib/shelf", package.path):match("^(.*)/hardcover/lib/shelf%.lua$")
-  local file = assert(io.open(root .. "/spec/emu/fixtures/cover.png", "rb"),
-    "spec/emu/fixtures/cover.png is missing: run spec/emu/make_cover.py")
+  local file = assert(io.open(root .. "/spec/emu/fixtures/" .. VARIANTS[variant or 1], "rb"),
+    "a cover fixture is missing: run spec/emu/make_cover.py")
   local bytes = file:read("*a")
   file:close()
 

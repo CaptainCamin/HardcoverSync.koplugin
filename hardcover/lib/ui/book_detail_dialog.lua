@@ -31,6 +31,7 @@ local VerticalSpan = require("ui/widget/verticalspan")
 local _ = require("gettext")
 
 local Shelf = require("hardcover/lib/shelf")
+local SeriesCarousel = require("hardcover/lib/ui/series_carousel")
 
 local Screen = Device.screen
 
@@ -269,6 +270,8 @@ function BookDetailDialog:init()
     end,
   }
 
+  self.close_button = close_button
+
   local button_row = HorizontalGroup:new {
     close_button,
   }
@@ -287,18 +290,30 @@ function BookDetailDialog:init()
   add(self.status_text)
   add(self.community_text)
 
-  -- "More in this series": a bordered card whose rows open the other books
-  self.series_buttons = {}
-  if self.series_card then
-    add(VerticalSpan:new { height = 14 })
-    add(self:buildSeriesCard(width))
-  end
-
   if self.description_text then
     add(VerticalSpan:new { height = 14 })
     add(heading(_("About")))
     add(VerticalSpan:new { height = 6 })
     add(self.description_text)
+  end
+
+  -- "More in this series": a strip of covers, paged with arrows; tapping one
+  -- opens that book. Below About, so the book itself comes first.
+  self.carousel = nil
+  if self.series_card then
+    self.carousel = SeriesCarousel:new {
+      card = self.series_card,
+      width = width,
+      -- what the scroll area is showing: taps outside it are not ours
+      viewport = function() return self.scroll and self.scroll.dimen end,
+      on_open = function(book_id)
+        if self.on_open_book then self.on_open_book(book_id) end
+      end,
+      image_loader = self.image_loader or require("hardcover/lib/ui/image_loader"),
+      on_change = function() UIManager:setDirty(self, "ui") end,
+    }
+    add(VerticalSpan:new { height = 14 })
+    add(self.carousel.widget)
   end
 
   if #self.meta_rows > 0 then
@@ -368,10 +383,10 @@ function BookDetailDialog:init()
     self.content_container,
   }
 
-  -- keyboard / d-pad focus: each tappable series row, then Close
+  -- keyboard / d-pad focus: the carousel's arrows (when it pages), then Close
   self.layout = {}
-  for _, button in ipairs(self.series_buttons) do
-    table.insert(self.layout, { button })
+  if self.carousel and self.carousel.paged then
+    table.insert(self.layout, { self.carousel.prev, self.carousel.next })
   end
   table.insert(self.layout, { close_button })
 
@@ -417,8 +432,13 @@ function BookDetailDialog:loadCover(cover, width, height)
   self.cover_halt = halt
 end
 
--- Stop fetching and give back the picture's memory.
+-- Stop fetching and give back the pictures' memory (the cover, and the
+-- carousel's covers).
 function BookDetailDialog:releaseCover()
+  if self.carousel then
+    self.carousel:release()
+    self.carousel = nil
+  end
   if self.cover_halt then
     self.cover_halt()
     self.cover_halt = nil
@@ -430,72 +450,6 @@ function BookDetailDialog:releaseCover()
 end
 
 --
--- The "more in this series" card.
---
--- A bordered box: a heading, how many books there are, then one row per book.
--- Rows are buttons without a border, left-aligned, so the whole line is a tap
--- target; the book on screen is bold and disabled (nothing to open), and rows
--- the window cut off ("3 earlier", "5 more") are plain text.
---
-function BookDetailDialog:buildSeriesCard(width)
-  local card = self.series_card
-  local border = Size.border.thin
-  local padding = Size.padding.default
-  local inner = width - 2 * border - 2 * padding
-
-  local box = VerticalGroup:new { align = "left" }
-  table.insert(box, TextWidget:new {
-    text = card.title,
-    face = Font:getFace("cfont", 17),
-    bold = true,
-    max_width = inner,
-  })
-  table.insert(box, TextWidget:new {
-    text = card.subtitle,
-    face = Font:getFace("cfont", 14),
-    max_width = inner,
-  })
-  table.insert(box, VerticalSpan:new { height = 6 })
-
-  for _, row in ipairs(card.rows) do
-    if row.gap then
-      table.insert(box, TextWidget:new {
-        text = "\226\128\166 " .. row.text, -- an ellipsis, then "3 earlier"
-        face = Font:getFace("cfont", 14),
-        max_width = inner,
-      })
-    else
-      local button = Button:new {
-        text = row.text,
-        width = inner,
-        bordersize = 0,
-        margin = 0,
-        align = "left",
-        text_font_size = 16,
-        text_font_bold = row.current == true,
-        enabled = not row.current,
-        callback = function()
-          if self.on_open_book then
-            self.on_open_book(row.book_id)
-          end
-        end,
-      }
-      table.insert(box, button)
-      if not row.current then
-        table.insert(self.series_buttons, button)
-      end
-    end
-  end
-
-  return FrameContainer:new {
-    bordersize = border,
-    padding = padding,
-    margin = 0,
-    box,
-  }
-end
-
---
 -- Show the rest of the series once it has been fetched.
 --
 -- `card` is Shelf.seriesCard's result (nil clears it); `on_open_book(book_id)`
@@ -504,7 +458,15 @@ end
 function BookDetailDialog:setSeries(card, on_open_book)
   self.series_card = card
   self.on_open_book = on_open_book
+
+  -- The series arrives after the screen is up, and the reader may already have
+  -- scrolled; a rebuild starts a new scroll container at the top, so carry the
+  -- position across.
+  local offset = self.scroll and self.scroll.getScrolledOffset and self.scroll:getScrolledOffset()
   self:rebuild()
+  if offset and self.scroll and self.scroll.setScrolledOffset then
+    self.scroll:setScrolledOffset(offset)
+  end
 end
 
 -- Rebuild the whole body from the current state, dropping what it held.

@@ -66,7 +66,14 @@ local widgets = {
   ["ui/widget/focusmanager"] = FocusManager,
   ["ui/widget/textwidget"] = widget("Text"),
   ["ui/widget/textboxwidget"] = widget("TextBox"),
-  ["ui/widget/button"] = widget("Button"),
+  ["ui/widget/button"] = (function()
+    local B = widget("Button")
+    function B:enable() self.enabled = true end
+    function B:disable() self.enabled = false end
+    return B
+  end)(),
+  -- the real one is an InputContainer; here a tap is just its callback
+  ["hardcover/lib/ui/tap_row"] = widget("TapRow"),
   ["ui/widget/imagewidget"] = widget("Image"),
   ["ui/widget/iconwidget"] = widget("Icon"),
   ["ui/renderimage"] = { renderImageData = function() return _G.FAKE_BB end },
@@ -131,8 +138,9 @@ end
 
 -- a loader that records what it is asked for and hands the image over on demand
 local function fakeLoader()
-  local loader = { urls = {}, halted = false }
+  local loader = { urls = {}, halted = false, batches = {} }
   function loader:loadImages(urls, callback)
+    self.batches[#self.batches + 1] = { urls = urls, callback = callback }
     for _, url in ipairs(urls) do self.urls[#self.urls + 1] = url end
     self.deliver = callback
     return {}, function() self.halted = true end
@@ -386,14 +394,21 @@ local function seriesOf(n, opts)
   return { name = opts.name or "The Saga", is_completed = opts.is_completed, books = books }
 end
 
-check("every book is a row, the one on screen is marked, and your status shows", function()
+check("every book is an item, the one on screen is marked, and your status shows", function()
   local card = Shelf.seriesCard(seriesOf(4, { is_completed = true }), 103)
   assert(card.title == "More in The Saga", card.title)
   assert(card.subtitle == "4 books \194\183 complete", card.subtitle)
-  assert(#card.rows == 4)
-  assert(card.rows[1].text == "#1  Book 1 \194\183 Read", card.rows[1].text)
-  assert(card.rows[3].current == true and card.rows[3].text == "#3  Book 3 \194\183 this book", card.rows[3].text)
-  assert(card.rows[2].current == false and card.rows[2].book_id == 102)
+  assert(#card.items == 4 and card.current_index == 3)
+  assert(card.items[1].number == "#1" and card.items[1].title == "Book 1" and card.items[1].status == "Read")
+  assert(card.items[3].current == true and card.items[3].status == nil, "the book on screen shows a status")
+  assert(card.items[2].current == false and card.items[2].book_id == 102)
+end)
+
+check("a cover travels with its item", function()
+  local series = seriesOf(2)
+  series.books[1].cover = { url = "http://img/1.jpg" }
+  local card = Shelf.seriesCard(series, 102)
+  assert(card.items[1].cover.url == "http://img/1.jpg" and card.items[2].cover == nil)
 end)
 
 check("an ongoing series says so; an unknown one says nothing", function()
@@ -403,12 +418,12 @@ end)
 
 check("a fractional position keeps its decimal", function()
   local series = { name = "S", books = { { book_id = 1, title = "A", position = 2.5 }, { book_id = 2, title = "B", position = 3 } } }
-  assert(Shelf.seriesCard(series, 2).rows[1].text:find("#2.5", 1, true), Shelf.seriesCard(series, 2).rows[1].text)
+  assert(Shelf.seriesCard(series, 2).items[1].number == "#2.5", Shelf.seriesCard(series, 2).items[1].number)
 end)
 
-check("a book with no position still gets a row", function()
+check("a book with no position still gets an item", function()
   local series = { name = "S", books = { { book_id = 1, title = "A" }, { book_id = 2, title = "B", position = 1 } } }
-  assert(#Shelf.seriesCard(series, 2).rows == 2)
+  assert(#Shelf.seriesCard(series, 2).items == 2)
 end)
 
 check("there is no card when there is nothing to link to", function()
@@ -418,26 +433,28 @@ check("there is no card when there is nothing to link to", function()
   assert(Shelf.seriesCard({ name = "S" }, 1) == nil)
 end)
 
-check("a long series is a window around the current book", function()
-  local card = Shelf.seriesCard(seriesOf(30), 115, 10) -- book 115 is #15
-  local books, gaps = 0, {}
-  for _, row in ipairs(card.rows) do
-    if row.gap then gaps[#gaps + 1] = row.text else books = books + 1 end
-  end
-  assert(books == 10, "showed " .. books .. " books")
-  assert(#gaps == 2 and gaps[1]:find("earlier") and gaps[2]:find("more"), table.concat(gaps, ","))
-  local has_current = false
-  for _, row in ipairs(card.rows) do if row.current then has_current = true end end
-  assert(has_current, "the current book fell out of its own window")
-  assert(card.total == 30)
+check("the strip opens on the page that holds the book on screen", function()
+  local w = Shelf.carouselWindow(30, 4, nil, 15)
+  assert(w.first <= 15 and w.last >= 15 and w.last - w.first == 3, w.first .. "-" .. w.last)
+  assert(w.has_prev and w.has_next)
 end)
 
-check("the window stays inside the series at either end", function()
-  local first = Shelf.seriesCard(seriesOf(30), 101, 10)
-  assert(first.rows[1].gap == nil and first.rows[1].book_id == 101, "no gap before the first book")
-  assert(first.rows[#first.rows].gap, "nothing marks the books left out after the window")
-  local last = Shelf.seriesCard(seriesOf(30), 130, 10)
-  assert(last.rows[1].gap and last.rows[#last.rows].book_id == 130, "the window ran past the end")
+check("the strip stays inside the series at either end", function()
+  local a = Shelf.carouselWindow(30, 4, nil, 1)
+  assert(a.first == 1 and a.last == 4 and not a.has_prev and a.has_next)
+  local z = Shelf.carouselWindow(30, 4, nil, 30)
+  assert(z.first == 27 and z.last == 30 and z.has_prev and not z.has_next)
+  local over = Shelf.carouselWindow(30, 4, 99)
+  assert(over.last == 30 and not over.has_next, "paging past the end")
+  local under = Shelf.carouselWindow(30, 4, -5)
+  assert(under.first == 1 and not under.has_prev, "paging before the start")
+end)
+
+check("a series that fits is one page with no arrows to show", function()
+  local w = Shelf.carouselWindow(3, 4, nil, 2)
+  assert(w.first == 1 and w.last == 3 and not w.has_prev and not w.has_next)
+  local empty = Shelf.carouselWindow(0, 4)
+  assert(empty.last == 0 and not empty.has_next)
 end)
 
 check("the series id is read from the book", function()
@@ -446,48 +463,100 @@ check("the series id is read from the book", function()
   assert(Shelf.seriesId({ book_series = {} }) == nil and Shelf.seriesId({}) == nil and Shelf.seriesId(nil) == nil)
 end)
 
-check("the dialog shows the card, and tapping a row opens that book", function()
+check("the dialog shows the carousel, and tapping a cover opens that book", function()
   local d = BookDetailDialog:new { detail = detail(FULL), image_loader = fakeLoader() }
-  assert(d.series_card == nil and #d.series_buttons == 0)
+  assert(d.series_card == nil and d.carousel == nil)
   local opened
   d:setSeries(Shelf.seriesCard(seriesOf(4), 102), function(id) opened = id end)
-  assert(d.series_card, "the card was not kept")
-  -- the book on screen is not a button; the other three are
-  assert(#d.series_buttons == 3, "buttons: " .. #d.series_buttons)
-  d.series_buttons[1].callback()
+  assert(d.series_card and d.carousel, "the carousel was not built")
+  assert(contains(d.content_group, d.carousel.widget), "the carousel is not in the page")
+  -- the book on screen is not tappable; the other three are
+  assert(#d.carousel.targets == 3, "targets: " .. #d.carousel.targets)
+  d.carousel.targets[1].callback()
   assert(opened == 101, "opened " .. tostring(opened))
-  d.series_buttons[2].callback()
+  d.carousel.targets[2].callback()
   assert(opened == 103, "opened " .. tostring(opened))
 end)
 
-check("the book on screen is not tappable", function()
+check("a series that fits needs no arrows; a long one has them", function()
   local d = BookDetailDialog:new { detail = detail(FULL), image_loader = fakeLoader() }
   d:setSeries(Shelf.seriesCard(seriesOf(3), 102), function() end)
-  for _, button in ipairs(d.series_buttons) do
-    assert(button.enabled == true and not button.text:find("this book"), "the current book is a button")
-  end
+  assert(d.carousel.paged == false and #d.layout == 1, "layout rows: " .. #d.layout)
+  d:setSeries(Shelf.seriesCard(seriesOf(30), 115), function() end)
+  assert(d.carousel.paged and d.carousel.prev and d.carousel.next)
 end)
 
-check("the rows fit inside the dialog", function()
+check("the arrows turn the page, and cannot go past either end", function()
   local d = BookDetailDialog:new { detail = detail(FULL), image_loader = fakeLoader() }
-  d:setSeries(Shelf.seriesCard(seriesOf(3), 102), function() end)
-  for _, button in ipairs(d.series_buttons) do
-    assert(button.width <= d.content_width, "a row is wider than the content (" .. button.width .. ")")
-  end
+  d:setSeries(Shelf.seriesCard(seriesOf(30), 101), function() end)
+  local c = d.carousel
+  assert(c.first == 1)
+  c:turn(1)
+  assert(c.first == 1 + c.per_page, "first " .. c.first)
+  c:turn(-1)
+  assert(c.first == 1)
+  c:turn(-1)
+  assert(c.first == 1, "went before the start")
+  for _ = 1, 20 do c:turn(1) end
+  assert(c.last == 30, "last " .. c.last)
 end)
 
-check("the series rows come before Close in the focus order", function()
+check("the arrows come before Close in the focus order", function()
   local d = BookDetailDialog:new { detail = detail(FULL), image_loader = fakeLoader() }
-  d:setSeries(Shelf.seriesCard(seriesOf(4), 102), function() end)
-  assert(#d.layout == 4, "layout rows: " .. #d.layout)
+  d:setSeries(Shelf.seriesCard(seriesOf(30), 115), function() end)
+  assert(#d.layout == 2, "layout rows: " .. #d.layout)
+  assert(d.layout[1][1] == d.carousel.prev and d.layout[1][2] == d.carousel.next)
   assert(d.layout[#d.layout][1].kind == "Button" and d.layout[#d.layout][1].text == "Close", "Close is not last")
+end)
+
+check("covers are fetched for the page on screen, and a stale answer is dropped", function()
+  local loader = fakeLoader()
+  local d = BookDetailDialog:new { detail = detail(FULL), image_loader = loader }
+  local series = seriesOf(30)
+  for i, b in ipairs(series.books) do b.cover = { url = "http://img/" .. i .. ".jpg" } end
+  d:setSeries(Shelf.seriesCard(series, 101), function() end)
+  local requested = #loader.urls
+  -- the carousel's own batch (the header's cover is another)
+  local stale_deliver
+  for _, batch in ipairs(loader.batches) do
+    if #batch.urls > 1 then stale_deliver = batch.callback end
+  end
+  assert(stale_deliver, "the carousel asked for no covers")
+  local old_box = d.carousel.boxes[1].box
+  d.carousel:turn(1)
+  assert(loader.halted, "the old page's request was not stopped")
+  assert(#loader.urls > requested, "no covers were requested for the new page")
+  _G.FAKE_BB = _G.FAKE_BB or {}
+  stale_deliver("http://img/1.jpg", "bytes")
+  assert(old_box.bb == nil, "a cover for the page that was turned away drew into a freed box")
 end)
 
 check("clearing the card removes it", function()
   local d = BookDetailDialog:new { detail = detail(FULL), image_loader = fakeLoader() }
   d:setSeries(Shelf.seriesCard(seriesOf(4), 102), function() end)
   d:setSeries(nil)
-  assert(d.series_card == nil and #d.series_buttons == 0)
+  assert(d.series_card == nil and d.carousel == nil)
+end)
+
+check("a tap range is the widget's rectangle cut to what the scroll area shows", function()
+  local Viewport = real_require("hardcover/lib/ui/viewport")
+  local a, b = { x = 0, y = 0, w = 100, h = 100 }, { x = 50, y = 80, w = 100, h = 100 }
+  local o = Viewport.intersect(a, b)
+  assert(o.x == 50 and o.y == 80 and o.w == 50 and o.h == 20)
+  assert(Viewport.intersect(a, { x = 0, y = 100, w = 10, h = 10 }) == nil, "touching edges overlap")
+  assert(Viewport.intersect(a, { x = 500, y = 500, w = 10, h = 10 }) == nil)
+  assert(Viewport.intersect(a, {}) == nil and Viewport.intersect(nil, a) == nil, "unpositioned widgets overlap")
+end)
+
+check("a widget scrolled out of view has no tap range at all", function()
+  local Viewport = real_require("hardcover/lib/ui/viewport")
+  local scroll_area = { x = 0, y = 0, w = 100, h = 100 }
+  local dimen = { x = 0, y = 150, w = 100, h = 50 }
+  local range = Viewport.range(function() return dimen end, function() return scroll_area end)
+  assert(range() == nil, "an off-screen widget would take taps meant for the buttons below")
+  dimen.y = 90
+  local r = range()
+  assert(r and r.h == 10, "a half-visible widget keeps only the visible part")
 end)
 
 check("adding the card keeps the cover (it is rebuilt, not lost)", function()
