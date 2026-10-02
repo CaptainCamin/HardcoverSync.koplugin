@@ -140,6 +140,15 @@ return {
       end
     end
 
+    -- Search, the way the home screen's Search books does it
+    local found = Api:findBooks("earthsea", nil, me.id)
+    assert(found and #found > 0, "searching the real API for 'earthsea' found nothing")
+    print(string.format("  live: search found %d books, first: %s", #found, tostring(found[1].title)))
+    manager:showSearchResults("earthsea", found)
+    emu:pump(200)
+    emu:shot("live_search_results")
+    emu:closeAll()
+
     log:close()
     os.remove(headers_path)
     os.remove(body_path)
