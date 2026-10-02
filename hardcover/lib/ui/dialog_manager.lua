@@ -12,6 +12,7 @@ local Background = require("hardcover/lib/background")
 local Book = require("hardcover/lib/book")
 local BookSearch = require("hardcover/lib/book_search")
 local Home = require("hardcover/lib/home")
+local Reviews = require("hardcover/lib/reviews")
 local Shelf = require("hardcover/lib/shelf")
 local User = require("hardcover/lib/user")
 
@@ -741,6 +742,7 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
   local dialog = require("hardcover/lib/ui/book_detail_dialog"):new {
     detail = nil,
     loading = true,
+    on_reviews = function() self:showReviews(book_id) end,
   }
 
   UIManager:show(dialog)
@@ -802,6 +804,68 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
   end)
 
   return dialog
+end
+
+--
+-- Other readers' reviews of a book, opened from its details screen.
+--
+-- Nothing is fetched until this is called, and then one request per page of
+-- ten (Reviews.PAGE_SIZE): the API allows 60 a minute. Show-then-fetch, like
+-- the shelves: the list appears at once saying it is loading. Offline there is
+-- nothing to wait for, so say so and open nothing. A failed page offers a retry
+-- instead of a dead end.
+--
+function DialogManager:showReviews(book_id, done_callback)
+  if not NetworkManager:isConnected() then
+    StatusDialogs.info(_("Reviews need an internet connection"))
+    return
+  end
+
+  local dialog
+
+  -- one page, normalised; callback(rows, err, raw_count)
+  local function fetch_page(offset, limit, callback)
+    Api:getReviewsAsync(book_id, limit, offset, function(raw, err)
+      if not UIManager:isWidgetShown(dialog) then return end
+
+      if not raw then
+        StatusDialogs.retry(err, _("Loading reviews"),
+          function()
+            if offset == 0 then
+              dialog:setMessage(_("Loading reviews\226\128\166"))
+              fetch_page(0, limit, function(rows, e, raw_count)
+                if rows then dialog:addPage(rows, raw_count, 0) end
+              end)
+            else
+              dialog:loadMore()
+            end
+          end,
+          function()
+            -- giving up on the first page leaves nothing to look at
+            if offset == 0 then UIManager:close(dialog) end
+          end)
+        callback(nil, err or true)
+        return
+      end
+
+      callback(Reviews.normalizeAll(raw), nil, #raw)
+    end)
+  end
+
+  dialog = require("hardcover/lib/ui/reviews_dialog"):new {
+    message = _("Loading reviews\226\128\166"),
+    fetch_page = fetch_page,
+    close_callback = done_callback,
+  }
+  UIManager:show(dialog)
+
+  fetch_page(0, Reviews.PAGE_SIZE, function(rows, _err, raw_count)
+    if not rows then
+      -- a failed first page: the retry above reloads it, or closes the screen
+      return
+    end
+    dialog:addPage(rows, raw_count, 0)
+  end)
 end
 
 --

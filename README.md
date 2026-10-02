@@ -219,6 +219,14 @@ status (Read, Reading, Want to Read). The book you are on has a heavy border. Lo
 to page through. Tap a cover to open that book on top; Close brings you back. The series is fetched after the
 details appear, and is left out when you are offline.
 
+**Reviews**, a button under the description, shows what other readers wrote about the book: the most liked first,
+ten to a page, each with the reader's name (or "A reader" when they keep their account private), their rating
+(like `4.5*`), the likes, and the start of the review. A long review ends in "Read more >"; tap it to read the whole
+text in a scrollable viewer. A review marked as containing spoilers is hidden behind "Contains spoilers - tap to show"
+until you tap it. "Load more reviews" at the end fetches the next ten. Nothing is fetched until you press Reviews, and
+it needs a connection (it says so when you are offline). It uses the `read:social` permission you grant when you
+sign in.
+
 ### Where things are
 
 The Hardcover entry in the menu is different in the reader and in the file browser.

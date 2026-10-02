@@ -32,6 +32,7 @@ local _ = require("gettext")
 
 local Shelf = require("hardcover/lib/shelf")
 local SeriesCarousel = require("hardcover/lib/ui/series_carousel")
+local Viewport = require("hardcover/lib/ui/viewport")
 
 local Screen = Device.screen
 
@@ -39,6 +40,8 @@ local BookDetailDialog = FocusManager:extend {
   name = "hardcover_book_detail",
   title = _("Book details"),
   detail = nil,
+  -- called with no arguments when Reviews is tapped; no callback, no button
+  on_reviews = nil,
   width = nil,
   height = nil,
 }
@@ -297,6 +300,25 @@ function BookDetailDialog:init()
     add(self.description_text)
   end
 
+  -- Reviews: other readers' opinions, fetched only when asked for. A button
+  -- right under About; it scrolls with the page, so its tap is cut to the
+  -- visible area (see viewport.lua) or it could catch taps meant for Close.
+  self.reviews_button = nil
+  if self.on_reviews then
+    self.reviews_button = Button:new {
+      text = _("Reviews"),
+      width = math.floor(width * 0.5),
+      text_font_size = 18,
+      bordersize = Size.border.thin,
+      callback = function()
+        if self.on_reviews then self.on_reviews() end
+      end,
+    }
+    Viewport.limitButton(self.reviews_button, function() return self.scroll and self.scroll.dimen end)
+    add(VerticalSpan:new { width = 14 })
+    add(self.reviews_button)
+  end
+
   -- "More in this series": a strip of covers, paged with arrows; tapping one
   -- opens that book. Below About, so the book itself comes first.
   self.carousel = nil
@@ -387,6 +409,9 @@ function BookDetailDialog:init()
   self.layout = {}
   if self.carousel and self.carousel.paged then
     table.insert(self.layout, { self.carousel.prev, self.carousel.next })
+  end
+  if self.reviews_button then
+    table.insert(self.layout, { self.reviews_button })
   end
   table.insert(self.layout, { close_button })
 
