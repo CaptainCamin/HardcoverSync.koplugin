@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+* Book details: the series pill, the status pill and the author's name are tappable. The series and the author
+  (the first one) open a search for that name; the status opens that shelf. Closing it comes back to the details.
+  The author is underlined to show it can be tapped.
+
 ## 1.0.2
 
 ### Added

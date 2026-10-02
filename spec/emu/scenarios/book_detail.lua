@@ -145,7 +145,7 @@ return {
     A typical book, linked to an edition: series line, community rating, and the
     Details rows (publisher, language, ISBN) the header does not repeat.
     ]]
-    local _, typical = build_detail(emu, { book_id = 103, edition_id = 10301 })
+    local typical_manager, typical = build_detail(emu, { book_id = 103, edition_id = 10301 })
     emu:pump()
     for _, expected in ipairs({ "The Left Hand of Darkness", "Hainish Cycle #4", "Fixture Press", "English" }) do
       emu:expectText(expected)
@@ -167,7 +167,8 @@ return {
 
     -- the action bar sits inside the page margins (the buttons used to run a few
     -- pixels past the right one) and its buttons are comfortably tall
-    local M = require("hardcover/lib/ui/theme").margin
+    local Theme = require("hardcover/lib/ui/theme")
+    local M = Theme.margin
     for _, name in ipairs({ "shelf_button", "reviews_button" }) do
       local b = typical[name]
       assert(b and b.dimen and b.dimen.w > 0, name .. " is not on screen")
@@ -175,6 +176,60 @@ return {
       assert(b.dimen.x + b.dimen.w <= emu.Screen:getWidth() - M, name .. " runs past the right margin")
       assert(b.dimen.h >= emu.Screen:scaleBySize(48), name .. " is under 48 units tall")
     end
+
+    --[[--
+    The series pill, the status pill and the author open a search for the series,
+    the shelf for that status, and a search for the author, on top of this screen.
+    Real taps at the painted spot; closing what opened comes back here. The
+    fixture book is "Currently Reading" (status 2).
+    ]]
+    local BookSearch = require("hardcover/lib/book_search")
+    local Api = require("hardcover/lib/hardcover_api")
+    local asked = {}
+    local find_books = Api.findBooks
+    Api.findBooks = function(self, title, ...)
+      asked[#asked + 1] = title
+      return find_books(self, title, ...)
+    end
+
+    -- the words are on screen, and the tap lands in the middle of their touch
+    -- cell (taller than the words), where it was painted
+    local function tap_on(text, row)
+      emu:expectText(text)
+      local d = row and row.dimen
+      assert(d and d.x and d.w > 0, text .. " is not tappable")
+      assert(d.h >= Theme.TOUCH_MIN, text .. " is under " .. Theme.TOUCH_MIN .. "px tall to touch")
+      emu:tapExpecting(d.x + math.floor(d.w / 2), d.y + math.floor(d.h / 2))
+      emu:pump()
+    end
+    local function back_on_details(what)
+      emu.UIManager:close(emu.UIManager:getTopmostVisibleWidget())
+      emu:pump()
+      assert(emu.UIManager:getTopmostVisibleWidget() == typical, what .. ": closing did not come back to the details")
+    end
+
+    tap_on("Hainish Cycle #4", typical.series_tap)
+    assert(asked[#asked] == "Hainish Cycle", "the series search asked for " .. tostring(asked[#asked]))
+    local results = typical_manager.search_results_dialog
+    assert(results and emu.UIManager:getTopmostVisibleWidget() == results, "tapping the series did not open the results")
+    emu:expectText(BookSearch.title("Hainish Cycle"))
+    emu:shot("book_detail_series_search")
+    back_on_details("series search")
+
+    tap_on("Ursula K. Le Guin", typical.author_tap)
+    assert(asked[#asked] == "Ursula K. Le Guin", "the author search asked for " .. tostring(asked[#asked]))
+    results = typical_manager.search_results_dialog
+    assert(results and emu.UIManager:getTopmostVisibleWidget() == results, "tapping the author did not open the results")
+    emu:expectText(BookSearch.title("Ursula K. Le Guin"))
+    back_on_details("author search")
+
+    tap_on("Currently Reading", typical.status_tap)
+    local shelf = typical_manager.shelf_dialog
+    assert(shelf and emu.UIManager:getTopmostVisibleWidget() == shelf, "tapping the status did not open the shelf")
+    assert(shelf.status_id == 2, "the shelf is for status " .. tostring(shelf.status_id))
+    emu:shot("book_detail_status_shelf")
+    back_on_details("status shelf")
+    Api.findBooks = find_books
 
     -- the strip is below the first screenful now: scroll to it (taps are only
     -- answered where the page is showing)

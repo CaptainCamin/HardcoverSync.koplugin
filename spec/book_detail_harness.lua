@@ -343,9 +343,17 @@ end)
 
 check("a field the book lacks is nil, never an empty string", function()
   local sum = Shelf.detailSummary({ book = { title = "T", subtitle = "", description = "", rating = 0, ratings_count = 0, users_count = 0, pages = 0 } })
-  for _, key in ipairs({ "subtitle", "description", "authors", "series", "facts", "mine", "community", "cover" }) do
+  for _, key in ipairs({ "subtitle", "description", "authors", "series", "series_title", "first_author", "facts", "mine", "community", "cover" }) do
     assert(sum[key] == nil, key .. " = " .. tostring(sum[key]))
   end
+end)
+
+check("what a tap searches for: the bare series name and the first author", function()
+  local book = { contributions = { { author = { name = "A. One" } }, { author = { name = "B. Two" } } },
+    book_series = { { position = 4, series = { name = "Hainish Cycle" } } } }
+  local sum = Shelf.detailSummary({ book = book })
+  assert(sum.series == "Hainish Cycle #4" and sum.series_title == "Hainish Cycle", tostring(sum.series_title))
+  assert(sum.authors == "A. One, B. Two" and sum.first_author == "A. One", tostring(sum.first_author))
 end)
 
 check("a half rating keeps its decimal, a whole one does not", function()
