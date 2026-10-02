@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.2
+
+### Changed
+
+- On a book in a series, the series strip now comes first and "Similar to <title>" below it.
+
 ## 1.3.1
 
 ### Changed

@@ -78,7 +78,7 @@ return {
     assert(top() == details, "closing the book did not come back")
     emu:closeAll()
 
-    -- on a book in a series too: "Similar to" first, then "More in <series>", both paging
+    -- on a book in a series too: "More in <series>" first, then "Similar to", both paging
     -- and both opening their own books
     fixtures.similar_ids = { 9, 4, 7, 2, 1, 3, 5, 6 }
     details = manager:showBookDetail(103, 10301)

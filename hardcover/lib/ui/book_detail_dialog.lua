@@ -412,7 +412,7 @@ function BookDetailDialog:init()
   end
 
   -- Strips of covers, paged with arrows; tapping one opens that book. Below About, so
-  -- the book itself comes first: "Similar to <title>", then "More in this series".
+  -- the book itself comes first: "More in this series", then "Similar to <title>".
   self.carousel, self.similar_carousel = nil, nil
   local function strip(card, on_open)
     return SeriesCarousel:new {
@@ -434,15 +434,15 @@ function BookDetailDialog:init()
       end,
     }
   end
-  if self.similar_card then
-    self.similar_carousel = strip(self.similar_card, self.on_open_similar)
-    add(Theme.span("l"))
-    add(self.similar_carousel.widget)
-  end
   if self.series_card then
     self.carousel = strip(self.series_card, self.on_open_book)
     add(Theme.span("l"))
     add(self.carousel.widget)
+  end
+  if self.similar_card then
+    self.similar_carousel = strip(self.similar_card, self.on_open_similar)
+    add(Theme.span("l"))
+    add(self.similar_carousel.widget)
   end
 
   if #self.meta_rows > 0 then
@@ -500,7 +500,7 @@ function BookDetailDialog:init()
   local actions = {}
   for _, spec in ipairs(labels) do actions[#actions + 1] = self[spec[1]] end
   table.insert(self.layout, actions)
-  for _, strip in ipairs({ self.similar_carousel or false, self.carousel or false }) do
+  for _, strip in ipairs({ self.carousel or false, self.similar_carousel or false }) do
     if strip and strip.paged then
       table.insert(self.layout, { strip.prev, strip.next })
     end
