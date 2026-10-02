@@ -198,8 +198,24 @@ check("the request carries what the API's GoalInput takes, trimmed and whole", f
   f.privacy_setting_id = 2
   assert(Goals.input(f).privacy_setting_id == 2)
   -- only fields GoalInput has
-  local allowed = { description = true, metric = true, goal = true, start_date = true, end_date = true, privacy_setting_id = true }
+  local allowed = { description = true, metric = true, goal = true, start_date = true, end_date = true,
+    privacy_setting_id = true, conditions = true }
   for k in pairs(Goals.input(f)) do assert(allowed[k], "GoalInput has no field " .. k) end
+  -- and the ones it requires: the live API refuses an insert without `conditions`
+  assert(type(Goals.input(f).conditions) == "table", "GoalInput requires conditions")
+end)
+
+check("conditions: a new goal sends an empty object, an existing one keeps only what the API accepts", function()
+  local f = Goals.newForm(TODAY)
+  f.name = "G"
+  local empty = Goals.input(f).conditions
+  assert(type(empty) == "table" and next(empty) == nil, "a new goal has no conditions")
+  local g = Goals.normalize({ row({ id = 7, conditions = { bookCategoryIds = { 3 }, readingFormatId = 2,
+    goal = "70", metric = "book", startDate = "2026-01-01", specificEndDate = false } }) })[1]
+  local kept = Goals.input(Goals.formFrom(g)).conditions
+  assert(kept.bookCategoryIds[1] == 3 and kept.readingFormatId == 2, "the goal's own filters are kept")
+  assert(kept.goal == nil and kept.startDate == nil and kept.specificEndDate == nil and kept.metric == nil,
+    "keys the API does not accept are dropped")
 end)
 
 check("an existing goal fills the form, and keeps its visibility", function()

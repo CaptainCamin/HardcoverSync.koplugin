@@ -476,7 +476,8 @@ function M.install(opts)
     return require("hardcover/lib/goals").normalize(deepcopy({ row }))[1]
   end
 
-  Api.archiveGoal = function(_, id)
+  Api.archiveGoal = function(_, goal)
+    local id = type(goal) == "table" and goal.id or goal
     record("archiveGoal")
     calls[#calls].args = { id = id }
     if M.goal_write_fail then return nil, M.goal_write_fail end

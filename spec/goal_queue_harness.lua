@@ -50,8 +50,9 @@ local function fakeApi()
     if not id then self.next_id = self.next_id + 1 end
     return saved(goal_id, input.description, input.goal, 3)
   end
-  function api:archiveGoal(id)
-    self.writes[#self.writes + 1] = { op = "archive", id = id }
+  function api:archiveGoal(goal)
+    local id = goal.id
+    self.writes[#self.writes + 1] = { op = "archive", id = id, goal = goal }
     if self.fail then return nil, self.fail end
     return true
   end
@@ -85,7 +86,7 @@ end)
 check("an archive hides the goal, and drops an edit waiting for it", function()
   local q = newQueue()
   q:queueSave(form({ id = 7, name = "Edit" }), saved(7, "Old", 10))
-  q:queueArchive(7)
+  q:queueArchive(7, saved(7, "Old", 10))
   eq(q:count(), 1, "one op: the archive")
   eq(q:find(7).kind, "archive")
   eq(#q:apply({ saved(7, "Old", 10), saved(8, "Keep", 5) }), 1)
@@ -114,7 +115,7 @@ check("ops are sent in order, a new goal as a make, and cleared", function()
   local api = fakeApi()
   q:queueSave(form({ id = 7, name = "Edit", target = 20 }), saved(7, "Old", 10))
   local g = q:queueSave(form({ name = "Fresh" }))
-  q:queueArchive(9)
+  q:queueArchive(9, saved(9, "To go", 8))
   local sent, archived = {}, {}
   local r = q:flush(api, { on_saved = function(key, goal) sent[#sent + 1] = { key = key, goal = goal } end,
     on_archived = function(key) archived[#archived + 1] = key end })
@@ -122,6 +123,8 @@ check("ops are sent in order, a new goal as a make, and cleared", function()
   eq(api.writes[1].id, 7, "edit goes to its id"); eq(api.writes[1].input.goal, 20)
   eq(api.writes[2].id, nil, "a new goal is a make"); eq(api.writes[2].input.description, "Fresh")
   eq(api.writes[3].op, "archive")
+  eq(api.writes[3].goal.name, "To go", "an archive carries the whole goal (Hardcover requires it)")
+  eq(api.writes[3].goal.target, 8)
   eq(sent[2].key, g.id, "the caller learns the local key"); eq(sent[2].goal.id, 100, "and the real id")
   eq(archived[1], 9)
   eq(q:isEmpty(), true)

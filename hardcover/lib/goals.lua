@@ -97,6 +97,8 @@ function Goals.normalize(rows)
           start_days = from,
           end_days = to,
           privacy_setting_id = tonumber(row.privacy_setting_id),
+          -- kept so a change sends back what the goal already has (see Goals.input)
+          conditions = type(row.conditions) == "table" and row.conditions or nil,
         }
       end
     end
@@ -313,6 +315,7 @@ function Goals.formFrom(goal)
     start_date = goal.start_date,
     end_date = goal.end_date,
     privacy_setting_id = goal.privacy_setting_id,
+    conditions = goal.conditions,
   }
 end
 
@@ -369,11 +372,28 @@ function Goals.input(form)
     goal = math.floor(tonumber(form.target)),
     start_date = form.start_date,
     end_date = form.end_date,
+    conditions = Goals.conditions(form.conditions),
   }
   if form.privacy_setting_id ~= nil then
     input.privacy_setting_id = form.privacy_setting_id
   end
   return input
+end
+
+-- The API's GoalInput requires `conditions` (checked against the live schema: both
+-- insert_goal and update_goal fail with "missing required field 'conditions'" without
+-- it), and accepts only these keys in it. A goal keeps the ones it has (filters set on
+-- the website); a new goal has none, which is an empty object.
+local CONDITION_KEYS = { "authorBipoc", "authorGenderIds", "authorLgbtqia", "bookCategoryIds", "readingFormatId" }
+
+function Goals.conditions(existing)
+  local out = {}
+  if type(existing) == "table" then
+    for _, key in ipairs(CONDITION_KEYS) do
+      if existing[key] ~= nil then out[key] = existing[key] end
+    end
+  end
+  return out
 end
 
 -- label of a metric or a privacy id, for the form's rows

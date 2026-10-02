@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.1
+
+### Fixed
+
+Found by sending real goal requests to Hardcover for the first time:
+
+- Making a goal works. Hardcover requires a `conditions` field on every goal request, and the plugin never sent one, so a new goal was refused.
+- Archiving a goal works. Hardcover wants the whole goal sent with the archive flag, not just the flag.
+- Editing a goal no longer shows 0 progress until the next refresh: Hardcover answers a change without the goal, so the plugin now reads the goal back. A goal's own filters (set on the website) are kept when you edit it.
+
 ## 1.2.0
 
 ### Added

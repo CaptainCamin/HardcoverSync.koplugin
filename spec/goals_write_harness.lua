@@ -66,6 +66,7 @@ local function answers(...)
     return a.result, a.err
   end
 end
+local vim_null = nil
 local function ok(result) return { result = result } end
 local function fail(err) return { err = err } end
 
@@ -173,24 +174,70 @@ check("an answer with only an id still gives a goal, built from what was sent", 
     and goal.start_date == "2026-01-01" and goal.privacy_setting_id == 3)
 end)
 
+check("an update that comes back with goal: null reads the goal back, so its progress is real", function()
+  -- what the real API does (seen with a real write): update_goal and update_goal_progress
+  -- answer { id, errors, goal = null }
+  answers(ok({ update_goal = { id = 42, errors = vim_null } }), ok({ update_goal_progress = { id = 42 } }),
+    ok({ me = { { goals = { goal_row({ id = 42, goal = 31, progress = 9.0 }) } } } }))
+  local goal = Api:saveGoal(42, INPUT)
+  assert(goal and goal.id == 42 and goal.progress == 9 and goal.target == 31, "progress was " .. tostring(goal and goal.progress))
+  assert(#sent == 3 and sent[3].vars.id == 42, "the goal was not read back")
+  -- and when even that fails, what was sent is shown, not nothing
+  answers(ok({ update_goal = { id = 42 } }), ok({ update_goal_progress = { id = 42 } }), fail({ completed = false }))
+  goal = Api:saveGoal(42, INPUT)
+  assert(goal and goal.id == 42 and goal.target == 30, "no fallback")
+end)
+
 print("\n== archiving ==")
 
-check("archiving sets archived on that goal and nothing else", function()
+-- Hardcover's GoalInput requires all of these on every insert_goal AND update_goal
+-- (found by sending a real insert: "missing required field 'conditions'"; the
+-- introspected type marks them all NON_NULL). Sending less fails on the real API.
+local REQUIRED = { "description", "metric", "goal", "start_date", "end_date", "conditions" }
+
+local function assertComplete(object, what)
+  for _, key in ipairs(REQUIRED) do
+    assert(object[key] ~= nil, what .. " is missing the required field " .. key)
+  end
+  assert(type(object.conditions) == "table", what .. ": conditions is not an object")
+end
+
+check("archiving sends the whole goal with archived set (the API requires every field)", function()
   answers(ok({ update_goal = { id = 42 } }))
-  assert(Api:archiveGoal(42) == true)
-  assert(sent[1].vars.id == 42 and sent[1].q:find("object: { archived: true }", 1, true))
+  local goal = { id = 42, name = "Old", metric = "book", target = 12, start_date = "2026-01-01",
+    end_date = "2027-01-01", privacy_setting_id = 1,
+    conditions = { bookCategoryIds = { 5 }, goal = "12", startDate = "2026-01-01" } }
+  assert(Api:archiveGoal(goal) == true)
+  assert(sent[1].vars.id == 42)
+  local object = sent[1].vars.object
+  assertComplete(object, "the archive")
+  assert(object.archived == true and object.description == "Old" and object.goal == 12)
+  assert(object.conditions.bookCategoryIds and object.conditions.bookCategoryIds[1] == 5,
+    "the goal's own conditions were not kept")
+  assert(object.conditions.goal == nil and object.conditions.startDate == nil,
+    "conditions the API does not accept were sent")
   assert(#sent == 1)
+end)
+
+check("every goal request carries the required fields", function()
+  answers(ok({ insert_goal = { id = 77 } }), ok({}))
+  Api:saveGoal(nil, INPUT)
+  assertComplete(sent[1].vars.object, "a new goal")
+  answers(ok({ update_goal = { id = 42 } }), ok({}))
+  Api:saveGoal(42, INPUT)
+  assertComplete(sent[1].vars.object, "an edit")
 end)
 
 check("an archive that failed is nil with the reason", function()
   answers(ok({ update_goal = { errors = "Goal not found" } }))
-  local out, err = Api:archiveGoal(42)
+  local g = { id = 42, name = "Old", metric = "book", target = 12, start_date = "2026-01-01", end_date = "2027-01-01" }
+  local out, err = Api:archiveGoal(g)
   assert(out == nil and err == "Goal not found")
   answers(fail({ errors = { "insufficient_scope" }, status = 403 }))
-  out, err = Api:archiveGoal(42)
+  out, err = Api:archiveGoal(g)
   assert(out == nil and Lists.isScopeError(err))
   answers(ok({}))
-  assert(Api:archiveGoal(42) == nil)
+  assert(Api:archiveGoal(g) == nil)
 end)
 
 print("\n== the permission ==")
