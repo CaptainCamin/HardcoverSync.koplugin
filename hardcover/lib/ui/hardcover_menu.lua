@@ -97,9 +97,20 @@ function HardcoverMenu:mainMenu()
   }
 end
 
+-- Two menus from one definition, because the reader and the file browser have
+-- different jobs.
+--
+--   * In the reader (book_view): tracking and information about the book that is
+--     open -- linking, progress, status, rating, notes, details, sync, and the
+--     tracking settings. Nothing that is about the rest of your library.
+--   * In the file browser: the home screen first (your shelves), then sync,
+--     account, settings and about.
+--
+-- Items are gated with `book_view and {...}` / `not book_view and {...}`; the
+-- falsy ones are filtered out at the end.
 function HardcoverMenu:getSubMenuItems(book_view)
   local menu_items = {
-    {
+    not book_view and {
       text = _("Home"),
       enabled_func = function()
         return self.enabled
@@ -235,30 +246,6 @@ function HardcoverMenu:getSubMenuItems(book_view)
       separator = true
     },
     {
-      text = _("Want to Read list"),
-      enabled_func = function()
-        return self.enabled
-      end,
-      callback = function()
-        self:withWifiThen(function()
-          self.dialog_manager:showShelf(HARDCOVER.STATUS.TO_READ, _("Want to Read"))
-        end, true)
-      end,
-      keep_menu_open = true,
-    },
-    {
-      text = _("Currently Reading list"),
-      enabled_func = function()
-        return self.enabled
-      end,
-      callback = function()
-        self:withWifiThen(function()
-          self.dialog_manager:showShelf(HARDCOVER.STATUS.READING, _("Currently Reading"))
-        end, true)
-      end,
-      keep_menu_open = true,
-    },
-    {
       text_func = function()
         local pending = self.sync_queue:pendingCount()
         if pending > 0 then
@@ -304,7 +291,9 @@ function HardcoverMenu:getSubMenuItems(book_view)
     },
     -- OAuth sign-in/out. Only offered when hardcover_config.lua supplies a
     -- client_id; with a static API key there is nothing to sign in to.
-    self.auth and self.auth:usingOAuth() and {
+    -- In the file browser always; in the reader only when there is something to do
+    -- (signed out), since tracking cannot work without it.
+    self.auth and self.auth:usingOAuth() and (not book_view or self.auth:needsReauth()) and {
       text_func = function()
         return T(_("Account: %1"), self.auth:statusText())
       end,
@@ -371,7 +360,7 @@ function HardcoverMenu:getSubMenuItems(book_view)
         return self:getSettingsSubMenuItems()
       end,
     },
-    {
+    not book_view and {
       text = _("About"),
       callback = function()
         local version = table.concat(VERSION, ".")

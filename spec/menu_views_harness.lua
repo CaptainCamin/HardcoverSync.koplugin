@@ -1,0 +1,158 @@
+-- The plugin menu is two menus: one in the reader, one in the file browser.
+--
+--   * Reader: tracking and information about the open book. Nothing about the
+--     rest of the library, so no Home, no shelves, no About.
+--   * File browser: the home screen first, then sync, account, settings, about.
+--     Nothing about a book, because there is none open.
+--
+-- Builds the real menu and reads the top-level entries it produces for each.
+--
+-- Run with:  lua spec/menu_views_harness.lua [plugin-root]
+
+local PLUGIN = arg[1] or "."
+package.path = PLUGIN .. "/?.lua;" .. PLUGIN .. "/?/init.lua;" .. package.path
+
+local support = dofile(PLUGIN .. "/spec/support.lua")
+local r = support.reporter()
+
+local function make()
+  local t = {}
+  return setmetatable(t, {
+    __index = function() return make() end,
+    __call = function() return make() end,
+    __add = function() return 0 end, __sub = function() return 0 end,
+    __mul = function() return 0 end, __div = function() return 0 end,
+    __concat = function() return "" end,
+    __lt = function() return false end, __le = function() return false end,
+  })
+end
+
+package.preload["hardcover_version"] = function() return { "0", "0", "0", "spec" } end
+package.preload["gettext"] = function()
+  return setmetatable({}, { __call = function(_, s) return s end })
+end
+package.preload["logger"] = function()
+  return { dbg = function() end, info = function() end, warn = function() end, err = function() end }
+end
+package.preload["ffi/util"] = function()
+  local util = {
+    -- KOReader's template: replace %1, %2 ... with the arguments
+    template = function(fmt, ...)
+      local args = { ... }
+      return (tostring(fmt):gsub("%%(%d)", function(i) return tostring(args[tonumber(i)]) end))
+    end,
+  }
+  return util
+end
+local real_require = require
+_G.require = function(name)
+  if name:match("^hardcover/") or package.preload[name] or package.loaded[name] then
+    return real_require(name)
+  end
+  return make()
+end
+
+local HardcoverMenu = real_require("hardcover/lib/ui/hardcover_menu")
+
+local function newMenu(opts)
+  opts = opts or {}
+  return setmetatable({
+    enabled = true,
+    settings = {
+      bookLinked = function() return false end,
+      getLinkedTitle = function() return nil end,
+      getLinkedBookId = function() return nil end,
+      syncEnabled = function() return false end,
+      pages = function() return nil end,
+    },
+    state = { book_status = {} },
+    sync_queue = { pendingCount = function() return 0 end, hasPending = function() return false end },
+    auth = {
+      usingOAuth = function() return true end,
+      needsReauth = function() return opts.signed_out == true end,
+      statusText = function() return "Signed in" end,
+    },
+  }, { __index = HardcoverMenu })
+end
+
+-- the label of every top-level entry, in order
+local function labels(book_view, opts)
+  local out = {}
+  for _, item in ipairs(newMenu(opts):getSubMenuItems(book_view)) do
+    local text = item.text
+    if not text and item.text_func then
+      local ok, value = pcall(item.text_func)
+      text = ok and value or "?"
+    end
+    out[#out + 1] = tostring(text)
+  end
+  return out
+end
+
+local function has(list, wanted)
+  for _, label in ipairs(list) do
+    if label == wanted or label:find(wanted, 1, true) then return true end
+  end
+  return false
+end
+
+local function check(label, fn)
+  local ok, err = pcall(fn)
+  r.check(label, ok, err)
+end
+
+local function shown(list) return table.concat(list, " | ") end
+
+print("\n== the reader menu: tracking and this book ==")
+
+check("it offers linking, tracking, status and book details", function()
+  local m = labels(true)
+  for _, wanted in ipairs({ "Link book", "Automatically track progress", "Update status", "Book details", "Sync now", "Settings" }) do
+    assert(has(m, wanted), "missing '" .. wanted .. "': " .. shown(m))
+  end
+end)
+
+check("it leaves out the library: no Home, shelves or About", function()
+  local m = labels(true)
+  for _, unwanted in ipairs({ "Home", "Want to Read list", "Currently Reading list", "About" }) do
+    assert(not has(m, unwanted), "'" .. unwanted .. "' is in the reader menu: " .. shown(m))
+  end
+end)
+
+check("the account is not in the way while signed in", function()
+  assert(not has(labels(true, { signed_out = false }), "Account"), "Account shown to a signed in reader")
+end)
+
+check("but it is offered when signed out, since tracking cannot work without it", function()
+  assert(has(labels(true, { signed_out = true }), "Account"), "no way to sign in from the reader")
+end)
+
+print("\n== the file browser menu: the library ==")
+
+check("Home comes first", function()
+  local m = labels(false)
+  assert(m[1] == "Home", "first entry is '" .. tostring(m[1]) .. "': " .. shown(m))
+end)
+
+check("it offers sync, account, settings and about", function()
+  local m = labels(false)
+  for _, wanted in ipairs({ "Sync now", "Account", "Settings", "About" }) do
+    assert(has(m, wanted), "missing '" .. wanted .. "': " .. shown(m))
+  end
+end)
+
+check("it has nothing about a book, because none is open", function()
+  local m = labels(false)
+  for _, unwanted in ipairs({ "Link book", "Book details", "Update status", "Automatically track progress" }) do
+    assert(not has(m, unwanted), "'" .. unwanted .. "' is in the file browser menu: " .. shown(m))
+  end
+end)
+
+check("the old shelf entries are gone from both (Home replaces them)", function()
+  for _, view in ipairs({ true, false }) do
+    local m = labels(view)
+    assert(not has(m, "Want to Read list") and not has(m, "Currently Reading list"), shown(m))
+  end
+end)
+
+r.finish()

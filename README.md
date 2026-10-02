@@ -155,25 +155,33 @@ If a sync fails, the changes stay queued and are retried later rather than dropp
 publisher, page count, language, publication year, ISBN, community rating, reader counts and the description,
 alongside your own status and rating.
 
+### Where things are
+
+The Hardcover menu is different in the reader and in the file browser.
+
+**In the reader** it is about the book you have open: linking it, tracking progress, status, rating, notes, book
+details, sync, and the tracking settings. If you are signed out, an `Account` entry appears so you can sign in.
+
+**In the file browser** it is about your library: `Home` comes first, followed by sync, account, settings and about.
+
 ### Home screen
 
-`Hardcover` → `Home` opens your home screen: your shelves (Currently Reading, Want to Read, Read, Did Not Finish)
-with how many books are on each. Choose a shelf to browse it; closing the shelf brings you back. It opens with
-the counts it last saved, so it also works with no connection, and refreshes them in the background.
+`Hardcover` → `Home` (in the file browser) opens your home screen: your shelves (Currently Reading, Want to Read,
+Read, Did Not Finish) with how many books are on each. Choose a shelf to browse it; closing the shelf brings you
+back. It opens with the counts it last saved, so it also works with no connection, and refreshes them in the
+background.
 
 There is also a `Hardcover: Home` action, available wherever KOReader lists actions (gestures, profiles, quick
-menus), so you can open the home screen from a gesture or have another plugin launch it.
+menus), so you can open the home screen from anywhere, including while reading, or have another plugin launch it.
 
 ### Browsing your lists
 
-`Want to Read list` and `Currently Reading list` open your Hardcover shelves, with cover images where available.
-Select a book to open its details. The whole shelf is loaded: the first books appear straight away and the rest
-arrive in the background. If loading is interrupted (for example by tapping the screen while it loads, or by losing
-your connection), a reload icon appears in the upper left so you can carry on from where the list stops.
+Choosing a shelf on the home screen opens it, with cover images where available. Select a book to open its
+details. The whole shelf is loaded: the first books appear straight away and the rest arrive in the background. If
+loading is interrupted (for example by tapping the screen while it loads, or by losing your connection), a reload
+icon appears in the upper left so you can carry on from where the list stops.
 
 Lists you have opened are saved on the device, so they also open with no connection, showing the saved copy.
-
-Both list items work whether or not a book is currently open.
 
 ## Settings
 

@@ -65,6 +65,13 @@
   during a sync no longer leaves syncing disabled until KOReader restarts.
 * An empty cover list no longer triggers a request for a missing URL.
 
+### Changed
+
+* The Hardcover menu is now two menus. In the reader it is only about the open book: linking, tracking, status,
+  rating, notes, book details, sync and the tracking settings (plus `Account`, but only while you are signed
+  out). In the file browser it is about your library: `Home` first, then sync, account, settings and about.
+  The `Want to Read list` and `Currently Reading list` entries are gone: choose a shelf from `Home` instead.
+
 ### Added
 
 * A home screen: `Hardcover` → `Home`, or the new `Hardcover: Home` action (a gesture, profile or another plugin
