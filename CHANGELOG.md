@@ -2,6 +2,13 @@
 
 ## 0.6.0
 
+### Changed
+
+* The Home screen has a new look: a title bar, a "Currently reading" section with a card per book (cover, title,
+  author and a progress bar with "pages read / pages"), then the shelves as buttons ("Want to Read  ·  42").
+  Tapping a card opens that book. The reading list is saved, so Home opens instantly and works offline, and is
+  refreshed in the background (the screen only repaints if something changed).
+
 ### Removed
 
 * Removed the `Suggest a book` feature: the menu item, the `Hardcover: Suggest a book` gesture action and the

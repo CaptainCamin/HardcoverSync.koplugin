@@ -185,6 +185,19 @@ end
 -- how many books are on each shelf, as the home screen's count query returns them
 M.shelf_counts = { [2] = 3, [1] = 42, [3] = 130, [5] = 2 }
 
+-- what Api:getCurrentlyReading returns: three books in progress, the last with
+-- no cover (so the placeholder is drawn)
+M.currently_reading = {
+  { book_id = 101, title = "The Dispossessed", authors = "Ursula K. Le Guin", pages = 341,
+    progress_pages = 120, edition_pages = 341,
+    cached_image = { url = "https://covers.hardcover.app/fixture/101.jpg", width = 300, height = 450 } },
+  { book_id = 102, title = "A Wizard of Earthsea", authors = "Ursula K. Le Guin", pages = 183,
+    progress_pages = 20, edition_pages = 183,
+    cached_image = { url = "https://covers.hardcover.app/fixture/102.jpg", width = 300, height = 450 } },
+  { book_id = 105, title = "The Hundred Thousand Kingdoms", authors = "N. K. Jemisin", pages = 418,
+    progress_pages = 300, edition_pages = 418 },
+}
+
 --[[--
 Put the synthetic cover (spec/emu/fixtures/cover.png) into the plugin's real
 cover cache under `url`.
@@ -304,6 +317,11 @@ function M.install(opts)
       counts[id] = M.shelf_counts[id]
     end
     return counts
+  end
+
+  Api.getCurrentlyReading = function(_, user_id, limit)
+    record("getCurrentlyReading")
+    return deepcopy(M.currently_reading)
   end
 
   Api.getBookDetail = function(_, book_id, user_id, edition_id)

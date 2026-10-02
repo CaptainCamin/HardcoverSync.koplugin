@@ -162,6 +162,164 @@ check("counts are per account and are cleared with the rest", function()
   assert(c:counts(1, { 1 })[1] == nil, "sign out left counts behind")
 end)
 
+print("\n== the reading cards ==")
+
+check("a card carries title, author, cover and progress", function()
+  local cards = Home.cards({ {
+    book_id = 9, title = "Nine", authors = "A. Writer", pages = 300, edition_pages = 250, progress_pages = 100,
+    cached_image = { url = "https://x/9.jpg" },
+  } })
+  local c = cards[1]
+  assert(c.book_id == 9 and c.title == "Nine" and c.author == "A. Writer" and c.cover_url == "https://x/9.jpg")
+  assert(c.progress_text == "100 / 250", "text: " .. tostring(c.progress_text))
+  assert(math.abs(c.fraction - 0.4) < 1e-9, "fraction: " .. tostring(c.fraction))
+end)
+
+check("the edition's pages win over the book's, and the book's stand in for them", function()
+  assert(Home.cards({ { book_id = 1, pages = 200, progress_pages = 50 } })[1].total == 200)
+  assert(Home.cards({ { book_id = 1, pages = 200, edition_pages = 100, progress_pages = 50 } })[1].total == 100)
+end)
+
+check("progress past the end is clamped to full, never beyond", function()
+  local c = Home.cards({ { book_id = 1, edition_pages = 100, progress_pages = 250 } })[1]
+  assert(c.fraction == 1, "fraction: " .. tostring(c.fraction))
+end)
+
+check("negative progress is clamped to empty", function()
+  local c = Home.cards({ { book_id = 1, edition_pages = 100, progress_pages = -5 } })[1]
+  assert(c.fraction == 0 and c.current == 0, "fraction: " .. tostring(c.fraction))
+end)
+
+check("no page count means no bar and no division by zero", function()
+  for _, pages in ipairs({ 0, -1 }) do
+    local c = Home.cards({ { book_id = 1, edition_pages = pages, progress_pages = 10 } })[1]
+    assert(c.fraction == nil and c.progress_text == nil, "drew progress without a total")
+  end
+  local c = Home.cards({ { book_id = 1, progress_pages = 10 } })[1]
+  assert(c.fraction == nil)
+end)
+
+check("a book with no progress yet shows its length but no bar", function()
+  local c = Home.cards({ { book_id = 1, pages = 300 } })[1]
+  assert(c.fraction == nil and c.progress_text == "300 pages", tostring(c.progress_text))
+end)
+
+check("a book with no cover has no cover url", function()
+  assert(Home.cards({ { book_id = 1 } })[1].cover_url == nil)
+  assert(Home.cards({ { book_id = 1, cached_image = {} } })[1].cover_url == nil)
+  assert(Home.cards({ { book_id = 1, cached_image = { url = "" } } })[1].cover_url == nil)
+end)
+
+check("nil, empty and malformed lists are fine", function()
+  assert(#Home.cards(nil) == 0 and #Home.cards({}) == 0)
+  assert(#Home.cards({ "x", {}, { title = "no id" } }) == 0, "made a card with nothing to open")
+  assert(Home.cards({ { book_id = 1 } })[1].title == "Unknown title")
+end)
+
+check("two lists that draw the same cards compare equal, a changed page does not", function()
+  local a = { { book_id = 1, title = "T", edition_pages = 100, progress_pages = 10 } }
+  local b = { { book_id = 1, title = "T", edition_pages = 100, progress_pages = 10, user_book_id = 5 } }
+  local c = { { book_id = 1, title = "T", edition_pages = 100, progress_pages = 11 } }
+  assert(Home.sameCards(a, b), "equal lists reported different")
+  assert(not Home.sameCards(a, c), "a changed page was missed")
+  assert(not Home.sameCards(a, {}), "a shorter list was missed")
+  assert(Home.sameCards(nil, {}))
+end)
+
+check("counts compare only the shelves shown", function()
+  assert(Home.sameCounts({ [1] = 2, [9] = 1 }, { [1] = 2, [9] = 7 }, { 1 }))
+  assert(not Home.sameCounts({ [1] = 2 }, { [1] = 3 }, { 1 }))
+  assert(not Home.sameCounts({}, { [1] = 3 }, { 1 }))
+end)
+
+check("a shelf button reads 'Name  middot  count', or just the name", function()
+  assert(Home.rowLabel({ title = "Read", count = 130 }) == "Read  \194\183  130")
+  assert(Home.rowLabel({ title = "Read", count = 0 }) == "Read  \194\183  0")
+  assert(Home.rowLabel({ title = "Read" }) == "Read")
+end)
+
+print("\n== the reading query ==")
+
+check("it asks for the reading shelf, newest first, five, with the latest read", function()
+  answer({ user_books = {} })
+  Api:getCurrentlyReading(7)
+  assert(captured.vars.userId == 7 and captured.vars.statusId == 2 and captured.vars.limit == 5)
+  local q = captured.q
+  assert(q:find("order_by: { updated_at: desc }", 1, true), "not newest first")
+  assert(q:find("user_book_reads(order_by: { id: desc }, limit: 1)", 1, true), "not the latest read")
+  for _, field in ipairs({ "progress_pages", "cached_image", "contributions", "edition", "pages" }) do
+    assert(q:find(field, 1, true), "query lacks " .. field)
+  end
+  Api:getCurrentlyReading(7, 3)
+  assert(captured.vars.limit == 3, "limit not passed")
+end)
+
+check("rows come back as entries with progress and the edition's pages", function()
+  answer({ user_books = { {
+    id = 1, status_id = 2,
+    book = { book_id = 9, title = "Nine", pages = 300, cached_image = { url = "u" },
+             contributions = { { author = { name = "A. Writer" } } } },
+    user_book_reads = { { progress_pages = 120, edition = { pages = 250 } } },
+  }, {
+    id = 2, status_id = 2, book = { book_id = 10, title = "Ten" }, user_book_reads = {},
+  } } })
+  local entries = Api:getCurrentlyReading(7)
+  assert(#entries == 2)
+  assert(entries[1].book_id == 9 and entries[1].authors == "A. Writer")
+  assert(entries[1].progress_pages == 120 and entries[1].edition_pages == 250)
+  assert(entries[2].progress_pages == nil and entries[2].edition_pages == nil, "invented progress")
+  local c = Home.cards(entries)
+  assert(c[1].fraction == 120 / 250 and c[2].fraction == nil)
+end)
+
+check("a failed request returns nothing", function()
+  answer(nil, { completed = false })
+  local entries, err = Api:getCurrentlyReading(7)
+  assert(entries == nil and err ~= nil)
+  answer({})
+  assert(Api:getCurrentlyReading(7) == nil, "a reply with no list was taken as empty")
+end)
+
+check("an empty shelf is an empty list, not a failure", function()
+  answer({ user_books = {} })
+  local entries = Api:getCurrentlyReading(7)
+  assert(type(entries) == "table" and #entries == 0)
+end)
+
+print("\n== the saved reading list ==")
+
+check("a saved list comes back, per account, and empty is a real answer", function()
+  local c = newCache()
+  assert(c:reading(1) == nil, "invented a list")
+  assert(c:putReading(1, { { book_id = 1, title = "T", description = "long", progress_pages = 5 } }))
+  local got = c:reading(1)
+  assert(got[1].title == "T" and got[1].progress_pages == 5)
+  assert(got[1].description == nil, "kept a description the home screen never shows")
+  assert(c:reading(2) == nil, "another account saw this list")
+  c:putReading(1, {})
+  assert(type(c:reading(1)) == "table" and #c:reading(1) == 0, "an emptied list was lost")
+end)
+
+check("saving does not alias the caller's entries", function()
+  local c = newCache()
+  local entries = { { book_id = 1, description = "d" } }
+  c:putReading(1, entries)
+  assert(entries[1].description == "d", "stripped the caller's table")
+end)
+
+check("sign out clears the reading list too", function()
+  local c = newCache()
+  c:putReading(1, { { book_id = 1 } })
+  c:clear()
+  assert(c:reading(1) == nil, "sign out left the reading list behind")
+end)
+
+check("a reading list is not mistaken for a shelf", function()
+  local c = newCache()
+  c:putReading(1, { { book_id = 1 } })
+  assert(c:get(1, 2) == nil and c:counts(1, { 2 })[2] == nil)
+end)
+
 print("\n== launching it ==")
 
 check("a Dispatcher action opens the home screen, for gestures and other plugins", function()

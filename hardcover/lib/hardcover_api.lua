@@ -659,6 +659,65 @@ function HardcoverApi:getShelfCounts(user_id, status_ids)
 end
 
 --
+-- What you are reading now, for the home screen: the most recently updated
+-- books on the Currently Reading shelf, each with the progress of its latest
+-- read. Entries are the shelf's own shape (Shelf.normalizeEntry) plus
+-- `progress_pages` and `edition_pages`.
+--
+function HardcoverApi:getCurrentlyReading(user_id, limit)
+  limit = limit or 5
+
+  local query = [[
+    query ($userId: Int!, $statusId: Int!, $limit: Int!) {
+      user_books(
+        where: { user_id: { _eq: $userId }, status_id: { _eq: $statusId } }
+        order_by: { updated_at: desc }
+        limit: $limit
+      ) {
+        id
+        status_id
+        book {
+          book_id: id
+          title
+          pages
+          cached_image
+          contributions {
+            author {
+              name
+            }
+          }
+        }
+        user_book_reads(order_by: { id: desc }, limit: 1) {
+          progress_pages
+          edition {
+            pages
+          }
+        }
+      }
+    }
+  ]]
+
+  local results, err = self:query(query, {
+    userId = user_id,
+    statusId = 2,
+    limit = limit,
+  })
+  if not results or not results.user_books then
+    return nil, err or { completed = false }
+  end
+
+  return _t.map(results.user_books, function(user_book)
+    local entry = Shelf.normalizeEntry(user_book)
+    local read = _t.dig(user_book, "user_book_reads", 1)
+    if read then
+      entry.progress_pages = read.progress_pages
+      entry.edition_pages = _t.dig(read, "edition", "pages")
+    end
+    return entry
+  end)
+end
+
+--
 -- Full detail for one book, including description and community rating.
 -- `edition_id` is optional; when given, edition level fields are included.
 --

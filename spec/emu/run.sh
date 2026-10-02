@@ -46,6 +46,12 @@ export DISABLE_TOUCH=1
 SCREEN_W="${KO_EMU_W:-1200}"
 SCREEN_H="${KO_EMU_H:-1600}"
 SCREEN_DPI="${KO_EMU_DPI:-}"
+# built here, not inside the heredoc: bash drops the quotes around the key when
+# it sits in a ${var:+...} expansion there, which wrote an unloadable file
+DPI_LINE=""
+if [ -n "$SCREEN_DPI" ]; then
+  DPI_LINE="  [\"screen_dpi\"] = $SCREEN_DPI,"
+fi
 
 # Screen geometry is read from this setting by frontend/device/sdl/device.lua,
 # which is the only supported way to size the emulated panel.
@@ -55,7 +61,7 @@ return {
   ["device_id"] = "koreader-emu-harness",
   ["dev_no_c_blitter"] = true,
   ["language"] = "en",
-${SCREEN_DPI:+  ["screen_dpi"] = $SCREEN_DPI,}
+$DPI_LINE
 }
 EOF
 

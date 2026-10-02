@@ -148,6 +148,41 @@ function ShelfCache:putCounts(user_id, counts)
   return (pcall(store.flush, store))
 end
 
+-- The "currently reading" list for the home screen, as last loaded. Kept apart
+-- from the shelves: it is a short, differently shaped list (with progress) and
+-- must not stand in for a shelf. `entries` may be empty, which is a real answer
+-- (nothing being read); nil means never saved.
+function ShelfCache:reading(user_id)
+  local store = self:_store()
+  local saved = store and store:readSetting("reading")
+  local mine = saved and saved[tostring(user_id or 0)]
+  if mine and type(mine.entries) == "table" then
+    return mine.entries
+  end
+end
+
+function ShelfCache:putReading(user_id, entries)
+  local store = self:_store()
+  if not store or type(entries) ~= "table" then return false end
+
+  local saved = store:readSetting("reading")
+  if not saved then
+    saved = {}
+    store:saveSetting("reading", saved)
+  end
+
+  local kept = {}
+  for i, entry in ipairs(entries) do
+    local copy = {}
+    for k, v in pairs(entry) do copy[k] = v end
+    copy.description = nil
+    kept[i] = copy
+  end
+  saved[tostring(user_id or 0)] = { entries = kept, saved_at = os.time() }
+
+  return (pcall(store.flush, store))
+end
+
 -- The cached row for a book, from any of this user's shelves. Lets a book's
 -- details be shown offline from what the shelf already had.
 function ShelfCache:findEntry(user_id, book_id)
@@ -173,6 +208,7 @@ function ShelfCache:clear()
   if not store then return false end
   store:saveSetting("shelves", nil)
   store:saveSetting("counts", nil)
+  store:saveSetting("reading", nil)
   return (pcall(store.flush, store))
 end
 
