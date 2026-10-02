@@ -19,9 +19,15 @@ function SettingsDialog.show(opts)
   local menu
 
   local function render()
-    local rows = SettingsItems.rows(current.items, function(title, items)
+    local items = current.items
+    if current.source and current.source.sub_item_table_func then
+      items = current.source.sub_item_table_func()
+    end
+    local rows = SettingsItems.rows(items, function(title, items, item)
       stack[#stack + 1] = current
-      current = { title = title, items = items }
+      -- asked again on every draw, so a level shows what is true now (the
+      -- account's Sign in / Sign out rows change when you sign in)
+      current = { title = title, items = items, source = item }
       render()
     end, function()
       render()
@@ -43,6 +49,7 @@ function SettingsDialog.show(opts)
         mandatory = row.mandatory,
         dim = row.dim,
         callback = row.choose,
+        hold_callback = row.hold,
       }
     end
 

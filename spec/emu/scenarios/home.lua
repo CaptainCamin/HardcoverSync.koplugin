@@ -114,7 +114,13 @@ return {
     ]]
     local SETTING = require("hardcover/lib/constants/settings")
     manager.settings_items = function()
-      return require("hardcover/lib/ui/hardcover_menu"):new({ settings = settings }):getSettingsSubMenuItems()
+      return require("hardcover/lib/ui/hardcover_menu"):new({
+        settings = settings,
+        auth = { usingOAuth = function() return true end, needsReauth = function() return false end,
+                 statusText = function() return "Signed in" end },
+        enabled = true,
+        sync_queue = { pendingCount = function() return 2 end, hasPending = function() return true end },
+      }):getHomeSettingsItems()
     end
     manager:showHome()
     emu:pump()
@@ -125,6 +131,8 @@ return {
     local top = UIManager:getTopmostVisibleWidget()
     assert(top ~= manager.home_dialog, "tapping Settings opened nothing")
     emu:expectText("Automatically link by ISBN")
+    emu:expectText("Sync pending changes (2)")
+    emu:expectText("Account: Signed in")
     emu:shot("home_settings")
 
     local before = settings:readSetting(SETTING.LINK_BY_ISBN) == true

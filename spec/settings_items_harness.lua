@@ -67,6 +67,15 @@ check("an item with children opens them, under its own title", function()
   assert(rows[1].mandatory ~= nil, "no sign that it opens")
 end)
 
+check("a long press runs the item's hold callback and redraws", function()
+  local held, drawn = false, 0
+  local rows = SettingsItems.rows({ { text = "A", callback = noop, hold_callback = function() held = true end } },
+    noop, function() drawn = drawn + 1 end)
+  rows[1].hold()
+  assert(held and drawn == 1)
+  assert(SettingsItems.rows({ { text = "B", callback = noop } }, noop, noop)[1].hold == nil)
+end)
+
 check("an item without children does not open anything", function()
   local opened = false
   local rows = SettingsItems.rows({ { text = "A", callback = noop } }, function() opened = true end, noop)

@@ -47,9 +47,17 @@ function SettingsItems.rows(items, open, refresh)
       row.choose = function()
         if not enabled then return end
         if item.sub_item_table or item.sub_item_table_func then
-          open(text, children(item) or {})
+          open(text, children(item) or {}, item)
         elseif item.callback then
           item.callback(menu_shim)
+          refresh()
+        end
+      end
+
+      -- long press, for items that have one (Sync: discard what is queued)
+      if item.hold_callback then
+        row.hold = function()
+          item.hold_callback(menu_shim)
           refresh()
         end
       end

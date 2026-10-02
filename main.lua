@@ -163,7 +163,7 @@ function HardcoverApp:init()
     -- the settings, for the home screen's Settings button; read when asked, as
     -- the menu is built after this
     settings_items = function()
-      return self.menu and self.menu:getSettingsSubMenuItems() or {}
+      return self.menu and self.menu:getHomeSettingsItems() or {}
     end,
     state = self.state,
     ui = self.ui,

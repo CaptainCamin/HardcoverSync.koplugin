@@ -245,115 +245,12 @@ function HardcoverMenu:getSubMenuItems(book_view)
       keep_menu_open = true,
       separator = true
     },
-    {
-      text_func = function()
-        local pending = self.sync_queue:pendingCount()
-        if pending > 0 then
-          return T(_("Sync pending changes (%1)"), pending)
-        end
-        return _("Sync now")
-      end,
-      -- Greyed out when there is nothing to send. Offline with changes queued it
-      -- stays enabled: tapping it is how the user learns they are saved and
-      -- will sync later.
-      enabled_func = function()
-        return self.enabled and self.sync_queue:hasPending()
-      end,
-      callback = function()
-        -- Syncing genuinely needs a connection, but the confirmation message
-        -- must still appear when it cannot be sent -- otherwise the menu item
-        -- looks dead. withWifiThen reports the outcome either way.
-        self:withWifiThen(function()
-          self.on_flush_sync_queue()
-        end, true)
-      end,
-      hold_callback = function(menu_instance)
-        -- long press discards anything queued, for when a queued change is
-        -- wrong and the user would rather retype it than push it
-        local count = self.sync_queue:pendingCount()
-        if count == 0 then
-          return
-        end
-
-        self.dialog_manager:maybeConfirm({
-          text = T(_("Discard %1 pending changes?"), count),
-          ok_callback = function()
-            self.sync_queue:clearAll()
-            menu_instance:updateItems()
-          end,
-          no_confirm_callback = function()
-            menu_instance:updateItems()
-          end
-        })
-      end,
-      keep_menu_open = true,
-      separator = true
-    },
+    self:getSyncMenuItem(),
     -- OAuth sign-in/out. Only offered when hardcover_config.lua supplies a
     -- client_id; with a static API key there is nothing to sign in to.
     -- In the file browser always; in the reader only when there is something to do
     -- (signed out), since tracking cannot work without it.
-    self.auth and self.auth:usingOAuth() and (not book_view or self.auth:needsReauth()) and {
-      text_func = function()
-        return T(_("Account: %1"), self.auth:statusText())
-      end,
-      sub_item_table_func = function()
-        local items = {}
-
-        if self.auth:needsReauth() then
-          table.insert(items, {
-            text = _("Sign in to Hardcover"),
-            enabled_func = function()
-              return self.enabled
-            end,
-            callback = function(menu_instance)
-              self.on_sign_in()
-              if menu_instance then
-                menu_instance:updateItems()
-              end
-            end,
-            keep_menu_open = true,
-          })
-        else
-          table.insert(items, {
-            text = _("Sign in again"),
-            enabled_func = function()
-              return self.enabled
-            end,
-            callback = function()
-              self.on_sign_in()
-            end,
-            keep_menu_open = true,
-          })
-          table.insert(items, {
-            text = _("Sign out"),
-            enabled_func = function()
-              return self.enabled
-            end,
-            callback = function(menu_instance)
-              self.dialog_manager:maybeConfirm({
-                text = _("Sign out of Hardcover?"),
-                ok_callback = function()
-                  self.on_sign_out()
-                  if menu_instance then
-                    menu_instance:updateItems()
-                  end
-                end,
-                no_confirm_callback = function()
-                  if menu_instance then
-                    menu_instance:updateItems()
-                  end
-                end,
-              })
-            end,
-            keep_menu_open = true,
-          })
-        end
-
-        return items
-      end,
-      separator = true,
-    },
+    self.auth and self.auth:usingOAuth() and (not book_view or self.auth:needsReauth()) and self:getAccountMenuItem(),
     {
       text = _("Settings"),
       sub_item_table_func = function()
@@ -427,6 +324,136 @@ Settings:
   return _t.filter(menu_items, function(v)
     return v
   end)
+end
+
+-- Sync now / pending changes: one definition for the menu and the home screen's
+-- settings.
+function HardcoverMenu:getSyncMenuItem()
+  return {
+    text_func = function()
+      local pending = self.sync_queue:pendingCount()
+      if pending > 0 then
+        return T(_("Sync pending changes (%1)"), pending)
+      end
+      return _("Sync now")
+    end,
+    -- Greyed out when there is nothing to send. Offline with changes queued it
+    -- stays enabled: tapping it is how the user learns they are saved and
+    -- will sync later.
+    enabled_func = function()
+      return self.enabled and self.sync_queue:hasPending()
+    end,
+    callback = function()
+      -- Syncing genuinely needs a connection, but the confirmation message
+      -- must still appear when it cannot be sent -- otherwise the menu item
+      -- looks dead. withWifiThen reports the outcome either way.
+      self:withWifiThen(function()
+        self.on_flush_sync_queue()
+      end, true)
+    end,
+    hold_callback = function(menu_instance)
+      -- long press discards anything queued, for when a queued change is
+      -- wrong and the user would rather retype it than push it
+      local count = self.sync_queue:pendingCount()
+      if count == 0 then
+        return
+      end
+
+      self.dialog_manager:maybeConfirm({
+        text = T(_("Discard %1 pending changes?"), count),
+        ok_callback = function()
+          self.sync_queue:clearAll()
+          menu_instance:updateItems()
+        end,
+        no_confirm_callback = function()
+          menu_instance:updateItems()
+        end
+      })
+    end,
+    keep_menu_open = true,
+    separator = true
+  }
+end
+
+-- The account item: who you are signed in as, and signing in or out. One
+-- definition for the menu and the home screen's settings.
+function HardcoverMenu:getAccountMenuItem()
+  return {
+    text_func = function()
+      return T(_("Account: %1"), self.auth:statusText())
+    end,
+    sub_item_table_func = function()
+      local items = {}
+
+      if self.auth:needsReauth() then
+        table.insert(items, {
+          text = _("Sign in to Hardcover"),
+          enabled_func = function()
+            return self.enabled
+          end,
+          callback = function(menu_instance)
+            self.on_sign_in()
+            if menu_instance then
+              menu_instance:updateItems()
+            end
+          end,
+          keep_menu_open = true,
+        })
+      else
+        table.insert(items, {
+          text = _("Sign in again"),
+          enabled_func = function()
+            return self.enabled
+          end,
+          callback = function()
+            self.on_sign_in()
+          end,
+          keep_menu_open = true,
+        })
+        table.insert(items, {
+          text = _("Sign out"),
+          enabled_func = function()
+            return self.enabled
+          end,
+          callback = function(menu_instance)
+            self.dialog_manager:maybeConfirm({
+              text = _("Sign out of Hardcover?"),
+              ok_callback = function()
+                self.on_sign_out()
+                if menu_instance then
+                  menu_instance:updateItems()
+                end
+              end,
+              no_confirm_callback = function()
+                if menu_instance then
+                  menu_instance:updateItems()
+                end
+              end,
+            })
+          end,
+          keep_menu_open = true,
+        })
+      end
+
+      return items
+    end,
+    separator = true,
+  }
+end
+
+-- Everything the home screen's settings screen lists: sync, the account (when
+-- the plugin signs in with OAuth), then the settings.
+function HardcoverMenu:getHomeSettingsItems()
+  local items = { self:getSyncMenuItem() }
+  if self.auth and self.auth:usingOAuth() then
+    local account = self:getAccountMenuItem()
+    account.separator = true
+    items[#items + 1] = account
+  end
+  for _, item in ipairs(self:getSettingsSubMenuItems()) do
+    items[#items + 1] = item
+  end
+  return items
 end
 
 function HardcoverMenu:getVisibilitySubMenuItems()
