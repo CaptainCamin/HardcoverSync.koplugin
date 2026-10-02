@@ -56,8 +56,8 @@ Signing in needs no config file (see [Signing in](#signing-in)). Rename `hardcov
 
 ## Signing in
 
-In KOReader, open the Hardcover menu and choose `Account` → `Sign in to Hardcover` (in the file browser menu, or in the
-reader menu while you are signed out). The plugin shows a short code and a web address. Open that address on a phone
+In the file browser, choose `Hardcover` in the menu to open the home screen, tap the cog, and choose `Account` →
+`Sign in to Hardcover` (while reading, the Hardcover menu shows `Account` when you are signed out). The plugin shows a short code and a web address. Open that address on a phone
 or computer, enter the code, and approve. The plugin signs itself in and keeps the connection fresh from then on.
 
 <p><img src="docs/screenshots/signin.png" width="45%" alt="The sign-in screen: a web address and a short code to enter on a phone or computer"></p>
@@ -221,17 +221,18 @@ details appear, and is left out when you are offline.
 
 ### Where things are
 
-The Hardcover menu is different in the reader and in the file browser.
+The Hardcover entry in the menu is different in the reader and in the file browser.
 
 **In the reader** it is about the book you have open: linking it, tracking progress, status, rating, notes, book
 details, sync, and the tracking settings. `Settings` there includes your account (to sign out); if you are signed
 out, an `Account` entry also appears at the top level so you can sign in.
 
-**In the file browser** it is about your library: `Home` comes first, followed by sync, account, settings and about.
+**In the file browser** it is not a menu at all: choosing `Hardcover` opens your home screen. Everything that used to
+be on the first menu screen (sync, your account, the settings and About) is behind the cog in its title bar.
 
 ### Home screen
 
-`Hardcover` → `Home` (in the file browser) opens your home screen:
+`Hardcover` in the file browser menu opens your home screen:
 
 * **Currently reading**: a card for each book you are reading, with its cover, author and a progress bar
   (`pages read / pages`). Tap a card to open that book's details.
@@ -248,7 +249,8 @@ menus), so you can open the home screen from anywhere, including while reading, 
 ### Settings screen
 
 The cog on the home screen opens the plugin's settings in a screen of their own, with `Sync` and your Hardcover
-account (sign in, sign in again, sign out) at the top, then the options listed below. Options show a tick when on;
+account (sign in, sign in again, sign out) at the top, then the options listed below, then `About` (version, latest
+release, project and settings file). Options show a tick when on;
 groups open and have a `Back` row. The same settings are in the Hardcover menu in the reader and file browser.
 
 ### Browsing your lists

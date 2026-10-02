@@ -83,6 +83,21 @@ local privacy_labels = {
 }
 
 function HardcoverMenu:mainMenu()
+  -- In the file browser (no book open) the entry is not a menu: it opens the home
+  -- screen, which holds everything else (Sync, Account, Settings and About are
+  -- behind its cog). In the reader it is the tracking menu for the open book.
+  if not (self.ui and self.ui.document) then
+    return {
+      text = _("Hardcover"),
+      enabled_func = function()
+        return self.enabled
+      end,
+      callback = function()
+        self.dialog_manager:showHome()
+      end,
+    }
+  end
+
   return {
     enabled_func = function()
       return self.enabled
@@ -110,17 +125,6 @@ end
 -- falsy ones are filtered out at the end.
 function HardcoverMenu:getSubMenuItems(book_view)
   local menu_items = {
-    not book_view and {
-      text = _("Home"),
-      enabled_func = function()
-        return self.enabled
-      end,
-      callback = function()
-        self.dialog_manager:showHome()
-      end,
-      keep_menu_open = true,
-      separator = true,
-    },
     book_view and {
       text_func = function()
         if self.settings:bookLinked() then
@@ -262,30 +266,40 @@ function HardcoverMenu:getSubMenuItems(book_view)
         return self:getSettingsSubMenuItems()
       end,
     },
-    not book_view and {
-      text = _("About"),
-      callback = function()
-        local version = table.concat(VERSION, ".")
-        local settings_file = DataStorage:getSettingsDir() .. "/" .. "hardcoversync_settings.lua"
+  }
+  return _t.filter(menu_items, function(v)
+    return v
+  end)
+end
 
-        -- Build the text with a placeholder for the "latest release" note, show
-        -- the box straight away, and fill the note in if GitHub answers.
-        --
-        -- This used to call Github:newestRelease() BEFORE showing anything, and
-        -- that request had no timeout. With no route to api.github.com it
-        -- blocked for a long time, so the About box never appeared at all --
-        -- indistinguishable on e-ink from a screen that failed to refresh.
-        -- Showing first and asking second makes the screen's appearance
-        -- independent of the network.
-        local LATEST_MARK = " \u{25CB} checking for a newer release\u{2026}"
+-- About: version, project, settings file. Lives in the settings screen, which is
+-- where the file browser's Hardcover entry (it opens Home) puts everything that
+-- used to be the first menu screen.
+function HardcoverMenu:getAboutMenuItem()
+  return {
+    text = _("About"),
+    callback = function()
+      local version = table.concat(VERSION, ".")
+      local settings_file = DataStorage:getSettingsDir() .. "/" .. "hardcoversync_settings.lua"
 
-        local function about_text(latest)
-          local new_release_str = ""
-          if latest then
-            new_release_str = " (latest v" .. latest .. ")"
-          end
+      -- Build the text with a placeholder for the "latest release" note, show
+      -- the box straight away, and fill the note in if GitHub answers.
+      --
+      -- This used to call Github:newestRelease() BEFORE showing anything, and
+      -- that request had no timeout. With no route to api.github.com it
+      -- blocked for a long time, so the About box never appeared at all --
+      -- indistinguishable on e-ink from a screen that failed to refresh.
+      -- Showing first and asking second makes the screen's appearance
+      -- independent of the network.
+      local LATEST_MARK = " \u{25CB} checking for a newer release\u{2026}"
 
-          return [[
+      local function about_text(latest)
+        local new_release_str = ""
+        if latest then
+          new_release_str = " (latest v" .. latest .. ")"
+        end
+
+        return [[
 Hardcover plugin
 v]] .. version .. new_release_str .. [[
 
@@ -298,38 +312,34 @@ github.com/CaptainCamin/HardcoverSync.koplugin
 
 Settings:
 ]] .. settings_file
+      end
+
+      local message = InfoMessage:new {
+        text = about_text(nil),
+        face = Font:getFace("cfont", 18),
+        show_icon = false,
+      }
+
+      UIManager:show(message)
+
+      -- Update in place once the answer arrives, if the box is still up.
+      Github:newestReleaseAsync(function(new_release)
+        if not new_release then
+          if message.text and message.text:find(LATEST_MARK, 1, true) then
+            message.text = message.text:gsub(LATEST_MARK:gsub("(%W)", "%%%1"), "")
+          end
+          return
         end
 
-        local message = InfoMessage:new {
-          text = about_text(nil),
-          face = Font:getFace("cfont", 18),
-          show_icon = false,
-        }
-
-        UIManager:show(message)
-
-        -- Update in place once the answer arrives, if the box is still up.
-        Github:newestReleaseAsync(function(new_release)
-          if not new_release then
-            if message.text and message.text:find(LATEST_MARK, 1, true) then
-              message.text = message.text:gsub(LATEST_MARK:gsub("(%W)", "%%%1"), "")
-            end
-            return
-          end
-
-          if message.text and message.text:find(LATEST_MARK, 1, true) then
-            message.text = message.text:gsub(LATEST_MARK:gsub("(%W)", "%%%1"),
-              " (latest v" .. new_release .. ")")
-            UIManager:setDirty(message, "ui")
-          end
-        end)
-      end,
-      keep_menu_open = true
-    }
+        if message.text and message.text:find(LATEST_MARK, 1, true) then
+          message.text = message.text:gsub(LATEST_MARK:gsub("(%W)", "%%%1"),
+            " (latest v" .. new_release .. ")")
+          UIManager:setDirty(message, "ui")
+        end
+      end)
+    end,
+    keep_menu_open = true
   }
-  return _t.filter(menu_items, function(v)
-    return v
-  end)
 end
 
 -- Sync now / pending changes: one definition for the menu and the home screen's
@@ -448,7 +458,7 @@ function HardcoverMenu:getAccountMenuItem()
 end
 
 -- Everything the home screen's settings screen lists: sync, the account (when
--- the plugin signs in with OAuth), then the settings.
+-- the plugin signs in with OAuth), the settings, then About.
 function HardcoverMenu:getHomeSettingsItems(opts)
   opts = opts or {}
   local items = {}
@@ -462,6 +472,11 @@ function HardcoverMenu:getHomeSettingsItems(opts)
   end
   for _, item in ipairs(self:getSettingsSubMenuItems()) do
     items[#items + 1] = item
+  end
+  if opts.about ~= false then
+    local about = self:getAboutMenuItem()
+    about.keep_menu_open = nil
+    items[#items + 1] = about
   end
   return items
 end

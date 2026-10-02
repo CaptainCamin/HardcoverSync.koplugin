@@ -155,32 +155,78 @@ check("signed out, the account is not listed twice in the reader", function()
   assert(not has(settingsLabels({ signed_out = true }), "Account"), "Account is in both places")
 end)
 
-print("\n== the file browser menu: the library ==")
+print("\n== the file browser: Hardcover opens the home screen ==")
 
-check("Home comes first", function()
-  local m = labels(false)
-  assert(m[1] == "Home", "first entry is '" .. tostring(m[1]) .. "': " .. shown(m))
+-- the entry as KOReader's menu sees it: a document being open decides which
+local function mainMenuItem(has_document, opts)
+  local m = newMenu(opts)
+  m.ui = { document = has_document and {} or nil }
+  m.dialog_manager = { home_opened = 0, showHome = function(self) self.home_opened = self.home_opened + 1 end }
+  return m, m:mainMenu()
+end
+
+check("with no book open the entry is a button that opens Home, not a submenu", function()
+  local m, item = mainMenuItem(false)
+  assert(item.sub_item_table_func == nil and item.sub_item_table == nil, "it still opens a menu")
+  assert(type(item.callback) == "function", "it does nothing when chosen")
+  item.callback()
+  assert(m.dialog_manager.home_opened == 1, "it did not open the home screen")
+  assert(item.text == "Hardcover", tostring(item.text))
 end)
 
-check("it offers sync, account, settings and about", function()
-  local m = labels(false)
-  for _, wanted in ipairs({ "Sync now", "Account", "Settings", "About" }) do
+check("with a book open it is the tracking menu, as before", function()
+  local _, item = mainMenuItem(true)
+  assert(type(item.sub_item_table_func) == "function" and item.callback == nil)
+end)
+
+check("it can be disabled like the rest of the plugin", function()
+  local m, item = mainMenuItem(false)
+  m.enabled = false
+  assert(item.enabled_func() == false)
+end)
+
+print("\n== the settings screen holds what the first menu screen used to ==")
+
+local function homeSettingsLabels(opts)
+  local out = {}
+  for _, item in ipairs(newMenu(opts):getHomeSettingsItems()) do
+    local text = item.text
+    if not text and item.text_func then
+      local ok, value = pcall(item.text_func)
+      text = ok and value or "?"
+    end
+    out[#out + 1] = tostring(text)
+  end
+  return out
+end
+
+check("sync, account, the settings and about are all there", function()
+  local m = homeSettingsLabels()
+  for _, wanted in ipairs({ "Sync now", "Account", "Automatically link by ISBN", "About" }) do
     assert(has(m, wanted), "missing '" .. wanted .. "': " .. shown(m))
   end
 end)
 
+check("sync comes first and about last", function()
+  local m = homeSettingsLabels()
+  assert(m[1] == "Sync now" and m[#m] == "About", shown(m))
+end)
+
 check("it has nothing about a book, because none is open", function()
-  local m = labels(false)
+  local m = homeSettingsLabels()
   for _, unwanted in ipairs({ "Link book", "Book details", "Update status", "Automatically track progress" }) do
-    assert(not has(m, unwanted), "'" .. unwanted .. "' is in the file browser menu: " .. shown(m))
+    assert(not has(m, unwanted), "'" .. unwanted .. "' is in the settings screen: " .. shown(m))
   end
 end)
 
-check("the old shelf entries are gone from both (Home replaces them)", function()
-  for _, view in ipairs({ true, false }) do
-    local m = labels(view)
-    assert(not has(m, "Want to Read list") and not has(m, "Currently Reading list"), shown(m))
-  end
+check("the reader menu has no About or Home (they live behind the home screen)", function()
+  local m = labels(true)
+  assert(not has(m, "About") and not has(m, "Home"), shown(m))
+end)
+
+check("the old shelf entries are gone (Home replaces them)", function()
+  local m = labels(true)
+  assert(not has(m, "Want to Read list") and not has(m, "Currently Reading list"), shown(m))
 end)
 
 r.finish()

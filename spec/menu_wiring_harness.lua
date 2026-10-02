@@ -186,11 +186,8 @@ check("the shelves are still reachable, through the Home entry", function()
   -- A guard against "fixing" the wiring by deleting the feature. The two shelf
   -- items moved into the home screen on purpose, so what must still hold is
   -- that the menu opens Home, and that Home opens a shelf.
-  if not src:find('text = _("Home")', 1, true) then
-    error("the Home menu entry has disappeared")
-  end
-  if not src:find("showHome", 1, true) then
-    error("the Home entry no longer opens the home screen")
+  if not src:find("self.dialog_manager:showHome()", 1, true) then
+    error("the file browser's Hardcover entry no longer opens the home screen")
   end
   local dm = assert(io.open(PLUGIN .. "/hardcover/lib/ui/dialog_manager.lua", "r")):read("*a")
   if not dm:find("self:showShelf(row.status_id", 1, true) then

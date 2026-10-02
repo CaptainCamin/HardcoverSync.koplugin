@@ -133,6 +133,8 @@ return {
     emu:expectText("Automatically link by ISBN")
     emu:expectText("Sync pending changes (2)")
     emu:expectText("Account: Signed in")
+    -- About is the last entry: everything the file browser's menu used to list
+    emu:expectText("About")
     emu:shot("home_settings")
 
     local before = settings:readSetting(SETTING.LINK_BY_ISBN) == true

@@ -342,10 +342,9 @@ check("a Dispatcher action opens the home screen, for gestures and other plugins
   assert(main:find("function HardcoverApp:onHardcoverHome()", 1, true), "nothing handles HardcoverHome")
 end)
 
-check("the plugin menu has a Home entry", function()
+check("the file browser's Hardcover entry opens the home screen", function()
   local menu = read("hardcover/lib/ui/hardcover_menu.lua")
-  assert(menu:find('text = _%("Home"%)'), "no Home item in the menu")
-  assert(menu:find("showHome", 1, true), "the Home item does not open the home screen")
+  assert(menu:find("self.dialog_manager:showHome()", 1, true), "the entry does not open the home screen")
 end)
 
 r.finish()

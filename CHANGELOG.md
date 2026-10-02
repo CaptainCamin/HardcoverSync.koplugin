@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0
+
+### Changed
+
+* In the file browser, choosing `Hardcover` in the menu now opens the home screen directly, instead of a menu whose
+  first screen listed Home, Sync, Account, Settings and About. Sync, your account, the settings and About are now all
+  in the settings screen behind the cog on the home screen. The reader's Hardcover menu is unchanged.
+
 ## 0.7.1
 
 ### Fixed
