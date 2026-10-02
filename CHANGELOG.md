@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Home: scrolling is easier to find and no longer jumps back to the top. A "Page X of Y" bar with ‹ › buttons sits under the scrolling content, and the position is kept when Home refreshes (for example after goals load).
+
 ## 1.1.0
 
 ### Changed

@@ -22,6 +22,7 @@ local ImageWidget = require("ui/widget/imagewidget")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local ProgressWidget = require("ui/widget/progresswidget")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
+local ScrollPager = require("hardcover/lib/ui/scroll_pager")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
@@ -363,18 +364,24 @@ function HomeDialog:build()
   local column = self:buildColumn(width, nil)
   local body
   self.scroll = nil
+  self.pager = nil
   if column:getSize().h > room then
     self.cover_cells = {}
     local gutter = 3 * (ScrollableContainer.scroll_bar_width or Screen:scaleBySize(6))
     width = screen_w - 2 * M - gutter
+    -- the page buttons take the bottom of the screen, so the page scrolls in what is left
     self.scroll = ScrollableContainer:new {
-      dimen = Geom:new { x = 0, y = 0, w = screen_w, h = room },
+      dimen = Geom:new { x = 0, y = 0, w = screen_w, h = room - ScrollPager.HEIGHT },
       show_parent = self,
     }
     local scroll = self.scroll
     column = self:buildColumn(width, function() return scroll.dimen end)
     scroll[1] = HorizontalGroup:new { Theme.hspan(M), column }
-    body = scroll
+    -- the container works out how far it can scroll when it first paints; the page
+    -- buttons need to know now, to say how many pages there are
+    scroll:initState()
+    self.pager = ScrollPager.new(scroll, screen_w)
+    body = VerticalGroup:new { align = "left", scroll, self.pager.widget }
   else
     body = HorizontalGroup:new { Theme.hspan(M), column }
   end
@@ -450,13 +457,29 @@ function HomeDialog:releaseCovers()
   self.cover_bbs = nil
 end
 
+-- Build again from the current data (the counts, the books or the goals arrived).
+-- A page the reader has scrolled down stays where it is: the data arrives a few
+-- seconds after the screen opens, which is exactly when someone is scrolling, and a
+-- page that jumps back to the top looks like a page that does not scroll.
 function HomeDialog:rebuild()
+  local offset = self.scroll and self.scroll:getScrolledOffset().y or 0
   if self[1] and type(self[1].free) == "function" then
     pcall(function() self[1]:free() end)
   end
   self[1] = nil
   self:build()
+  self:restoreScroll(offset)
   UIManager:setDirty(self, "ui")
+end
+
+-- Put a scrolled page back where it was (as far as the new page reaches).
+function HomeDialog:restoreScroll(offset)
+  local scroll = self.scroll
+  if not scroll or not offset or offset <= 0 then return end
+  scroll:setScrolledOffset(Geom:new { x = 0, y = math.min(offset, scroll._max_scroll_offset_y or offset) })
+  if type(scroll._updateScrollBars) == "function" then
+    scroll:_updateScrollBars() -- moves the scroll bar and the page buttons' label
+  end
 end
 
 -- Swap in fresh counts once they arrive.
