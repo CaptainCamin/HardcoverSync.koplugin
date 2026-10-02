@@ -220,10 +220,7 @@ function ListMenuItem:update()
   -- needed with some covers, but it's nicer when cover is
   -- a pure white background (like rendered text page)
   local border_size = Size.border.thin
-  -- (Hardcover change) the slot is portrait book-shaped, not square, so the cover
-  -- sits flush against the left edge and fills the row's height, as in a
-  -- cover-list view; a square slot left a wide margin on both sides of it.
-  local max_img_w = math.floor(dimen.h * 0.68) - 2*border_size
+  local max_img_w = dimen.h - 2*border_size -- width = height, squared
   local max_img_h = dimen.h - 2*border_size
   local cover_specs = {
     max_cover_w = max_img_w,
@@ -289,7 +286,7 @@ function ListMenuItem:update()
       local wleft_height
       if self.do_cover_image then
         wleft_height = dimen.h
-        wleft_width = max_img_w + 2*border_size -- book-shaped slot, flush left
+        wleft_width = wleft_height -- make it squared
         if bookinfo.has_cover and not bookinfo.ignore_cover then
           cover_bb_used = true
           -- Let ImageWidget do the scaling and give us the final size
@@ -300,8 +297,7 @@ function ListMenuItem:update()
           }
           wimage:_render()
           local image_size = wimage:getSize() -- get final widget size
-          -- (Hardcover change) LeftContainer, not Center: flush against the edge
-          wleft = LeftContainer:new{
+          wleft = CenterContainer:new{
             dimen = Geom:new{ w = wleft_width, h = wleft_height },
             FrameContainer:new{
               width = image_size.w + 2*border_size,
@@ -327,7 +323,7 @@ function ListMenuItem:update()
             fake_cover_h = bookinfo.cover_h * scale_factor
           end
 
-          wleft = LeftContainer:new{
+          wleft = CenterContainer:new{
             dimen = Geom:new{ w = wleft_width, h = wleft_height },
             FrameContainer:new{
               width = fake_cover_w + 2*border_size,
