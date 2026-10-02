@@ -1047,7 +1047,7 @@ function DialogManager:archiveGoal(dialog, goal, on_saved)
   local queue = self.goal_queue
   local waiting = queue and (GoalQueue.isLocal(goal.id) or queue:pendingFor(goal.id))
   if queue and (not Network.connected() or waiting) then
-    queue:queueArchive(goal.id)
+    queue:queueArchive(goal.id, goal)
     self:queueGoalChange(dialog, function() end, nil, nil)
     self:closeGoalScreen(goal.id)
     if on_saved then on_saved(nil) end
@@ -1061,7 +1061,7 @@ function DialogManager:archiveGoal(dialog, goal, on_saved)
   end
 
   dialog:setBusy(true)
-  Api:archiveGoalAsync(goal.id, function(done, err)
+  Api:archiveGoalAsync(goal, function(done, err)
     if done then
       self:applyGoals(Goals.remove(self:savedGoals(), goal.id))
     end

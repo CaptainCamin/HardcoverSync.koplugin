@@ -809,6 +809,7 @@ function HardcoverApi:getGoals()
           progress
           archived
           privacy_setting_id
+          conditions
         }
       }
     }
@@ -835,6 +836,7 @@ local GOAL_FIELDS = [[
   progress
   archived
   privacy_setting_id
+  conditions
 ]]
 
 --
@@ -853,6 +855,13 @@ local GOAL_FIELDS = [[
 --
 function HardcoverApi:saveGoal(id, input)
   input = input or {}
+  -- GoalInput requires `conditions` (the live API refuses a change without it)
+  if type(input.conditions) ~= "table" then
+    local copy = {}
+    for k, v in pairs(input) do copy[k] = v end
+    copy.conditions = {}
+    input = copy
+  end
 
   if not id and input.privacy_setting_id == nil then
     local me = self:me()
@@ -924,6 +933,23 @@ function HardcoverApi:saveGoal(id, input)
     row = row_of(recounted) or row
   end
 
+  -- The real API answers an update with `goal: null` (an insert does return it), which
+  -- would leave an edited goal at 0 progress until the next refresh: ask for the goal
+  -- itself.
+  if not row then
+    local read = self:query([[
+      query ($id: Int!) {
+        me {
+          goals(where: { id: { _eq: $id } }) { ]] .. GOAL_FIELDS .. [[ }
+        }
+      }
+    ]], { id = goal_id })
+    local me = type(read) == "table" and read.me
+    if type(me) == "table" and me[1] ~= nil then me = me[1] end
+    local found = type(me) == "table" and type(me.goals) == "table" and me.goals[1]
+    if type(found) == "table" then row = found end
+  end
+
   -- what Hardcover sent back, else what was sent (progress as it was, or 0 for a new goal)
   local goal = Goals.normalize({ row })[1]
   if not goal then
@@ -936,6 +962,7 @@ function HardcoverApi:saveGoal(id, input)
       end_date = input.end_date,
       progress = row and row.progress or 0,
       privacy_setting_id = input.privacy_setting_id,
+      conditions = input.conditions,
     } })[1]
   end
   if not goal then
@@ -948,15 +975,30 @@ end
 -- Archive a goal: it stays on Hardcover but is hidden (the same as archiving it on
 -- the website), so it can be brought back. Returns true, or nil and the error.
 --
-function HardcoverApi:archiveGoal(id)
+function HardcoverApi:archiveGoal(goal)
+  goal = type(goal) == "table" and goal or { id = goal }
+  -- GoalInput requires the name, target, dates, metric and conditions on every
+  -- change (checked against the live schema), so an archive sends the goal as it is,
+  -- marked archived, rather than just the flag.
+  local object = {
+    description = goal.name or goal.description,
+    metric = goal.metric,
+    goal = goal.target and math.floor(tonumber(goal.target) or 0) or goal.goal,
+    start_date = goal.start_date,
+    end_date = goal.end_date,
+    conditions = Goals.conditions(goal.conditions),
+    archived = true,
+  }
+  if goal.privacy_setting_id ~= nil then object.privacy_setting_id = goal.privacy_setting_id end
+
   local result, err = self:query([[
-    mutation ($id: Int!) {
-      update_goal(id: $id, object: { archived: true }) {
+    mutation ($id: Int!, $object: GoalInput!) {
+      update_goal(id: $id, object: $object) {
         id
         errors
       }
     }
-  ]], { id = id })
+  ]], { id = goal.id, object = object })
   local out = result and result.update_goal
   if type(out) ~= "table" then
     return nil, err or { completed = false }
@@ -1643,8 +1685,8 @@ function HardcoverApi:saveGoalAsync(id, input, callback)
   async(callback, self.saveGoal, self, id, input)
 end
 
-function HardcoverApi:archiveGoalAsync(id, callback)
-  async(callback, self.archiveGoal, self, id)
+function HardcoverApi:archiveGoalAsync(goal, callback)
+  async(callback, self.archiveGoal, self, goal)
 end
 
 function HardcoverApi:getGoalsAsync(callback)

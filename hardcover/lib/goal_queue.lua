@@ -92,6 +92,7 @@ local function copyForm(form)
     name = form.name, metric = form.metric, target = tonumber(form.target),
     start_date = form.start_date, end_date = form.end_date,
     privacy_setting_id = form.privacy_setting_id,
+    conditions = form.conditions,
   }
 end
 
@@ -109,6 +110,7 @@ local function goalFrom(key, form, progress)
     start_days = from,
     end_days = to,
     privacy_setting_id = form.privacy_setting_id,
+    conditions = form.conditions,
     pending = true,
   }
 end
@@ -135,12 +137,14 @@ function GoalQueue:queueSave(form, base)
   return goalFrom(key, form, base and base.progress or 0)
 end
 
--- Archive a goal. One that was made here and never sent just disappears.
-function GoalQueue:queueArchive(key)
+-- Archive a goal. One that was made here and never sent just disappears. `goal` is
+-- the goal as it stands: Hardcover wants all of it sent along with the archive flag.
+function GoalQueue:queueArchive(key, goal)
   local was_local = GoalQueue.isLocal(key)
   drop(self, key)
   if not was_local then
-    table.insert(self:ops(), { key = key, kind = "archive", at = os.time() })
+    local form = goal and Goals.formFrom(goal) or nil
+    table.insert(self:ops(), { key = key, kind = "archive", form = form and copyForm(form), at = os.time() })
   end
   self:persist()
 end
@@ -200,7 +204,7 @@ local function transient(err)
 end
 
 --
--- Send what is waiting, in order. `api` needs saveGoal(id, input) and archiveGoal(id)
+-- Send what is waiting, in order. `api` needs saveGoal(id, input) and archiveGoal(goal)
 -- (each returning a result, or nil and an error). opts.on_saved(key, goal) is told of
 -- every goal that went through (for a new one `key` is its local key, and the real
 -- id is `goal.id`); opts.on_archived(key) of every archive that did. Stops at the first failure that says the server could not be
@@ -220,7 +224,10 @@ function GoalQueue:flush(api, opts)
     if valid(op) and not op.held then
       local ok, result, err = pcall(function()
         if op.kind == "archive" then
-          return api:archiveGoal(op.key)
+          local goal = {}
+          for k, v in pairs(op.form or {}) do goal[k] = v end
+          goal.id = op.key
+          return api:archiveGoal(goal)
         end
         local id = (not GoalQueue.isLocal(op.key)) and op.key or nil
         return api:saveGoal(id, Goals.input(op.form))
