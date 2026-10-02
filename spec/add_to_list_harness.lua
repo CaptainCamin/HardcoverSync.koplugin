@@ -227,6 +227,19 @@ check("addToList sends one insert_list_book with the list, the book and the end 
   assert(o.book_id == 100 and o.list_id == 1 and o.position == 7 and o.edition_id == nil)
 end)
 
+-- The API's ListBookIdType is { id, list_book }. insert_user_book has an `error`
+-- field, so it was easy to copy it here; selecting a field the type lacks fails the
+-- whole request on validation, which no stub would ever show.
+check("addToList asks only for fields the API's ListBookIdType has", function()
+  answer({ insert_list_book = { id = 1 } })
+  Api:addToList(100, 1, 7)
+  local selection = sent.q:match("insert_list_book%(object: %$object%)%s*(%b{})")
+  assert(selection, "could not read the selection")
+  for word in selection:gmatch("[%a_]+") do
+    assert(word == "id" or word == "list_book", "selects a field ListBookIdType does not have: " .. word)
+  end
+end)
+
 check("addToList: a nested list_book id, or no id at all, still counts as added", function()
   answer({ insert_list_book = { list_book = { id = 12 } } })
   assert(Api:addToList(100, 1, 7).id == 12)
