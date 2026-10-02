@@ -60,6 +60,10 @@ In KOReader, open the Hardcover menu and choose `Account` → `Sign in to Hardco
 reader menu while you are signed out). The plugin shows a short code and a web address. Open that address on a phone
 or computer, enter the code, and approve. The plugin signs itself in and keeps the connection fresh from then on.
 
+<p><img src="docs/screenshots/signin.png" width="45%" alt="The sign-in screen: a web address and a short code to enter on a phone or computer"></p>
+
+*(The code shown here is made up; yours is different each time.)*
+
 That is all: the plugin comes with its own Hardcover app registration, so you do not need to register anything or
 create a config file. There is no secret to store, because this is a public client using the device flow, which is
 also why no browser is needed on the reader. You can see, and revoke, the connection on Hardcover under your
