@@ -43,8 +43,6 @@ local BookDetailDialog = FocusManager:extend {
   -- called with no arguments when Lists is tapped (the lists to put the book on);
   -- no callback, no button
   on_lists = nil,
-  -- called with the dialog when Similar is tapped (books like this one); no callback, no button
-  on_similar = nil,
   -- present only when the Z-library plugin is installed (see hardcover/lib/zlibrary.lua)
   on_zlibrary = nil,
   -- tapping the series pill, the status pill or the author: called with the
@@ -347,15 +345,11 @@ function BookDetailDialog:init()
   -- scrolled away could catch a tap meant for what is over it.
   local labels = { { "shelf_button", Shelf.shelfButtonText((self.detail or {}).status_id), "on_shelf", true } }
   self.shelf_button, self.lists_button, self.reviews_button, self.zlibrary_button = nil, nil, nil, nil
-  self.similar_button = nil
   if self.on_lists then
     labels[#labels + 1] = { "lists_button", _("Lists"), "on_lists" }
   end
   if self.on_reviews then
     labels[#labels + 1] = { "reviews_button", _("Reviews"), "on_reviews" }
-  end
-  if self.on_similar then
-    labels[#labels + 1] = { "similar_button", _("Similar"), "on_similar" }
   end
   if self.on_zlibrary then
     labels[#labels + 1] = { "zlibrary_button", _("Z-library"), "on_zlibrary" }
@@ -417,17 +411,17 @@ function BookDetailDialog:init()
     add(self.description_text)
   end
 
-  -- "More in this series": a strip of covers, paged with arrows; tapping one
-  -- opens that book. Below About, so the book itself comes first.
-  self.carousel = nil
-  if self.series_card then
-    self.carousel = SeriesCarousel:new {
-      card = self.series_card,
+  -- Strips of covers, paged with arrows; tapping one opens that book. Below About, so
+  -- the book itself comes first: "Similar to <title>", then "More in this series".
+  self.carousel, self.similar_carousel = nil, nil
+  local function strip(card, on_open)
+    return SeriesCarousel:new {
+      card = card,
       width = width,
       -- what the scroll area is showing: taps outside it are not ours
       viewport = viewport,
       on_open = function(book_id)
-        if self.on_open_book then self.on_open_book(book_id) end
+        if on_open then on_open(book_id) end
       end,
       image_loader = self.image_loader or require("hardcover/lib/ui/image_loader"),
       -- a cover or a turned page redraws its own box, not the panel
@@ -439,6 +433,14 @@ function BookDetailDialog:init()
         end
       end,
     }
+  end
+  if self.similar_card then
+    self.similar_carousel = strip(self.similar_card, self.on_open_similar)
+    add(Theme.span("l"))
+    add(self.similar_carousel.widget)
+  end
+  if self.series_card then
+    self.carousel = strip(self.series_card, self.on_open_book)
     add(Theme.span("l"))
     add(self.carousel.widget)
   end
@@ -498,8 +500,10 @@ function BookDetailDialog:init()
   local actions = {}
   for _, spec in ipairs(labels) do actions[#actions + 1] = self[spec[1]] end
   table.insert(self.layout, actions)
-  if self.carousel and self.carousel.paged then
-    table.insert(self.layout, { self.carousel.prev, self.carousel.next })
+  for _, strip in ipairs({ self.similar_carousel or false, self.carousel or false }) do
+    if strip and strip.paged then
+      table.insert(self.layout, { strip.prev, strip.next })
+    end
   end
   table.insert(self.layout, { self.close_button })
 
@@ -565,6 +569,10 @@ function BookDetailDialog:releaseCover()
     self.carousel:release()
     self.carousel = nil
   end
+  if self.similar_carousel then
+    self.similar_carousel:release()
+    self.similar_carousel = nil
+  end
   if self.cover_halt then
     self.cover_halt()
     self.cover_halt = nil
@@ -588,6 +596,23 @@ function BookDetailDialog:setSeries(card, on_open_book)
   -- The series arrives after the screen is up, and the reader may already have
   -- scrolled; a rebuild starts a new scroll container at the top, so carry the
   -- position across.
+  local offset = self.scroll and self.scroll.getScrolledOffset and self.scroll:getScrolledOffset()
+  self:rebuild()
+  if offset and self.scroll and self.scroll.setScrolledOffset then
+    self.scroll:setScrolledOffset(offset)
+  end
+end
+
+--
+-- Show "Similar to <title>" once it has been fetched.
+--
+-- `card` is Recommendations.card's result (nil clears it); `on_open(book_id)` is called
+-- when a cover is tapped. Like the series, it arrives after the screen is up.
+--
+function BookDetailDialog:setSimilar(card, on_open)
+  self.similar_card = card
+  self.on_open_similar = on_open
+
   local offset = self.scroll and self.scroll.getScrolledOffset and self.scroll:getScrolledOffset()
   self:rebuild()
   if offset and self.scroll and self.scroll.setScrolledOffset then

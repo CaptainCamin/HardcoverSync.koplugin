@@ -17,6 +17,7 @@ local Home = require("hardcover/lib/home")
 local Goals = require("hardcover/lib/goals")
 local GoalQueue = require("hardcover/lib/goal_queue")
 local Lists = require("hardcover/lib/lists")
+local Recommendations = require("hardcover/lib/recommendations")
 local Reviews = require("hardcover/lib/reviews")
 local Shelf = require("hardcover/lib/shelf")
 local Zlibrary = require("hardcover/lib/zlibrary")
@@ -1215,56 +1216,6 @@ function DialogManager:showList(row, done_callback)
   end)
 end
 
--- Books like this one, in the shelf screen: the same book-details tap opens one, and
--- closing it comes back to the details. Shown at once saying it is loading, then
--- filled when the two requests answer (the ids, then the books); not saved for
--- offline, like a list.
-function DialogManager:showSimilar(book_id, detail, done_callback)
-  local name = detail and detail.book and detail.book.title
-  local dialog
-  dialog = require("hardcover/lib/ui/shelf_dialog"):new {
-    compatibility_mode = self.settings:compatibilityMode(),
-    title = name and T(_("Similar to %1"), name) or _("Similar books"),
-    sortable = false,
-    entries = {},
-    has_more = false,
-    offset = 0,
-    page_size = SHELF_PAGE_SIZE,
-    fetch_page = function(_offset, _limit, callback) callback(nil, _("not available offline")) end,
-    select_entry_cb = function(entry)
-      self:showBookDetail(entry.book_id, nil, done_callback)
-    end,
-  }
-  UIManager:show(dialog)
-
-  if not Network.connected() then
-    StatusDialogs.info(_("Similar books need an internet connection."))
-    UIManager:close(dialog)
-    return
-  end
-
-  local loading = StatusDialogs.loading(_("Finding similar books\226\128\166"))
-  Api:getSimilarBooksAsync(book_id, function(entries, err)
-    StatusDialogs.close(loading)
-    if not UIManager:isWidgetShown(dialog) then return end
-    if entries == nil then
-      StatusDialogs.retry(err, _("Loading similar books"),
-        function()
-          UIManager:close(dialog)
-          self:showSimilar(book_id, detail, done_callback)
-        end,
-        function() UIManager:close(dialog) end)
-      return
-    end
-    if #entries == 0 then
-      dialog:setEmptyState(_("Hardcover has no similar books for this one yet"))
-      return
-    end
-    dialog.offset = #entries
-    dialog:setEntries(entries, false, true)
-  end)
-end
-
 --
 -- Fetch and display full details for one book.
 --
@@ -1278,8 +1229,6 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
     loading = true,
     -- the details on screen go along, so the reviews can say which book and how it is rated
     on_reviews = function(d) self:showReviews(book_id, nil, Reviews.summary(d and d.detail)) end,
-    -- Hardcover's "readers also liked" ranking for this book, in the shelf screen
-    on_similar = function(d) self:showSimilar(book_id, d and d.detail, done_callback) end,
     -- only when the Z-library plugin is there: no button that does nothing
     on_zlibrary = Zlibrary.available(self.ui) and function(d) self:searchZlibrary(d) end or nil,
     on_shelf = function(d) self:chooseShelf(d) end,
@@ -1358,6 +1307,7 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
     end
 
     self:loadSeries(dialog, detail.book, user_id)
+    self:loadSimilar(dialog, book_id)
   end)
 
   return dialog
@@ -1837,6 +1787,21 @@ function DialogManager:loadSeries(dialog, book, user_id)
 
     dialog:setSeries(card, function(book_id)
       self:showBookDetail(book_id)
+    end)
+  end)
+end
+
+-- "Similar to <title>" on a book's details: Hardcover's ranking, fetched after the
+-- screen is up (two requests) and shown as a strip of covers. A failure or an empty
+-- ranking shows nothing: the rest of the screen does not depend on it.
+function DialogManager:loadSimilar(dialog, book_id)
+  if not Network.connected() then return end
+  Api:getSimilarBooksAsync(book_id, function(entries)
+    if not UIManager:isWidgetShown(dialog) then return end
+    local card = Recommendations.card(entries, dialog.detail and dialog.detail.book and dialog.detail.book.title)
+    if not card then return end
+    dialog:setSimilar(card, function(id)
+      self:showBookDetail(id)
     end)
   end)
 end

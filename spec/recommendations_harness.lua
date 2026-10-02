@@ -103,6 +103,17 @@ check("books come back in the ranking's order, missing ones left out, extras ign
   assert(#Recommendations.entries({ 1 }, nil) == 0 and #Recommendations.entries(nil, {}) == 0)
 end)
 
+check("the carousel card: author line, title, cover; nothing to show is nil", function()
+  local entries = Recommendations.entries({ 1, 2 }, { book(1, { cached_image = { url = "u.jpg" } }), book(2) })
+  local card = Recommendations.card(entries, "Dune")
+  assert(card and card.title == "Similar to Dune" and card.subtitle == "2 books" and #card.items == 2)
+  assert(card.items[1].book_id == 1 and card.items[1].title == "Book 1" and card.items[1].number == "A")
+  assert(card.items[1].cover and card.items[1].cover.url == "u.jpg" and card.items[2].cover == nil)
+  assert(card.items[1].current == false)
+  assert(Recommendations.card(entries).title == "Similar books", "no title known")
+  assert(Recommendations.card({}) == nil and Recommendations.card(nil) == nil)
+end)
+
 print("\n== the requests ==")
 
 check("two requests: the ranking of the book, then those books; the result is in rank order", function()
