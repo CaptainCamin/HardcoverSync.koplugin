@@ -53,9 +53,9 @@ return {
     assert(dialog, "showHome did not produce a dialog")
     assert(UIManager:isWidgetShown(dialog), "the home screen was built but never shown")
 
+    -- each shelf is a tile: its count big, its name beside it
     for _, expected in ipairs({
-      "Currently Reading  \194\183  3", "Want to Read  \194\183  42",
-      "Read  \194\183  130", "Did Not Finish  \194\183  2",
+      "3", "Currently Reading", "42", "Want to Read", "130", "Read", "2", "Did Not Finish", "Library",
     }) do
       emu:expectText(expected)
     end
@@ -66,23 +66,33 @@ return {
       emu:expectText(expected)
     end
 
-    -- the search button is at the top, above the cards, and the cards still fit
+    -- the search field is at the top, above the reading list, a full-width
+    -- field inside the page margins whose words sit in the middle of it
+    local screen = require("device").screen
     local order = {}
     for i, node in ipairs(emu:screenNodes()) do order[node.text] = order[node.text] or i end
-    -- on the "Currently reading" line, after it, and small (the text nodes carry
-    -- no coordinates here, so the order they are drawn in and the button's own
-    -- rectangle are what can be checked)
-    assert(order["Currently reading"] and order["Search books"]
-      and order["Currently reading"] < order["Search books"], "the search button is not after the heading")
-    local button = manager.home_dialog.search_button
-    assert(button and button.dimen and button.dimen.w < require("device").screen:getWidth() / 2,
-      "the search button is wide again")
-    assert(button.dimen.h < require("device").screen:scaleBySize(60), "the search button is tall again")
-
+    assert(order["Search books on Hardcover"] and order["Currently reading"]
+      and order["Search books on Hardcover"] < order["Currently reading"], "the search field is not above the list")
     local rows = dialog.rows
     assert(#rows == 4 and rows[1].title == "Currently Reading",
       "rows are not in the expected order")
     emu:shot("home")
+
+    -- geometry is only real once the screen has been painted
+    local field = manager.home_dialog.search_button
+    assert(field and field.dimen, "no search field")
+    assert(field.dimen.x == require("hardcover/lib/ui/theme").margin
+      and field.dimen.x + field.dimen.w == screen:getWidth() - require("hardcover/lib/ui/theme").margin,
+      "the search field does not sit inside the margins")
+    assert(field.dimen.h < screen:scaleBySize(60), "the search field is tall")
+    local words = emu:expectText("Search books on Hardcover")
+    assert(math.abs((words.y + words.h / 2) - (field.dimen.y + field.dimen.h / 2)) <= 4,
+      "the search words are not vertically centred in the field")
+    -- everything fits: the last tile ends above the bottom edge
+    for _, node in ipairs(emu:screenNodes()) do
+      assert(node.relative or node.y + node.h <= screen:getHeight(), node.text .. " is off the screen")
+    end
+
 
     -- every cover the fixture has was drawn: two pictures, one placeholder
     assert(#dialog.cover_bbs == 2, "expected 2 covers drawn, got " .. #(dialog.cover_bbs or {}))
@@ -91,7 +101,7 @@ return {
     A tap on empty space below the shelves opens nothing: the cards answer only
     inside what they draw.
     ]]
-    local bottom = emu:expectText("Did Not Finish  \194\183  2")
+    local bottom = emu:expectText("Did Not Finish")
     emu:tap(bottom.x + 5, bottom.y + 400)
     assert(UIManager:getTopmostVisibleWidget() == dialog, "a tap on empty space opened something")
 
@@ -111,7 +121,7 @@ return {
     Choosing a shelf opens it on top, so closing it comes back here. A real tap
     on its button, not a call to the callback.
     ]]
-    local row = emu:expectText("Want to Read  \194\183  42")
+    local row = emu:expectText("Want to Read")
     emu:tapExpecting(row.x + 5, row.y + 5)
     assert(manager.shelf_dialog and UIManager:isWidgetShown(manager.shelf_dialog),
       "tapping a shelf did not open it")

@@ -8,6 +8,7 @@
 -- area it sits in), taps outside that rectangle are ignored; see viewport.lua
 -- for why that matters.
 
+local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local InputContainer = require("ui/widget/container/inputcontainer")
 
@@ -20,7 +21,10 @@ local TapRow = InputContainer:extend {
 }
 
 function TapRow:init()
-  self.dimen = self[1]:getSize()
+  -- not every widget's getSize returns a Geom (a HorizontalGroup's is a plain
+  -- table), and a gesture range must be one
+  local size = self[1]:getSize()
+  self.dimen = Geom:new { x = 0, y = 0, w = size.w, h = size.h }
 
   local range = function() return self.dimen end
   if self.viewport then

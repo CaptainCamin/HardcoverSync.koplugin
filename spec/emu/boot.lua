@@ -192,6 +192,7 @@ function M.boot(opts)
   local Screen = Device.screen
   local BB = require("ffi/blitbuffer")
 
+  Tree.instrument() -- needs the frontend (fonts, device) to be up
   local emu = {
     app = app,
     Device = Device,
