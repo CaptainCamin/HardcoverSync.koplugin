@@ -139,11 +139,24 @@ do
     "Valley of Flowers", "The Memory Police", "Convenience Store Woman",
     "The Master and Margarita", "Babel", "The Dispossessed",
   }
+  -- who wrote each, and the series two of them belong to (index -> name, position)
+  local authors = {
+    "Ursula K. Le Guin", "Octavia E. Butler", "Joan D. Vinge", "Ursula K. Le Guin",
+    "Ursula K. Le Guin", "Ursula K. Le Guin", "Stanis\197\130aw Lem",
+    "Arkady and Boris Strugatsky", "Dan Simmons", "Dan Simmons", "Frank Herbert", "Frank Herbert",
+    "Philip K. Dick", "Philip K. Dick", "Brian Selznick", "Yoko Ogawa", "Sayaka Murata",
+    "Mikhail Bulgakov", "R. F. Kuang", "Ursula K. Le Guin",
+  }
+  local series = {
+    [4] = { "Earthsea", 1 }, [9] = { "Hyperion Cantos", 1 }, [10] = { "Hyperion Cantos", 2 },
+    [11] = { "Dune", 1 }, [12] = { "Dune", 3 },
+  }
   for i, title in ipairs(titles) do
+    local s = series[i]
     M.shelf_books[#M.shelf_books + 1] = book_row(200 + i, title, 1950 + i * 3, 200 + i * 11, {
-      author = "Fixture Author " .. i,
-      series = (i % 3 == 0) and ("Shelf Series " .. math.floor(i / 3)) or nil,
-      series_position = (i % 3 == 0) and (i % 5) or nil,
+      author = authors[i],
+      series = s and s[1] or nil,
+      series_position = s and s[2] or nil,
       no_image = (i % 7 == 0), -- no-cover rows land throughout the list
     })
   end
