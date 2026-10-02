@@ -202,6 +202,32 @@ function ShelfCache:findEntry(user_id, book_id)
   end
 end
 
+-- Forget what is saved about a user's library that a change of shelf makes
+-- wrong: the lists for `status_ids` (a book left one and joined another), the
+-- list with no status filter, the shelf counts and the reading list. Other
+-- shelves are untouched, and so is every other user's data. The next time the
+-- home screen or a shelf is opened it loads fresh numbers.
+function ShelfCache:invalidate(user_id, status_ids)
+  local store = self:_store()
+  if not store then return false end
+
+  local shelves = store:readSetting("shelves")
+  if shelves then
+    shelves[shelfKey(user_id, nil)] = nil
+    for _, status_id in ipairs(status_ids or {}) do
+      shelves[shelfKey(user_id, status_id)] = nil
+    end
+  end
+
+  local who = tostring(user_id or 0)
+  for _, name in ipairs({ "counts", "reading" }) do
+    local saved = store:readSetting(name)
+    if saved then saved[who] = nil end
+  end
+
+  return (pcall(store.flush, store))
+end
+
 -- Everything, for sign out: the cache holds a user's library.
 function ShelfCache:clear()
   local store = self:_store()

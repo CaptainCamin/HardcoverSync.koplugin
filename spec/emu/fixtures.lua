@@ -68,6 +68,10 @@ local function book_row(id, title, year, pages, opts)
   }
 end
 
+-- Books whose details come back with no library record (see getBookDetail).
+-- Scenarios may add to it; install() does not reset it.
+M.not_in_library = { [108] = true }
+
 M.books = {
   book_row(101, "The Dispossessed", 1974, 341, {
     author = "Ursula K. Le Guin",
@@ -288,8 +292,8 @@ function M.install(opts)
   local calls = {}
   M.calls = calls
 
-  local function record(name)
-    calls[#calls + 1] = { name = name, at = os.clock() }
+  local function record(name, args)
+    calls[#calls + 1] = { name = name, at = os.clock(), args = args }
   end
 
   Api.getShelf = function(_, user_id, status_id, offset, limit)
@@ -357,6 +361,10 @@ function M.install(opts)
       detail.publisher = { name = "Fixture Press" }
       detail.language = { code2 = "en", language = "English" }
       detail.release_date = "2016-01-05"
+    end
+    if M.not_in_library[b.book_id] then
+      -- a book the reader has not shelved: no status, rating or library record
+      return { book = detail }
     end
     return {
       book = detail,
@@ -429,8 +437,13 @@ function M.install(opts)
   end
 
   Api.updateUserBook = function(_, book_id, status_id, privacy, edition_id)
-    record("updateUserBook")
+    record("updateUserBook", { book_id = book_id, status_id = status_id, edition_id = edition_id })
     return { id = 9000 + book_id, book_id = book_id, status_id = status_id, rating = 0 }
+  end
+
+  Api.removeUserBook = function(_, user_book_id)
+    record("removeUserBook", { user_book_id = user_book_id })
+    return { id = user_book_id }
   end
 
   Api.removeRead = function(_, user_book_id)

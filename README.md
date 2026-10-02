@@ -219,6 +219,11 @@ status (Read, Reading, Want to Read). The book you are on has a heavy border. Lo
 to page through. Tap a cover to open that book on top; Close brings you back. The series is fetched after the
 details appear, and is left out when you are offline.
 
+The **Shelf** button beside Close puts the book on a shelf: it reads `Add to shelf` for a book that is not in your
+library and `Shelf: <status>` for one that is. Tap it to choose Want to Read, Currently Reading, Read or Did Not
+Finish, or (for a book already in your library) `Remove from library`, which asks first. Your status line and the
+button update in place. This needs a connection; offline it tells you so and changes nothing.
+
 ### Where things are
 
 The Hardcover entry in the menu is different in the reader and in the file browser.

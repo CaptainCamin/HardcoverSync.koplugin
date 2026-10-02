@@ -260,9 +260,23 @@ function BookDetailDialog:init()
     })
   end
 
+  -- Two buttons side by side in the fixed row under the scrolling body (a
+  -- button inside the body would keep a shifted tap range when scrolled away).
+  local button_width = math.floor(self.width * 0.4)
+  local shelf_button = Button:new {
+    text = Shelf.shelfButtonText((self.detail or {}).status_id),
+    width = button_width,
+    text_font_size = 18,
+    bordersize = Size.border.thin,
+    callback = function()
+      if self.on_shelf then self.on_shelf(self) end
+    end,
+  }
+  self.shelf_button = shelf_button
+
   local close_button = Button:new {
     text = _("Close"),
-    width = math.floor(self.width * 0.4),
+    width = button_width,
     text_font_size = 18,
     bordersize = Size.border.thin,
     callback = function()
@@ -273,6 +287,8 @@ function BookDetailDialog:init()
   self.close_button = close_button
 
   local button_row = HorizontalGroup:new {
+    shelf_button,
+    HorizontalSpan:new { width = 10 },
     close_button,
   }
 
@@ -388,11 +404,18 @@ function BookDetailDialog:init()
   if self.carousel and self.carousel.paged then
     table.insert(self.layout, { self.carousel.prev, self.carousel.next })
   end
-  table.insert(self.layout, { close_button })
+  table.insert(self.layout, { shelf_button, close_button })
 
   self[1] = self.frame
 
-  self:loadCover(summary.cover, cover_width, cover_height)
+  if self.kept_cover then
+    -- a rebuild that keeps the picture it already has (see setStatus)
+    local bb = self.kept_cover
+    self.kept_cover = nil
+    self:placeCover(bb, cover_width, cover_height)
+  else
+    self:loadCover(summary.cover, cover_width, cover_height)
+  end
 end
 
 --
@@ -414,22 +437,26 @@ function BookDetailDialog:loadCover(cover, width, height)
     local bb = RenderImage:renderImageData(content, #content, false, width, height)
     if not bb then return end
 
-    self.cover_bb = bb
-    -- scale_factor 0 fits the picture inside the box keeping its proportions;
-    -- image_disposable is off because this dialog owns (and frees) the buffer
-    self.cover_cell[1] = CenterContainer:new {
-      dimen = Geom:new { w = width, h = height },
-      ImageWidget:new {
-        image = bb,
-        image_disposable = false,
-        width = width,
-        height = height,
-        scale_factor = 0,
-      },
-    }
-    UIManager:setDirty(self, "ui")
+    self:placeCover(bb, width, height)
   end)
   self.cover_halt = halt
+end
+
+function BookDetailDialog:placeCover(bb, width, height)
+  self.cover_bb = bb
+  -- scale_factor 0 fits the picture inside the box keeping its proportions;
+  -- image_disposable is off because this dialog owns (and frees) the buffer
+  self.cover_cell[1] = CenterContainer:new {
+    dimen = Geom:new { w = width, h = height },
+    ImageWidget:new {
+      image = bb,
+      image_disposable = false,
+      width = width,
+      height = height,
+      scale_factor = 0,
+    },
+  }
+  UIManager:setDirty(self, "ui")
 end
 
 -- Stop fetching and give back the pictures' memory (the cover, and the
@@ -470,9 +497,13 @@ function BookDetailDialog:setSeries(card, on_open_book)
 end
 
 -- Rebuild the whole body from the current state, dropping what it held.
-function BookDetailDialog:rebuild()
+-- `keep_cover` carries the cover picture across instead of fetching it again.
+function BookDetailDialog:rebuild(keep_cover)
+  local kept = keep_cover and self.cover_bb or nil
+  if kept then self.cover_bb = nil end -- so releaseCover does not free it
   -- a rebuild means a new cover box; drop the old picture and any fetch for it
   self:releaseCover()
+  self.kept_cover = kept
 
   if self[1] and type(self[1].free) == "function" then
     pcall(function() self[1]:free() end)
@@ -482,6 +513,25 @@ function BookDetailDialog:rebuild()
   self:init()
 
   UIManager:setDirty(self, "ui")
+end
+
+--
+-- The book's place in the library changed: `status_id` is the new status, nil
+-- when it was taken out; `user_book_id` is its library record. Updates the
+-- status line and the shelf button, keeping the cover and the scroll position.
+--
+function BookDetailDialog:setStatus(status_id, user_book_id)
+  local detail = self.detail or {}
+  self.detail = detail
+  detail.status_id = status_id
+  detail.user_book_id = status_id and user_book_id or nil
+  if not status_id then detail.user_rating = nil end
+
+  local offset = self.scroll and self.scroll.getScrolledOffset and self.scroll:getScrolledOffset()
+  self:rebuild(true)
+  if offset and self.scroll and self.scroll.setScrolledOffset then
+    self.scroll:setScrolledOffset(offset)
+  end
 end
 
 --

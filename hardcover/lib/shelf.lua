@@ -178,6 +178,24 @@ function Shelf.statusLabel(status_id)
   return STATUS_LABELS[status_id] or "Unknown"
 end
 
+-- The statuses a book can be put on, in the order the shelf chooser lists them.
+function Shelf.statusChoices()
+  local choices = {}
+  for _, id in ipairs({ 1, 2, 3, 5 }) do
+    choices[#choices + 1] = { status_id = id, label = STATUS_LABELS[id] }
+  end
+  return choices
+end
+
+-- The label of the details screen's shelf button: where the book is now, or the
+-- invitation to put it somewhere when it is not in the library.
+function Shelf.shelfButtonText(status_id)
+  if status_id then
+    return "Shelf: " .. Shelf.statusLabel(status_id)
+  end
+  return "Add to shelf"
+end
+
 --
 -- Star glyph descriptors for a rating. Returns a list of "full"/"half"
 -- entries so the UI can map them onto whichever icon font it has, rather

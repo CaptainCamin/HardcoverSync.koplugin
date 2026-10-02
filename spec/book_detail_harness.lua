@@ -506,7 +506,8 @@ check("the arrows come before Close in the focus order", function()
   d:setSeries(Shelf.seriesCard(seriesOf(30), 115), function() end)
   assert(#d.layout == 2, "layout rows: " .. #d.layout)
   assert(d.layout[1][1] == d.carousel.prev and d.layout[1][2] == d.carousel.next)
-  assert(d.layout[#d.layout][1].kind == "Button" and d.layout[#d.layout][1].text == "Close", "Close is not last")
+  local last = d.layout[#d.layout]
+  assert(last[1] == d.shelf_button and last[2] == d.close_button and last[2].text == "Close", "Shelf and Close are not last")
 end)
 
 check("covers are fetched for the page on screen, and a stale answer is dropped", function()
@@ -641,6 +642,52 @@ check("a failed request returns nothing", function()
   answerSeries({ series_by_pk = nil })
   assert(Api:getSeriesBooks(99, 1) == nil, "a series that does not exist")
   assert(Api:getSeriesBooks(nil, 1) == nil)
+end)
+
+print("\n== the shelf button ==")
+
+check("the fixed button row holds Shelf and Close, outside the scrolling body", function()
+  local d = BookDetailDialog:new { detail = detail(FULL) }
+  assert(d.shelf_button and d.close_button and d.shelf_button ~= d.close_button)
+  assert(not contains(d.content_group, d.shelf_button), "the button scrolls with the body")
+end)
+
+check("its label says where the book is, or invites adding it", function()
+  assert(BookDetailDialog:new { detail = detail(FULL) }.shelf_button.text == "Shelf: Currently Reading")
+  local bare = BookDetailDialog:new { detail = { book = FULL } }
+  assert(bare.shelf_button.text == "Add to shelf", bare.shelf_button.text)
+end)
+
+check("tapping it calls the owner's handler with the dialog", function()
+  local got
+  local d = BookDetailDialog:new { detail = detail(FULL), on_shelf = function(x) got = x end }
+  d.shelf_button.callback()
+  assert(got == d)
+  BookDetailDialog:new { detail = detail(FULL) }.shelf_button.callback() -- no handler: no error
+end)
+
+check("setStatus updates the status line and label, and keeps the cover", function()
+  local loader = fakeLoader()
+  local d = BookDetailDialog:new { detail = { book = FULL }, image_loader = loader }
+  assert(d.status_text == nil)
+  local fetches = #loader.batches
+  local picture = { fake = true }
+  d.cover_bb = picture
+  d:setStatus(1, 55)
+  assert(d.shelf_button.text == "Shelf: Want to Read", d.shelf_button.text)
+  assert(d.status_text and d.status_text.text == "Want to Read", "status line missing")
+  assert(d.detail.user_book_id == 55 and d.detail.status_id == 1)
+  assert(d.cover_bb == picture, "the cover was thrown away")
+  assert(#loader.batches == fetches, "the cover was fetched again")
+  d:setStatus(3, 55)
+  assert(d.status_text.text == "Read" and d.shelf_button.text == "Shelf: Read")
+end)
+
+check("setStatus(nil) after a removal clears status, rating and the record", function()
+  local d = BookDetailDialog:new { detail = { book = FULL, status_id = 3, user_book_id = 9, user_rating = 4 } }
+  d:setStatus(nil, nil)
+  assert(d.shelf_button.text == "Add to shelf" and d.status_text == nil, "label or status line kept")
+  assert(d.detail.user_book_id == nil and d.detail.user_rating == nil)
 end)
 
 r.finish()
