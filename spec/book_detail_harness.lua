@@ -643,4 +643,29 @@ check("a failed request returns nothing", function()
   assert(Api:getSeriesBooks(nil, 1) == nil)
 end)
 
+check("Reviews: a button under About that calls back, and none without a callback", function()
+  local opened = 0
+  local d = BookDetailDialog:new {
+    detail = detail({ title = "T", description = "About it." }),
+    on_reviews = function() opened = opened + 1 end,
+  }
+  assert(d.reviews_button, "no Reviews button")
+  assert(d.reviews_button.text == "Reviews")
+  assert(contains(d.content_group, d.reviews_button), "the button is not in the page")
+  -- below About: after the description, not before it
+  local pos = {}
+  for i, child in ipairs(d.content_group) do
+    if child == d.description_text then pos.about = i end
+    if child == d.reviews_button then pos.button = i end
+  end
+  assert(pos.about and pos.button and pos.button > pos.about, "the button is not below About")
+  d.reviews_button.callback()
+  assert(opened == 1, "tapping it did not open the reviews")
+  local none = BookDetailDialog:new { detail = detail({ title = "T" }) }
+  assert(none.reviews_button == nil, "a Reviews button with nothing to open")
+  -- still there after the series arrives and the body is rebuilt
+  d:setSeries(nil, nil)
+  assert(d.reviews_button, "the rebuild lost the button")
+end)
+
 r.finish()

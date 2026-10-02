@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.0
+
+### Added
+
+* Read other people's reviews of a book. The book details screen has a **Reviews** button under the description. It
+  opens a full-screen list, most liked first, ten to a page: the reader's name (or "A reader" when their account is
+  private), their rating (like `4.5*`), the likes, and the start of the review. Long reviews end in "Read more" and
+  open in full in a scrollable viewer; reviews that contain spoilers stay hidden behind "Contains spoilers - tap to
+  show" until tapped; "Load more reviews" fetches the next ten. Reviews are fetched in the background and only when
+  you open them (one request per page), say so when you are offline, and offer a retry when a request fails.
+
 ## 0.8.0
 
 ### Added

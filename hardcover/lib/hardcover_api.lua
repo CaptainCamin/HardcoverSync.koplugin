@@ -722,6 +722,50 @@ function HardcoverApi:getCurrentlyReading(user_id, limit)
 end
 
 --
+-- One page of other readers' reviews of a book, most liked first.
+--
+-- Returns the raw user_books rows (see Reviews.normalizeAll), or nil and the
+-- error. `id` is a final tie-break: offset paging over rows that tie on
+-- likes_count and reviewed_at (reviewed_at is often null) otherwise skips and
+-- repeats rows from one page to the next. Needs the read:social scope.
+--
+function HardcoverApi:getReviews(book_id, limit, offset)
+  local query = [[
+    query ($bookId: Int!, $limit: Int!, $offset: Int!) {
+      user_books(
+        where: { book_id: { _eq: $bookId }, has_review: { _eq: true } }
+        order_by: [{ likes_count: desc }, { reviewed_at: desc }, { id: desc }]
+        limit: $limit
+        offset: $offset
+      ) {
+        id
+        rating
+        review_raw
+        review_has_spoilers
+        review_length
+        likes_count
+        reviewed_at
+        user {
+          username
+          name
+        }
+      }
+    }
+  ]]
+
+  local results, err = self:query(query, {
+    bookId = book_id,
+    limit = limit or 10,
+    offset = offset or 0,
+  })
+  if not results or not results.user_books then
+    return nil, err or { completed = false }
+  end
+
+  return results.user_books
+end
+
+--
 -- Full detail for one book, including description and community rating.
 -- `edition_id` is optional; when given, edition level fields are included.
 --
@@ -1151,6 +1195,10 @@ end
 
 function HardcoverApi:getBookDetailAsync(book_id, user_id, edition_id, callback)
   async(callback, self.getBookDetail, self, book_id, user_id, edition_id)
+end
+
+function HardcoverApi:getReviewsAsync(book_id, limit, offset, callback)
+  async(callback, self.getReviews, self, book_id, limit, offset)
 end
 
 function HardcoverApi:findBooksAsync(title, author, user_id, callback)
