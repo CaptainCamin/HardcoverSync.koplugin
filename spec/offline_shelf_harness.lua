@@ -71,6 +71,9 @@ local User = real_require("hardcover/lib/user")
 local StatusDialogs = real_require("hardcover/lib/ui/status_dialogs")
 local ShelfCache = real_require("hardcover/lib/shelf_cache")
 local DialogManager = real_require("hardcover/lib/ui/dialog_manager")
+-- waiting is the real thing's job (it yields to KOReader); here it is counted
+local slept = 0
+real_require("hardcover/lib/background").sleep = function(seconds) slept = slept + seconds end
 User.getId = function() return 1 end
 
 -- ------------------------------------------------------------ recorders
@@ -241,6 +244,26 @@ check("a cancelled page is asked for again", function()
   shelf_pages = { page(50, 0), { nil, { completed = false } }, page(50, 50), { {} } }
   m:showShelf(1, "Want to Read")
   assert(#fake[1].shown == 100, "gave up after one cancelled page: " .. #fake[1].shown)
+end)
+
+check("a page refused for going too fast (429) is waited for and asked again", function()
+  online = true
+  local m = newManager()
+  slept = 0
+  shelf_pages = { page(50, 0), { nil, { status = 429 } }, { nil, { status = 429 } }, page(50, 50), { {} } }
+  m:showShelf(1, "Want to Read")
+  assert(#fake[1].shown == 100, "gave up on a rate limit: " .. #fake[1].shown)
+  assert(slept > 0, "did not wait before asking again")
+  assert(m.shelf_cache:get(1, 1).complete == true)
+end)
+
+check("a rate limit that never lifts stops, keeps what arrived and offers to continue", function()
+  online = true
+  local m = newManager()
+  local limited = { nil, { status = 429 } }
+  shelf_pages = { page(50, 0), limited, limited, limited, limited, limited, limited, limited }
+  m:showShelf(1, "Want to Read")
+  assert(#fake[1].shown == 50 and fake[1].shown_more == true, "partial list / reload icon not kept")
 end)
 
 check("after repeated cancels it stops, keeps what arrived and offers to continue", function()

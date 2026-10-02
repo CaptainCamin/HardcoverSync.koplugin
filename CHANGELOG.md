@@ -2,6 +2,14 @@
 
 ## 0.6.0
 
+### Fixed
+
+* Long shelves no longer lose books while loading: the shelf was ordered by date added only, and many books share a
+  date, so paging could skip some books and repeat others (607 of 613 books loaded against the real API). Books are
+  now ordered by date added, then id.
+* Loading a long shelf no longer fails when Hardcover says to slow down (HTTP 429, after 10 quick requests): it
+  waits and asks again. Pages are also 100 books instead of 50, so a long shelf needs about half as many requests.
+
 ### Changed
 
 * Shelf lists are cleaner and the covers bigger: five tall rows a page (was ten), each a cover, the title and the
