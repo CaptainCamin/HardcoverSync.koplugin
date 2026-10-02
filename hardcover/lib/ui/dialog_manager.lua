@@ -757,7 +757,8 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
   local dialog = require("hardcover/lib/ui/book_detail_dialog"):new {
     detail = nil,
     loading = true,
-    on_reviews = function() self:showReviews(book_id) end,
+    -- the details on screen go along, so the reviews can say which book and how it is rated
+    on_reviews = function(d) self:showReviews(book_id, nil, Reviews.summary(d and d.detail)) end,
     -- only when the Z-library plugin is there: no button that does nothing
     on_zlibrary = Zlibrary.available(self.ui) and function(d) self:searchZlibrary(d) end or nil,
     on_shelf = function(d) self:chooseShelf(d) end,
@@ -851,7 +852,7 @@ end
 -- nothing to wait for, so say so and open nothing. A failed page offers a retry
 -- instead of a dead end.
 --
-function DialogManager:showReviews(book_id, done_callback)
+function DialogManager:showReviews(book_id, done_callback, summary)
   if not NetworkManager:isConnected() then
     StatusDialogs.info(_("Reviews need an internet connection"))
     return
@@ -890,6 +891,7 @@ function DialogManager:showReviews(book_id, done_callback)
 
   dialog = require("hardcover/lib/ui/reviews_dialog"):new {
     message = _("Loading reviews\226\128\166"),
+    summary = summary,
     fetch_page = fetch_page,
     close_callback = done_callback,
   }
@@ -919,26 +921,26 @@ function DialogManager:chooseShelf(dialog)
     return
   end
 
-  local ButtonDialog = require("ui/widget/buttondialog")
   local picker
   local rows = {}
 
   for _i, choice in ipairs(Shelf.statusChoices()) do
     local current = detail.status_id == choice.status_id
-    rows[#rows + 1] = { {
+    rows[#rows + 1] = {
       -- a bullet marks where the book is now; choosing it again does nothing
       text = (current and "\226\128\162 " or "") .. _(choice.label),
+      current = current,
       callback = function()
         UIManager:close(picker)
         if not current then
           self:saveShelf(dialog, choice.status_id)
         end
       end,
-    } }
+    }
   end
 
   if detail.user_book_id then
-    rows[#rows + 1] = { {
+    rows[#rows + 1] = {
       text = _("Remove from library"),
       callback = function()
         UIManager:close(picker)
@@ -949,18 +951,17 @@ function DialogManager:chooseShelf(dialog)
           ok_callback = function() self:removeFromShelf(dialog) end,
         }
       end,
-    } }
+    }
   end
 
-  rows[#rows + 1] = { {
+  rows[#rows + 1] = {
     text = _("Cancel"),
     callback = function() UIManager:close(picker) end,
-  } }
+  }
 
-  picker = ButtonDialog:new {
+  picker = require("hardcover/lib/ui/picker").new {
     title = detail.status_id and _("Move to shelf") or _("Add to shelf"),
-    title_align = "center",
-    buttons = rows,
+    rows = rows,
   }
   UIManager:show(picker)
 end

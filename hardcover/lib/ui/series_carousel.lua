@@ -17,7 +17,6 @@
 local Button = require("ui/widget/button")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
-local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
@@ -31,6 +30,7 @@ local VerticalSpan = require("ui/widget/verticalspan")
 local CoverBox = require("hardcover/lib/ui/cover_box")
 local Shelf = require("hardcover/lib/shelf")
 local TapRow = require("hardcover/lib/ui/tap_row")
+local Theme = require("hardcover/lib/ui/theme")
 local Viewport = require("hardcover/lib/ui/viewport")
 
 local Screen = Device.screen
@@ -69,9 +69,9 @@ function SeriesCarousel:build()
   self.cover_height = math.floor(self.cover_width * 1.5)
   self.text_width = self.item_width - 8
 
-  self.number_face = Font:getFace("cfont", 14)
-  self.title_face = Font:getFace("cfont", 13)
-  self.status_face = Font:getFace("cfont", 12)
+  self.number_face = Theme.face("small")
+  self.title_face = Theme.face("label")
+  self.status_face = Theme.face("label")
 
   -- the height of two lines of title, so every title takes the same room
   local probe = TextBoxWidget:new {
@@ -134,19 +134,15 @@ function SeriesCarousel:build()
     HorizontalGroup:new {},
   }
 
+  -- the section heading with its firm rule, and the book count at its end
   self.widget = VerticalGroup:new { align = "left" }
-  table.insert(self.widget, TextWidget:new {
-    text = self.card.title,
-    face = Font:getFace("cfont", 17),
-    bold = true,
-    max_width = width,
-  })
-  table.insert(self.widget, TextWidget:new {
+  table.insert(self.widget, Theme.sectionHeader(self.card.title, width, TextWidget:new {
     text = self.card.subtitle,
-    face = Font:getFace("cfont", 14),
+    face = Theme.face("small"),
     max_width = width,
-  })
-  table.insert(self.widget, VerticalSpan:new { width = 8 })
+    fgcolor = Theme.DARK_GREY,
+  }))
+  table.insert(self.widget, Theme.span("m"))
   table.insert(self.widget, self.holder)
 end
 

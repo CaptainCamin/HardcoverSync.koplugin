@@ -64,6 +64,8 @@ for _, n in ipairs({
   container_stub(n)
 end
 
+support.preload_theme_stubs() -- (after the containers above, which are real stubs)
+
 package.preload["device"] = function()
   return {
     screen = {

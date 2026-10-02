@@ -8,6 +8,7 @@
 -- area it sits in), taps outside that rectangle are ignored; see viewport.lua
 -- for why that matters.
 
+local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local InputContainer = require("ui/widget/container/inputcontainer")
 
@@ -16,11 +17,16 @@ local Viewport = require("hardcover/lib/ui/viewport")
 local TapRow = InputContainer:extend {
   name = "hardcover_tap_row",
   callback = nil,
+  -- optional: a long press does this (Sync's "discard what is queued")
+  hold_callback = nil,
   viewport = nil,
 }
 
 function TapRow:init()
-  self.dimen = self[1]:getSize()
+  -- not every widget's getSize returns a Geom (a HorizontalGroup's is a plain
+  -- table), and a gesture range must be one
+  local size = self[1]:getSize()
+  self.dimen = Geom:new { x = 0, y = 0, w = size.w, h = size.h }
 
   local range = function() return self.dimen end
   if self.viewport then
@@ -35,6 +41,21 @@ function TapRow:init()
       },
     },
   }
+  if self.hold_callback then
+    self.ges_events.HoldSelectRow = {
+      GestureRange:new {
+        ges = "hold",
+        range = range,
+      },
+    }
+  end
+end
+
+function TapRow:onHoldSelectRow()
+  if self.hold_callback then
+    self.hold_callback()
+  end
+  return true
 end
 
 function TapRow:onTapSelectRow()

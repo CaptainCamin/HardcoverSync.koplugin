@@ -13,20 +13,20 @@
 local _ = require("gettext")
 
 local Blitbuffer = require("ffi/blitbuffer")
-local Button = require("ui/widget/button")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
-local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
+local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local InfoMessage = require("ui/widget/infomessage")
-local Size = require("ui/size")
+local ProgressWidget = require("ui/widget/progresswidget")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
-local VerticalSpan = require("ui/widget/verticalspan")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
+
+local Theme = require("hardcover/lib/ui/theme")
 
 local T = require("ffi/util").template
 
@@ -40,79 +40,158 @@ local SignInDialog = WidgetContainer:extend {
   cancelled = false,
 }
 
+-- A numbered step: the number in a black square, then what to do (and, under
+-- it, the detail).
+local function step(number, title, detail, width)
+  local size = Screen:scaleBySize(26)
+  local square = Theme.box(size + Theme.space.m, size + Theme.space.m, TextWidget:new {
+    text = tostring(number),
+    face = Theme.face("title"),
+    bold = true,
+    fgcolor = Theme.WHITE,
+  }, { filled = true, border = 0 })
+  local text_w = width - size - Theme.space.m - Theme.space.l
+  local column = VerticalGroup:new {
+    align = "left",
+    TextBoxWidget:new { text = title, face = Theme.face("title"), bold = true, width = text_w },
+  }
+  if detail then
+    table.insert(column, Theme.span("xs"))
+    table.insert(column, TextBoxWidget:new {
+      text = detail,
+      face = Theme.face("body"),
+      width = text_w,
+      fgcolor = Theme.DARK_GREY,
+    })
+  end
+  return HorizontalGroup:new { align = "top", square, Theme.hspan("l"), column }
+end
+
 function SignInDialog:init()
-  self.width = Screen:getWidth() - Screen:scaleBySize(40)
-  self.height = Screen:getHeight() - Screen:scaleBySize(80)
+  local screen_w, screen_h = Screen:getWidth(), Screen:getHeight()
+  local M = Theme.margin
+  local width = screen_w - 2 * M
+  self.width = screen_w
+  self.height = screen_h
+  self.started_at = os.time()
 
-  self.title_text = TextWidget:new {
-    text = _("Sign in to Hardcover"),
-    face = Font:getFace("cfont", 20),
-    width = self.width,
-    is_title = true,
+  -- the family's title bar; its X is Cancel too
+  self.title_bar = Theme.titleBar {
+    title = _("Sign in to Hardcover"),
+    close_callback = function() self:onCancel() end,
+    show_parent = self,
   }
+  self.title_text = self.title_bar
 
-  -- A text BOX: TextWidget is one line and ignores newlines, so this sentence
-  -- (with the web address in it) ran off both edges of the screen and the code
-  -- was cut off. The code is shown large below, so it is not repeated here.
-  self.instructions = TextBoxWidget:new {
-    text = T(_("On a phone or computer, go to:\n%1\n\nand enter this code:"), self.device.verification_uri),
-    face = Font:getFace("cfont", 18),
-    width = self.width,
-    alignment = "center",
-  }
-
-  -- the code itself, large: it is the one thing the user has to transcribe
+  -- the code itself, large between two firm rules: it is the one thing the
+  -- user has to transcribe
   self.code_text = TextWidget:new {
     text = self.device.user_code,
-    face = Font:getFace("cfont", 32),
-    width = self.width,
+    face = Theme.face(60),
+    bold = true,
+    max_width = width,
+    fgcolor = Theme.BLACK,
+  }
+  local code_h = self.code_text:getSize().h + 2 * Theme.space.m
+  local code_block = VerticalGroup:new {
+    align = "left",
+    Theme.rule(width, true),
+    CenterContainer:new { dimen = Geom:new { w = width, h = code_h }, self.code_text },
+    Theme.rule(width, true),
   }
 
+  -- the wait: how far through the code's life we are (it only moves when the
+  -- poll finds a visible step; nothing animates), what is happening, and how
+  -- long the code lasts
+  self.wait_bar = ProgressWidget:new {
+    width = width,
+    height = Screen:scaleBySize(14),
+    percentage = 0,
+    ticks = nil,
+    last = nil,
+  }
   self.status_text = TextWidget:new {
     text = _("Waiting for approval..."),
-    face = Font:getFace("smallinfofont"),
-    width = self.width,
+    face = Theme.face("small"),
+    max_width = math.floor(width * 0.6),
+    fgcolor = Theme.DARK_GREY,
+  }
+  local lifetime = tonumber(self.device.expires_in)
+  local lifetime_text = TextWidget:new {
+    text = lifetime and T(_("Code valid for %1 min"), math.max(1, math.floor(lifetime / 60 + 0.5))) or " ",
+    face = Theme.face("small"),
+    bold = true,
+    max_width = math.floor(width * 0.4),
+  }
+  local status_gap = math.max(0, width - self.status_text:getSize().w - lifetime_text:getSize().w)
+  local status_line = HorizontalGroup:new {
+    align = "center", self.status_text, Theme.hspan(status_gap), lifetime_text,
   }
 
-  self.cancel_button = Button:new {
-    text = _("Cancel"),
-    width = math.floor(self.width * 0.4),
-    text_font_size = 18,
-    bordersize = Size.border.thin,
+  self.cancel_button = Theme.button(_("Cancel"), width, {
+    h = Theme.BUTTON_H,
     callback = function()
       self:onCancel()
     end,
-  }
+  })
 
-  local content = VerticalGroup:new {
-    self.title_text,
-    VerticalSpan:new { width = 10 },
-    self.instructions,
-    VerticalSpan:new { width = 10 },
-    self.code_text,
-    VerticalSpan:new { width = 10 },
-    self.status_text,
-    VerticalSpan:new { width = 15 },
-    HorizontalGroup:new { self.cancel_button },
-  }
-
+  local content = VerticalGroup:new { align = "left" }
+  table.insert(content, Theme.span("l"))
+  table.insert(content, step(1, _("Open this page on any device"), self.device.verification_uri, width))
+  table.insert(content, Theme.span("l"))
+  table.insert(content, step(2, _("Enter this code"), nil, width))
+  table.insert(content, Theme.span("m"))
+  table.insert(content, code_block)
+  table.insert(content, Theme.span("l"))
+  table.insert(content, step(3, _("Approve the request"),
+    _("This screen carries on by itself once you have approved."), width))
+  table.insert(content, Theme.span("xl"))
+  table.insert(content, self.wait_bar)
+  table.insert(content, Theme.span("s"))
+  table.insert(content, status_line)
+  content:resetLayout()
   self.content = content
+
+  -- Cancel sits at the bottom of the screen, whatever is above it
+  local room = screen_h - self.title_bar:getSize().h - content:getSize().h
+    - Theme.BUTTON_H - 2 * Theme.space.l
+  local bottom = VerticalGroup:new {
+    align = "left",
+    content,
+    Theme.span(math.max(Theme.space.m, room)),
+    self.cancel_button,
+  }
 
   -- fullscreen white frame so the reader UI does not show through
   self.frame = FrameContainer:new {
-    width = Screen:getWidth(),
-    height = Screen:getHeight(),
+    width = screen_w,
+    height = screen_h,
     background = Blitbuffer.COLOR_WHITE,
     bordersize = 0,
     padding = 0,
     margin = 0,
-    CenterContainer:new {
-      dimen = Screen:getSize(),
-      content,
+    VerticalGroup:new {
+      align = "left",
+      self.title_bar,
+      HorizontalGroup:new { Theme.hspan(M), bottom },
     },
   }
 
   self[1] = self.frame
+end
+
+-- Move the waiting bar to how much of the code's life has passed, but only in
+-- steps of a twentieth: it is redrawn with the screen's partial refresh, and a
+-- redraw every few seconds for no visible change is the thing to avoid on e-ink.
+function SignInDialog:updateWait()
+  local lifetime = tonumber(self.device and self.device.expires_in)
+  if not (lifetime and lifetime > 0 and self.wait_bar) then return end
+  local fraction = math.min(1, math.max(0, (os.time() - self.started_at) / lifetime))
+  local step_size = math.floor(fraction * 20) / 20
+  if step_size ~= self.wait_bar.percentage then
+    self.wait_bar:setPercentage(step_size)
+    UIManager:setDirty(self, "ui")
+  end
 end
 
 function SignInDialog:onShowSignIn()
@@ -133,6 +212,8 @@ function SignInDialog:poll()
   if self.cancelled then
     return
   end
+
+  self:updateWait()
 
   local outcome = self.auth:pollOnce()
 

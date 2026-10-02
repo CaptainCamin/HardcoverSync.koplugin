@@ -192,6 +192,7 @@ function M.boot(opts)
   local Screen = Device.screen
   local BB = require("ffi/blitbuffer")
 
+  Tree.instrument() -- needs the frontend (fonts, device) to be up
   local emu = {
     app = app,
     Device = Device,
@@ -266,6 +267,9 @@ function M.boot(opts)
 
   -- Text nodes with their painted rectangles, sorted top-to-bottom.
   function emu:screenNodes()
+    -- positions are only real once painted: paint before reading them
+    UIManager:setDirty(nil, "ui")
+    UIManager:_repaint()
     return Tree.collect(UIManager:getTopmostVisibleWidget() or {})
   end
 

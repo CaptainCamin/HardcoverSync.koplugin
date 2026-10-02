@@ -7,10 +7,8 @@
 -- and Back handled through FocusManager's key_events.
 
 local Blitbuffer = require("ffi/blitbuffer")
-local Button = require("ui/widget/button")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
-local Font = require("ui/font")
 local FocusManager = require("ui/widget/focusmanager")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
@@ -18,11 +16,9 @@ local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local IconWidget = require("ui/widget/iconwidget")
 local ImageWidget = require("ui/widget/imagewidget")
-local InfoMessage = require("ui/widget/infomessage")
 local LeftContainer = require("ui/widget/container/leftcontainer")
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
-local Size = require("ui/size")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
@@ -32,7 +28,7 @@ local _ = require("gettext")
 
 local Shelf = require("hardcover/lib/shelf")
 local SeriesCarousel = require("hardcover/lib/ui/series_carousel")
-local Viewport = require("hardcover/lib/ui/viewport")
+local Theme = require("hardcover/lib/ui/theme")
 
 local Screen = Device.screen
 
@@ -49,14 +45,26 @@ local BookDetailDialog = FocusManager:extend {
 }
 
 function BookDetailDialog:init()
-  self.width = Screen:getWidth() - Screen:scaleBySize(40)
-  self.height = Screen:getHeight() - Screen:scaleBySize(60)
+  local screen_w, screen_h = Screen:getWidth(), Screen:getHeight()
+  local M = Theme.margin
+  self.width = screen_w
+  self.height = screen_h
 
   -- The event name picks the handler: CloseDetail runs onCloseDetail. This was
   -- CloseDialog, which has no handler, so the Back key did nothing -- including
   -- on the loading screen, which has no button, leaving a slow or hung fetch
   -- with no way out.
   self.key_events.CloseDetail = { { "Back" } }
+
+  -- the family's title bar; its X is the Close button (the loading screen has
+  -- one too, so a slow fetch can always be left)
+  local title_bar = Theme.titleBar {
+    title = self.title,
+    close_callback = function() self:onCloseDetail() end,
+    show_parent = self,
+  }
+  self.title_bar = title_bar
+  self.close_button = title_bar.right_button
 
   --[[--
   Loading state.
@@ -71,19 +79,24 @@ function BookDetailDialog:init()
   if self.loading then
     self.loading_text = TextWidget:new {
       text = _("Loading book details…"),
-      face = Font:getFace("cfont", 18),
-      max_width = self.width,
+      face = Theme.face("body"),
+      max_width = screen_w - 2 * M,
+      fgcolor = Theme.DARK_GREY,
     }
     self.loading_frame = FrameContainer:new {
-      width = Screen:getWidth(),
-      height = Screen:getHeight(),
+      width = screen_w,
+      height = screen_h,
       background = Blitbuffer.COLOR_WHITE,
       bordersize = 0,
       padding = 0,
       margin = 0,
-      CenterContainer:new {
-        dimen = Screen:getSize(),
-        VerticalGroup:new { self.loading_text },
+      VerticalGroup:new {
+        align = "left",
+        title_bar,
+        CenterContainer:new {
+          dimen = Geom:new { w = screen_w, h = screen_h - title_bar:getSize().h },
+          self.loading_text,
+        },
       },
     }
     self[1] = self.loading_frame
@@ -102,11 +115,12 @@ function BookDetailDialog:init()
   ScrollableContainer treats any content wider than its viewport as scrolling
   sideways and draws a horizontal scrollbar -- and once the page also scrolls
   vertically, its vertical scrollbar takes 3 * scroll_bar_width off that
-  viewport. Content as wide as the dialog is therefore always "too wide" by that
-  gutter. Everything below is laid out in `width`, which leaves it free.
+  viewport. Content as wide as the page is therefore always "too wide" by that
+  gutter. Everything below is laid out in `width`, which leaves it free; the
+  left margin is added by an inset around the whole column.
   ]]
   local gutter = 3 * (ScrollableContainer.scroll_bar_width or Screen:scaleBySize(6))
-  local width = self.width - gutter
+  local width = screen_w - 2 * M - gutter
   self.content_width = width
 
   --[[--
@@ -119,22 +133,23 @@ function BookDetailDialog:init()
   -- The cover box is always there, so every book's header looks the same: the
   -- picture when there is one, and a generic book icon while it loads, if it
   -- never does (offline, a failed fetch), or when the book has no cover at all.
-  local cover_width = math.floor(width * 0.30)
+  local cover_width = math.floor(width * 0.34)
   local cover_height = math.floor(cover_width * 1.5)
-  local cover_gap = 15
+  local cover_gap = Theme.space.l
   -- the frame around the cover adds its border on both sides of the picture box
-  local cover_border = Size.border.thin
+  local cover_border = Theme.line.hair
   local text_width = width - cover_width - 2 * cover_border - cover_gap
 
   -- TextWidget is one line and reads max_width, not width; anything that may be
   -- long (a title, an author list) is a TextBoxWidget, which wraps to width.
-  local function wrapped(text, size, bold)
+  local function wrapped(text, size, bold, grey)
     return TextBoxWidget:new {
       text = text,
-      face = Font:getFace("cfont", size),
+      face = Theme.face(size),
       bold = bold,
       width = text_width,
       alignment = "left",
+      fgcolor = grey and Theme.DARK_GREY or Theme.BLACK,
     }
   end
 
@@ -143,33 +158,44 @@ function BookDetailDialog:init()
     if widget then table.insert(group, widget) end
   end
 
-  self.title_text = wrapped(summary.title, 22, true)
+  self.title_text = wrapped(summary.title, "display", true)
   addTo(column, self.title_text)
   if summary.subtitle then
-    self.subtitle_text = wrapped(summary.subtitle, 16)
+    self.subtitle_text = wrapped(summary.subtitle, "body", false, true)
+    addTo(column, Theme.span("xs"))
     addTo(column, self.subtitle_text)
   else
     self.subtitle_text = nil
   end
   if summary.authors then
-    self.authors_text = wrapped(_("by") .. " " .. summary.authors, 17)
-    addTo(column, VerticalSpan:new { width = 6 })
+    self.authors_text = wrapped(summary.authors, "title")
+    addTo(column, Theme.span("s"))
     addTo(column, self.authors_text)
   else
     self.authors_text = nil
   end
-  if summary.series then
-    self.series_text = wrapped(summary.series, 15)
-    addTo(column, self.series_text)
-  else
-    self.series_text = nil
-  end
   if summary.facts then
-    self.facts_text = wrapped(summary.facts, 15)
-    addTo(column, VerticalSpan:new { width = 6 })
+    self.facts_text = wrapped(summary.facts, "small", false, true)
+    addTo(column, Theme.span("xs"))
     addTo(column, self.facts_text)
   else
     self.facts_text = nil
+  end
+
+  -- the series and where the book is on your shelves are informational: pills,
+  -- the current status filled
+  self.series_text = nil
+  self.status_text = nil
+  if summary.series then
+    self.series_text = Theme.pill(summary.series, { max_width = text_width - 2 * Theme.space.m })
+    addTo(column, Theme.span("m"))
+    addTo(column, self.series_text)
+  end
+  local status_id = (self.detail or {}).status_id
+  if status_id then
+    self.status_text = Theme.pill(Shelf.statusLabel(status_id), { filled = true, max_width = text_width - 2 * Theme.space.m })
+    addTo(column, Theme.span("s"))
+    addTo(column, self.status_text)
   end
 
   -- a box of the cover's size holding the placeholder; loadCover swaps the
@@ -191,32 +217,25 @@ function BookDetailDialog:init()
     column,
   }
 
-  -- the reader's own standing with the book, then what everyone else makes of it
-  self.status_text = nil
-  if summary.mine then
-    self.status_text = TextWidget:new {
-      text = summary.mine,
-      face = Font:getFace("cfont", 17),
-      bold = true,
-      max_width = width,
-    }
+  -- what everyone makes of it, then what you make of it: three figures between
+  -- hairlines
+  local cell_w = math.floor(width / 3)
+  local cells = HorizontalGroup:new {}
+  for _, stat in ipairs(Shelf.detailStats(self.detail)) do
+    table.insert(cells, CenterContainer:new {
+      dimen = Geom:new { w = cell_w, h = Screen:scaleBySize(78) },
+      Theme.stat(stat[1], stat[2], cell_w),
+    })
   end
-  self.community_text = nil
-  if summary.community then
-    self.community_text = TextWidget:new {
-      text = summary.community,
-      face = Font:getFace("cfont", 15),
-      max_width = width,
-    }
-  end
+  self.stats_strip = VerticalGroup:new {
+    align = "left",
+    Theme.rule(width, false),
+    cells,
+    Theme.rule(width, false),
+  }
 
-  local function heading(text)
-    return TextWidget:new {
-      text = text,
-      face = Font:getFace("cfont", 17),
-      bold = true,
-      max_width = width,
-    }
+  local function heading(text, right)
+    return Theme.sectionHeader(text, width, right)
   end
 
   -- description: a heading, then the whole text. It is not clipped to a height
@@ -226,7 +245,7 @@ function BookDetailDialog:init()
   if summary.description then
     self.description_text = TextBoxWidget:new {
       text = summary.description,
-      face = Font:getFace("cfont", 16),
+      face = Theme.face("body"),
       width = width,
       alignment = "left",
     }
@@ -244,8 +263,9 @@ function BookDetailDialog:init()
   for _, row in ipairs(Shelf.extraRows(book)) do
     local label = TextWidget:new {
       text = row.label,
-      face = Font:getFace("cfont", 15),
+      face = Theme.face("small"),
       max_width = label_width,
+      fgcolor = Theme.DARK_GREY,
     }
     local label_cell = LeftContainer:new {
       dimen = Geom:new { w = label_width, h = label:getSize().h },
@@ -253,49 +273,65 @@ function BookDetailDialog:init()
     }
     local value = TextBoxWidget:new {
       text = tostring(row.value),
-      face = Font:getFace("cfont", 15),
-      width = width - label_width - 20,
+      face = Theme.face("small"),
+      width = width - label_width - Theme.space.m,
       alignment = "left",
     }
     table.insert(self.meta_rows, HorizontalGroup:new {
       align = "top",
       label_cell,
-      HorizontalSpan:new { width = 10 },
+      HorizontalSpan:new { width = Theme.space.m },
       value,
     })
   end
 
-  -- Two buttons side by side in the fixed row under the scrolling body (a
-  -- button inside the body would keep a shifted tap range when scrolled away).
-  local button_width = math.floor(self.width * 0.4)
-  local shelf_button = Button:new {
-    text = Shelf.shelfButtonText((self.detail or {}).status_id),
-    width = button_width,
-    text_font_size = 18,
-    bordersize = Size.border.thin,
-    callback = function()
-      if self.on_shelf then self.on_shelf(self) end
-    end,
-  }
-  self.shelf_button = shelf_button
-
-  local close_button = Button:new {
-    text = _("Close"),
-    width = button_width,
-    text_font_size = 18,
-    bordersize = Size.border.thin,
-    callback = function()
-      self:onCloseDetail()
-    end,
-  }
-
-  self.close_button = close_button
-
-  local button_row = HorizontalGroup:new {
-    shelf_button,
-    HorizontalSpan:new { width = 10 },
-    close_button,
-  }
+  -- The action bar: Shelf (filled, the main one), then Reviews, then Z-library
+  -- when that plugin is there, sharing the width equally. They scroll with the
+  -- page, so each tap is cut to the visible area (see viewport.lua) or one
+  -- scrolled away could catch a tap meant for what is over it.
+  local viewport = function() return self.scroll and self.scroll.dimen end
+  local labels = { { "shelf_button", Shelf.shelfButtonText((self.detail or {}).status_id), "on_shelf", true } }
+  self.shelf_button, self.reviews_button, self.zlibrary_button = nil, nil, nil
+  if self.on_reviews then
+    labels[#labels + 1] = { "reviews_button", _("Reviews"), "on_reviews" }
+  end
+  if self.on_zlibrary then
+    labels[#labels + 1] = { "zlibrary_button", _("Z-library"), "on_zlibrary" }
+  end
+  local gap = Theme.space.s
+  -- equal shares, except that Shelf (the longest label, "Shelf: Currently
+  -- Reading") takes what its words need, up to half the bar, and the rest
+  -- share what is left
+  local n = #labels
+  local widths = {}
+  local equal = math.floor((width - (n - 1) * gap) / n)
+  local shelf_w = equal
+  if n > 1 then
+    local words = TextWidget:new { text = labels[1][2], face = Theme.face("small"), bold = true }
+    local need = words:getSize().w + 2 * Theme.space.l
+    words:free()
+    shelf_w = math.min(math.max(equal, need), math.floor(width / 2))
+  end
+  widths[1] = shelf_w
+  for i = 2, n do
+    widths[i] = math.floor((width - shelf_w - (n - 1) * gap) / (n - 1))
+  end
+  local action_bar = HorizontalGroup:new {}
+  for i, spec in ipairs(labels) do
+    local field, text, handler, primary = spec[1], spec[2], spec[3], spec[4]
+    local button = Theme.button(text, widths[i], {
+      filled = primary,
+      viewport = viewport,
+      callback = function()
+        local fn = self[handler]
+        if fn then fn(self) end
+      end,
+    })
+    self[field] = button
+    if i > 1 then table.insert(action_bar, HorizontalSpan:new { width = gap }) end
+    table.insert(action_bar, button)
+  end
+  self.action_bar = action_bar
 
   -- Built by appending, never as one table constructor: most things here are
   -- optional, and a nil in the middle of a constructor is a hole that
@@ -307,54 +343,16 @@ function BookDetailDialog:init()
   self.content_group = content
 
   add(header)
-  add(VerticalSpan:new { width = 14 })
-  add(self.status_text)
-  add(self.community_text)
+  add(Theme.span("l"))
+  add(self.stats_strip)
+  add(Theme.span("m"))
+  add(action_bar)
 
   if self.description_text then
-    add(VerticalSpan:new { width = 14 })
+    add(Theme.span("l"))
     add(heading(_("About")))
-    add(VerticalSpan:new { width = 6 })
+    add(Theme.span("s"))
     add(self.description_text)
-  end
-
-  -- Reviews: other readers' opinions, fetched only when asked for. A button
-  -- right under About; it scrolls with the page, so its tap is cut to the
-  -- visible area (see viewport.lua) or it could catch taps meant for Close.
-  self.reviews_button = nil
-  self.zlibrary_button = nil
-  local extras = {}
-  local gap = 12
-  local share = self.on_reviews and self.on_zlibrary and 0.46 or 0.5
-  local function extra_button(text, field, handler, fraction)
-    local button = Button:new {
-      text = text,
-      width = math.floor(width * fraction),
-      text_font_size = 18,
-      bordersize = Size.border.thin,
-      callback = function()
-        local fn = self[handler]
-        if fn then fn(self) end
-      end,
-    }
-    Viewport.limitButton(button, function() return self.scroll and self.scroll.dimen end)
-    self[field] = button
-    extras[#extras + 1] = button
-  end
-  if self.on_reviews then
-    extra_button(_("Reviews"), "reviews_button", "on_reviews", share)
-  end
-  if self.on_zlibrary then
-    extra_button(_("Search in Z-library"), "zlibrary_button", "on_zlibrary", self.on_reviews and 0.52 or 0.6)
-  end
-  if #extras > 0 then
-    local row = HorizontalGroup:new {}
-    for i, button in ipairs(extras) do
-      if i > 1 then table.insert(row, HorizontalSpan:new { width = gap }) end
-      table.insert(row, button)
-    end
-    add(VerticalSpan:new { width = 14 })
-    add(row)
   end
 
   -- "More in this series": a strip of covers, paged with arrows; tapping one
@@ -365,96 +363,76 @@ function BookDetailDialog:init()
       card = self.series_card,
       width = width,
       -- what the scroll area is showing: taps outside it are not ours
-      viewport = function() return self.scroll and self.scroll.dimen end,
+      viewport = viewport,
       on_open = function(book_id)
         if self.on_open_book then self.on_open_book(book_id) end
       end,
       image_loader = self.image_loader or require("hardcover/lib/ui/image_loader"),
       on_change = function() UIManager:setDirty(self, "ui") end,
     }
-    add(VerticalSpan:new { width = 14 })
+    add(Theme.span("l"))
     add(self.carousel.widget)
   end
 
   if #self.meta_rows > 0 then
-    add(VerticalSpan:new { width = 14 })
+    add(Theme.span("l"))
     add(heading(_("Details")))
-    add(VerticalSpan:new { width = 6 })
+    add(Theme.span("xs"))
     for _, row in ipairs(self.meta_rows) do
+      add(Theme.span("xs"))
       add(row)
+      add(Theme.span("xs"))
+      add(Theme.rule(width, false))
     end
   end
 
-  add(VerticalSpan:new { width = 10 })
+  add(Theme.span("xl"))
 
   --[[--
   A full description plus every metadata row overflows a small e-ink screen, so
-  the body scrolls and the close button stays pinned below it.
+  the body scrolls under the title bar.
 
   ScrollableContainer takes its size from an explicit `dimen`, NOT from
   width/height -- initState reads self.dimen.w/h and paintTo writes
   self.dimen.x/y. Passing width/height therefore leaves dimen nil and the first
   paint dies with "attempt to index field 'dimen' (a nil value)", so the dialog
   never appeared at all.
-
-  Two further things this used to get wrong:
-
-    * button_row.height is nil. A HorizontalGroup sizes itself behind getSize();
-      it has no .height field, so the subtraction raised "attempt to perform
-      arithmetic on field 'height' (a nil value)".
-
-    * button_row was also appended to the scroll's content, so the same widget
-      was in two parents: it scrolled away with the body *and* was meant to
-      stay pinned. It rendered twice.
-
-  Keep the row out of the content, and resolve its size through getSize().
   ]]
-  local button_row_size = button_row:getSize()
-
-  local scroll_height = self.height - button_row_size.h - 20
-
   local scroll = ScrollableContainer:new {
     dimen = Geom:new {
       x = 0,
       y = 0,
-      w = self.width,
-      h = scroll_height,
+      w = screen_w,
+      h = screen_h - title_bar:getSize().h,
     },
     show_parent = self,
-    content,
+    HorizontalGroup:new { Theme.hspan(M), content },
   }
 
   self.scroll = scroll
 
-  self.content_container = CenterContainer:new {
-    dimen = Screen:getSize(),
-    VerticalGroup:new { scroll, button_row },
-  }
-
-  -- a fullscreen white frame: a bare CenterContainer would let the reader UI
-  -- show through behind the card
+  -- a fullscreen white frame: a bare container would let the reader UI show
+  -- through behind the page
   self.frame = FrameContainer:new {
-    width = Screen:getWidth(),
-    height = Screen:getHeight(),
+    width = screen_w,
+    height = screen_h,
     background = Blitbuffer.COLOR_WHITE,
     bordersize = 0,
     padding = 0,
     margin = 0,
-    self.content_container,
+    VerticalGroup:new { align = "left", title_bar, scroll },
   }
 
-  -- keyboard / d-pad focus: the carousel's arrows (when it pages), then Close
+  -- keyboard / d-pad focus: the action bar, the carousel's arrows (when it
+  -- pages), then Close
   self.layout = {}
+  local actions = {}
+  for _, spec in ipairs(labels) do actions[#actions + 1] = self[spec[1]] end
+  table.insert(self.layout, actions)
   if self.carousel and self.carousel.paged then
     table.insert(self.layout, { self.carousel.prev, self.carousel.next })
   end
-  if self.reviews_button or self.zlibrary_button then
-    local row = {}
-    if self.reviews_button then row[#row + 1] = self.reviews_button end
-    if self.zlibrary_button then row[#row + 1] = self.zlibrary_button end
-    table.insert(self.layout, row)
-  end
-  table.insert(self.layout, { shelf_button, close_button })
+  table.insert(self.layout, { self.close_button })
 
   self[1] = self.frame
 

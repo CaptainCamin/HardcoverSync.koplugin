@@ -15,6 +15,36 @@ would use.
 local M = {}
 
 --[[--
+Make text widgets remember where they were last painted.
+
+A bare TextWidget/TextBoxWidget never gets a .dimen, so a scenario could read
+its words but not tap or measure them. Wrapping paintTo to note the rectangle
+gives every text node absolute coordinates. Call once after KOReader's
+frontend is loaded.
+]]
+function M.instrument()
+  for _, name in ipairs({ "ui/widget/textwidget", "ui/widget/textboxwidget" }) do
+    local class = require(name)
+    if not class._emu_instrumented then
+      class._emu_instrumented = true
+      local paint = class.paintTo
+      class.paintTo = function(self, bb, x, y)
+        -- only what is painted straight onto the screen has screen
+        -- coordinates; inside a ScrollableContainer the target is its own
+        -- buffer and the numbers would mean something else
+        local ok, size = pcall(self.getSize, self)
+        if ok and size and bb == require("device").screen.bb then
+          self._emu_rect = { x = x, y = y, w = size.w, h = size.h }
+        else
+          self._emu_rect = nil
+        end
+        return paint(self, bb, x, y)
+      end
+    end
+  end
+end
+
+--[[--
 Depth-first over a widget's children.
 
 KOReader children live in the widget table itself (numeric keys), not in a
@@ -48,6 +78,10 @@ VerticalGroup does not, while a Button inside a HorizontalGroup does. Requiring
 treat the coordinates as relative rather than absolute when it is missing.
 ]]
 local function rect_of(widget)
+  -- the painted rectangle recorded by M.instrument, when there is one
+  if widget._emu_rect then
+    return widget._emu_rect
+  end
   if widget.dimen and widget.dimen.w and widget.dimen.w > 0 then
     return widget.dimen
   end
@@ -88,7 +122,7 @@ function M.collect(root)
       y = rect and rect.y or nil,
       w = rect and rect.w or nil,
       h = rect and rect.h or nil,
-      relative = rect and rect.relative or true,
+      relative = (rect == nil) or rect.relative == true,
       class = class or widget.name or widget.class or "?",
     }
   end

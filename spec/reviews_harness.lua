@@ -24,7 +24,7 @@ end
 local ELLIPSIS = "\226\128\166"
 
 -- ---------------------------------------------------------------- stubs
-local Menu, record = support.capturing_menu()
+local Menu = support.capturing_menu()
 package.preload["ui/widget/menu"] = function() return Menu end
 
 local function container_stub(name)
@@ -32,6 +32,7 @@ local function container_stub(name)
   base.__index = base
   base.new = function(cls, o)
     o = setmetatable(o or {}, cls)
+    o.key_events, o.ges_events = {}, {}
     o.getSize = function() return { w = 600, h = 800 } end
     if o.init then o:init() end
     return o
@@ -48,9 +49,11 @@ local function container_stub(name)
 end
 container_stub("ui/widget/container/centercontainer")
 container_stub("ui/widget/container/inputcontainer")
+support.preload_theme_stubs()
+package.preload["ui/widget/container/topcontainer"] = package.preload["ui/widget/linewidget"]
 
 package.preload["device"] = function()
-  return { screen = {
+  return { isTouchDevice = function() return false end, screen = {
     getWidth = function() return 1264 end,
     getHeight = function() return 1680 end,
     getSize = function() return { x = 0, y = 0, w = 1264, h = 1680 } end,
@@ -107,6 +110,27 @@ check("the date is the day only, and a missing one is nothing", function()
   assert(Reviews.dateText("2025-11-02T09:15:00") == "2025-11-02")
   assert(Reviews.dateText(nil) == nil)
   assert(Reviews.dateText("garbage") == nil)
+end)
+
+check("star glyphs are five, rounded to the nearest whole star", function()
+  local FULL, EMPTY = "\226\152\133", "\226\152\134"
+  assert(Reviews.stars(4.2) == FULL:rep(4) .. EMPTY)
+  assert(Reviews.stars(4.5) == FULL:rep(5))
+  assert(Reviews.stars(1) == FULL .. EMPTY:rep(4))
+  assert(Reviews.stars(0) == "" and Reviews.stars(nil) == "")
+end)
+
+check("the summary is the book's title and community rating, or nil when there is nothing", function()
+  local sum = Reviews.summary({ book = { title = "T", rating = 4.2, ratings_count = 120 } })
+  assert(sum.title == "T" and sum.rating == 4.2 and sum.count == 120)
+  local unrated = Reviews.summary({ book = { title = "T", rating = 0, ratings_count = 0 } })
+  assert(unrated.title == "T" and unrated.rating == nil and unrated.count == nil)
+  assert(Reviews.summary({ book = {} }) == nil and Reviews.summary(nil) == nil)
+end)
+
+check("a normalised review keeps its rating as a number for the stars", function()
+  assert(Reviews.normalize({ id = 1, review_raw = "x", rating = 4.5 }).rating_value == 4.5)
+  assert(Reviews.normalize({ id = 1, review_raw = "x" }).rating_value == nil)
 end)
 
 print("\n== truncation ==")
@@ -304,57 +328,53 @@ local function reviews(n, from)
 end
 
 local function build(opts)
-  record.specs = {}
   local d = ReviewsDialog:new(opts or {})
-  return d, record.specs[#record.specs]
+  return d
 end
 
 check("an empty list says there are no reviews yet, and is not tappable", function()
-  local d, spec = build({ message = "Loading reviews" })
-  assert(spec.item_table[1].text == "Loading reviews")
+  local d = build({ message = "Loading reviews" })
+  assert(d.items[1].text == "Loading reviews")
   d:addPage({}, 0, 0)
-  assert(d.menu.item_table[1].text == "No reviews yet", d.menu.item_table[1].text)
-  assert(#d.menu.item_table == 1)
-  d:onSelectItem(d.menu.item_table[1]) -- must do nothing
+  assert(d.items[1].text == "No reviews yet", d.items[1].text)
+  assert(#d.items == 1)
+  d:onSelectItem(d.items[1]) -- must do nothing
 end)
 check("the first reviews replace the loading message", function()
   local d = build({ message = "Loading reviews" })
   d:addPage(reviews(2), 2, 0)
-  assert(d.message == nil and d.menu.item_table[1].text:find("Review 1", 1, true))
+  assert(d.message == nil and d.items[1].text:find("Review 1", 1, true))
 end)
-check("every row has a string for mandatory (a nil aborts the whole page)", function()
+check("ten reviews and a Load more item", function()
   local d = build()
   d:addPage(reviews(10), 10, 0)
-  assert(#d.menu.item_table == 11, "ten reviews and a Load more row, got " .. #d.menu.item_table)
-  for i, item in ipairs(d.menu.item_table) do
-    assert(type(item.mandatory) == "string", "row " .. i)
-  end
-  assert(d.menu.item_table[11].text == "Load more reviews")
+  assert(#d.items == 11, "ten reviews and a Load more row, got " .. #d.items)
+  assert(d.items[11].text == "Load more reviews" and d.items[11].action == "more")
 end)
 check("a short first page offers no Load more", function()
   local d = build()
   d:addPage(reviews(3), 3, 0)
-  assert(#d.menu.item_table == 3 and not d.has_more)
+  assert(#d.items == 3 and not d.has_more)
 end)
 check("a spoiler row is hidden, a tap reveals it, and it stays revealed across a rebuild", function()
   local d = build()
   local list = reviews(3)
   list[2] = Reviews.normalize(row({ id = 2, review_has_spoilers = true, review_raw = "The butler did it." }))
   d:addPage(list, 3, 0)
-  local item = d.menu.item_table[2]
+  local item = d.items[2]
   assert(item.text:find("Contains spoilers", 1, true) and not item.text:find("butler", 1, true))
   d:onSelectItem(item)
-  assert(d.menu.item_table[2].text:find("butler", 1, true), "tap did not reveal")
+  assert(d.items[2].text:find("butler", 1, true), "tap did not reveal")
   -- another page arriving rebuilds the rows; the revealed one stays revealed
   d:refresh()
-  assert(d.menu.item_table[2].text:find("butler", 1, true), "spoiler hid itself again")
-  assert(d.menu.item_table[1].text:find("Review 1", 1, true))
+  assert(d.items[2].text:find("butler", 1, true), "spoiler hid itself again")
+  assert(d.items[1].text:find("Review 1", 1, true))
 end)
 check("tapping an ordinary short row does nothing", function()
   local d = build()
   d:addPage(reviews(2), 2, 0)
   local before = #shown
-  d:onSelectItem(d.menu.item_table[1])
+  d:onSelectItem(d.items[1])
   assert(#shown == before)
 end)
 check("tapping Read more opens the whole review in a viewer", function()
@@ -362,7 +382,7 @@ check("tapping Read more opens the whole review in a viewer", function()
   local long = Reviews.normalize(row({ id = 1, review_raw = "First.\n\n" .. string.rep("word ", 200) .. "LASTWORD" }))
   d:addPage({ long }, 1, 0)
   local before = #shown
-  d:onSelectItem(d.menu.item_table[1])
+  d:onSelectItem(d.items[1])
   assert(#shown == before + 1, "no viewer shown")
   local viewer = shown[#shown]
   assert(viewer.text:find("LASTWORD", 1, true), "the viewer has not the whole text")
@@ -376,18 +396,18 @@ check("Load more asks for the next page at the right offset, once, and appends",
     pending = cb
   end })
   d:addPage(reviews(10), 10, 0)
-  d:onSelectItem(d.menu.item_table[11])
-  d:onSelectItem(d.menu.item_table[11]) -- a double tap
+  d:onSelectItem(d.items[11])
+  d:onSelectItem(d.items[11]) -- a double tap
   assert(#calls == 1, "double tap fired " .. #calls .. " requests")
   assert(calls[1][1] == 10 and calls[1][2] == 10, "offset " .. tostring(calls[1][1]))
-  assert(d.menu.item_table[11].text:find("Loading", 1, true), "no loading state")
+  assert(d.items[11].text:find("Loading", 1, true), "no loading state")
   pending(reviews(10, 11), nil, 10)
-  assert(#d.reviews == 20 and #d.menu.item_table == 21)
+  assert(#d.reviews == 20 and #d.items == 21)
   assert(d.offset == 20 and d.has_more)
-  d:onSelectItem(d.menu.item_table[21])
+  d:onSelectItem(d.items[21])
   assert(calls[2][1] == 20, "second page offset " .. tostring(calls[2][1]))
   pending(reviews(3, 21), nil, 3)
-  assert(#d.reviews == 23 and not d.has_more and #d.menu.item_table == 23, "last page left Load more")
+  assert(#d.reviews == 23 and not d.has_more and #d.items == 23, "last page left Load more")
 end)
 check("a row repeated across pages is shown once", function()
   local pending
@@ -404,7 +424,7 @@ check("a failed page puts Load more back and can be tried again", function()
   d:loadMore()
   pending(nil, "boom")
   assert(not d.loading and d.has_more, "stuck loading")
-  assert(d.menu.item_table[11].text == "Load more reviews")
+  assert(d.items[11].text == "Load more reviews")
   d:loadMore()
   assert(n == 2, "no second request")
 end)

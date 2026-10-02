@@ -11,26 +11,19 @@ local fixtures = require("fixtures")
 
 local function centre(d) return d.x + math.floor(d.w / 2), d.y + math.floor(d.h / 2) end
 
--- The menu row (a MenuItem, with its painted rectangle) whose text contains `needle`.
-local function find_row(dialog, needle)
-  -- rows learn their rectangle when painted, and a page turn does not paint
-  local UIManager = require("ui/uimanager")
-  UIManager:setDirty(nil, "full")
-  UIManager:_repaint()
-  for _, item in ipairs(dialog.menu.item_group) do
-    local entry = item.entry
-    if entry and entry.text and entry.text:find(needle, 1, true) then
-      assert(item.dimen and item.dimen.w > 0, "row has no painted rectangle: " .. needle)
-      return item
-    end
+-- the node on screen whose text contains `needle` (a button's node carries its
+-- painted rectangle; so does any text)
+local function find_node(emu, needle)
+  for _, node in ipairs(emu:screenNodes()) do
+    if node.text:find(needle, 1, true) and node.x and not node.relative then return node end
   end
 end
 
 local function tap_row(emu, dialog, needle)
-  local row = find_row(dialog, needle)
-  assert(row, "no row on this page contains " .. needle)
-  local ok = emu:tap(centre(row.dimen))
-  assert(ok, string.format("tap on row was not handled: %s at %d,%d,%d,%d page %s", needle, row.dimen.x, row.dimen.y, row.dimen.w, row.dimen.h, tostring(dialog.menu.page)))
+  local node = find_node(emu, needle)
+  assert(node, "nothing on this page contains " .. needle .. ":\n" .. emu:screenText())
+  local ok = emu:tap(node.x + math.floor(node.w / 2), node.y + math.floor(node.h / 2))
+  assert(ok, string.format("tap on %s was not handled: %d,%d,%d,%d page %s", needle, node.x, node.y, node.w, node.h, tostring(dialog.page)))
   emu:pump()
 end
 
@@ -62,9 +55,9 @@ end
 
 -- turn pages until a row containing `needle` is on screen
 local function page_to(emu, dialog, needle)
-  for _ = 1, 10 do
-    if find_row(dialog, needle) then return end
-    dialog.menu:onNextPage()
+  for _ = 1, 20 do
+    if find_node(emu, needle) then return end
+    dialog:onNextPage()
     emu:pump()
   end
   error("never found a row containing " .. needle)
@@ -105,11 +98,30 @@ return {
 
     -- first page: names, stars, likes
     emu:expectText("Maya Okafor")
-    emu:expectText("4.5*")
+    emu:expectText("\226\152\133 4.5")
     emu:expectText("48 likes")
     emu:expectText("A reader")
     emu:expectText("Read more")
+    -- the book and its rating head the first page (the API has no breakdown by
+    -- star, so it is the figure and the glyphs, not a histogram)
+    emu:expectText("The Left Hand of Darkness")
+    emu:expectText("4.2")
+    emu:expectText("120 ratings")
     emu:shot("reviews_first")
+
+    -- cards are dealt into pages that fit, and Next / Previous turn them
+    assert(dialog.pages and #dialog.pages > 1, "the reviews were not paged")
+    emu:expectText("Page 1 of " .. #dialog.pages)
+    local screen_h = emu.Screen:getHeight()
+    for _, node in ipairs(emu:screenNodes()) do
+      assert(node.relative or node.y + node.h <= screen_h, node.text .. " is off the screen")
+    end
+    tap_row(emu, dialog, "Next")
+    assert(dialog.page == 2, "Next did not turn the page")
+    emu:expectText("Page 2 of")
+    tap_row(emu, dialog, "Previous")
+    assert(dialog.page == 1, "Previous did not turn back")
+    emu:expectText("Maya Okafor")
 
     -- the spoiler is hidden by default, and its text is not drawn anywhere
     emu:expectText("Contains spoilers - tap to show")
@@ -157,7 +169,7 @@ return {
     assert(#calls == 4 and calls[4].offset == 20, "Retry did not refetch offset 20")
     assert(#dialog.reviews == 23, "expected 23 reviews, got " .. #dialog.reviews)
     assert(not dialog.has_more, "a short page left Load more on offer")
-    assert(not find_row(dialog, "Load more reviews"), "Load more still offered after the last page")
+    assert(not find_node(emu, "Load more reviews"), "Load more still offered after the last page")
 
     -- Close returns to the details
     emu:key("Back")

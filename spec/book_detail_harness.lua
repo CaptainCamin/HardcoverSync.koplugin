@@ -111,6 +111,7 @@ _G.require = function(name)
 end
 
 local BookDetailDialog = real_require("hardcover/lib/ui/book_detail_dialog")
+local Theme = real_require("hardcover/lib/ui/theme")
 local Shelf = real_require("hardcover/lib/shelf")
 local Api = real_require("hardcover/lib/hardcover_api")
 
@@ -121,7 +122,7 @@ end
 
 local function kinds(group)
   local out = {}
-  for _, child in ipairs(group) do out[#out + 1] = child.kind end
+  for _, child in ipairs(group) do out[#out + 1] = type(child.kind) == "string" and child.kind or "?" end
   return out
 end
 
@@ -161,7 +162,7 @@ print("\n== the body is built whole ==")
 
 check("a book with no subtitle still shows its status, details and description", function()
   local d = BookDetailDialog:new { detail = detail({ title = "T", description = "About it.", publisher = { name = "P" } }) }
-  assert(contains(d.content_group, d.status_text), "status missing")
+  assert(d.status_text, "status pill missing")
   assert(contains(d.content_group, d.description_text), "description missing: " .. table.concat(kinds(d.content_group), ","))
   assert(#d.meta_rows == 1 and contains(d.content_group, d.meta_rows[1]), "details missing")
 end)
@@ -181,12 +182,24 @@ end)
 
 check("what the book has appears, what it lacks does not", function()
   local d = BookDetailDialog:new { detail = detail(FULL) }
-  assert(d.authors_text and d.series_text and d.facts_text and d.community_text, "header lines missing")
+  assert(d.authors_text and d.series_text and d.facts_text and d.stats_strip, "header lines missing")
   local bare = BookDetailDialog:new { detail = { book = { title = "T" } } }
   assert(bare.authors_text == nil and bare.series_text == nil and bare.facts_text == nil
-    and bare.status_text == nil and bare.community_text == nil and bare.description_text == nil,
+    and bare.status_text == nil and bare.description_text == nil,
     "invented a line for a field the book does not have")
   assert(#bare.meta_rows == 0, "invented detail rows")
+end)
+
+check("the stat strip is always three figures; an unknown one is a dash, not a zero", function()
+  local stats = Shelf.detailStats(detail(FULL))
+  assert(#stats == 3)
+  assert(stats[1][1] == "4.3" and stats[1][2] == "12,345 ratings", stats[1][1] .. " / " .. stats[1][2])
+  assert(stats[2][1] == "56,789" and stats[2][2] == "readers")
+  assert(stats[3][1] == "4" and stats[3][2] == "your rating")
+  local none = Shelf.detailStats({ book = { rating = 0, users_count = 0 } })
+  assert(#none == 3 and none[1][1] == "\226\128\147" and none[2][1] == "\226\128\147" and none[3][1] == "\226\128\147")
+  assert(Shelf.detailStats({ book = { rating = 4, ratings_count = 1, users_count = 1 }, user_rating = 3.5 })[3][1] == "3.5")
+  assert(#Shelf.detailStats(nil) == 3)
 end)
 
 print("\n== the header ==")
@@ -194,22 +207,24 @@ print("\n== the header ==")
 check("the title is bold and wraps", function()
   local d = BookDetailDialog:new { detail = detail({ title = string.rep("Long ", 40) }) }
   assert(d.title_text.kind == "TextBox" and d.title_text.bold == true)
-  local cover_w = math.floor(d.content_width * 0.30)
-  assert(d.title_text.width == d.content_width - cover_w - 15, "title width " .. tostring(d.title_text.width))
+  local cover_w = math.floor(d.content_width * 0.34)
+  assert(d.title_text.width == d.content_width - cover_w - 2 * Theme.line.hair - Theme.space.l,
+    "title width " .. tostring(d.title_text.width))
 end)
 
 check("with a cover, the text sits beside it in the width that is left", function()
   local d = BookDetailDialog:new { detail = detail(FULL), image_loader = fakeLoader() }
   assert(d.cover_cell, "no cover box")
-  local cover_w = math.floor(d.content_width * 0.30)
-  assert(d.title_text.width == d.content_width - cover_w - 15, "title width " .. tostring(d.title_text.width))
+  local cover_w = math.floor(d.content_width * 0.34)
+  assert(d.title_text.width == d.content_width - cover_w - 2 * Theme.line.hair - Theme.space.l,
+    "title width " .. tostring(d.title_text.width))
   assert(d.content_group[1].kind == "HGroup", "header is not cover-beside-text")
 end)
 
 check("the cover box has a fixed size, so the text does not move when the picture arrives", function()
   local d = BookDetailDialog:new { detail = detail(FULL), image_loader = fakeLoader() }
   local box = d.cover_cell[1].dimen
-  assert(box.w == math.floor(d.content_width * 0.30) and box.h == math.floor(box.w * 1.5), "box " .. box.w .. "x" .. box.h)
+  assert(box.w == math.floor(d.content_width * 0.34) and box.h == math.floor(box.w * 1.5), "box " .. box.w .. "x" .. box.h)
 end)
 
 check("no cover: a generic placeholder in the same box, and nothing is fetched", function()
@@ -289,10 +304,13 @@ print("\n== text that must fit ==")
 
 check("single-line text is limited with max_width, the field TextWidget reads", function()
   local d = BookDetailDialog:new { detail = detail({ title = "T", rating = 4, users_count = 10 }) }
-  assert(d.status_text.max_width == d.content_width, "status max_width " .. tostring(d.status_text.max_width))
-  assert(d.community_text.max_width == d.content_width, "community max_width " .. tostring(d.community_text.max_width))
+  -- the pills' words are limited to the text column, so a long series name is cut
+  assert(d.status_text[1].max_width and d.status_text[1].max_width < d.content_width,
+    "status max_width " .. tostring(d.status_text[1].max_width))
+  local long = BookDetailDialog:new { detail = detail({ title = "T", book_series = { { position = 1, series = { name = string.rep("Series ", 30) } } } }) }
+  assert(long.series_text[1].max_width and long.series_text[1].max_width < long.content_width, "a long series name is not limited")
   local loading = BookDetailDialog:new { loading = true }
-  assert(loading.loading_text.max_width == loading.width, "loading text is not limited")
+  assert(loading.loading_text.max_width == loading.width - 2 * Theme.margin, "loading text is not limited")
 end)
 
 check("detail labels sit in a fixed-width column and values wrap", function()
@@ -481,7 +499,7 @@ end)
 check("a series that fits needs no arrows; a long one has them", function()
   local d = BookDetailDialog:new { detail = detail(FULL), image_loader = fakeLoader() }
   d:setSeries(Shelf.seriesCard(seriesOf(3), 102), function() end)
-  assert(d.carousel.paged == false and #d.layout == 1, "layout rows: " .. #d.layout)
+  assert(d.carousel.paged == false and #d.layout == 2, "layout rows: " .. #d.layout)
   d:setSeries(Shelf.seriesCard(seriesOf(30), 115), function() end)
   assert(d.carousel.paged and d.carousel.prev and d.carousel.next)
 end)
@@ -501,13 +519,14 @@ check("the arrows turn the page, and cannot go past either end", function()
   assert(c.last == 30, "last " .. c.last)
 end)
 
-check("the arrows come before Close in the focus order", function()
+check("focus order: the action bar, then the arrows, then Close", function()
   local d = BookDetailDialog:new { detail = detail(FULL), image_loader = fakeLoader() }
   d:setSeries(Shelf.seriesCard(seriesOf(30), 115), function() end)
-  assert(#d.layout == 2, "layout rows: " .. #d.layout)
-  assert(d.layout[1][1] == d.carousel.prev and d.layout[1][2] == d.carousel.next)
+  assert(#d.layout == 3, "layout rows: " .. #d.layout)
+  assert(d.layout[1][1] == d.shelf_button, "the action bar is not first")
+  assert(d.layout[2][1] == d.carousel.prev and d.layout[2][2] == d.carousel.next)
   local last = d.layout[#d.layout]
-  assert(last[1] == d.shelf_button and last[2] == d.close_button and last[2].text == "Close", "Shelf and Close are not last")
+  assert(last[1] == d.close_button and #last == 1, "Close is not last")
 end)
 
 check("covers are fetched for the page on screen, and a stale answer is dropped", function()
@@ -644,7 +663,7 @@ check("a failed request returns nothing", function()
   assert(Api:getSeriesBooks(nil, 1) == nil)
 end)
 
-check("Reviews: a button under About that calls back, and none without a callback", function()
+check("Reviews: an action bar button that calls back, and none without a callback", function()
   local opened = 0
   local d = BookDetailDialog:new {
     detail = detail({ title = "T", description = "About it." }),
@@ -652,14 +671,14 @@ check("Reviews: a button under About that calls back, and none without a callbac
   }
   assert(d.reviews_button, "no Reviews button")
   assert(d.reviews_button.text == "Reviews")
-  -- below About: after the description, not before it (the buttons sit in a row)
+  -- in the action bar, between the header and About (the buttons sit in a row)
   local pos = {}
   for i, child in ipairs(d.content_group) do
     if child == d.description_text then pos.about = i end
     if child == d.reviews_button or contains(child, d.reviews_button) then pos.button = i end
   end
   assert(pos.button, "the button is not in the page")
-  assert(pos.about and pos.button and pos.button > pos.about, "the button is not below About")
+  assert(pos.about and pos.button < pos.about, "the action bar is not above About")
   d.reviews_button.callback()
   assert(opened == 1, "tapping it did not open the reviews")
   local none = BookDetailDialog:new { detail = detail({ title = "T" }) }
@@ -679,7 +698,7 @@ check("there is a Z-library button only when there is something to hand the sear
     detail = detail({ title = "T", description = "About it." }),
     on_zlibrary = function(dialog) got = dialog end,
   }
-  assert(d.zlibrary_button and d.zlibrary_button.text == "Search in Z-library")
+  assert(d.zlibrary_button and d.zlibrary_button.text == "Z-library")
   assert(contains(d.content_group, d.zlibrary_button) == false, "the button should sit in a row, not loose in the page")
   d.zlibrary_button.callback()
   assert(got == d, "the handler was not given the dialog")
@@ -697,10 +716,31 @@ end)
 
 print("\n== the shelf button ==")
 
-check("the fixed button row holds Shelf and Close, outside the scrolling body", function()
-  local d = BookDetailDialog:new { detail = detail(FULL) }
+check("Shelf is the filled first button of the action bar; Close is the title bar's X", function()
+  local d = BookDetailDialog:new { detail = detail(FULL), on_reviews = function() end, on_zlibrary = function() end }
   assert(d.shelf_button and d.close_button and d.shelf_button ~= d.close_button)
-  assert(not contains(d.content_group, d.shelf_button), "the button scrolls with the body")
+  assert(contains(d.action_bar, d.shelf_button) and d.action_bar[1] == d.shelf_button, "Shelf is not first in the bar")
+  assert(contains(d.content_group, d.action_bar), "the bar is not in the page")
+  assert(d.close_button and d.title_bar, "Close is not the title bar's close button")
+end)
+
+check("the action bar adapts: one button, two, or three, filling the width exactly", function()
+  local function widths(d)
+    local total, n = 0, 0
+    for _, child in ipairs(d.action_bar) do
+      if child.kind == "TapRow" then n = n + 1; total = total + child.width end
+    end
+    return n, total
+  end
+  local one = BookDetailDialog:new { detail = detail(FULL) }
+  local two = BookDetailDialog:new { detail = detail(FULL), on_reviews = function() end }
+  local three = BookDetailDialog:new { detail = detail(FULL), on_reviews = function() end, on_zlibrary = function() end }
+  for want, d in ipairs({ one, two, three }) do
+    local n, total = widths(d)
+    assert(n == want, want .. " buttons expected, got " .. n)
+    assert(total <= d.content_width and d.content_width - total <= (want - 1) * Theme.space.s + want,
+      "the bar does not fill the width: " .. total .. " of " .. d.content_width)
+  end
 end)
 
 check("its label says where the book is, or invites adding it", function()
@@ -726,12 +766,12 @@ check("setStatus updates the status line and label, and keeps the cover", functi
   d.cover_bb = picture
   d:setStatus(1, 55)
   assert(d.shelf_button.text == "Shelf: Want to Read", d.shelf_button.text)
-  assert(d.status_text and d.status_text.text == "Want to Read", "status line missing")
+  assert(d.status_text and d.status_text[1].text == "Want to Read", "status pill missing")
   assert(d.detail.user_book_id == 55 and d.detail.status_id == 1)
   assert(d.cover_bb == picture, "the cover was thrown away")
   assert(#loader.batches == fetches, "the cover was fetched again")
   d:setStatus(3, 55)
-  assert(d.status_text.text == "Read" and d.shelf_button.text == "Shelf: Read")
+  assert(d.status_text[1].text == "Read" and d.shelf_button.text == "Shelf: Read")
 end)
 
 check("setStatus(nil) after a removal clears status, rating and the record", function()

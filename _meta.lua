@@ -3,5 +3,5 @@ return {
   name = "hardcoversync",
   fullname = _("Hardcover Sync"),
   description = _([[Synchronize reading progress to Hardcover.app]]),
-  version = "0.9.1"
+  version = "1.0.0"
 }

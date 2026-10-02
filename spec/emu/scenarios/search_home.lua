@@ -30,6 +30,9 @@ local function type_and_submit(emu, text)
   assert(input and input.getInputText, "the Search books button did not open an input dialog, top is "
     .. tostring(input and input.name))
   input:setInputText(text)
+  -- positions are only real once painted
+  UIManager:setDirty(nil, "full")
+  UIManager:_repaint()
   local button = exact(emu, "Search")
   emu:tapExpecting(button.x + 5, button.y + 5)
 end
@@ -53,7 +56,7 @@ return {
     local home = manager.home_dialog
     assert(home and UIManager:isWidgetShown(home), "home did not open")
     emu:expectText("Search books")
-    emu:expectText("Shelves")
+    emu:expectText("Library")
     emu:shot("search_home")
 
     -- the button is above the cards and everything still fits on the screen

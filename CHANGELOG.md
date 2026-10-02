@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.0
+
+### Changed
+
+* Every screen redesigned in one "studio" style: a shared title bar, section headings with a firm rule,
+  pills for status and series, boxed buttons, one type scale and one set of rules (`hardcover/lib/ui/theme.lua`).
+* Home: a search field, the first book you are reading as a hero card (the rest as compact rows), and the
+  four shelves as count tiles.
+* Book details: pills for series and shelf, a community rating / readers / your rating strip, and an action bar
+  (Shelf, Reviews, Z-library when that plugin is installed) that adapts to two or three buttons.
+* Reviews: the book's rating as a figure with stars, review cards with Read more and a spoiler bar, paged with
+  Previous / Next. (Hardcover's API gives no breakdown by star, so there is no histogram.)
+* Settings: Sync and Account tiles, boxed option rows with tick boxes. Sign in: numbered steps, a big code and
+  a waiting bar. The sort menu and shelf picker use the same type.
+
 ## 0.9.1
 
 ### Fixed
