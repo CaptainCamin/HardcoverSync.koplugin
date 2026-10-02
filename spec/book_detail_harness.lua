@@ -708,7 +708,7 @@ check("Similar to T: a strip of covers above the series, tapping one opens that 
   d.similar_carousel.targets[2].callback()
   assert(opened[1] == 101 and opened[2] == 102, "tapping a cover did not open that book")
   assert(d.similar_carousel.paged and #d.layout >= 3, "the arrows are not in the focus layout")
-  -- with the series too, similar is first and both are in the page
+  -- with the series too, the series is first and both are in the page
   d:setSeries(card, function() end)
   assert(d.carousel and d.similar_carousel)
   local at = {}
@@ -717,7 +717,7 @@ check("Similar to T: a strip of covers above the series, tapping one opens that 
     if child == d.carousel.widget then at.series = i end
     if child == d.description_text then at.about = i end
   end
-  assert(at.about < at.similar and at.similar < at.series, "wrong order of About, similar, series")
+  assert(at.about < at.series and at.series < at.similar, "wrong order of About, series, similar")
   d:releaseCover()
   assert(d.similar_carousel == nil and d.carousel == nil, "releasing left a strip")
   d:setSimilar(nil, nil)
