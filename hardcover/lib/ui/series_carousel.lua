@@ -20,7 +20,9 @@ local Device = require("device")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
+local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
+local InputContainer = require("ui/widget/container/inputcontainer")
 local Size = require("ui/size")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextWidget = require("ui/widget/textwidget")
@@ -135,6 +137,31 @@ function SeriesCarousel:build()
     margin = 0,
     HorizontalGroup:new {},
   }
+  -- a swipe along the strip turns its page, like the arrows. Only where the strip is
+  -- showing (see viewport.lua), and only for a strip with more than one page.
+  self.swipe_area = InputContainer:new { self.holder }
+  if self.paged then
+    local holder = self.holder
+    self.swipe_area.ges_events = {
+      CarouselSwipe = {
+        GestureRange:new {
+          ges = "swipe",
+          range = Viewport.range(function() return holder.dimen end, self.viewport),
+        },
+      },
+    }
+    self.swipe_area.onCarouselSwipe = function(_, _, ges)
+      local direction = ges and ges.direction
+      if direction == "west" then
+        self:swipe(1)
+      elseif direction == "east" then
+        self:swipe(-1)
+      else
+        return false -- a swipe up or down is the page's to scroll
+      end
+      return true
+    end
+  end
 
   -- the section heading with its firm rule, and the book count at its end
   self.widget = VerticalGroup:new { align = "left" }
@@ -145,7 +172,7 @@ function SeriesCarousel:build()
     fgcolor = Theme.DARK_GREY,
   }))
   table.insert(self.widget, Theme.span("m"))
-  table.insert(self.widget, self.holder)
+  table.insert(self.widget, self.swipe_area)
 end
 
 -- One cover with its number, title and status, as a cell of fixed size.
@@ -251,6 +278,14 @@ function SeriesCarousel:turn(direction)
   self.first = self.first + direction * self.per_page
   self:render()
   if self.on_change then self.on_change(function() return self.holder.dimen end) end
+end
+
+-- A swipe: the same as the arrow, except that at either end there is nothing to turn to
+-- (and so nothing to redraw).
+function SeriesCarousel:swipe(direction)
+  if direction > 0 and self.last >= #self.card.items then return end
+  if direction < 0 and self.first <= 1 then return end
+  self:turn(direction)
 end
 
 -- Ask for the covers on this page, in one batch.

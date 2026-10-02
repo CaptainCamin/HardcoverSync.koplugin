@@ -724,6 +724,30 @@ check("Similar to T: a strip of covers above the series, tapping one opens that 
   assert(d.similar_carousel == nil, "clearing left the strip")
 end)
 
+check("On device: an action bar button that calls back with the dialog, and none without a callback", function()
+  local got
+  local d = BookDetailDialog:new {
+    detail = detail({ title = "T" }), on_reviews = function() end, on_find = function(dialog) got = dialog end,
+  }
+  assert(d.find_button and d.find_button.text == "On device", "no On device button")
+  d.find_button.callback()
+  assert(got == d, "tapping it did not search")
+  assert(BookDetailDialog:new { detail = detail({ title = "T" }), on_reviews = function() end }.find_button == nil)
+  d:setSeries(nil, nil)
+  assert(d.find_button, "the rebuild lost the button")
+  -- the fullest bar: Shelf, Lists, Reviews, On device, Z-library
+  local all = BookDetailDialog:new {
+    detail = detail(FULL), on_lists = function() end, on_reviews = function() end,
+    on_find = function() end, on_zlibrary = function() end,
+  }
+  local used = 0
+  for _, b in ipairs({ all.shelf_button, all.lists_button, all.reviews_button, all.find_button, all.zlibrary_button }) do
+    assert(b, "a button is missing from the full bar")
+    used = used + b.width
+  end
+  assert(used < all.content_width, "five buttons do not fit one row")
+end)
+
 print("\n== the Z-library button ==")
 
 check("there is a Z-library button only when there is something to hand the search to", function()
