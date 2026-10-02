@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Goals (and every other screen) no longer decide you are offline just because the device's connection check lags: right after waking, or while wifi settles, it can say "no" for a moment with wifi on and joined, which showed "Offline. Showing your goals as of ..." at once and stopped the refresh. The plugin now also trusts KOReader's own record of the connection.
+
 ## 1.1.2
 
 ### Added
