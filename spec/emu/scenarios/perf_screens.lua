@@ -184,8 +184,9 @@ return {
     end
     -- the lists: the page, then the rows; nine covers are drawn from three pictures
     within("lists", results.lists, 2, 2.3, 3)
-    -- a shelf page turn: the page, then each cover's row
-    within("shelf page turn", results.shelf_page, 1, 1.8)
+    -- a shelf page turn: the page, then each cover's own frame
+    within("shelf open", results.shelf, 2, 2.4)
+    within("shelf page turn", results.shelf_page, 1, 1.3)
     -- details: the loading screen, the book, the series; covers are boxes
     within("book details", results.detail, 2, 2.4)
     -- the sign-in bar stepping: the bar and its line, nothing else

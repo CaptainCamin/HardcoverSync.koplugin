@@ -297,17 +297,19 @@ function ListMenuItem:update()
           }
           wimage:_render()
           local image_size = wimage:getSize() -- get final widget size
+          -- kept so a cover arriving can refresh just its own frame (see covermenu)
+          self.cover_frame = FrameContainer:new{
+            width = image_size.w + 2*border_size,
+            height = image_size.h + 2*border_size,
+            margin = 0,
+            padding = 0,
+            bordersize = border_size,
+            dim = self.file_deleted,
+            wimage,
+          }
           wleft = CenterContainer:new{
             dimen = Geom:new{ w = wleft_width, h = wleft_height },
-            FrameContainer:new{
-              width = image_size.w + 2*border_size,
-              height = image_size.h + 2*border_size,
-              margin = 0,
-              padding = 0,
-              bordersize = border_size,
-              dim = self.file_deleted,
-              wimage,
-            }
+            self.cover_frame,
           }
           -- Let menu know it has some item with images
           self.menu._has_cover_images = true
@@ -323,23 +325,24 @@ function ListMenuItem:update()
             fake_cover_h = bookinfo.cover_h * scale_factor
           end
 
-          wleft = CenterContainer:new{
-            dimen = Geom:new{ w = wleft_width, h = wleft_height },
-            FrameContainer:new{
-              width = fake_cover_w + 2*border_size,
-              height = fake_cover_h + 2*border_size,
-              margin = 0,
-              padding = 0,
-              bordersize = border_size,
-              dim = self.file_deleted,
-              CenterContainer:new{
-                dimen = Geom:new{ w = fake_cover_w, h = fake_cover_h },
-                TextWidget:new{
-                  text = "⛶", -- U+26F6 Square four corners
-                  face = Font:getFace("cfont",  _fontSize(20)),
-                },
+          self.cover_frame = FrameContainer:new{
+            width = fake_cover_w + 2*border_size,
+            height = fake_cover_h + 2*border_size,
+            margin = 0,
+            padding = 0,
+            bordersize = border_size,
+            dim = self.file_deleted,
+            CenterContainer:new{
+              dimen = Geom:new{ w = fake_cover_w, h = fake_cover_h },
+              TextWidget:new{
+                text = "⛶", -- U+26F6 Square four corners
+                face = Font:getFace("cfont",  _fontSize(20)),
               },
             },
+          }
+          wleft = CenterContainer:new{
+            dimen = Geom:new{ w = wleft_width, h = wleft_height },
+            self.cover_frame,
           }
         end
       end
