@@ -37,6 +37,15 @@ if Config.token == "your token here" then
   Config.token = nil
 end
 
+-- A user who put a personal access token in their config chose to use it, so
+-- do not override that choice with the shipped client id (which would sign them
+-- in with OAuth instead and ignore the token). Giving their own non-empty
+-- client_id as well keeps OAuth, with their app.
+local user_client_id = ok and type(user_config) == "table" and user_config.client_id
+if Config.token and Config.token ~= "" and (user_client_id == nil or user_client_id == "") then
+  Config.client_id = nil
+end
+
 -- Whether the user supplied their own file, used to explain the setup in the UI
 Config.has_user_config = ok and type(user_config) == "table"
 

@@ -51,19 +51,34 @@ settings if it does not appear.
 2. Copy the `hardcoversync.koplugin` folder to the KOReader plugins folder on your device
 3. Restart KOReader
 
-Signing in needs no config file (see below). Rename `hardcover_config.example.lua` to `hardcover_config.lua` only to
-use your own OAuth app or an API key.
+Signing in needs no config file (see [Signing in](#signing-in)). Rename `hardcover_config.example.lua` to
+`hardcover_config.lua` only for the [advanced options](#advanced-your-own-app-or-an-api-key).
 
 ## Signing in
 
-### With a Hardcover account (recommended)
+In KOReader, open the Hardcover menu and choose `Account` → `Sign in to Hardcover` (in the file browser menu, or in the
+reader menu while you are signed out). The plugin shows a short code and a web address. Open that address on a phone
+or computer, enter the code, and approve. The plugin signs itself in and keeps the connection fresh from then on.
+
+That is all: the plugin comes with its own Hardcover app registration, so you do not need to register anything or
+create a config file. There is no secret to store, because this is a public client using the device flow, which is
+also why no browser is needed on the reader. You can see, and revoke, the connection on Hardcover under your
+authorized apps. `Account` → `Sign out` signs out and revokes it.
+
+## Advanced: your own app or an API key
+
+Most people can skip this. Create `hardcover_config.lua` in the plugin folder (copy `hardcover_config.example.lua`
+and edit it) only if you want one of these. The file is never shipped or published, so it is safe to put a token in.
+
+### Use your own OAuth app
+
+Register an app of your own if you would rather not use the bundled one, for example to control its name and
+permissions, or if you fork the plugin:
 
 1. Register an app at https://hardcover.app/account/developer-apps/new
-2. Set the application type to **Mobile, desktop, or CLI**, leave **Device
-   Authorization Grant** enabled, and allow these scopes:
-   `read:catalog read:catalog:search read:me:content read:library
-   read:social write:library`
-3. Copy the **client id** into `hardcover_config.lua`:
+2. Set the application type to **Mobile, desktop, or CLI**, leave **Device Authorization Grant** enabled, and allow
+   these scopes: `read:catalog read:catalog:search read:me:content read:library read:social write:library`
+3. Put the **client id** in `hardcover_config.lua`, then sign in as above:
 
    ```lua
    return {
@@ -71,18 +86,13 @@ use your own OAuth app or an API key.
    }
    ```
 
-4. In KOReader, open the Hardcover menu and choose `Account` → `Sign in to
-   Hardcover`. The plugin shows a short code and a web address. Open that
-   address on a phone or computer, enter the code, and approve. The plugin
-   signs itself in and keeps the connection fresh from then on.
+Anyone can read a client id out of an installed app, so it is not a secret and is safe to publish; that is how the
+bundled one works. If you change the client id after signing in, sign out and sign in again.
 
-There is no secret to store: this is a public client using the device flow,
-which is why no browser is needed on the reader.
+### Use a personal access token
 
-### With a personal access token
-
-If you would rather use a token, get one from
-https://hardcover.app/account/api and put it in `hardcover_config.lua`:
+If you would rather not sign in at all, get a token from https://hardcover.app/account/api and put it in
+`hardcover_config.lua`:
 
 ```lua
 return {
@@ -90,9 +100,9 @@ return {
 }
 ```
 
-The `token` field is only used when `client_id` is empty. Note that tokens now
-carry an expiration and a scope list, so choose permissions that cover what the
-plugin uses, and expect to replace an expired token.
+A token in the config is used instead of signing in (unless you also give your own `client_id`, which keeps OAuth).
+Unlike the account sign-in, this token is a secret: do not share the file. Tokens carry an expiration and a list of
+permissions, so choose ones that cover what the plugin uses, and expect to replace an expired token.
 
 ## Usage
 

@@ -24,6 +24,7 @@ return {
   scope = "read:catalog read:catalog:search read:me:content read:library read:social write:library",
 
   -- Personal access token. Left empty on purpose: sign in from the plugin
-  -- instead. A token set here is used only when client_id is empty.
+  -- instead. A token in your hardcover_config.lua is used in place of signing
+  -- in (unless you also give your own client_id).
   token = nil,
 }

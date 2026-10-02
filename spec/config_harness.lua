@@ -124,6 +124,29 @@ check("the example placeholder is treated as no token", function()
   eq(Config.token, nil)
 end)
 
+check("a personal access token in the config turns off the shipped client id, so the token is used", function()
+  local Config = loadConfig { token = "hc_pat_example" }
+  eq(Config.client_id, nil)
+  eq(Config.token, "hc_pat_example")
+end)
+
+check("a token with the example's empty client_id is still a token setup", function()
+  local Config = loadConfig { client_id = "", token = "hc_pat_example" }
+  eq(Config.client_id, nil)
+end)
+
+check("a token together with the user's own client id stays OAuth, with that app", function()
+  local Config = loadConfig { client_id = "my-own-app", token = "hc_pat_example" }
+  eq(Config.client_id, "my-own-app")
+end)
+
+check("the untouched example file keeps the shipped client id (its token is a placeholder)", function()
+  local Config = loadConfig { client_id = "", token = "your token here" }
+  if not Config.client_id or Config.client_id == "" then
+    error("the example config, renamed and unedited, signed the user out of OAuth")
+  end
+end)
+
 check("an explicit nil token does not error", function()
   local Config = loadConfig { token = nil, client_id = "x" }
   eq(Config.client_id, "x")
