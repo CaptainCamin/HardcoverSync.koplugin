@@ -226,6 +226,119 @@ function Shelf.appendPage(entries, page, has_more)
   return result
 end
 
+-- U+00B7, as bytes so this reads the same on any Lua
+local MIDDOT = " \194\183 "
+
+-- 1234567 -> "1,234,567"
+local function withCommas(n)
+  local digits = string.format("%d", math.floor(tonumber(n) or 0))
+  local formatted = digits:reverse():gsub("(%d%d%d)", "%1,"):reverse()
+  return (formatted:gsub("^,", ""))
+end
+
+local function joinParts(parts)
+  if #parts == 0 then return nil end
+  return table.concat(parts, MIDDOT)
+end
+
+--
+-- What the book detail header and status lines say, as plain strings.
+--
+-- Kept out of the dialog so it can be tested without KOReader, and so the
+-- screen only has to lay out text: every field is a finished string or nil,
+-- never an empty string, so the dialog can simply skip what is missing.
+--
+--   title, subtitle   the book's name
+--   authors           "A. Author, B. Writer"
+--   series            "The Saga #3"
+--   facts             "2019 · 342 pages · Hardcover"
+--   mine              "Currently Reading · Your rating 4.5"   (the reader's own standing)
+--   community         "Community 4.2 (1,234 ratings) · 5,678 readers"
+--   description       the full text
+--   cover             { url, width, height } when there is a cover to fetch
+--
+function Shelf.detailSummary(detail)
+  detail = detail or {}
+  local book = detail.book or {}
+
+  local summary = {
+    title = (type(book.title) == "string" and book.title ~= "") and book.title or UNKNOWN_TITLE,
+    subtitle = (type(book.subtitle) == "string" and book.subtitle ~= "") and book.subtitle or nil,
+    description = (type(book.description) == "string" and book.description ~= "") and book.description or nil,
+  }
+
+  -- already a joined string, or nil when the book has no authors
+  summary.authors = authorNames(book)
+
+  summary.series = seriesName(book)
+
+  -- an edition's own release date is more precise than the book's year
+  local published
+  if type(book.release_date) == "string" then
+    published = book.release_date:match("^(%d%d%d%d)")
+  end
+  if not published and book.release_year then
+    published = tostring(book.release_year)
+  end
+
+  local facts = {}
+  if published then facts[#facts + 1] = published end
+  local pages = tonumber(book.pages)
+  if pages and pages > 0 then facts[#facts + 1] = string.format("%d pages", pages) end
+  local format = book.edition_format or formatFallback(book)
+  if format and format ~= "" then facts[#facts + 1] = format end
+  summary.facts = joinParts(facts)
+
+  local mine = {}
+  if detail.status_id then mine[#mine + 1] = Shelf.statusLabel(detail.status_id) end
+  local user_rating = tonumber(detail.user_rating)
+  if user_rating and user_rating > 0 then
+    local shown = user_rating % 1 == 0 and string.format("%d", user_rating) or string.format("%.1f", user_rating)
+    mine[#mine + 1] = "Your rating " .. shown
+  end
+  summary.mine = joinParts(mine)
+
+  -- 0 means nobody has rated it: "0.0 (0 ratings)" is noise, not a rating
+  local community = {}
+  local rating = tonumber(book.rating)
+  if rating and rating > 0 then
+    local text = string.format("Community %.1f", rating)
+    local count = tonumber(book.ratings_count)
+    if count and count > 0 then
+      text = text .. " (" .. withCommas(count) .. " ratings)"
+    end
+    community[#community + 1] = text
+  end
+  local readers = tonumber(book.users_count)
+  if readers and readers > 0 then
+    community[#community + 1] = withCommas(readers) .. " readers"
+  end
+  summary.community = joinParts(community)
+
+  local image = book.cached_image
+  if type(image) == "table" and type(image.url) == "string" and image.url ~= "" then
+    summary.cover = { url = image.url, width = image.width, height = image.height }
+  end
+
+  return summary
+end
+
+-- The rows the header does not already say: publisher, language, ISBN, reads.
+local HEADER_LABELS = {
+  Author = true, Series = true, Format = true, Pages = true, Published = true,
+  ["Community rating"] = true, Readers = true, Description = true,
+}
+
+function Shelf.extraRows(book)
+  local rows = {}
+  for _, row in ipairs(Shelf.detailRows(book)) do
+    if not HEADER_LABELS[row.label] then
+      rows[#rows + 1] = row
+    end
+  end
+  return rows
+end
+
 local function addRow(rows, label, value)
   if value == nil or value == "" then
     return

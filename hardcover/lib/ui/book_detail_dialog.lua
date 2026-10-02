@@ -16,6 +16,7 @@ local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
+local ImageWidget = require("ui/widget/imagewidget")
 local InfoMessage = require("ui/widget/infomessage")
 local LeftContainer = require("ui/widget/container/leftcontainer")
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
@@ -83,99 +84,165 @@ function BookDetailDialog:init()
   end
 
   self.loading = false
+  self.closed = false
 
-  local detail = self.detail or {}
-  local book = detail.book or {}
+  local summary = Shelf.detailSummary(self.detail)
+  local book = (self.detail or {}).book or {}
 
-  -- TextWidget is one line and sizes itself to its text: it reads max_width, not
-  -- width, so a long title ran off the edge. TextBoxWidget wraps to width.
-  self.title_text = TextBoxWidget:new {
-    text = book.title or _("Unknown title"),
-    face = Font:getFace("cfont", 20),
-    width = self.width,
-    alignment = "left",
-  }
+  --[[--
+  Header: the cover beside the title block, like a book's back cover.
 
-  if book.subtitle and book.subtitle ~= "" then
-    self.subtitle_text = TextBoxWidget:new {
-      text = book.subtitle,
+  Every line is a finished string from Shelf.detailSummary or nil, so this only
+  lays out what exists. The cover box is sized up front and filled in when the
+  image arrives, so the text does not move when it does.
+  ]]
+  local cover_width, cover_height = 0, 0
+  local cover_gap = 15
+  if summary.cover then
+    cover_width = math.floor(self.width * 0.30)
+    cover_height = math.floor(cover_width * 1.5)
+  end
+  local text_width = summary.cover and (self.width - cover_width - cover_gap) or self.width
+
+  -- TextWidget is one line and reads max_width, not width; anything that may be
+  -- long (a title, an author list) is a TextBoxWidget, which wraps to width.
+  local function wrapped(text, size, bold)
+    return TextBoxWidget:new {
+      text = text,
+      face = Font:getFace("cfont", size),
+      bold = bold,
+      width = text_width,
+      alignment = "left",
+    }
+  end
+
+  local column = VerticalGroup:new { align = "left" }
+  local function addTo(group, widget)
+    if widget then table.insert(group, widget) end
+  end
+
+  self.title_text = wrapped(summary.title, 22, true)
+  addTo(column, self.title_text)
+  if summary.subtitle then
+    self.subtitle_text = wrapped(summary.subtitle, 16)
+    addTo(column, self.subtitle_text)
+  else
+    self.subtitle_text = nil
+  end
+  if summary.authors then
+    self.authors_text = wrapped(_("by") .. " " .. summary.authors, 17)
+    addTo(column, VerticalSpan:new { height = 6 })
+    addTo(column, self.authors_text)
+  else
+    self.authors_text = nil
+  end
+  if summary.series then
+    self.series_text = wrapped(summary.series, 15)
+    addTo(column, self.series_text)
+  else
+    self.series_text = nil
+  end
+  if summary.facts then
+    self.facts_text = wrapped(summary.facts, 15)
+    addTo(column, VerticalSpan:new { height = 6 })
+    addTo(column, self.facts_text)
+  else
+    self.facts_text = nil
+  end
+
+  self.cover_cell = nil
+  local header = column
+  if summary.cover then
+    -- an empty box of the cover's size; loadCover swaps the picture in
+    self.cover_cell = FrameContainer:new {
+      bordersize = Size.border.thin,
+      padding = 0,
+      margin = 0,
+      CenterContainer:new {
+        dimen = Geom:new { w = cover_width, h = cover_height },
+        VerticalSpan:new { height = 0 },
+      },
+    }
+    header = HorizontalGroup:new {
+      align = "top",
+      self.cover_cell,
+      HorizontalSpan:new { width = cover_gap },
+      column,
+    }
+  end
+
+  -- the reader's own standing with the book, then what everyone else makes of it
+  self.status_text = nil
+  if summary.mine then
+    self.status_text = TextWidget:new {
+      text = summary.mine,
+      face = Font:getFace("cfont", 17),
+      bold = true,
+      max_width = self.width,
+    }
+  end
+  self.community_text = nil
+  if summary.community then
+    self.community_text = TextWidget:new {
+      text = summary.community,
+      face = Font:getFace("cfont", 15),
+      max_width = self.width,
+    }
+  end
+
+  local function heading(text)
+    return TextWidget:new {
+      text = text,
+      face = Font:getFace("cfont", 17),
+      bold = true,
+      max_width = self.width,
+    }
+  end
+
+  -- description: a heading, then the whole text. It is not clipped to a height
+  -- (a TextBoxWidget given one hides the rest, and the scroll container around
+  -- it cannot reveal it); it is as tall as the text and the body scrolls.
+  self.description_text = nil
+  if summary.description then
+    self.description_text = TextBoxWidget:new {
+      text = summary.description,
       face = Font:getFace("cfont", 16),
       width = self.width,
       alignment = "left",
     }
   end
 
-  -- the reader's own standing with the book, above the metadata table
-  local status_bits = {}
-  if detail.status_id then
-    table.insert(status_bits, Shelf.statusLabel(detail.status_id))
-  end
-  if detail.user_rating and detail.user_rating > 0 then
-    table.insert(status_bits, tostring(detail.user_rating) .. "*")
-  end
-
-  self.status_text = TextWidget:new {
-    text = table.concat(status_bits, "  "),
-    face = Font:getFace("smallinfofont"),
-    max_width = self.width,
-  }
-
   --[[--
-  Metadata rows: a fixed two column grid, label then value.
+  Details: what the header does not already say, as a two column grid.
 
-  The description is skipped here. Shelf.detailRows emits it as one of its
-  rows, but the dialog gives it a dedicated wrapping box further down -- so
-  leaving it in printed the whole description twice, once crammed into a
-  two-column grid cell and once properly wrapped. Filtering it out at the
-  display layer leaves Shelf.detailRows complete for any other caller that
-  genuinely wants the description as a row.
+  A fixed label column, so the values line up whatever the labels say: the label
+  sits in a container of set width instead of sizing the column to its own text.
+  The value wraps, so a long value stays on screen.
   ]]
-  local rows = Shelf.detailRows(book)
   self.meta_rows = {}
-
-  for _, row in ipairs(rows) do
-    if row.label ~= "Description" then
-      -- A fixed label column, so the values line up whatever the labels say:
-      -- the label sits in a container of set width instead of sizing the column
-      -- to its own text. The value wraps, so a long author list or series name
-      -- stays on screen.
-      local label_width = math.floor(self.width * 0.32)
-      local label = TextWidget:new {
-        text = row.label,
-        face = Font:getFace("cfont", 15),
-        max_width = label_width,
-      }
-      local label_cell = LeftContainer:new {
-        dimen = Geom:new { w = label_width, h = label:getSize().h },
-        label,
-      }
-      local value = TextBoxWidget:new {
-        text = tostring(row.value),
-        face = Font:getFace("cfont", 15),
-        width = self.width - label_width - 20,
-        alignment = "left",
-      }
-      table.insert(self.meta_rows, HorizontalGroup:new {
-        align = "top",
-        label_cell,
-        HorizontalSpan:new { width = 10 },
-        value,
-      })
-    end
-  end
-
-  -- description is the only free text field, so it gets its own wrapping box
-  self.description_text = nil
-  if book.description and book.description ~= "" then
-    self.description_text = TextBoxWidget:new {
-      text = book.description,
+  local label_width = math.floor(self.width * 0.32)
+  for _, row in ipairs(Shelf.extraRows(book)) do
+    local label = TextWidget:new {
+      text = row.label,
       face = Font:getFace("cfont", 15),
-      -- No height: a TextBoxWidget given one shows only the lines that fit and
-      -- hides the rest, and the scroll container around it cannot reveal them.
-      -- Left unset it is as tall as the text and the body scrolls.
-      width = self.width - 20,
+      max_width = label_width,
+    }
+    local label_cell = LeftContainer:new {
+      dimen = Geom:new { w = label_width, h = label:getSize().h },
+      label,
+    }
+    local value = TextBoxWidget:new {
+      text = tostring(row.value),
+      face = Font:getFace("cfont", 15),
+      width = self.width - label_width - 20,
       alignment = "left",
     }
+    table.insert(self.meta_rows, HorizontalGroup:new {
+      align = "top",
+      label_cell,
+      HorizontalSpan:new { width = 10 },
+      value,
+    })
   end
 
   local close_button = Button:new {
@@ -192,30 +259,37 @@ function BookDetailDialog:init()
     close_button,
   }
 
-  -- Built by appending, never as one table constructor: most books have no
-  -- subtitle, and a nil in the middle of the constructor is a hole that
-  -- VerticalGroup's ipairs stops at, so everything after the title (status,
-  -- metadata, description) silently vanished.
-  local content = VerticalGroup:new {}
+  -- Built by appending, never as one table constructor: most things here are
+  -- optional, and a nil in the middle of a constructor is a hole that
+  -- VerticalGroup's ipairs stops at, so everything after it silently vanished.
+  local content = VerticalGroup:new { align = "left" }
   local function add(widget)
     if widget then table.insert(content, widget) end
   end
-  add(self.title_text)
-  add(self.subtitle_text)
-  add(self.status_text)
-  add(VerticalSpan:new { height = 10 })
   self.content_group = content
 
-  for _, row in ipairs(self.meta_rows) do
-    table.insert(content, row)
-  end
+  add(header)
+  add(VerticalSpan:new { height = 14 })
+  add(self.status_text)
+  add(self.community_text)
 
   if self.description_text then
-    table.insert(content, VerticalSpan:new { height = 10 })
-    table.insert(content, self.description_text)
+    add(VerticalSpan:new { height = 14 })
+    add(heading(_("About")))
+    add(VerticalSpan:new { height = 6 })
+    add(self.description_text)
   end
 
-  table.insert(content, VerticalSpan:new { height = 10 })
+  if #self.meta_rows > 0 then
+    add(VerticalSpan:new { height = 14 })
+    add(heading(_("Details")))
+    add(VerticalSpan:new { height = 6 })
+    for _, row in ipairs(self.meta_rows) do
+      add(row)
+    end
+  end
+
+  add(VerticalSpan:new { height = 10 })
 
   --[[--
   A full description plus every metadata row overflows a small e-ink screen, so
@@ -276,6 +350,57 @@ function BookDetailDialog:init()
   self.layout = { { close_button } }
 
   self[1] = self.frame
+
+  self:loadCover(summary.cover, cover_width, cover_height)
+end
+
+--
+-- Fetch the cover and drop it into its box.
+--
+-- The loader answers from the on-disk cover cache first and does not touch the
+-- network when offline, so a cover you have seen shows without a connection.
+-- Everything it hands back is guarded on the dialog still being open: it can be
+-- closed (and its buffer freed) while the image is on its way.
+--
+function BookDetailDialog:loadCover(cover, width, height)
+  if not (cover and self.cover_cell) then return end
+
+  local loader = self.image_loader or require("hardcover/lib/ui/image_loader")
+  local _, halt = loader:loadImages({ cover.url }, function(_, content)
+    if self.closed or not self.cover_cell then return end
+
+    local RenderImage = require("ui/renderimage")
+    local bb = RenderImage:renderImageData(content, #content, false, width, height)
+    if not bb then return end
+
+    self.cover_bb = bb
+    -- scale_factor 0 fits the picture inside the box keeping its proportions;
+    -- image_disposable is off because this dialog owns (and frees) the buffer
+    self.cover_cell[1] = CenterContainer:new {
+      dimen = Geom:new { w = width, h = height },
+      ImageWidget:new {
+        image = bb,
+        image_disposable = false,
+        width = width,
+        height = height,
+        scale_factor = 0,
+      },
+    }
+    UIManager:setDirty(self, "ui")
+  end)
+  self.cover_halt = halt
+end
+
+-- Stop fetching and give back the picture's memory.
+function BookDetailDialog:releaseCover()
+  if self.cover_halt then
+    self.cover_halt()
+    self.cover_halt = nil
+  end
+  if self.cover_bb and self.cover_bb.free then
+    self.cover_bb:free()
+  end
+  self.cover_bb = nil
 end
 
 --
@@ -290,6 +415,9 @@ end
 function BookDetailDialog:setDetail(detail)
   self.detail = detail
   self.loading = false
+
+  -- a rebuild means a new cover box; drop the old picture and any fetch for it
+  self:releaseCover()
 
   if self[1] and type(self[1].free) == "function" then
     pcall(function() self[1]:free() end)
@@ -312,6 +440,8 @@ end
 -- not. Without it the dialog stays on the e-ink panel after it has closed,
 -- until something else refreshes that area.
 function BookDetailDialog:onCloseWidget()
+  self.closed = true
+  self:releaseCover()
   UIManager:setDirty(nil, "ui")
 end
 

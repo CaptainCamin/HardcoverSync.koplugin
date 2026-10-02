@@ -74,6 +74,11 @@
 
 ### Added
 
+* A new book details layout: the cover sits beside the title, author, series and a line of facts (year, pages,
+  format); under it your own status and rating, then what the community makes of the book; then the
+  description under an "About" heading, and the remaining details (publisher, language, ISBN) under "Details".
+  The cover comes from the cover cache, so a cover you have seen also shows offline, and is released when the
+  screen closes.
 * A home screen: `Hardcover` → `Home`, or the new `Hardcover: Home` action (a gesture, profile or another plugin
   can launch it). It lists your shelves (Currently Reading, Want to Read, Read, Did Not Finish) with how many
   books are on each, opens at once from the counts it last saved (so it works offline), and refreshes them in

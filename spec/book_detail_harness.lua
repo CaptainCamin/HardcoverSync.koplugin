@@ -67,6 +67,8 @@ local widgets = {
   ["ui/widget/textwidget"] = widget("Text"),
   ["ui/widget/textboxwidget"] = widget("TextBox"),
   ["ui/widget/button"] = widget("Button"),
+  ["ui/widget/imagewidget"] = widget("Image"),
+  ["ui/renderimage"] = { renderImageData = function() return _G.FAKE_BB end },
   ["ui/widget/horizontalgroup"] = widget("HGroup"),
   ["ui/widget/horizontalspan"] = widget("HSpan"),
   ["ui/widget/verticalgroup"] = widget("VGroup"),
@@ -119,45 +121,156 @@ local function detail(book)
   return { book = book, status_id = 2, user_rating = 4 }
 end
 
+local function contains(group, widget)
+  for _, child in ipairs(group) do
+    if child == widget then return true end
+  end
+  return false
+end
+
+-- a loader that records what it is asked for and hands the image over on demand
+local function fakeLoader()
+  local loader = { urls = {}, halted = false }
+  function loader:loadImages(urls, callback)
+    for _, url in ipairs(urls) do self.urls[#self.urls + 1] = url end
+    self.deliver = callback
+    return {}, function() self.halted = true end
+  end
+  return loader
+end
+
+local FULL = {
+  title = "The Dispossessed", subtitle = "An Ambiguous Utopia",
+  contributions = { { author = { name = "Ursula K. Le Guin" } } },
+  book_series = { { position = 1, series = { name = "Hainish Cycle" } } },
+  release_year = 1974, pages = 387, rating = 4.3, ratings_count = 12345, users_count = 56789,
+  description = "A description.", publisher = { name = "Harper" }, isbn_13 = "9780061054884",
+  cached_image = { url = "http://img/cover.jpg", width = 200, height = 300 },
+}
+
 print("\n== the body is built whole ==")
 
-check("a book with no subtitle still shows its status, metadata and description", function()
-  local d = BookDetailDialog:new { detail = detail({ title = "T", pages = 300, release_year = 2001, description = "About it." }) }
-  local k = kinds(d.content_group)
-  -- title, status, spacer, 2 metadata rows, spacer, description, spacer
-  assert(#k == 8, "only " .. #k .. " of 8 widgets reached the group: " .. table.concat(k, ","))
+check("a book with no subtitle still shows its status, details and description", function()
+  local d = BookDetailDialog:new { detail = detail({ title = "T", description = "About it.", publisher = { name = "P" } }) }
+  assert(contains(d.content_group, d.status_text), "status missing")
+  assert(contains(d.content_group, d.description_text), "description missing: " .. table.concat(kinds(d.content_group), ","))
+  assert(#d.meta_rows == 1 and contains(d.content_group, d.meta_rows[1]), "details missing")
 end)
 
-check("a book with a subtitle shows it too", function()
-  local d = BookDetailDialog:new { detail = detail({ title = "T", subtitle = "A Subtitle", pages = 300 }) }
-  local k = kinds(d.content_group)
-  assert(k[2] == "TextBox", "the subtitle is not second: " .. table.concat(k, ","))
-  assert(#k >= 6, "the group stopped short: " .. table.concat(k, ","))
+check("a book with a subtitle shows it in the header", function()
+  local d = BookDetailDialog:new { detail = detail({ title = "T", subtitle = "A Subtitle" }) }
+  assert(d.subtitle_text and d.subtitle_text.kind == "TextBox", "no subtitle")
+  assert(contains(d.content_group, d.description_text) == false)
+  assert(#kinds(d.content_group) >= 3, table.concat(kinds(d.content_group), ","))
 end)
 
 check("a detail rebuilt from a saved row (no edition fields) is whole", function()
   local row = Shelf.normalizeEntry({ id = 1, status_id = 1, book = { book_id = 7, title = "Saved", pages = 100, description = "d" } })
   local d = BookDetailDialog:new { detail = Shelf.detailFromEntry(row) }
-  assert(#kinds(d.content_group) >= 5, table.concat(kinds(d.content_group), ","))
+  assert(d.title_text and d.description_text and contains(d.content_group, d.description_text))
+end)
+
+check("what the book has appears, what it lacks does not", function()
+  local d = BookDetailDialog:new { detail = detail(FULL) }
+  assert(d.authors_text and d.series_text and d.facts_text and d.community_text, "header lines missing")
+  local bare = BookDetailDialog:new { detail = { book = { title = "T" } } }
+  assert(bare.authors_text == nil and bare.series_text == nil and bare.facts_text == nil
+    and bare.status_text == nil and bare.community_text == nil and bare.description_text == nil,
+    "invented a line for a field the book does not have")
+  assert(#bare.meta_rows == 0, "invented detail rows")
+end)
+
+print("\n== the header ==")
+
+check("the title is bold and wraps", function()
+  local d = BookDetailDialog:new { detail = detail({ title = string.rep("Long ", 40) }) }
+  assert(d.title_text.kind == "TextBox" and d.title_text.bold == true)
+  assert(d.title_text.width == d.width, "no cover, so it should span the width")
+end)
+
+check("with a cover, the text sits beside it in the width that is left", function()
+  local d = BookDetailDialog:new { detail = detail(FULL), image_loader = fakeLoader() }
+  assert(d.cover_cell, "no cover box")
+  local cover_w = math.floor(d.width * 0.30)
+  assert(d.title_text.width == d.width - cover_w - 15, "title width " .. tostring(d.title_text.width))
+  assert(d.content_group[1].kind == "HGroup", "header is not cover-beside-text")
+end)
+
+check("the cover box has a fixed size, so the text does not move when the picture arrives", function()
+  local d = BookDetailDialog:new { detail = detail(FULL), image_loader = fakeLoader() }
+  local box = d.cover_cell[1].dimen
+  assert(box.w == math.floor(d.width * 0.30) and box.h == math.floor(box.w * 1.5), "box " .. box.w .. "x" .. box.h)
+end)
+
+check("no cover, no box and no fetch", function()
+  local loader = fakeLoader()
+  local d = BookDetailDialog:new { detail = detail({ title = "T" }), image_loader = loader }
+  assert(d.cover_cell == nil and #loader.urls == 0)
+  assert(d.content_group[1] == d.content_group[1] and d.content_group[1].kind ~= "HGroup", "header has a cover column with no cover")
+end)
+
+print("\n== the cover ==")
+
+check("the cover is requested by its url", function()
+  local loader = fakeLoader()
+  BookDetailDialog:new { detail = detail(FULL), image_loader = loader }
+  assert(#loader.urls == 1 and loader.urls[1] == "http://img/cover.jpg", table.concat(loader.urls, ","))
+end)
+
+check("when the picture arrives it goes into the box", function()
+  local loader = fakeLoader()
+  local d = BookDetailDialog:new { detail = detail(FULL), image_loader = loader }
+  _G.FAKE_BB = { free = function() end }
+  loader.deliver("http://img/cover.jpg", "IMAGEBYTES")
+  assert(d.cover_bb == _G.FAKE_BB, "the picture was not kept")
+  local filled = d.cover_cell[1]
+  assert(filled.kind == "Center" and filled[1].kind == "Image", "the box was not filled")
+  assert(filled[1].scale_factor == 0, "the picture is not fitted to the box")
+  assert(filled[1].image_disposable == false, "the widget would free a buffer the dialog owns")
+end)
+
+check("closing stops the fetch and frees the picture", function()
+  local loader, freed = fakeLoader(), false
+  local d = BookDetailDialog:new { detail = detail(FULL), image_loader = loader }
+  _G.FAKE_BB = { free = function() freed = true end }
+  loader.deliver("http://img/cover.jpg", "IMAGEBYTES")
+  d:onCloseWidget()
+  assert(loader.halted, "the fetch was left running")
+  assert(freed, "the picture's memory was not released")
+  assert(d.cover_bb == nil)
+end)
+
+check("a picture that arrives after the dialog closed is ignored", function()
+  local loader = fakeLoader()
+  local d = BookDetailDialog:new { detail = detail(FULL), image_loader = loader }
+  d:onCloseWidget()
+  local rendered = false
+  _G.FAKE_BB = setmetatable({}, { __index = function() rendered = true end })
+  loader.deliver("http://img/cover.jpg", "IMAGEBYTES")
+  assert(d.cover_bb == nil, "kept a picture for a closed dialog")
+end)
+
+check("rebuilding the dialog drops the old picture and fetch", function()
+  local loader, freed = fakeLoader(), false
+  local d = BookDetailDialog:new { detail = detail(FULL), image_loader = loader }
+  _G.FAKE_BB = { free = function() freed = true end }
+  loader.deliver("http://img/cover.jpg", "IMAGEBYTES")
+  d:setDetail(detail({ title = "Other" }))
+  assert(loader.halted and freed, "the old cover was left behind")
 end)
 
 print("\n== text that must fit ==")
 
-check("a long title wraps instead of running off the screen", function()
-  local d = BookDetailDialog:new { detail = detail({ title = string.rep("Long ", 40) }) }
-  assert(d.title_text.kind == "TextBox", "title is " .. tostring(d.title_text.kind))
-  assert(d.title_text.width == d.width)
-end)
-
 check("single-line text is limited with max_width, the field TextWidget reads", function()
-  local d = BookDetailDialog:new { detail = detail({ title = "T" }) }
+  local d = BookDetailDialog:new { detail = detail({ title = "T", rating = 4, users_count = 10 }) }
   assert(d.status_text.max_width == d.width, "status max_width " .. tostring(d.status_text.max_width))
+  assert(d.community_text.max_width == d.width, "community max_width " .. tostring(d.community_text.max_width))
   local loading = BookDetailDialog:new { loading = true }
   assert(loading.loading_text.max_width == loading.width, "loading text is not limited")
 end)
 
-check("metadata labels sit in a fixed-width column and values wrap", function()
-  local d = BookDetailDialog:new { detail = detail({ title = "T", pages = 300, release_year = 2001 }) }
+check("detail labels sit in a fixed-width column and values wrap", function()
+  local d = BookDetailDialog:new { detail = detail({ title = "T", publisher = { name = "Harper" }, isbn_13 = "123" }) }
   local want = math.floor(d.width * 0.32)
   assert(#d.meta_rows == 2, "rows: " .. #d.meta_rows)
   for _, row in ipairs(d.meta_rows) do
@@ -169,6 +282,51 @@ end)
 check("the description is not clipped to a fixed height", function()
   local d = BookDetailDialog:new { detail = detail({ title = "T", description = string.rep("word ", 2000) }) }
   assert(d.description_text.height == nil, "height = " .. tostring(d.description_text.height))
+end)
+
+print("\n== what the header says ==")
+
+check("every line is a finished string", function()
+  local sum = Shelf.detailSummary(detail(FULL))
+  assert(sum.title == "The Dispossessed" and sum.subtitle == "An Ambiguous Utopia")
+  assert(sum.authors == "Ursula K. Le Guin", tostring(sum.authors))
+  assert(sum.series == "Hainish Cycle #1", tostring(sum.series))
+  assert(sum.facts == "1974 \194\183 387 pages", tostring(sum.facts))
+  assert(sum.mine == "Currently Reading \194\183 Your rating 4", tostring(sum.mine))
+  assert(sum.community == "Community 4.3 (12,345 ratings) \194\183 56,789 readers", tostring(sum.community))
+  assert(sum.cover and sum.cover.url == "http://img/cover.jpg")
+end)
+
+check("a field the book lacks is nil, never an empty string", function()
+  local sum = Shelf.detailSummary({ book = { title = "T", subtitle = "", description = "", rating = 0, ratings_count = 0, users_count = 0, pages = 0 } })
+  for _, key in ipairs({ "subtitle", "description", "authors", "series", "facts", "mine", "community", "cover" }) do
+    assert(sum[key] == nil, key .. " = " .. tostring(sum[key]))
+  end
+end)
+
+check("a half rating keeps its decimal, a whole one does not", function()
+  assert(Shelf.detailSummary({ book = {}, status_id = 3, user_rating = 4.5 }).mine == "Read \194\183 Your rating 4.5")
+  assert(Shelf.detailSummary({ book = {}, user_rating = 5 }).mine == "Your rating 5")
+end)
+
+check("a cover with no url is no cover", function()
+  assert(Shelf.detailSummary({ book = { cached_image = { url = "" } } }).cover == nil)
+  assert(Shelf.detailSummary({ book = { cached_image = "x" } }).cover == nil)
+end)
+
+check("an edition's release date beats the book's year", function()
+  local sum = Shelf.detailSummary({ book = { release_year = 1999, release_date = "2005-06-01" } })
+  assert(sum.facts == "2005", tostring(sum.facts))
+end)
+
+check("the detail rows leave out what the header already says", function()
+  local labels = {}
+  for _, row in ipairs(Shelf.extraRows(FULL)) do labels[#labels + 1] = row.label end
+  local text = table.concat(labels, ",")
+  assert(text:find("Publisher") and text:find("ISBN"), "lost a detail row: " .. text)
+  for _, said in ipairs({ "Author", "Series", "Pages", "Published", "Community", "Readers", "Description" }) do
+    assert(not text:find(said), said .. " is repeated in the details: " .. text)
+  end
 end)
 
 print("\n== leaving the screen ==")

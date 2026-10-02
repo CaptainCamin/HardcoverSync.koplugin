@@ -687,6 +687,7 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
             book_id: id
             title
             subtitle
+            cached_image
             release_year
             pages
             users_count
