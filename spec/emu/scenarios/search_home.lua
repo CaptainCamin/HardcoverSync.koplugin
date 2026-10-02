@@ -69,7 +69,10 @@ return {
     end
 
     -- the button opens the input
-    emu:tapExpecting(button.x + 5, button.y + 5)
+    -- (the field's own rectangle: text drawn inside a scrolling page is not positioned in
+    -- screen coordinates)
+    local field = home.search_button.dimen
+    emu:tapExpecting(field.x + 5, field.y + 5)
     local input = topmost()
     assert(input and input.getInputText, "the button opened nothing")
     emu:shot("search_input")
@@ -119,7 +122,7 @@ return {
     assert(topmost() == home, "closing the results did not return to home")
 
     -- no matches: an answer, not a blank list
-    local b = emu:expectText("Search books")
+    local b = home.search_button.dimen
     emu:tapExpecting(b.x + 5, b.y + 5)
     type_and_submit(emu, "zzzzznotfound")
     emu:pump()

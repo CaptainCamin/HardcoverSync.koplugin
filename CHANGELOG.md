@@ -6,6 +6,16 @@
 
 - Goals (and every other screen) no longer decide you are offline just because the device's connection check lags: right after waking, or while wifi settles, it can say "no" for a moment with wifi on and joined, which showed "Offline. Showing your goals as of ..." at once and stopped the refresh. The plugin now also trusts KOReader's own record of the connection.
 
+## 1.1.3
+
+### Removed
+
+- Home: the "Page X of Y" bar is gone; the page scrolls by swiping, with the scroll bar at the side.
+
+### Fixed
+
+- Home: the Goals heading is always shown under the Library, even with no current goal (or before goals have loaded), so the Goals screen and "New goal" are always reachable.
+
 ## 1.1.2
 
 ### Added

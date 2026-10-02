@@ -21,7 +21,6 @@ local IconWidget = require("ui/widget/iconwidget")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local ProgressWidget = require("ui/widget/progresswidget")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
-local ScrollPager = require("hardcover/lib/ui/scroll_pager")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
@@ -200,10 +199,15 @@ function HomeDialog:buildGoalCard(width, viewport)
   if self.goal_card_fn then
     return self.goal_card_fn(width, viewport)
   end
-  if type(self.goals) ~= "table" or #self.goals == 0 then return nil end
+  -- with nothing to show, the heading is still there: it is the way to the Goals screen
+  local function empty()
+    if not self.goals_cb then return nil end
+    return GoalWidgets.homeEmpty(width, viewport, function() self.goals_cb() end)
+  end
+  if type(self.goals) ~= "table" or #self.goals == 0 then return empty() end
   local today = Goals.today()
   local goal = Goals.pick(self.goals, today)
-  if not goal then return nil end
+  if not goal then return empty() end
   local p = Goals.pace(goal, today, Goals.extra(goal, today, self.finished_offline))
   return GoalWidgets.homeCard(goal, p, width, viewport,
     function() if self.goal_cb then self.goal_cb(goal) end end,
@@ -327,6 +331,7 @@ function HomeDialog:buildColumn(width, viewport)
   if goal_card then
     table.insert(column, Theme.span("l"))
     table.insert(column, goal_card)
+    table.insert(column, Theme.span("l")) -- room under the last card when scrolled to the end
   end
   column:resetLayout() -- children were added since its size was last read
   return column
@@ -367,25 +372,21 @@ function HomeDialog:build()
   local column = self:buildColumn(width, nil)
   local body
   self.scroll = nil
-  self.pager = nil
   if column:getSize().h > room then
     -- the second pass rebuilds the tiles for the narrower column
     self.tiles = {}
     local gutter = 3 * (ScrollableContainer.scroll_bar_width or Screen:scaleBySize(6))
     width = screen_w - 2 * M - gutter
-    -- the page buttons take the bottom of the screen, so the page scrolls in what is left
     self.scroll = ScrollableContainer:new {
-      dimen = Geom:new { x = 0, y = 0, w = screen_w, h = room - ScrollPager.HEIGHT },
+      dimen = Geom:new { x = 0, y = 0, w = screen_w, h = room },
       show_parent = self,
     }
     local scroll = self.scroll
     column = self:buildColumn(width, function() return scroll.dimen end)
     scroll[1] = HorizontalGroup:new { Theme.hspan(M), column }
-    -- the container works out how far it can scroll when it first paints; the page
-    -- buttons need to know now, to say how many pages there are
+    -- the container works out how far it can scroll when it first paints
     scroll:initState()
-    self.pager = ScrollPager.new(scroll, screen_w)
-    body = VerticalGroup:new { align = "left", scroll, self.pager.widget }
+    body = scroll
   else
     body = HorizontalGroup:new { Theme.hspan(M), column }
   end
@@ -519,7 +520,7 @@ function HomeDialog:restoreScroll(offset)
   if not scroll or not offset or offset <= 0 then return end
   scroll:setScrolledOffset(Geom:new { x = 0, y = math.min(offset, scroll._max_scroll_offset_y or offset) })
   if type(scroll._updateScrollBars) == "function" then
-    scroll:_updateScrollBars() -- moves the scroll bar and the page buttons' label
+    scroll:_updateScrollBars() -- moves the scroll bar
   end
 end
 
