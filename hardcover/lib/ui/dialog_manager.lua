@@ -500,6 +500,9 @@ function DialogManager:showHome(done_callback)
     search_cb = function()
       self:showSearchInput()
     end,
+    lists_cb = function()
+      self:showLists()
+    end,
     close_callback = function()
       if done_callback then done_callback() end
     end,
@@ -533,15 +536,24 @@ function DialogManager:showHome(done_callback)
     end
 
     local entries = Api:getCurrentlyReading(user_id, 5)
-    if not entries or not UIManager:isWidgetShown(dialog) then
+    if not UIManager:isWidgetShown(dialog) then
       return
     end
 
-    if cache then
-      cache:putReading(user_id, entries)
+    if entries then
+      if cache then
+        cache:putReading(user_id, entries)
+      end
+      if not Home.sameCards(entries, saved_reading) then
+        dialog:setReading(entries)
+      end
     end
-    if not Home.sameCards(entries, saved_reading) then
-      dialog:setReading(entries)
+
+    -- the "More lists" tile's number: yours plus the ones you follow
+    local list_count = Api:getListCount()
+    if list_count and UIManager:isWidgetShown(dialog) and dialog.list_count ~= list_count then
+      dialog.list_count = list_count
+      dialog:rebuild()
     end
   end)
 end
@@ -768,6 +780,144 @@ function DialogManager:showShelf(status_id, title, done_callback)
 end
 
 --
+-- Your lists and the ones you follow. Shown at once with a loading line, filled in
+-- when the answer arrives; a list opens in the shelf screen (showList).
+--
+function DialogManager:showLists(done_callback)
+  discard(self.lists_dialog)
+  self.lists_dialog = nil
+
+  local dialog = require("hardcover/lib/ui/lists_dialog"):new {
+    message = _("Loading your lists\226\128\166"),
+    select_cb = function(row)
+      self:showList(row)
+    end,
+    close_callback = function()
+      if done_callback then done_callback() end
+    end,
+  }
+  self.lists_dialog = dialog
+  UIManager:show(dialog)
+
+  if not NetworkManager:isConnected() then
+    dialog:setMessage(_("Lists need an internet connection."))
+    return
+  end
+
+  Api:getListsAsync(function(lists, err)
+    if not UIManager:isWidgetShown(dialog) then return end
+    if not lists then
+      StatusDialogs.retry(err, _("Loading your lists"),
+        function() self:showLists(done_callback) end,
+        function() UIManager:close(dialog) end)
+      return
+    end
+    if #lists.mine == 0 and #lists.following == 0 then
+      dialog:setMessage(_("No lists yet. Make one on hardcover.app and it will show up here."))
+      return
+    end
+    dialog:setLists(lists.mine, lists.following)
+  end)
+end
+
+--
+-- One list's books, in the list's own order, in the shelf screen (a ranked list
+-- numbers them). Loaded a page at a time in the background, like a shelf, but not
+-- saved for offline: a list is read when you open it.
+--
+function DialogManager:showList(row, done_callback)
+  local dialog = require("hardcover/lib/ui/shelf_dialog"):new {
+    compatibility_mode = self.settings:compatibilityMode(),
+    title = row.name,
+    sortable = false,
+    entries = {},
+    has_more = false,
+    offset = 0,
+    page_size = SHELF_PAGE_SIZE,
+    fetch_page = function(_offset, _limit, callback) callback(nil, _("not available offline")) end,
+    select_entry_cb = function(entry)
+      self:showBookDetail(entry.book_id, nil, done_callback)
+    end,
+    close_callback = function()
+      if done_callback then done_callback() end
+    end,
+  }
+  UIManager:show(dialog)
+
+  if not NetworkManager:isConnected() then
+    StatusDialogs.info(_("Lists need an internet connection."))
+    UIManager:close(dialog)
+    return
+  end
+
+  local loading = StatusDialogs.loading(_("Loading the list\226\128\166"))
+  Background.run(function()
+    local fresh, offset, retries, pages, rate_waits = {}, 0, 0, 0, 0
+    local complete, failure = false, nil
+
+    local function stopLoading()
+      if loading then
+        StatusDialogs.close(loading)
+        loading = nil
+      end
+    end
+
+    while UIManager:isWidgetShown(dialog) do
+      local entries, err, has_more = Api:getListBooks(row.id, row.source, row.ranked, offset, SHELF_PAGE_SIZE)
+
+      if not UIManager:isWidgetShown(dialog) then break end
+
+      if entries == nil then
+        if type(err) == "table" and err.completed == false and retries < SHELF_PAGE_RETRIES then
+          retries = retries + 1
+        elseif type(err) == "table" and err.status == 429 and rate_waits < SHELF_RATE_LIMIT_WAITS then
+          rate_waits = rate_waits + 1
+          Background.sleep(2 * rate_waits)
+        else
+          failure = err
+          break
+        end
+      else
+        retries = 0
+        pages = pages + 1
+        offset = offset + #entries
+        for _i, entry in ipairs(entries) do fresh[#fresh + 1] = entry end
+
+        if #entries == 0 or not has_more then
+          complete = true
+          break
+        end
+        stopLoading()
+        dialog.offset = #fresh
+        dialog:setEntries(fresh, true, true)
+        if pages >= SHELF_MAX_PAGES then break end
+      end
+    end
+
+    stopLoading()
+    if not UIManager:isWidgetShown(dialog) then return end
+
+    if complete then
+      if #fresh == 0 then
+        dialog:setEmptyState(_("No books on this list yet"))
+      else
+        dialog.offset = #fresh
+        dialog:setEntries(fresh, false, true)
+      end
+      return
+    end
+
+    if #fresh > 0 then return end -- keep what arrived
+    StatusDialogs.retry(failure, _("Loading the list"),
+      function()
+        UIManager:close(dialog)
+        self:showList(row, done_callback)
+      end,
+      function() UIManager:close(dialog) end)
+  end)
+end
+
+--
 -- Fetch and display full details for one book.
 --
 -- Show-then-fetch, same reason as showShelf: the detail used to be fetched
@@ -783,6 +933,10 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
     -- only when the Z-library plugin is there: no button that does nothing
     on_zlibrary = Zlibrary.available(self.ui) and function(d) self:searchZlibrary(d) end or nil,
     on_shelf = function(d) self:chooseShelf(d) end,
+    -- these open on top of the details, so closing them comes back here
+    on_series = function(_, name) self:searchBooks(name) end,
+    on_author = function(_, name) self:searchBooks(name) end,
+    on_status = function(_, status_id) self:showShelf(status_id, Shelf.statusLabel(status_id)) end,
   }
 
   UIManager:show(dialog)

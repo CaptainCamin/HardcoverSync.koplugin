@@ -25,6 +25,7 @@ local Font = require("ui/font")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
+local LeftContainer = require("ui/widget/container/leftcontainer")
 local LineWidget = require("ui/widget/linewidget")
 local TextWidget = require("ui/widget/textwidget")
 local VerticalGroup = require("ui/widget/verticalgroup")
@@ -205,6 +206,24 @@ function Theme.box(w, h, child, opts)
     background = opts.filled and Theme.BLACK or Theme.WHITE,
     CenterContainer:new {
       dimen = Geom:new { w = w - 2 * bs, h = h - 2 * bs },
+      child,
+    },
+  }
+end
+
+--
+-- Make a drawn widget (a pill, a line of text) tappable over a cell `w` wide
+-- and at least TOUCH_MIN tall, the widget at its left and centred vertically, so
+-- a small thing is still easy to hit. `viewport` as for a button.
+--
+function Theme.touchable(child, w, callback, viewport)
+  local TapRow = require("hardcover/lib/ui/tap_row")
+  local h = math.max(child:getSize().h, Theme.TOUCH_MIN)
+  return TapRow:new {
+    callback = callback,
+    viewport = viewport,
+    LeftContainer:new {
+      dimen = Geom:new { w = w, h = h },
       child,
     },
   }

@@ -29,6 +29,7 @@ local LeftContainer = require("ui/widget/container/leftcontainer")
 local _ = require("gettext")
 
 local Home = require("hardcover/lib/home")
+local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
 
@@ -43,6 +44,8 @@ local HomeDialog = InputContainer:extend {
   open_book_cb = nil,
   settings_cb = nil,
   search_cb = nil,
+  lists_cb = nil,    -- the "More lists" tile appears when this is set
+  list_count = nil,
   close_callback = nil,
 }
 
@@ -105,31 +108,31 @@ function HomeDialog:tappable(widget, book_id)
   }
 end
 
--- The first book you are reading, big: cover, title, author, progress.
-function HomeDialog:buildHero(card, width)
-  local cw = Screen:scaleBySize(108)
+-- A book you are reading: cover, title, author, progress. Every card is the same
+-- size, so the section reads as a tidy list however many books there are.
+function HomeDialog:buildCard(card, width)
+  local cw = Screen:scaleBySize(72)
   local ch = math.floor(cw * 1.5)
   local text_w = width - cw - Theme.line.hair * 2 - Theme.space.l
   local info = VerticalGroup:new { align = "left" }
-  local title_face = Theme.face("display")
+  local title_face = Theme.face("title")
   table.insert(info, TextBoxWidget:new {
     text = card.title,
     face = title_face,
     bold = true,
     width = text_w,
-    height = 3 * title_face.size * 1.4,
+    height = 2 * title_face.size * 1.4,
     height_adjust = true,
     height_overflow_show_ellipsis = true,
   })
   if card.author and card.author ~= "" then
-    table.insert(info, Theme.span("xs"))
-    table.insert(info, text(card.author, "body", { grey = true, width = text_w }))
+    table.insert(info, text(card.author, "small", { grey = true, width = text_w }))
   end
   if card.fraction or card.progress_text then
-    table.insert(info, Theme.span("m"))
+    table.insert(info, Theme.span("s"))
     if card.fraction then
-      table.insert(info, progressBar(text_w, Screen:scaleBySize(12), card.fraction))
-      table.insert(info, Theme.span("s"))
+      table.insert(info, progressBar(text_w, Screen:scaleBySize(10), card.fraction))
+      table.insert(info, Theme.span("xs"))
     end
     local line = card.progress_text
     if card.fraction then
@@ -140,45 +143,18 @@ function HomeDialog:buildHero(card, width)
       table.insert(info, text(line, "small", { width = text_w }))
     end
   end
-  return self:tappable(HorizontalGroup:new {
-    align = "top",
+  -- every card is as tall as its cover, so they line up whatever the text does
+  local row = HorizontalGroup:new {
+    align = "center",
     self:coverCell(card, cw, ch),
     Theme.hspan("l"),
-    info,
-  }, card.book_id)
-end
-
--- The others you are reading: a hairline, then a compact row.
-function HomeDialog:buildRow(card, width)
-  local cw = Screen:scaleBySize(46)
-  local ch = math.floor(cw * 1.5)
-  local text_w = width - cw - Theme.line.hair * 2 - Theme.space.m
-  local info = VerticalGroup:new { align = "left" }
-  table.insert(info, text(card.title, "title", { bold = true, width = text_w }))
-  local sub = HorizontalGroup:new { align = "center" }
-  local right = card.progress_text and text(card.progress_text, "small", { width = text_w }) or nil
-  local author_w = text_w - (right and (right:getSize().w + Theme.space.m) or 0)
-  local author = text(card.author or "", "small", { grey = true, width = author_w })
-  table.insert(sub, author)
-  if right then
-    table.insert(sub, Theme.hspan(math.max(0, text_w - author:getSize().w - right:getSize().w)))
-    table.insert(sub, right)
-  end
-  table.insert(info, sub)
-  if card.fraction then
-    table.insert(info, Theme.span("xs"))
-    table.insert(info, progressBar(text_w, Screen:scaleBySize(8), card.fraction))
-  end
+    CenterContainer:new { dimen = Geom:new { w = text_w, h = ch }, info },
+  }
   return VerticalGroup:new {
     align = "left",
     Theme.rule(width, false),
     Theme.span("s"),
-    self:tappable(HorizontalGroup:new {
-      align = "center",
-      self:coverCell(card, cw, ch),
-      Theme.hspan("m"),
-      info,
-    }, card.book_id),
+    self:tappable(row, card.book_id),
     Theme.span("s"),
   }
 end
@@ -194,7 +170,9 @@ function HomeDialog:buildTile(row, w, h)
   table.insert(line, text(row.title, "small", { width = w - Theme.space.l }))
   return TapRow:new {
     callback = function()
-      if self.select_cb then
+      if row.lists then
+        if self.lists_cb then self.lists_cb() end
+      elseif self.select_cb then
         self.select_cb(row)
       end
     end,
@@ -259,7 +237,15 @@ function HomeDialog:build()
   table.insert(library, Theme.span("m"))
   local tile_w = math.floor((width - Theme.space.m) / 2)
   local tile_h = Screen:scaleBySize(64)
-  local rows = self.rows or {}
+  -- "Currently reading" is opened from its own heading, so the tiles are the
+  -- other shelves, then the lists
+  local rows = {}
+  for _, row in ipairs(self.rows or {}) do
+    if row.status_id ~= HARDCOVER.STATUS.READING then rows[#rows + 1] = row end
+  end
+  if self.lists_cb then
+    rows[#rows + 1] = { lists = true, title = _("More lists"), count = self.list_count }
+  end
   for i = 1, #rows, 2 do
     local pair = HorizontalGroup:new { self:buildTile(rows[i], tile_w, tile_h) }
     if rows[i + 1] then
@@ -276,24 +262,42 @@ function HomeDialog:build()
   table.insert(column, field)
   table.insert(column, Theme.span("m"))
 
+  -- The heading is always there (it is the way into the Currently Reading
+  -- shelf); the cards under it are whatever has been loaded.
   local cards = Home.cards(self.entries)
+  local right = HorizontalGroup:new { align = "center" }
   if #cards > 0 then
     local count = #cards == 1 and _("1 book") or string.format(_("%d books"), #cards)
-    local header = Theme.sectionHeader(_("Currently reading"), width, text(count, "small", { grey = true }))
-    table.insert(column, header)
-    table.insert(column, Theme.span("m"))
+    table.insert(right, text(count, "small", { grey = true }))
+    table.insert(right, Theme.hspan("s"))
+  end
+  table.insert(right, text("\226\128\186", "title", { bold = true }))
+  local header = TapRow:new {
+    callback = function()
+      if self.select_cb then
+        self.select_cb({ status_id = HARDCOVER.STATUS.READING, title = _("Currently Reading") })
+      end
+    end,
+    Theme.sectionHeader(_("Currently reading"), width, right),
+  }
+  table.insert(column, header)
+  table.insert(column, Theme.span("m"))
 
+  if #cards == 0 then
+    -- nothing loaded (offline with nothing saved) or nothing being read: say so,
+    -- and where to go, rather than leaving a heading with nothing under it
+    table.insert(column, text(_("Nothing to show yet. Tap the heading to open the shelf."), "small",
+      { grey = true, width = width }))
+    table.insert(column, Theme.span("l"))
+  end
+
+  if #cards > 0 then
     column:resetLayout() -- a VerticalGroup keeps its size until told otherwise
-    local room = screen_h - title_bar:getSize().h - column:getSize().h - header:getSize().h
+    local room = screen_h - title_bar:getSize().h - column:getSize().h
       - Theme.space.m - library:getSize().h - Theme.space.m - Theme.space.l
     for i, card in ipairs(cards) do
-      local widget
-      if i == 1 then
-        widget = self:buildHero(card, width)
-      else
-        widget = self:buildRow(card, width)
-      end
-      local h = widget:getSize().h + (i == 1 and Theme.space.m or 0)
+      local widget = self:buildCard(card, width)
+      local h = widget:getSize().h
       -- always show the first, so the section never reads as empty
       if i > 1 and h > room then
         widget:free()
@@ -301,7 +305,6 @@ function HomeDialog:build()
       end
       room = room - h
       table.insert(column, widget)
-      if i == 1 then table.insert(column, Theme.span("m")) end
     end
     table.insert(column, Theme.span("m"))
   end

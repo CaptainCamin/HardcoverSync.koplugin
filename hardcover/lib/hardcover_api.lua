@@ -11,6 +11,7 @@ local UIManager = require("ui/uimanager")
 local socketutil = require("socketutil")
 
 local Book = require("hardcover/lib/book")
+local Lists = require("hardcover/lib/lists")
 local Shelf = require("hardcover/lib/shelf")
 local VERSION = require("hardcover_version")
 
@@ -627,6 +628,157 @@ function HardcoverApi:getShelf(user_id, status_id, offset, limit)
 end
 
 --
+-- Your lists and the lists you follow, each with the covers of its first books.
+--
+-- Everything goes through `me`, which the plugin's existing scopes allow;
+-- reading a list by id, or anyone else's lists, needs read:lists and is not asked
+-- for. Returns { mine = {...}, following = {...} } (see Lists.normalize), or nil
+-- and the error.
+--
+function HardcoverApi:getLists()
+  local query = [[
+    query {
+      me {
+        lists(order_by: [{ updated_at: desc }, { id: desc }]) {
+          id
+          name
+          books_count
+          ranked
+          privacy_setting_id
+          list_books(order_by: [{ position: asc }, { id: asc }], limit: 3) {
+            book { cached_image }
+          }
+        }
+        followed_lists(order_by: { id: desc }) {
+          list {
+            id
+            name
+            books_count
+            ranked
+            user { username }
+            list_books(order_by: [{ position: asc }, { id: asc }], limit: 3) {
+              book { cached_image }
+            }
+          }
+        }
+      }
+    }
+  ]]
+
+  local results, err = self:query(query, {})
+  if not results or not results.me then
+    return nil, err or { completed = false }
+  end
+  return Lists.normalize(results.me)
+end
+
+--
+-- How many lists there are to open (yours plus the ones you follow), for the
+-- home screen's tile. One small request.
+--
+function HardcoverApi:getListCount()
+  local query = [[
+    query {
+      me {
+        lists_aggregate { aggregate { count } }
+        followed_lists { list_id }
+      }
+    }
+  ]]
+  local results, err = self:query(query, {})
+  local me = results and results.me
+  if type(me) == "table" and me[1] ~= nil then me = me[1] end
+  if type(me) ~= "table" then
+    return nil, err or { completed = false }
+  end
+  local mine = tonumber(_t.dig(me, "lists_aggregate", "aggregate", "count")) or 0
+  local followed = type(me.followed_lists) == "table" and #me.followed_lists or 0
+  return mine + followed
+end
+
+--
+-- One page of a list's books, in the list's own order, as shelf entries (with
+-- `rank` on a ranked list). `source` says which part of `me` the list is read
+-- through: "mine" or "followed". Returns entries, nil, has_more.
+--
+function HardcoverApi:getListBooks(list_id, source, ranked, offset, limit)
+  offset = offset or 0
+  limit = limit or 100
+
+  local book_fields = [[
+    book_id: id
+    title
+    release_year
+    pages
+    users_count
+    users_read_count
+    rating
+    ratings_count
+    description
+    contributions { author { name } }
+    cached_image
+    book_series { position series { name } }
+  ]]
+  local list_books = [[
+    list_books(
+      order_by: [{ position: asc }, { id: asc }]
+      offset: $offset
+      limit: $limit
+    ) {
+      id
+      position
+      date_added
+      book { ]] .. book_fields .. [[ }
+    }
+  ]]
+
+  local query
+  if source == "followed" then
+    query = [[
+      query ($listId: Int!, $offset: Int!, $limit: Int!) {
+        me {
+          followed_lists(where: { list_id: { _eq: $listId } }) {
+            list { ]] .. list_books .. [[ }
+          }
+        }
+      }
+    ]]
+  else
+    query = [[
+      query ($listId: Int!, $offset: Int!, $limit: Int!) {
+        me {
+          lists(where: { id: { _eq: $listId } }) { ]] .. list_books .. [[ }
+        }
+      }
+    ]]
+  end
+
+  local results, err = self:query(query, { listId = list_id, offset = offset, limit = limit })
+  local me = results and results.me
+  if type(me) == "table" and me[1] ~= nil then me = me[1] end
+  if type(me) ~= "table" then
+    return nil, err or { completed = false }
+  end
+
+  local rows
+  if source == "followed" then
+    rows = _t.dig(me, "followed_lists", 1, "list", "list_books")
+  else
+    rows = _t.dig(me, "lists", 1, "list_books")
+  end
+  if type(rows) ~= "table" then
+    -- the list is gone (unfollowed, deleted): an empty page, not an error
+    rows = {}
+  end
+
+  local entries = {}
+  for i, list_book in ipairs(rows) do
+    entries[i] = Lists.entry(list_book, ranked)
+  end
+  return entries, nil, #rows >= limit
+end
+
+--
 -- How many books are on each of the given shelves, as { [status_id] = count }.
 --
 -- One aggregate per shelf, all in a single request. Each aliased aggregate counts
@@ -1210,6 +1362,14 @@ local function async(callback, fn, ...)
     end
     deliver(callback, unpack(results, 2, table.maxn(results)))
   end)
+end
+
+function HardcoverApi:getListsAsync(callback)
+  async(callback, self.getLists, self)
+end
+
+function HardcoverApi:getListCountAsync(callback)
+  async(callback, self.getListCount, self)
 end
 
 function HardcoverApi:getShelfAsync(user_id, status_id, offset, limit, callback)

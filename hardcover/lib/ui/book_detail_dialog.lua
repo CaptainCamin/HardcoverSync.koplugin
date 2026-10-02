@@ -40,6 +40,12 @@ local BookDetailDialog = FocusManager:extend {
   on_reviews = nil,
   -- present only when the Z-library plugin is installed (see hardcover/lib/zlibrary.lua)
   on_zlibrary = nil,
+  -- tapping the series pill, the status pill or the author: called with the
+  -- dialog and what to look for (the series' name, the status id, the author's
+  -- name). No callback, nothing tappable.
+  on_series = nil,
+  on_status = nil,
+  on_author = nil,
   width = nil,
   height = nil,
 }
@@ -158,6 +164,17 @@ function BookDetailDialog:init()
     if widget then table.insert(group, widget) end
   end
 
+  -- the header scrolls with the page, so taps are cut to what is showing (see
+  -- viewport.lua)
+  local viewport = function() return self.scroll and self.scroll.dimen end
+  -- `widget` made tappable when there is a handler and something to hand it
+  local function tappable(field, widget, handler, arg)
+    self[field] = nil
+    if not (handler and arg) then return widget end
+    self[field] = Theme.touchable(widget, text_width, function() handler(self, arg) end, viewport)
+    return self[field]
+  end
+
   self.title_text = wrapped(summary.title, "display", true)
   addTo(column, self.title_text)
   if summary.subtitle then
@@ -170,7 +187,17 @@ function BookDetailDialog:init()
   if summary.authors then
     self.authors_text = wrapped(summary.authors, "title")
     addTo(column, Theme.span("s"))
-    addTo(column, self.authors_text)
+    -- tappable: a hairline under the name says so, quietly
+    local author = self.authors_text
+    if self.on_author and summary.first_author then
+      author = VerticalGroup:new {
+        align = "left",
+        self.authors_text,
+        Theme.span("xs"),
+        Theme.rule(text_width, false),
+      }
+    end
+    addTo(column, tappable("author_tap", author, self.on_author, summary.first_author))
   else
     self.authors_text = nil
   end
@@ -182,20 +209,19 @@ function BookDetailDialog:init()
     self.facts_text = nil
   end
 
-  -- the series and where the book is on your shelves are informational: pills,
-  -- the current status filled
+  -- the series and where the book is on your shelves: pills, the current status
+  -- filled; each opens the search for that series / the shelf for that status
   self.series_text = nil
   self.status_text = nil
   if summary.series then
     self.series_text = Theme.pill(summary.series, { max_width = text_width - 2 * Theme.space.m })
-    addTo(column, Theme.span("m"))
-    addTo(column, self.series_text)
+    addTo(column, Theme.span("s"))
+    addTo(column, tappable("series_tap", self.series_text, self.on_series, summary.series_title))
   end
   local status_id = (self.detail or {}).status_id
   if status_id then
     self.status_text = Theme.pill(Shelf.statusLabel(status_id), { filled = true, max_width = text_width - 2 * Theme.space.m })
-    addTo(column, Theme.span("s"))
-    addTo(column, self.status_text)
+    addTo(column, tappable("status_tap", self.status_text, self.on_status, status_id))
   end
 
   -- a box of the cover's size holding the placeholder; loadCover swaps the
@@ -289,7 +315,6 @@ function BookDetailDialog:init()
   -- when that plugin is there, sharing the width equally. They scroll with the
   -- page, so each tap is cut to the visible area (see viewport.lua) or one
   -- scrolled away could catch a tap meant for what is over it.
-  local viewport = function() return self.scroll and self.scroll.dimen end
   local labels = { { "shelf_button", Shelf.shelfButtonText((self.detail or {}).status_id), "on_shelf", true } }
   self.shelf_button, self.reviews_button, self.zlibrary_button = nil, nil, nil
   if self.on_reviews then
