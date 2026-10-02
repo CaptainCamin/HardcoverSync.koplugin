@@ -188,9 +188,13 @@ return {
     local before = #review_calls()
     local was = NetworkManager.isConnected
     NetworkManager.isConnected = function() return false end
+    -- the plugin also trusts KOReader\'s own record of the connection, so go offline in both
+    local was_state = NetworkManager.getConnectionState
+    NetworkManager.getConnectionState = function() return false end
     manager:showReviews(103)
     emu:pump()
     NetworkManager.isConnected = was
+    NetworkManager.getConnectionState = was_state
     emu:expectText("internet connection")
     assert(#review_calls() == before, "asked for reviews while offline")
     emu:shot("reviews_offline")

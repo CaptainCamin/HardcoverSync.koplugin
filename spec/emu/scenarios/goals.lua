@@ -152,6 +152,9 @@ return {
     local NetworkManager = require("ui/network/manager")
     local was = NetworkManager.isConnected
     NetworkManager.isConnected = function() return false end
+    -- the plugin also trusts KOReader\'s own record of the connection, so go offline in both
+    local was_state = NetworkManager.getConnectionState
+    NetworkManager.getConnectionState = function() return false end
     queue_finished = 1
     local before = 0
     for _, c in ipairs(fixtures.calls) do if c.name == "getGoals" then before = before + 1 end end
@@ -177,15 +180,20 @@ return {
     manager.home_dialog:onClose()
     emu:pump()
     NetworkManager.isConnected = was
+    NetworkManager.getConnectionState = was_state
 
     -- never saved and offline: say so, no crash
     os.remove(cache_path)
     NetworkManager.isConnected = function() return false end
+    -- the plugin also trusts KOReader\'s own record of the connection, so go offline in both
+    local was_state = NetworkManager.getConnectionState
+    NetworkManager.getConnectionState = function() return false end
     manager = new_manager(emu, settings, "goals_none", queue)
     manager:showGoals()
     emu:pump()
     emu:expectText("need an internet connection")
     NetworkManager.isConnected = was
+    NetworkManager.getConnectionState = was_state
     emu:closeAll()
   end,
 }

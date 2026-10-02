@@ -6,7 +6,7 @@ local json = require("json")
 local _t = require("hardcover/lib/table_util")
 local T = require("ffi/util").template
 local Trapper = require("ui/trapper")
-local NetworkManager = require("ui/network/manager")
+local Network = require("hardcover/lib/network")
 local UIManager = require("ui/uimanager")
 local socketutil = require("socketutil")
 
@@ -129,7 +129,7 @@ function HardcoverApi:me()
 end
 
 function HardcoverApi:query(query, parameters)
-  if not NetworkManager:isConnected() or not self.enabled then
+  if not Network.connected() or not self.enabled then
     return
   end
 

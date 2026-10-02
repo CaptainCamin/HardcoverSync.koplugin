@@ -194,10 +194,14 @@ return {
     -- offline: the form is kept, nothing is sent
     local was = NetworkManager.isConnected
     NetworkManager.isConnected = function() return false end
+    -- the plugin also trusts KOReader\'s own record of the connection, so go offline in both
+    local was_state = NetworkManager.getConnectionState
+    NetworkManager.getConnectionState = function() return false end
     tap_button(emu, "Save")
     emu:expectText("You're offline")
     assert(#writes("saveGoal") == before, "sent a save while offline")
     NetworkManager.isConnected = was
+    NetworkManager.getConnectionState = was_state
 
     -- online again: it saves, as a change to that goal, and the goal screen shows it
     tap_button(emu, "Save")

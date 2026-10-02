@@ -56,7 +56,13 @@ return {
     emu:expectText("5")
 
     -- tapping it opens the index
-    tap_text(emu, "More lists")
+    -- (the tile's own rectangle: text drawn inside a scrolling page is not positioned in
+    -- screen coordinates)
+    local tile
+    for _, t in ipairs(home.tiles) do if t.key == "lists" then tile = t.tile.dimen end end
+    assert(tile, "no More lists tile")
+    emu:tapExpecting(tile.x + math.floor(tile.w / 2), tile.y + math.floor(tile.h / 2))
+    emu:pump()
     local dialog = manager.lists_dialog
     assert(dialog and UIManager:isWidgetShown(dialog), "the tile did not open the lists")
     for _, expected in ipairs({

@@ -3,7 +3,7 @@ local T = require("ffi/util").template
 local json = require("json")
 
 local UIManager = require("ui/uimanager")
-local NetworkManager = require("ui/network/manager")
+local Network = require("hardcover/lib/network")
 
 local ConfirmBox = require("ui/widget/confirmbox")
 local InfoMessage = require("ui/widget/infomessage")
@@ -416,7 +416,7 @@ function DialogManager:showSearchInput(initial)
 end
 
 function DialogManager:searchBooks(query)
-  if not NetworkManager:isConnected() then
+  if not Network.connected() then
     StatusDialogs.error(_("Searching needs an internet connection."))
     return
   end
@@ -523,7 +523,7 @@ function DialogManager:showHome(done_callback)
   UIManager:show(dialog)
   self:checkForUpdate()
 
-  if not NetworkManager:isConnected() then
+  if not Network.connected() then
     return
   end
 
@@ -644,7 +644,7 @@ function DialogManager:showShelf(status_id, title, done_callback)
     -- Only used by the reload icon, which is shown when a load was interrupted
     -- and the shelf is not complete: it carries on from where the list stops.
     fetch_page = function(offset, limit, callback)
-      if not NetworkManager:isConnected() then
+      if not Network.connected() then
         callback(nil, _("not available offline"))
         return
       end
@@ -669,7 +669,7 @@ function DialogManager:showShelf(status_id, title, done_callback)
   end
 
   -- Offline there is nothing to wait for: say what is being shown and stop.
-  if not NetworkManager:isConnected() then
+  if not Network.connected() then
     if cached then
       StatusDialogs.info(string.format(_("Offline: showing your list as it was on %s"),
         os.date("%Y-%m-%d", cached.saved_at or os.time())))
@@ -709,7 +709,7 @@ function DialogManager:showShelf(status_id, title, done_callback)
         return
       end
 
-      if not NetworkManager:isConnected() then
+      if not Network.connected() then
         failure = _("no internet connection")
         break
       end
@@ -825,7 +825,7 @@ function DialogManager:showGoals(done_callback)
   self.goals_dialog = nil
 
   local note
-  local online = NetworkManager:isConnected()
+  local online = Network.connected()
   if cached and not online then note = goalsNote(saved_at, _("Offline.")) end
 
   local dialog = require("hardcover/lib/ui/goals_dialog"):new {
@@ -950,7 +950,7 @@ function DialogManager:savedGoals()
 end
 
 function DialogManager:saveGoal(dialog, form, on_saved)
-  if not NetworkManager:isConnected() then
+  if not Network.connected() then
     dialog:setMessage(_("You're offline. Your changes are kept here: save when you're connected."))
     return
   end
@@ -978,7 +978,7 @@ function DialogManager:saveGoal(dialog, form, on_saved)
 end
 
 function DialogManager:archiveGoal(dialog, goal, on_saved)
-  if not NetworkManager:isConnected() then
+  if not Network.connected() then
     dialog:setMessage(_("You're offline. Archiving needs a connection."))
     return
   end
@@ -1028,7 +1028,7 @@ function DialogManager:showLists(done_callback)
   self.lists_dialog = dialog
   UIManager:show(dialog)
 
-  if not NetworkManager:isConnected() then
+  if not Network.connected() then
     dialog:setMessage(_("Lists need an internet connection."))
     return
   end
@@ -1073,7 +1073,7 @@ function DialogManager:showList(row, done_callback)
   }
   UIManager:show(dialog)
 
-  if not NetworkManager:isConnected() then
+  if not Network.connected() then
     StatusDialogs.info(_("Lists need an internet connection."))
     UIManager:close(dialog)
     return
@@ -1194,7 +1194,7 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
     end
   end
 
-  if not NetworkManager:isConnected() then
+  if not Network.connected() then
     if saved_entry() then
       showSaved()
     else
@@ -1268,7 +1268,7 @@ end
 -- instead of a dead end.
 --
 function DialogManager:showReviews(book_id, done_callback, summary)
-  if not NetworkManager:isConnected() then
+  if not Network.connected() then
     StatusDialogs.info(_("Reviews need an internet connection"))
     return
   end
@@ -1340,7 +1340,7 @@ function DialogManager:chooseShelf(dialog)
   local detail = dialog.detail
   if not (detail and detail.book and detail.book.book_id) then return end
 
-  if not NetworkManager:isConnected() then
+  if not Network.connected() then
     StatusDialogs.info(_("You are offline. Changing a shelf needs a connection."))
     return
   end
@@ -1427,7 +1427,7 @@ function DialogManager:chooseLists(dialog)
   local detail = dialog.detail
   if not (detail and detail.book and detail.book.book_id) then return end
 
-  if not NetworkManager:isConnected() then
+  if not Network.connected() then
     StatusDialogs.info(_("You are offline. Changing a list needs a connection."))
     return
   end
@@ -1505,7 +1505,7 @@ function DialogManager:showListsPicker(dialog)
 
   local function toggle(r)
     if r.busy then return end
-    if not NetworkManager:isConnected() then
+    if not Network.connected() then
       StatusDialogs.info(_("You are offline. Changing a list needs a connection."))
       return
     end
@@ -1644,7 +1644,7 @@ end
 --
 function DialogManager:loadSeries(dialog, book, user_id)
   local series_id = Shelf.seriesId(book)
-  if not series_id or not NetworkManager:isConnected() then
+  if not series_id or not Network.connected() then
     return
   end
 
