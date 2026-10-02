@@ -247,6 +247,30 @@ end
 M.reviews_by_book = { [103] = M.reviews }
 
 -- how many books are on each shelf, as the home screen's count query returns them
+-- Your lists and a followed one, as `me` returns them (see Lists.normalize). The
+-- books of a list are the first N of the shelf fixture, in order.
+local function list_covers(n)
+  local out = {}
+  for i = 1, n do
+    out[i] = { book = { cached_image = M.shelf_books[i] and M.shelf_books[i].cached_image } }
+  end
+  return out
+end
+M.lists_me = { {
+  lists = {
+    { id = 1, name = "To Read - SciFi", books_count = 7, ranked = true, privacy_setting_id = 1, list_books = list_covers(3) },
+    { id = 2, name = "Books that made me grin", books_count = 4, ranked = false, privacy_setting_id = 1, list_books = list_covers(3) },
+    { id = 3, name = "Research", books_count = 1, ranked = false, privacy_setting_id = 3, list_books = list_covers(1) },
+    { id = 4, name = "Someday", books_count = 0, ranked = false, privacy_setting_id = 1, list_books = {} },
+  },
+  followed_lists = {
+    { list = { id = 106, name = "Top 25 Books to Unleash Your Creative Potential", books_count = 18, ranked = false,
+               user = { username = "hardcover" }, list_books = list_covers(2) } },
+  },
+} }
+-- how many books each list holds when opened (the shelf fixture is long)
+M.list_sizes = { [1] = 7, [2] = 4, [3] = 1, [4] = 0, [106] = 18 }
+
 M.shelf_counts = { [2] = 3, [1] = 42, [3] = 130, [5] = 2 }
 
 -- what Api:getCurrentlyReading returns: three books in progress, the last with
@@ -392,6 +416,32 @@ function M.install(opts)
       page[#page + 1] = deepcopy(source[i])
     end
     return page
+  end
+
+  Api.getLists = function(_)
+    record("getLists")
+    if M.lists_fail then return nil, { completed = false } end
+    return require("hardcover/lib/lists").normalize(deepcopy(opts.lists_me or M.lists_me))
+  end
+
+  Api.getListCount = function(_)
+    record("getListCount")
+    local me = (opts.lists_me or M.lists_me)[1]
+    return #me.lists + #me.followed_lists
+  end
+
+  Api.getListBooks = function(_, list_id, source, ranked, offset, limit)
+    record("getListBooks")
+    calls[#calls].args = { list_id = list_id, source = source, ranked = ranked, offset = offset }
+    local Lists = require("hardcover/lib/lists")
+    local total = M.list_sizes[list_id] or 0
+    offset, limit = offset or 0, limit or 100
+    local entries = {}
+    for i = offset + 1, math.min(offset + limit, total) do
+      local b = M.shelf_books[i]
+      entries[#entries + 1] = Lists.entry({ id = 50000 + i, position = i - 1, date_added = "2026-01-01", book = b }, ranked)
+    end
+    return entries, nil, total > offset + limit
   end
 
   Api.getSeriesBooks = function(_, series_id, user_id)

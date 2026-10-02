@@ -61,6 +61,10 @@ function ShelfDialog:createListItem(entry)
     item.mandatory = (rating % 1 == 0 and string.format("%d", rating)
                                        or string.format("%.1f", rating)) .. "*"
   end
+  -- a ranked list numbers its books, in the column a shelf uses for your rating
+  if entry.rank then
+    item.mandatory = "#" .. tostring(entry.rank)
+  end
   item.entry = entry
 
   return item

@@ -103,6 +103,9 @@ Api.getCurrentlyReading = function()
   if nextresult == nil then return nil, { completed = false } end
   return nextresult
 end
+-- the "More lists" tile's number is a third request; it answers nothing here, so
+-- the screen is left as the other requests drew it
+Api.getListCount = function() return nil, { completed = false } end
 local count_results, count_calls
 Api.getShelfCounts = function()
   count_calls = count_calls + 1

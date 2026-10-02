@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+* Lists. Home has a "More lists" tile (with how many lists you have, yours plus the ones you follow) that opens
+  your lists: each with the covers of its first books, its name, how many books it holds, and whether it is
+  ranked, private or someone else's. Choosing one opens its books in the shelf screen, in the list's own
+  order; a ranked list numbers them #1, #2, and so on. Needs no new permission, and no new sign-in.
+* Home: the "Currently reading" heading opens that shelf, the books you are reading are all the same size, and
+  the Currently Reading tile is replaced by the lists tile.
+
 ## 1.0.3
 
 ### Fixed
