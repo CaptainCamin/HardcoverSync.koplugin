@@ -7,6 +7,7 @@ local Settings = {
   LINK_BY_ISBN = "link_by_isbn",
   LINK_BY_TITLE = "link_by_title",
   MENU_CONFIRMATION = "menu_confirmation",
+  SHELF_SORT = "shelf_sort",
   SYNC = "sync",
   TRACK_FREQUENCY = "track_frequency",
   TRACK_METHOD = "track_method",

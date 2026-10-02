@@ -12,10 +12,13 @@ local Background = require("hardcover/lib/background")
 local Book = require("hardcover/lib/book")
 local BookSearch = require("hardcover/lib/book_search")
 local Home = require("hardcover/lib/home")
+local Reviews = require("hardcover/lib/reviews")
 local Shelf = require("hardcover/lib/shelf")
+local Zlibrary = require("hardcover/lib/zlibrary")
 local User = require("hardcover/lib/user")
 
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
+local SETTING = require("hardcover/lib/constants/settings")
 
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 
@@ -560,10 +563,23 @@ function DialogManager:showShelf(status_id, title, done_callback)
   -- refreshes it.
   local cached = cache and cache:get(user_id, status_id)
 
+  -- the order you last chose for this shelf (the order of each shelf is
+  -- remembered separately)
+  local sort_choices = self.settings:readSetting(SETTING.SHELF_SORT)
+  local sort_key = type(sort_choices) == "table" and sort_choices[tostring(status_id)] or nil
+
   local dialog = require("hardcover/lib/ui/shelf_dialog"):new {
     compatibility_mode = self.settings:compatibilityMode(),
     title = title,
     status_id = status_id,
+    sortable = true,
+    sort_key = sort_key,
+    on_sort_change = function(key)
+      local saved = self.settings:readSetting(SETTING.SHELF_SORT)
+      saved = type(saved) == "table" and saved or {}
+      saved[tostring(status_id)] = key
+      self.settings:updateSetting(SETTING.SHELF_SORT, saved)
+    end,
     -- Empty until the load lands. Passing a nil here would reach the API as a
     -- nil offset and silently refetch page one forever.
     entries = {},
@@ -741,6 +757,10 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
   local dialog = require("hardcover/lib/ui/book_detail_dialog"):new {
     detail = nil,
     loading = true,
+    on_reviews = function() self:showReviews(book_id) end,
+    -- only when the Z-library plugin is there: no button that does nothing
+    on_zlibrary = Zlibrary.available(self.ui) and function(d) self:searchZlibrary(d) end or nil,
+    on_shelf = function(d) self:chooseShelf(d) end,
   }
 
   UIManager:show(dialog)
@@ -802,6 +822,210 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
   end)
 
   return dialog
+end
+
+--
+-- Search for the book on screen in the Z-library plugin (a separate plugin, found
+-- by what it can do). Its own results screen opens on top of this one.
+function DialogManager:searchZlibrary(dialog)
+  local detail = dialog and dialog.detail
+  -- the details carry authors as contributions: the summary joins them
+  local summary = detail and detail.book and Shelf.detailSummary(detail) or {}
+  local ok, why = Zlibrary.search(self.ui, { title = summary.title, authors = summary.authors })
+  if ok then return end
+
+  if why == "not_installed" then
+    StatusDialogs.info(_("The Z-library plugin is not installed or not enabled."))
+  elseif why == "no_title" then
+    StatusDialogs.info(_("This book has no title to search for."))
+  else
+    StatusDialogs.info(_("Could not open the Z-library search."))
+  end
+end
+
+-- Other readers' reviews of a book, opened from its details screen.
+--
+-- Nothing is fetched until this is called, and then one request per page of
+-- ten (Reviews.PAGE_SIZE): the API allows 60 a minute. Show-then-fetch, like
+-- the shelves: the list appears at once saying it is loading. Offline there is
+-- nothing to wait for, so say so and open nothing. A failed page offers a retry
+-- instead of a dead end.
+--
+function DialogManager:showReviews(book_id, done_callback)
+  if not NetworkManager:isConnected() then
+    StatusDialogs.info(_("Reviews need an internet connection"))
+    return
+  end
+
+  local dialog
+
+  -- one page, normalised; callback(rows, err, raw_count)
+  local function fetch_page(offset, limit, callback)
+    Api:getReviewsAsync(book_id, limit, offset, function(raw, err)
+      if not UIManager:isWidgetShown(dialog) then return end
+
+      if not raw then
+        StatusDialogs.retry(err, _("Loading reviews"),
+          function()
+            if offset == 0 then
+              dialog:setMessage(_("Loading reviews\226\128\166"))
+              fetch_page(0, limit, function(rows, e, raw_count)
+                if rows then dialog:addPage(rows, raw_count, 0) end
+              end)
+            else
+              dialog:loadMore()
+            end
+          end,
+          function()
+            -- giving up on the first page leaves nothing to look at
+            if offset == 0 then UIManager:close(dialog) end
+          end)
+        callback(nil, err or true)
+        return
+      end
+
+      callback(Reviews.normalizeAll(raw), nil, #raw)
+    end)
+  end
+
+  dialog = require("hardcover/lib/ui/reviews_dialog"):new {
+    message = _("Loading reviews\226\128\166"),
+    fetch_page = fetch_page,
+    close_callback = done_callback,
+  }
+  UIManager:show(dialog)
+
+  fetch_page(0, Reviews.PAGE_SIZE, function(rows, _err, raw_count)
+    if not rows then
+      -- a failed first page: the retry above reloads it, or closes the screen
+      return
+    end
+    dialog:addPage(rows, raw_count, 0)
+  end)
+end
+
+-- Put the book on the details screen on a shelf, or take it off.
+--
+-- Online only: the change is sent at once and the screen is updated from the
+-- answer, so offline there is nothing honest to show. (It does not touch the
+-- offline sync queue, which is for reading progress.)
+--
+function DialogManager:chooseShelf(dialog)
+  local detail = dialog.detail
+  if not (detail and detail.book and detail.book.book_id) then return end
+
+  if not NetworkManager:isConnected() then
+    StatusDialogs.info(_("You are offline. Changing a shelf needs a connection."))
+    return
+  end
+
+  local ButtonDialog = require("ui/widget/buttondialog")
+  local picker
+  local rows = {}
+
+  for _i, choice in ipairs(Shelf.statusChoices()) do
+    local current = detail.status_id == choice.status_id
+    rows[#rows + 1] = { {
+      -- a bullet marks where the book is now; choosing it again does nothing
+      text = (current and "\226\128\162 " or "") .. _(choice.label),
+      callback = function()
+        UIManager:close(picker)
+        if not current then
+          self:saveShelf(dialog, choice.status_id)
+        end
+      end,
+    } }
+  end
+
+  if detail.user_book_id then
+    rows[#rows + 1] = { {
+      text = _("Remove from library"),
+      callback = function()
+        UIManager:close(picker)
+        StatusDialogs.confirm {
+          text = string.format(_("Remove \"%s\" from your library? Your status, rating and reading history for it are deleted."),
+            tostring(detail.book.title or "")),
+          ok_text = _("Remove"),
+          ok_callback = function() self:removeFromShelf(dialog) end,
+        }
+      end,
+    } }
+  end
+
+  rows[#rows + 1] = { {
+    text = _("Cancel"),
+    callback = function() UIManager:close(picker) end,
+  } }
+
+  picker = ButtonDialog:new {
+    title = detail.status_id and _("Move to shelf") or _("Add to shelf"),
+    title_align = "center",
+    buttons = rows,
+  }
+  UIManager:show(picker)
+end
+
+-- The saved shelves and counts that a change of status makes wrong.
+function DialogManager:forgetShelves(old_status_id, new_status_id)
+  if not self.shelf_cache then return end
+  local ids = {}
+  if old_status_id then ids[#ids + 1] = old_status_id end
+  if new_status_id then ids[#ids + 1] = new_status_id end
+  self.shelf_cache:invalidate(User:getId(), ids)
+end
+
+function DialogManager:saveShelf(dialog, status_id)
+  local detail = dialog.detail
+  local old_status_id = detail.status_id
+  local in_library = detail.user_book_id ~= nil or old_status_id ~= nil
+
+  local loading = StatusDialogs.loading(_("Saving to your shelf…"))
+
+  -- the edition is only passed when the book is new to the library: for a book
+  -- already on a shelf, the upsert must not switch the edition it is read in
+  Api:updateUserBookAsync(detail.book.book_id, status_id, nil,
+    (not in_library) and detail.book.edition_id or nil,
+    function(user_book, err)
+      StatusDialogs.close(loading)
+
+      if not user_book then
+        StatusDialogs.retry(err, _("Saving to your shelf"),
+          function() self:saveShelf(dialog, status_id) end,
+          function() end)
+        return
+      end
+
+      -- the change happened whether or not the screen is still there
+      self:forgetShelves(old_status_id, status_id)
+      if UIManager:isWidgetShown(dialog) then
+        dialog:setStatus(status_id, user_book.id or detail.user_book_id)
+      end
+    end)
+end
+
+function DialogManager:removeFromShelf(dialog)
+  local detail = dialog.detail
+  local old_status_id = detail.status_id
+  local user_book_id = detail.user_book_id
+  if not user_book_id then return end
+
+  local loading = StatusDialogs.loading(_("Removing from your library…"))
+
+  Api:removeUserBookAsync(user_book_id, function(removed, err)
+    StatusDialogs.close(loading)
+
+    if not removed then
+      StatusDialogs.retry(err, _("Removing from your library"),
+        function() self:removeFromShelf(dialog) end,
+        function() end)
+      return
+    end
+
+    self:forgetShelves(old_status_id, nil)
+    if UIManager:isWidgetShown(dialog) then
+      dialog:setStatus(nil, nil)
+    end
+  end)
 end
 
 --

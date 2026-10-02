@@ -68,6 +68,10 @@ local function book_row(id, title, year, pages, opts)
   }
 end
 
+-- Books whose details come back with no library record (see getBookDetail).
+-- Scenarios may add to it; install() does not reset it.
+M.not_in_library = { [108] = true }
+
 M.books = {
   book_row(101, "The Dispossessed", 1974, 341, {
     author = "Ursula K. Le Guin",
@@ -202,6 +206,45 @@ do
   M.series_books[14] = { id = 14, name = "The Long Series", is_completed = false, books = long_books }
 end
 
+--[[--
+Reviews of a book, as Api:getReviews returns them: raw user_books rows in the
+API's own order (most liked first), with the awkward shapes real data has -- no
+`user` at all (privacy), no rating, no reviewed_at, a spoiler, and one review of
+several hundred words. Book 103 has 23 of them (three pages of ten); 105 has none.
+]]
+M.reviews = {}
+do
+  local paragraph = "I did not expect this book to stay with me the way it has. The first hundred pages are slow, "
+    .. "and the world is explained only by what people do in it, never by what anyone says about it. "
+    .. "By the middle I had stopped reading for the plot and was reading for the people. "
+  local long = {}
+  for i = 1, 6 do long[#long + 1] = paragraph .. "(" .. i .. ")" end
+  M.reviews[1] = {
+    id = 7001, rating = 4.5, review_has_spoilers = false, likes_count = 48, reviewed_at = "2025-11-02T09:15:00",
+    review_raw = table.concat(long, "\n\n"), review_length = 2200,
+    user = { username = "pagesturner", name = "Maya Okafor" },
+  }
+  M.reviews[2] = {
+    id = 7002, rating = 2, review_has_spoilers = true, likes_count = 31, reviewed_at = nil,
+    review_raw = "The ending, where the narrator turns out to have been dead the whole time, felt like a cheat to me.",
+    review_length = 100, user = { username = "grumpyreader", name = "" },
+  }
+  M.reviews[3] = {
+    id = 7003, rating = nil, review_has_spoilers = false, likes_count = 12, reviewed_at = nil,
+    review_raw = "Short and lovely. Read it in one sitting.", review_length = 42, user = nil,
+  }
+  for i = 4, 23 do
+    M.reviews[i] = {
+      id = 7000 + i, rating = (i % 2 == 0) and 3.5 or 5, review_has_spoilers = false,
+      likes_count = 24 - i, reviewed_at = "2025-0" .. (i % 9 + 1) .. "-15T10:00:00",
+      review_raw = "Review number " .. i .. ": a fair read with some good moments.", review_length = 50,
+      user = (i % 3 == 0) and nil or { username = "reader" .. i, name = "Reader " .. i },
+    }
+  end
+end
+-- books with a review list; any other book has none
+M.reviews_by_book = { [103] = M.reviews }
+
 -- how many books are on each shelf, as the home screen's count query returns them
 M.shelf_counts = { [2] = 3, [1] = 42, [3] = 130, [5] = 2 }
 
@@ -256,9 +299,13 @@ never in a real installation.
 ]]
 function M.real_settings(emu, ui)
   local HardcoverSettings = require("hardcover/lib/hardcover_settings")
-  return HardcoverSettings:new(
+  local settings = HardcoverSettings:new(
     emu.DataStorage:getSettingsDir() .. "/hardcoversync_settings.lua",
     ui or emu:stub_ui())
+  -- The emulated settings file outlives a run, and the live scenario stores the
+  -- real account's id in it: every fixture scenario must start as the fixture user.
+  settings:updateSetting(require("hardcover/lib/constants/settings").USER_ID, M.USER_ID)
+  return settings
 end
 
 --[[--
@@ -288,8 +335,8 @@ function M.install(opts)
   local calls = {}
   M.calls = calls
 
-  local function record(name)
-    calls[#calls + 1] = { name = name, at = os.clock() }
+  local function record(name, args)
+    calls[#calls + 1] = { name = name, at = os.clock(), args = args }
   end
 
   Api.getShelf = function(_, user_id, status_id, offset, limit)
@@ -327,6 +374,25 @@ function M.install(opts)
     return entries, nil, has_more
   end
 
+  -- One page of reviews. `M.reviews_fail` makes the next calls fail (set to a
+  -- number of failures to produce, or true for all of them).
+  Api.getReviews = function(_, book_id, limit, offset)
+    record("getReviews")
+    calls[#calls].args = { book_id = book_id, limit = limit, offset = offset }
+    if M.reviews_fail then
+      if type(M.reviews_fail) == "number" then
+        M.reviews_fail = (M.reviews_fail > 1) and (M.reviews_fail - 1) or nil
+      end
+      return nil, { completed = false }
+    end
+    local source = (opts.reviews_by_book or M.reviews_by_book)[book_id] or {}
+    local page = {}
+    for i = (offset or 0) + 1, math.min((offset or 0) + (limit or 10), #source) do
+      page[#page + 1] = deepcopy(source[i])
+    end
+    return page
+  end
+
   Api.getSeriesBooks = function(_, series_id, user_id)
     record("getSeriesBooks")
     return M.series_books[series_id]
@@ -357,6 +423,10 @@ function M.install(opts)
       detail.publisher = { name = "Fixture Press" }
       detail.language = { code2 = "en", language = "English" }
       detail.release_date = "2016-01-05"
+    end
+    if M.not_in_library[b.book_id] then
+      -- a book the reader has not shelved: no status, rating or library record
+      return { book = detail }
     end
     return {
       book = detail,
@@ -429,8 +499,13 @@ function M.install(opts)
   end
 
   Api.updateUserBook = function(_, book_id, status_id, privacy, edition_id)
-    record("updateUserBook")
+    record("updateUserBook", { book_id = book_id, status_id = status_id, edition_id = edition_id })
     return { id = 9000 + book_id, book_id = book_id, status_id = status_id, rating = 0 }
+  end
+
+  Api.removeUserBook = function(_, user_book_id)
+    record("removeUserBook", { user_book_id = user_book_id })
+    return { id = user_book_id }
   end
 
   Api.removeRead = function(_, user_book_id)

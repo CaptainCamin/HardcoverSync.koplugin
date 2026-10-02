@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.9.0
+
+### Added
+
+* **Search in Z-library** on the book details screen, beside Reviews, when the Z-library plugin
+  ([ZlibraryKO/zlibrary.koplugin](https://github.com/ZlibraryKO/zlibrary.koplugin)) is installed: it runs that
+  plugin's own search for the book's title and first author, and its results screen opens on top. With no Z-library
+  plugin there is no button. It relies on that plugin's internals (it has no public API), so a future version of it
+  may need this adjusting; if its search cannot be started it opens its search screen with the text filled in
+  instead.
+* Read other people's reviews of a book. The book details screen has a **Reviews** button under the description. It
+  opens a full-screen list, most liked first, ten to a page: the reader's name (or "A reader" when their account is
+  private), their rating (like `4.5*`), the likes, and the start of the review. Long reviews end in "Read more" and
+  open in full in a scrollable viewer; reviews that contain spoilers stay hidden behind "Contains spoilers - tap to
+  show" until tapped; "Load more reviews" fetches the next ten. Reviews are fetched in the background and only when
+  you open them (one request per page), say so when you are offline, and offer a retry when a request fails.
+
+* Add a book to a shelf, or change its status, from its details screen. The row under the details now has a **Shelf**
+  button next to Close: it says **Add to shelf** for a book that is not in your library, and **Shelf: Currently
+  Reading** (or Want to Read, Read, Did Not Finish) for one that is. Tapping it lists the four shelves, plus **Remove
+  from library** (after a confirmation) when the book is in it. The status line and the button update in place, keeping
+  the cover and your place on the page. It works from search results, shelves and the series carousel, runs in the
+  background, offers a retry if it fails, and needs a connection (offline it says so and changes nothing). Your saved
+  shelves, their counts and the reading list are refreshed rather than left showing the old status.
+
+* Sort your shelves. The button in the upper left of a shelf (Want to Read, Currently Reading, Read, Did Not Finish)
+  opens a Sort by menu: date added (newest or oldest first), title, author, year published, pages (shortest or
+  longest first), most readers on Hardcover, community rating, or your own rating. The order is remembered for each
+  shelf, shown in the title, and works offline. If a load was interrupted, "Load the rest of the list" is at the top of
+  the same menu.
+
 ## 0.8.0
 
 ### Added

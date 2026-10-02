@@ -722,6 +722,50 @@ function HardcoverApi:getCurrentlyReading(user_id, limit)
 end
 
 --
+-- One page of other readers' reviews of a book, most liked first.
+--
+-- Returns the raw user_books rows (see Reviews.normalizeAll), or nil and the
+-- error. `id` is a final tie-break: offset paging over rows that tie on
+-- likes_count and reviewed_at (reviewed_at is often null) otherwise skips and
+-- repeats rows from one page to the next. Needs the read:social scope.
+--
+function HardcoverApi:getReviews(book_id, limit, offset)
+  local query = [[
+    query ($bookId: Int!, $limit: Int!, $offset: Int!) {
+      user_books(
+        where: { book_id: { _eq: $bookId }, has_review: { _eq: true } }
+        order_by: [{ likes_count: desc }, { reviewed_at: desc }, { id: desc }]
+        limit: $limit
+        offset: $offset
+      ) {
+        id
+        rating
+        review_raw
+        review_has_spoilers
+        review_length
+        likes_count
+        reviewed_at
+        user {
+          username
+          name
+        }
+      }
+    }
+  ]]
+
+  local results, err = self:query(query, {
+    bookId = book_id,
+    limit = limit or 10,
+    offset = offset or 0,
+  })
+  if not results or not results.user_books then
+    return nil, err or { completed = false }
+  end
+
+  return results.user_books
+end
+
+--
 -- Full detail for one book, including description and community rating.
 -- `edition_id` is optional; when given, edition level fields are included.
 --
@@ -1039,10 +1083,33 @@ function HardcoverApi:updateUserBook(book_id, status_id, privacy_setting_id, edi
     edition_id = edition_id
   }
 
-  local result = self:query(query, { object = update_args })
+  local result, err = self:query(query, { object = update_args })
   if result and result.insert_user_book then
-    return result.insert_user_book.user_book
+    local inserted = result.insert_user_book
+    if inserted.user_book then
+      return inserted.user_book
+    end
+    return nil, inserted.error
   end
+  return nil, err
+end
+
+-- Take a book out of the library altogether (its status, rating and reads go
+-- with it). Returns { id = user_book_id } on success.
+function HardcoverApi:removeUserBook(user_book_id)
+  local query = [[
+    mutation ($id: Int!) {
+      delete_user_book(id: $id) {
+        id
+      }
+    }
+  ]]
+
+  local result, err = self:query(query, { id = user_book_id })
+  if result and result.delete_user_book then
+    return result.delete_user_book
+  end
+  return nil, err
 end
 
 function HardcoverApi:updateRating(user_book_id, rating)
@@ -1151,6 +1218,18 @@ end
 
 function HardcoverApi:getBookDetailAsync(book_id, user_id, edition_id, callback)
   async(callback, self.getBookDetail, self, book_id, user_id, edition_id)
+end
+
+function HardcoverApi:getReviewsAsync(book_id, limit, offset, callback)
+  async(callback, self.getReviews, self, book_id, limit, offset)
+end
+
+function HardcoverApi:updateUserBookAsync(book_id, status_id, privacy_setting_id, edition_id, callback)
+  async(callback, self.updateUserBook, self, book_id, status_id, privacy_setting_id, edition_id)
+end
+
+function HardcoverApi:removeUserBookAsync(user_book_id, callback)
+  async(callback, self.removeUserBook, self, user_book_id)
 end
 
 function HardcoverApi:findBooksAsync(title, author, user_id, callback)

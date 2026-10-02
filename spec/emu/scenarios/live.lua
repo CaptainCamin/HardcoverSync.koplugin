@@ -140,6 +140,48 @@ return {
       end
     end
 
+    --[[--
+    Reviews: one page for a book, from the server. Checks the query is accepted
+    (it needs the read:social scope), that rows come back in the shape the
+    Reviews module expects, and that the screen draws them. Any book may have no
+    reviews, so try the ones to hand and settle for an empty answer.
+    ]]
+    local Reviews = require("hardcover/lib/reviews")
+    -- the shelves above used up the burst allowance (10 requests, then one a
+    -- second): let it refill so a 429 is not mistaken for a broken screen
+    os.execute("sleep 12")
+    local review_book
+    for _, id in ipairs({ first_book_id, series_book_id }) do
+      if id and not review_book then
+        local rows, err = Api:getReviews(id, Reviews.PAGE_SIZE, 0)
+        assert(rows, "the reviews query failed: " .. tostring(err and (err.status or (err.errors and err.errors[1] and err.errors[1].message)) or "no response"))
+        assert(#rows <= Reviews.PAGE_SIZE, "asked for one page and got more")
+        local shaped = Reviews.normalizeAll(rows)
+        for _, review in ipairs(shaped) do
+          assert(type(review.reviewer) == "string" and review.reviewer ~= "", "a review has no reviewer name")
+          assert(type(review.text) == "string" and review.text ~= "", "a review has no text")
+        end
+        print(string.format("  live: book %s has %d reviews on its first page (%d shown)", tostring(id), #rows, #shaped))
+        if #shaped > 0 then review_book = id end
+      end
+    end
+    local target = review_book or first_book_id
+    if target then
+      manager:showReviews(target)
+      local dialog_deadline = os.time() + 30
+      local top
+      repeat
+        emu:pump(200)
+        top = UIManager:getTopmostVisibleWidget()
+        if not (top and top.name == "hardcover_reviews_dialog" and not top.message) then os.execute("sleep 1") end
+      until (top and top.name == "hardcover_reviews_dialog" and not top.message) or os.time() > dialog_deadline
+      assert(top and top.name == "hardcover_reviews_dialog", "the reviews screen did not open; on top: "
+        .. tostring(top and top.name) .. " / " .. tostring(top and top.text))
+      assert(not top.message or top.message == "No reviews yet", "the reviews screen is still loading")
+      emu:shot("live_reviews")
+      emu:closeAll()
+    end
+
     -- Search, the way the home screen's Search books does it
     local found = Api:findBooks("earthsea", nil, me.id)
     assert(found and #found > 0, "searching the real API for 'earthsea' found nothing")
