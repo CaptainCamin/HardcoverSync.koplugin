@@ -17,6 +17,8 @@ local Viewport = require("hardcover/lib/ui/viewport")
 local TapRow = InputContainer:extend {
   name = "hardcover_tap_row",
   callback = nil,
+  -- optional: a long press does this (Sync's "discard what is queued")
+  hold_callback = nil,
   viewport = nil,
 }
 
@@ -39,6 +41,21 @@ function TapRow:init()
       },
     },
   }
+  if self.hold_callback then
+    self.ges_events.HoldSelectRow = {
+      GestureRange:new {
+        ges = "hold",
+        range = range,
+      },
+    }
+  end
+end
+
+function TapRow:onHoldSelectRow()
+  if self.hold_callback then
+    self.hold_callback()
+  end
+  return true
 end
 
 function TapRow:onTapSelectRow()

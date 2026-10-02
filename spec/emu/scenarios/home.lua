@@ -155,14 +155,35 @@ return {
     assert(top ~= manager.home_dialog, "tapping Settings opened nothing")
     emu:expectText("Automatically link by ISBN")
     emu:expectText("Sync pending changes (2)")
-    emu:expectText("Account: Signed in")
+    -- the account is a tile: a label and what it says ("Account: Signed in" would
+    -- say the label twice)
+    emu:expectText("Account")
+    emu:expectText("Signed in")
     -- About is the last entry: everything the file browser's menu used to list
     emu:expectText("About")
     emu:shot("home_settings")
 
+    -- every row is a boxed row inside the page margins, tall enough to hit
+    local Theme = require("hardcover/lib/ui/theme")
+    local ticks = function()
+      local n = 0
+      for _, node in ipairs(emu:screenNodes()) do
+        if node.text == "\226\156\147" then n = n + 1 end
+      end
+      return n
+    end
+    local screen_w = require("device").screen:getWidth()
+    for _, node in ipairs(emu:screenNodes()) do
+      if node.text == "Automatically link by ISBN" or node.text == "About" then
+        assert(node.x >= Theme.margin and node.x + node.w <= screen_w - Theme.margin, node.text .. " is outside the margins")
+      end
+    end
+    local ticks_before = ticks()
+
     local before = settings:readSetting(SETTING.LINK_BY_ISBN) == true
     local option = emu:expectText("Automatically link by ISBN")
     emu:tapExpecting(option.x + 5, option.y + 5)
+    assert(ticks() ~= ticks_before, "the tick box did not change when its option was tapped")
     assert((settings:readSetting(SETTING.LINK_BY_ISBN) == true) ~= before,
       "tapping an option did not change the setting")
 

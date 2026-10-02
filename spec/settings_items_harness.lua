@@ -24,6 +24,21 @@ check("a ticked option shows a tick, an unticked one does not", function()
   assert(rows[1].mandatory == CHECK and rows[2].mandatory == nil)
 end)
 
+check("rows say how to draw them: tick box, ticked or not, submenu arrow, tile", function()
+  local rows = SettingsItems.rows({
+    { text = "On", checked_func = function() return true end, callback = noop },
+    { text = "Off", checked_func = function() return false end, callback = noop },
+    { text = "Plain", callback = noop },
+    { text = "Sub", sub_item_table = { { text = "x", callback = noop } } },
+    { text = "Sync", tile = "Sync", callback = noop, separator = true },
+  }, noop, noop)
+  assert(rows[1].checkable and rows[1].checked == true)
+  assert(rows[2].checkable and rows[2].checked == false)
+  assert(not rows[3].checkable and not rows[3].submenu and not rows[3].tile)
+  assert(rows[4].submenu and not rows[4].checkable)
+  assert(rows[5].tile == "Sync" and rows[5].separator == true)
+end)
+
 check("text_func is resolved", function()
   local rows = SettingsItems.rows({ { text_func = function() return "Dynamic" end, callback = noop } }, noop, noop)
   assert(rows[1].text == "Dynamic")

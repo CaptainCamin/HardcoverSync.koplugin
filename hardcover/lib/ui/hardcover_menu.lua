@@ -387,7 +387,9 @@ function HardcoverMenu:getSyncMenuItem()
       })
     end,
     keep_menu_open = true,
-    separator = true
+    separator = true,
+    -- the settings screen shows this one as a tile at the top
+    tile = _("Sync"),
   }
 end
 
@@ -454,6 +456,7 @@ function HardcoverMenu:getAccountMenuItem()
       return items
     end,
     separator = true,
+    tile = _("Account"),
   }
 end
 
