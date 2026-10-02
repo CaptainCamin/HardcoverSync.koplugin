@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.2
+
+### Added
+
+* A panel for the open book: a sheet from the bottom of the reading screen showing the title, status, page and
+  rating, an "Update Hardcover as I read" tick, and big buttons for Status, Set page, Rating, Add a note,
+  Details, Reviews, Change edition and Settings (or just "Link this book" when the book isn't linked). Open it
+  from a gesture: Settings > Taps and gestures > pick a gesture > General > "Hardcover: This book".
+
 ## 1.0.1
 
 ### Added

@@ -7,7 +7,7 @@ local UIManager = require("ui/uimanager")
 
 local VERSION = require("hardcover_version")
 
-local RELEASE_API = "https://api.github.com/repos/CaptainCamin/HardcoverSync.koplugin/releases?per_page=1"
+local RELEASE_API = "https://api.github.com/repos/CaptainCamin/HardcoverSync.koplugin/releases/latest"
 
 -- How long to wait for GitHub before giving up and showing the About box
 -- without the version comparison. Kept short: this runs while the user is
@@ -77,10 +77,12 @@ function Github:latestRelease()
 
   if code == 200 or code == 304 then
     local decoded_ok, data = pcall(json.decode, table.concat(responseBody), json.decode.simple)
-    if not decoded_ok or type(data) ~= "table" or #data == 0 then
+    if not decoded_ok or type(data) ~= "table" or (data[1] == nil and data.tag_name == nil) then
       return nil
     end
-    local release = data[1]
+    -- /releases/latest is one release (never a pre-release or draft); a list
+    -- is still accepted
+    local release = data[1] or data
     local tag = release.tag_name
     if type(tag) ~= "string" then
       return nil

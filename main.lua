@@ -82,6 +82,15 @@ function HardcoverApp:onDispatcherRegisterActions()
     general = true,
   })
 
+  -- The open book's panel: status, page, rating, notes, details. Bind it to a
+  -- gesture (Settings > Taps and gestures) to open it from the reading screen.
+  Dispatcher:registerAction("hardcover_book", {
+    category = "none",
+    event = "HardcoverBook",
+    title = _("Hardcover: This book"),
+    general = true,
+  })
+
   Dispatcher:registerAction("hardcover_update_progress", {
     category = "none",
     event = "HardcoverUpdateProgress",
@@ -318,6 +327,11 @@ end
 
 function HardcoverApp:onHardcoverHome()
   self.dialog_manager:showHome()
+  return true
+end
+
+function HardcoverApp:onHardcoverBook()
+  self.menu:showReaderPanel()
   return true
 end
 

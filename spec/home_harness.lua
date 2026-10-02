@@ -342,6 +342,16 @@ check("a Dispatcher action opens the home screen, for gestures and other plugins
   assert(main:find("function HardcoverApp:onHardcoverHome()", 1, true), "nothing handles HardcoverHome")
 end)
 
+check("a Dispatcher action opens the open book's panel (the gesture)", function()
+  local main = read("main.lua")
+  local block = main:match('registerAction%("hardcover_book".-%}%)')
+  assert(block, "no hardcover_book action is registered")
+  assert(block:find('event = "HardcoverBook"', 1, true), "the action sends the wrong event")
+  assert(block:find("general = true", 1, true), "the action is not available everywhere")
+  local handler = main:match("function HardcoverApp:onHardcoverBook%(%).-\nend")
+  assert(handler and handler:find("showReaderPanel", 1, true), "nothing opens the panel on HardcoverBook")
+end)
+
 check("the file browser's Hardcover entry opens the home screen", function()
   local menu = read("hardcover/lib/ui/hardcover_menu.lua")
   assert(menu:find("self.dialog_manager:showHome()", 1, true), "the entry does not open the home screen")
