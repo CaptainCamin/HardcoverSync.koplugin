@@ -257,6 +257,11 @@ function HomeDialog:build()
   end
   self.library = library
 
+  -- an optional card under the library (the reading goal): built by the caller,
+  -- at the page width, and counted in the room the reading list may use
+  local goal_card = self.goal_card_fn and self.goal_card_fn(width) or nil
+  local goal_h = goal_card and (goal_card:getSize().h + Theme.space.l) or 0
+
   local column = VerticalGroup:new { align = "left" }
   table.insert(column, Theme.span("m"))
   table.insert(column, field)
@@ -294,7 +299,7 @@ function HomeDialog:build()
   if #cards > 0 then
     column:resetLayout() -- a VerticalGroup keeps its size until told otherwise
     local room = screen_h - title_bar:getSize().h - column:getSize().h
-      - Theme.space.m - library:getSize().h - Theme.space.m - Theme.space.l
+      - Theme.space.m - library:getSize().h - goal_h - Theme.space.m - Theme.space.l
     for i, card in ipairs(cards) do
       local widget = self:buildCard(card, width)
       local h = widget:getSize().h
@@ -309,6 +314,10 @@ function HomeDialog:build()
     table.insert(column, Theme.span("m"))
   end
   table.insert(column, library)
+  if goal_card then
+    table.insert(column, Theme.span("l"))
+    table.insert(column, goal_card)
+  end
   column:resetLayout() -- children were added since its size was last read
 
   self.title_bar = title_bar
