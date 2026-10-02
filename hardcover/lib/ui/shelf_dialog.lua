@@ -64,8 +64,10 @@ function ShelfDialog:init()
   self.offset = self.offset or #(self.entries or {})
   self.loading = self.loading or false
 
-  self.width = math.min(Screen:getWidth() - Screen:scaleBySize(50), Screen:scaleBySize(600))
-  self.height = Screen:getHeight() - Screen:scaleBySize(50)
+  -- the whole screen: no margin, no rounded frame, so the covers can sit flush
+  -- against the edge
+  self.width = Screen:getWidth()
+  self.height = Screen:getHeight()
 
   local menu_class = self.compatibility_mode and Menu or SearchMenu
 
@@ -78,6 +80,8 @@ function ShelfDialog:init()
     is_enable_shortcut = false,
     title = self.title,
     fullscreen = true,
+    is_borderless = true,
+    is_popout = false,
     item_table = self:parseItems(self.entries),
     width = self.width,
     height = self.height,
