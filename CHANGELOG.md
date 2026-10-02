@@ -1,11 +1,5 @@
 # Changelog
 
-## Unreleased
-
-### Fixed
-
-- Home: a "Goals" tile in the Library grid opens the Goals screen directly, so goals are reachable even when the Goals card is below the visible part of the page.
-
 ## 1.1.1
 
 ### Fixed
