@@ -123,6 +123,10 @@ local function detail() return { frame = { dimen = {} } } end
 drive("hardcover/lib/ui/book_detail_dialog", "book detail: onClose", detail, "onClose")
 drive("hardcover/lib/ui/book_detail_dialog", "book detail: onCloseDetail", detail, "onCloseDetail")
 
+local function home() return { cover_halt = function() end } end
+drive("hardcover/lib/ui/home_dialog", "home: onClose", home, "onClose")
+drive("hardcover/lib/ui/home_dialog", "home: onCloseWidget", home, "onCloseWidget")
+
 local function signin() return { auth = make(), device = {}, frame = { dimen = {} } } end
 drive("hardcover/lib/ui/signin_dialog", "sign in: cancel", signin, "onCancel")
 drive("hardcover/lib/ui/signin_dialog", "sign in: success", signin, "onSuccess")

@@ -92,6 +92,14 @@ Api.getSeriesBooks = function(_, series_id)
   if nextresult == nil then return nil, { completed = false } end
   return nextresult
 end
+local reading_results, reading_calls
+Api.getCurrentlyReading = function()
+  reading_calls = reading_calls + 1
+  if not coroutine.running() then seen_in_coroutine = false end
+  local nextresult = table.remove(reading_results, 1)
+  if nextresult == nil then return nil, { completed = false } end
+  return nextresult
+end
 local count_results, count_calls
 Api.getShelfCounts = function()
   count_calls = count_calls + 1
@@ -122,6 +130,7 @@ local function fakeClass(path)
     o.setEmptyState = function(self, m) self.empty = m end
     o.setDetail = function(self, d) self.detail = d end
     o.setSeries = function(self, card, on_open) self.series = card; self.on_open_book = on_open end
+    o.setReading = function(self, entries) self.entries = entries; self.reading_updates = (self.reading_updates or 0) + 1 end
     o.setRows = function(self, rows) self.rows = rows; self.row_updates = (self.row_updates or 0) + 1 end
     o.free = function() end
     fake[#fake + 1] = o
@@ -143,6 +152,7 @@ local function newManager()
   api_calls, pending_shelf, pending_detail = {}, nil, nil
   shelf_pages, seen_in_coroutine = {}, true
   count_results, count_calls = {}, 0
+  reading_results, reading_calls = {}, 0
   series_results, series_calls = {}, 0
   infos, retries, loadings = {}, {}, 0
   stack, ticks, fake = {}, {}, {}
@@ -409,6 +419,76 @@ check("a failed refresh leaves the saved counts on screen", function()
   count_results = {} -- the stub answers a failure
   m:showHome()
   assert(rowFor(fake[1], 1).count == 42 and (fake[1].row_updates or 0) == 0, "the saved counts were replaced")
+end)
+
+local function reading(id, title, progress, pages)
+  return { book_id = id, title = title, progress_pages = progress, edition_pages = pages }
+end
+
+check("it opens at once with the reading list that was saved", function()
+  online = false
+  local m = newManager()
+  m.shelf_cache:putReading(1, { reading(7, "Seven", 10, 100) })
+  m:showHome()
+  assert(fake[1].entries and fake[1].entries[1].title == "Seven", "saved reading list not shown")
+end)
+
+check("online, the fresh reading list replaces it and is saved", function()
+  online = true
+  local m = newManager()
+  m.shelf_cache:putReading(1, { reading(7, "Seven", 10, 100) })
+  reading_results = { { reading(7, "Seven", 55, 100), reading(8, "Eight", 1, 50) } }
+  m:showHome()
+  assert(seen_in_coroutine, "the request ran on the main thread (it would freeze the UI)")
+  assert(#fake[1].entries == 2 and fake[1].entries[1].progress_pages == 55, "reading list not refreshed")
+  assert(#m.shelf_cache:reading(1) == 2, "fresh reading list not saved")
+end)
+
+check("offline, no reading request is made", function()
+  online = false
+  local m = newManager()
+  m:showHome()
+  assert(reading_calls == 0, "made a request while offline")
+end)
+
+check("a refresh that changed nothing repaints nothing", function()
+  online = true
+  local m = newManager()
+  m.shelf_cache:putReading(1, { reading(7, "Seven", 10, 100) })
+  m.shelf_cache:putCounts(1, { [1] = 42, [2] = 3, [3] = 130, [5] = 2 })
+  reading_results = { { reading(7, "Seven", 10, 100) } }
+  count_results = { { [1] = 42, [2] = 3, [3] = 130, [5] = 2 } }
+  m:showHome()
+  assert((fake[1].reading_updates or 0) == 0, "repainted the same cards")
+  assert((fake[1].row_updates or 0) == 0, "repainted the same counts")
+end)
+
+check("failed counts do not stop the reading list refreshing", function()
+  online = true
+  local m = newManager()
+  count_results = {} -- fails
+  reading_results = { { reading(7, "Seven", 10, 100) } }
+  m:showHome()
+  assert(fake[1].entries and #fake[1].entries == 1, "the reading list was skipped")
+end)
+
+check("a failed reading refresh leaves the saved list on screen", function()
+  online = true
+  local m = newManager()
+  m.shelf_cache:putReading(1, { reading(7, "Seven", 10, 100) })
+  m:showHome()
+  assert(fake[1].entries[1].title == "Seven" and (fake[1].reading_updates or 0) == 0)
+end)
+
+check("tapping a card opens that book", function()
+  online = true
+  local m = newManager()
+  m:showHome()
+  assert(type(fake[1].open_book_cb) == "function", "no open_book_cb given to the screen")
+  fake[1].open_book_cb(7)
+  local detail
+  for _, d in ipairs(fake) do if d.loading ~= nil and d ~= fake[1] then detail = d end end
+  assert(detail, "no book screen opened")
 end)
 
 check("choosing a shelf opens that shelf", function()

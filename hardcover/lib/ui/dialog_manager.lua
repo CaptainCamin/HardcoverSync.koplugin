@@ -372,10 +372,17 @@ function DialogManager:showHome(done_callback)
   discard(self.home_dialog)
   self.home_dialog = nil
 
+  local saved_counts = cache and cache:counts(user_id, ids) or {}
+  local saved_reading = cache and cache:reading(user_id) or {}
+
   local dialog = require("hardcover/lib/ui/home_dialog"):new {
-    rows = Home.rows(cache and cache:counts(user_id, ids) or {}),
+    rows = Home.rows(saved_counts),
+    entries = saved_reading,
     select_cb = function(row)
       self:showShelf(row.status_id, row.title)
+    end,
+    open_book_cb = function(book_id)
+      self:showBookDetail(book_id)
     end,
     close_callback = function()
       if done_callback then done_callback() end
@@ -389,18 +396,36 @@ function DialogManager:showHome(done_callback)
     return
   end
 
+  -- Two requests, one after the other, each independent of the other's outcome.
   Background.run(function()
     local counts = Api:getShelfCounts(user_id, ids)
 
     -- failed or cancelled: the saved numbers are still on screen, leave them
-    if not counts or not UIManager:isWidgetShown(dialog) then
+    if counts and UIManager:isWidgetShown(dialog) then
+      if cache then
+        cache:putCounts(user_id, counts)
+      end
+      -- a refresh that changed nothing repaints nothing
+      if not Home.sameCounts(counts, saved_counts, ids) then
+        dialog:setRows(Home.rows(counts))
+      end
+    end
+
+    if not UIManager:isWidgetShown(dialog) then
+      return
+    end
+
+    local entries = Api:getCurrentlyReading(user_id, 5)
+    if not entries or not UIManager:isWidgetShown(dialog) then
       return
     end
 
     if cache then
-      cache:putCounts(user_id, counts)
+      cache:putReading(user_id, entries)
     end
-    dialog:setRows(Home.rows(counts))
+    if not Home.sameCards(entries, saved_reading) then
+      dialog:setReading(entries)
+    end
   end)
 end
 
