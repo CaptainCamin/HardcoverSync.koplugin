@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.3
+
+### Fixed
+
+* Reviews show the reviewer's name. Hardcover only names reviewers to apps granted the `read:users` scope, so
+  sign-in now asks for it. If you signed in before this version, reviews still say "A reader" and the Reviews
+  screen tells you to sign out and back in (Settings > Account) once to get the names.
+
 ## 1.0.2
 
 ### Added

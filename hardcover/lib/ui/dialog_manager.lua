@@ -910,9 +910,18 @@ function DialogManager:showReviews(book_id, done_callback, summary)
     end)
   end
 
+  -- Hardcover only names reviewers to apps that were granted read:users. A
+  -- sign-in from before that scope was asked for (false; nil = cannot tell, as
+  -- with a personal token) shows "A reader" for everyone, so say why.
+  local hint
+  if Api.auth and Api.auth:hasScope("read:users") == false then
+    hint = _("Names are hidden: sign out and back in to see them.")
+  end
+
   dialog = require("hardcover/lib/ui/reviews_dialog"):new {
     message = _("Loading reviews\226\128\166"),
     summary = summary,
+    hint = hint,
     fetch_page = fetch_page,
     close_callback = done_callback,
   }

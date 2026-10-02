@@ -48,6 +48,7 @@ local ReviewsDialog = InputContainer:extend {
   name = "hardcover_reviews_dialog",
   title = _("Reviews"),
   summary = nil,       -- { title, rating, count }: the book, shown above page one
+  hint = nil,          -- a small grey note under the summary
   reviews = nil,       -- normalised (Reviews.normalize), in display order
   message = nil,       -- a single non-interactive message: loading, empty
   has_more = false,
@@ -208,7 +209,8 @@ end
 -- The book and its rating, above the first card.
 function ReviewsDialog:buildSummary(width)
   local summary = self.summary
-  if type(summary) ~= "table" then return nil end
+  if type(summary) ~= "table" and not self.hint then return nil end
+  summary = type(summary) == "table" and summary or {}
   local group = VerticalGroup:new { align = "left" }
   if summary.title then
     table.insert(group, Theme.sectionHeader(summary.title, width))
@@ -224,6 +226,12 @@ function ReviewsDialog:buildSummary(width)
       text(label, "small", { grey = true, width = width }),
     }
     table.insert(group, HorizontalGroup:new { align = "center", figure, Theme.hspan("l"), beside })
+    table.insert(group, Theme.span("m"))
+  end
+  -- a note about the screen itself (reviewers' names are hidden until the
+  -- reader signs in again)
+  if self.hint then
+    table.insert(group, text(self.hint, "small", { grey = true, width = width }))
     table.insert(group, Theme.span("m"))
   end
   return group
