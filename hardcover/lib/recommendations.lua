@@ -51,8 +51,9 @@ function Recommendations.entries(ids, books)
   return entries
 end
 
--- The carousel on the details screen, headed "Similar to <the book's title>" (same shape as Shelf.seriesCard): a cover, the
--- author where a series strip has a number, the title. Nil when there is nothing to show.
+-- The carousel on the details screen, headed "Similar to <the book's title>" (same shape
+-- as Shelf.seriesCard): a cover, the bold title, the author under it (`title_first`; a
+-- series strip shows the book's number first). Nil when there is nothing to show.
 function Recommendations.card(entries, name)
   if type(entries) ~= "table" or #entries == 0 then return nil end
   local items = {}
@@ -68,6 +69,7 @@ function Recommendations.card(entries, name)
   return {
     title = (type(name) == "string" and name ~= "") and ("Similar to " .. name) or "Similar books",
     subtitle = string.format("%d books", #items),
+    title_first = true,
     items = items,
   }
 end
