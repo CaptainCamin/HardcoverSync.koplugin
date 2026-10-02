@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+* Home scrolls when it is taller than the screen, so new sections (goals, and more to come) have room.
+  Home shows the first three books you are reading; the "Currently reading" heading, which now says how many
+  you are reading, opens the rest.
+
 ## 1.0.5
 
 ### Added

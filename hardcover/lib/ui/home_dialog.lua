@@ -36,6 +36,7 @@ local Theme = require("hardcover/lib/ui/theme")
 
 local Screen = Device.screen
 
+-- How many books being read get a card on Home; the rest are under the heading.
 local HomeDialog = InputContainer:extend {
   name = "hardcover_home_dialog",
   title = _("Hardcover"),
@@ -49,6 +50,8 @@ local HomeDialog = InputContainer:extend {
   list_count = nil,
   close_callback = nil,
 }
+
+HomeDialog.MAX_CARDS = 3
 
 function HomeDialog:init()
   self.closed = false
@@ -252,9 +255,18 @@ function HomeDialog:buildColumn(width, viewport)
   -- The heading is always there (it is the way into the Currently Reading
   -- shelf); the cards under it are whatever has been loaded.
   local cards = Home.cards(self.entries)
+  -- the heading says how many you are reading (the shelf's count when it is known:
+  -- more may be loaded than are shown); only the first few get a card, the rest are
+  -- one tap away under the heading
+  local reading_total = #cards
+  for _i, row in ipairs(self.rows or {}) do
+    if row.status_id == HARDCOVER.STATUS.READING and type(row.count) == "number" and row.count >= #cards then
+      reading_total = row.count
+    end
+  end
   local right = HorizontalGroup:new { align = "center" }
   if #cards > 0 then
-    local count = #cards == 1 and _("1 book") or string.format(_("%d books"), #cards)
+    local count = reading_total == 1 and _("1 book") or string.format(_("%d books"), reading_total)
     table.insert(right, text(count, "small", { grey = true }))
     table.insert(right, Theme.hspan("s"))
   end
@@ -279,10 +291,11 @@ function HomeDialog:buildColumn(width, viewport)
     table.insert(column, Theme.span("l"))
   end
 
-  -- every card there is: the page scrolls when they do not all fit
+  -- the first few books, each a card of the same size; the page scrolls when the
+  -- screen cannot hold them with everything else
   if #cards > 0 then
-    for _i, card in ipairs(cards) do
-      table.insert(column, self:buildCard(card, width, viewport))
+    for i = 1, math.min(#cards, HomeDialog.MAX_CARDS) do
+      table.insert(column, self:buildCard(cards[i], width, viewport))
     end
     table.insert(column, Theme.span("m"))
   end

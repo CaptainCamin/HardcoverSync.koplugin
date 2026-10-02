@@ -41,12 +41,17 @@ return {
       local Theme = require("hardcover/lib/ui/theme")
       local TapRow = require("hardcover/lib/ui/tap_row")
       goal_row = TapRow:new { viewport = viewport, callback = function() opened_goal = true end,
-        Theme.box(width, Theme.BUTTON_H * 2, require("ui/widget/textwidget"):new { text = "Goal card", face = Theme.face("body") }, { radius = 10 }) }
+        Theme.box(width, Theme.BUTTON_H * 5, require("ui/widget/textwidget"):new { text = "Goal card", face = Theme.face("body") }, { radius = 10 }) }
       return goal_row
     end
     home:setReading(entries)
     emu:pump()
-    assert(home.scroll, "six books and a card should make the page scroll")
+    assert(home.scroll, "three books and a card should make the page scroll")
+    -- only three get a card; the heading says how many there are, and opens them all
+    emu:expectText("Book number 3")
+    for _, node in ipairs(emu:screenNodes()) do
+      assert(node.text ~= "Book number 4", "a fourth reading card is shown")
+    end
     emu:screenNodes() -- paint: tap ranges are only real once painted
 
     -- at the top: the search field and the first book are reachable; the card is not on screen
@@ -99,7 +104,7 @@ return {
     home.goal_card_fn = function(width, viewport)
       local Theme = require("hardcover/lib/ui/theme")
       return require("hardcover/lib/ui/tap_row"):new { viewport = viewport, callback = function() end,
-        Theme.box(width, Theme.BUTTON_H * 2, require("ui/widget/textwidget"):new { text = "Goal card", face = Theme.face("body") }, { radius = 10 }) }
+        Theme.box(width, Theme.BUTTON_H * 5, require("ui/widget/textwidget"):new { text = "Goal card", face = Theme.face("body") }, { radius = 10 }) }
     end
     home:setReading(entries)
     emu:pump()
