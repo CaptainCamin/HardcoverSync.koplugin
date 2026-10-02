@@ -254,6 +254,11 @@ function HardcoverMenu:getSubMenuItems(book_view)
     {
       text = _("Settings"),
       sub_item_table_func = function()
+        if book_view then
+          -- the reader menu already has Sync, and shows the account itself when
+          -- you are signed out; signed in, the account (to sign out) lives here
+          return self:getHomeSettingsItems({ sync = false, account = not (self.auth and self.auth:needsReauth()) })
+        end
         return self:getSettingsSubMenuItems()
       end,
     },
@@ -443,9 +448,13 @@ end
 
 -- Everything the home screen's settings screen lists: sync, the account (when
 -- the plugin signs in with OAuth), then the settings.
-function HardcoverMenu:getHomeSettingsItems()
-  local items = { self:getSyncMenuItem() }
-  if self.auth and self.auth:usingOAuth() then
+function HardcoverMenu:getHomeSettingsItems(opts)
+  opts = opts or {}
+  local items = {}
+  if opts.sync ~= false then
+    items[1] = self:getSyncMenuItem()
+  end
+  if opts.account ~= false and self.auth and self.auth:usingOAuth() then
     local account = self:getAccountMenuItem()
     account.separator = true
     items[#items + 1] = account

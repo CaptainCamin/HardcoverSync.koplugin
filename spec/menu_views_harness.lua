@@ -127,6 +127,34 @@ check("but it is offered when signed out, since tracking cannot work without it"
   assert(has(labels(true, { signed_out = true }), "Account"), "no way to sign in from the reader")
 end)
 
+local function settingsLabels(opts)
+  local out = {}
+  for _, item in ipairs(newMenu(opts):getSubMenuItems(true)) do
+    if item.text == "Settings" then
+      for _, sub in ipairs(item.sub_item_table_func()) do
+        local text = sub.text
+        if not text and sub.text_func then
+          local ok, value = pcall(sub.text_func)
+          text = ok and value or "?"
+        end
+        out[#out + 1] = tostring(text)
+      end
+    end
+  end
+  return out
+end
+
+check("signed in, the reader's Settings holds the account (to sign out) but not a second Sync", function()
+  local m = settingsLabels({ signed_out = false })
+  assert(has(m, "Account"), "no account in the reader's settings: " .. shown(m))
+  assert(not has(m, "Sync"), "Sync is listed twice: " .. shown(m))
+  assert(has(m, "Automatically link by ISBN"), shown(m))
+end)
+
+check("signed out, the account is not listed twice in the reader", function()
+  assert(not has(settingsLabels({ signed_out = true }), "Account"), "Account is in both places")
+end)
+
 print("\n== the file browser menu: the library ==")
 
 check("Home comes first", function()
