@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.10.0 (design preview)
+## 1.0.0
 
 ### Changed
 
