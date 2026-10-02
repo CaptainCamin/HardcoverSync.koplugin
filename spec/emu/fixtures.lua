@@ -282,8 +282,9 @@ function M.fake_auth(granted)
   return {
     usingOAuth = function() return true end,
     needsReauth = function() return false end,
+    -- `granted` is a boolean for every scope asked about, or a table { [scope] = bool }
     hasScope = function(_, scope)
-      assert(scope == "write:lists", "asked about " .. tostring(scope))
+      if type(granted) == "table" then return granted[scope] end
       return granted
     end,
   }
@@ -436,12 +437,48 @@ function M.install(opts)
     return page
   end
 
+  -- Goals, as a list of rows `me.goals` returns. Kept in one table that the goal
+  -- writes below change, so a later fetch sees what was saved.
+  local goal_rows = opts.goals_rows or {}
+
   Api.getGoals = function(_)
     record("getGoals")
     if M.goals_fail then return nil, { completed = false } end
     -- no goals unless a scenario brings some (opts.goals_rows, as `me.goals` returns them):
     -- a goal card changes the home screen's height, which most scenarios do not want
-    return require("hardcover/lib/goals").normalize(deepcopy(opts.goals_rows or {}))
+    local visible = {}
+    for _i, row in ipairs(goal_rows) do visible[#visible + 1] = row end
+    return require("hardcover/lib/goals").normalize(deepcopy(visible))
+  end
+
+  -- Making or changing a goal: recorded, and applied to the rows. `M.goal_write_fail`
+  -- (a string, or an error table) makes the next writes fail with it.
+  Api.saveGoal = function(_, id, input)
+    record("saveGoal")
+    calls[#calls].args = { id = id, input = deepcopy(input) }
+    if M.goal_write_fail then return nil, M.goal_write_fail end
+    local row
+    for _i, existing in ipairs(goal_rows) do
+      if existing.id == id then row = existing end
+    end
+    if not row then
+      row = { id = 900 + #goal_rows, progress = 7.0, archived = false }
+      goal_rows[#goal_rows + 1] = row
+    end
+    row.goal, row.metric, row.description = input.goal, input.metric, input.description
+    row.start_date, row.end_date = input.start_date, input.end_date
+    row.privacy_setting_id = input.privacy_setting_id or row.privacy_setting_id or 1
+    return require("hardcover/lib/goals").normalize(deepcopy({ row }))[1]
+  end
+
+  Api.archiveGoal = function(_, id)
+    record("archiveGoal")
+    calls[#calls].args = { id = id }
+    if M.goal_write_fail then return nil, M.goal_write_fail end
+    for _i, row in ipairs(goal_rows) do
+      if row.id == id then row.archived = true end
+    end
+    return true
   end
 
   Api.getLists = function(_)

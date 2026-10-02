@@ -16,6 +16,12 @@
   card opens that goal (you against pace, what finishing takes). Pace, days left and "books a week to finish"
   are worked out on the device, so goals read the same offline from the saved copy ("Offline. Showing your
   goals as of ..."), and a book you finish offline is counted straight away ("+1 finished offline").
+* Make, change and archive goals. The Goals screen has a "New goal" button and a goal's own screen has "Edit
+  goal": a form of five rows (name, books or pages, the target, the period -- this year, next year, this month
+  or two dates you choose -- and who can see it). Save checks it first and says what to fix; a new goal takes
+  your account's visibility unless you choose one. "Archive this goal" hides it (it stays on Hardcover). It needs
+  a new sign-in permission (write:goals): if yours predates it, the form says to sign out and back in
+  (Settings > Account). Saving needs a connection; offline the form keeps what you typed and says so.
 * Add a book to your lists from its details screen: a Lists button opens your lists with a tick box each; tap to
   add or remove, and the details name the lists the book is on. It needs a new sign-in permission (write:lists):
   if yours predates it, the button says to sign out and back in (Settings > Account). Online only.

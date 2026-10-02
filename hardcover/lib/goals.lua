@@ -96,6 +96,7 @@ function Goals.normalize(rows)
           end_date = row.end_date,
           start_days = from,
           end_days = to,
+          privacy_setting_id = tonumber(row.privacy_setting_id),
         }
       end
     end
@@ -216,6 +217,195 @@ function Goals.extra(goal, today, finished_offline)
   if goal.metric ~= "book" or finished_offline <= 0 then return 0 end
   if today < goal.start_days or today >= goal.end_days then return 0 end
   return finished_offline
+end
+
+
+-- ------------------------------------------------------------------ editing
+--
+-- Making and changing goals. The form is plain data (`form`), checked and turned
+-- into the API's GoalInput here, so the rules can be tested without a screen.
+
+-- the sign-in permission Hardcover wants for writing goals (confirmed against the
+-- API: the refusal says "Missing scopes: write:goals")
+Goals.WRITE_SCOPE = "write:goals"
+
+Goals.METRICS = {
+  { key = "book", label = "Books" },
+  { key = "page", label = "Pages" },
+}
+
+-- ids as the plugin's status privacy uses them (constants/hardcover.lua)
+Goals.PRIVACY = {
+  { id = 1, label = "Public" },
+  { id = 2, label = "Follows" },
+  { id = 3, label = "Private" },
+}
+
+-- the largest target taken, by what is counted: a typo like 700 books or 3000000
+-- pages is far likelier than a goal that size
+Goals.MAX_TARGET = { book = 10000, page = 1000000 }
+
+-- no goal runs longer than this many days
+Goals.MAX_DAYS = 3660
+
+local MONTH_NAMES = { "January", "February", "March", "April", "May", "June", "July",
+  "August", "September", "October", "November", "December" }
+
+Goals.civil = civil
+
+-- days -> "2026-10-02"
+function Goals.dateString(days)
+  local y, m, d = civil(days)
+  return string.format("%04d-%02d-%02d", y, m, d)
+end
+
+-- "Jan 1 - Dec 31, 2026" for a period given as two ISO dates (the second is the day
+-- AFTER the last day), or "" when either does not read
+function Goals.periodText(start_date, end_date)
+  local from, to = Goals.parseDate(start_date), Goals.parseDate(end_date)
+  if not (from and to) then return "" end
+  return Goals.datesText({ start_days = from, end_days = to })
+end
+
+--
+-- The periods offered when making a goal, from `today` (days): this year, next
+-- year, this month. Each carries the name Hardcover's own screen would give it.
+--
+function Goals.presets(today)
+  local y, m = civil(today)
+  local function first(year, month)
+    if month > 12 then year, month = year + 1, month - 12 end
+    return Goals.dateString(Goals.days(year, month, 1))
+  end
+  return {
+    { key = "this_year", label = string.format("This year (%d)", y),
+      start_date = first(y, 1), end_date = first(y + 1, 1), name = string.format("%d Reading Goal", y) },
+    { key = "next_year", label = string.format("Next year (%d)", y + 1),
+      start_date = first(y + 1, 1), end_date = first(y + 2, 1), name = string.format("%d Reading Goal", y + 1) },
+    { key = "this_month", label = string.format("This month (%s)", MONTH_NAMES[m]),
+      start_date = first(y, m), end_date = first(y, m + 1), name = string.format("%s Reading Goal", MONTH_NAMES[m]) },
+  }
+end
+
+-- A new goal's starting point: a book a month, for this year.
+function Goals.newForm(today)
+  local preset = Goals.presets(today)[1]
+  return {
+    name = preset.name,
+    metric = "book",
+    target = 12,
+    start_date = preset.start_date,
+    end_date = preset.end_date,
+    privacy_setting_id = nil, -- nil: the account's own setting, looked up when it is saved
+  }
+end
+
+-- What there is to change on an existing goal.
+function Goals.formFrom(goal)
+  return {
+    id = goal.id,
+    name = goal.name,
+    metric = goal.metric,
+    target = goal.target,
+    start_date = goal.start_date,
+    end_date = goal.end_date,
+    privacy_setting_id = goal.privacy_setting_id,
+  }
+end
+
+local function trim(s)
+  return (tostring(s or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+--
+-- Is the form fit to send? Returns nil when it is, else one sentence saying what to
+-- fix (the first problem; the form shows it).
+--
+function Goals.validate(form)
+  if type(form) ~= "table" then return "Nothing to save." end
+
+  local name = trim(form.name)
+  if name == "" then return "Give the goal a name." end
+  if #name > 120 then return "The name is too long." end
+
+  if form.metric ~= "book" and form.metric ~= "page" then return "Choose books or pages." end
+
+  local target = tonumber(form.target)
+  if not target or target ~= math.floor(target) or target < 1 then
+    return "The target must be a whole number, at least 1."
+  end
+  if target > Goals.MAX_TARGET[form.metric] then
+    return string.format("The target can be at most %d.", Goals.MAX_TARGET[form.metric])
+  end
+
+  local from, to = Goals.parseDate(form.start_date), Goals.parseDate(form.end_date)
+  if not (from and to) then return "Choose when the goal starts and ends." end
+  if to <= from then return "The goal must end after it starts." end
+  if to - from > Goals.MAX_DAYS then return "The goal can run for 10 years at most." end
+
+  if form.privacy_setting_id ~= nil then
+    local ok
+    for _, p in ipairs(Goals.PRIVACY) do
+      if p.id == form.privacy_setting_id then ok = true end
+    end
+    if not ok then return "Choose who can see the goal." end
+  end
+  return nil
+end
+
+--
+-- The API's GoalInput for a form that passed validate. `privacy_setting_id` is left
+-- out when the form has none (a new goal takes the account's setting: see
+-- HardcoverApi:saveGoal), and an edit sends everything it can change, so what is sent
+-- does not depend on how the server treats fields that are left out.
+--
+function Goals.input(form)
+  local input = {
+    description = trim(form.name),
+    metric = form.metric,
+    goal = math.floor(tonumber(form.target)),
+    start_date = form.start_date,
+    end_date = form.end_date,
+  }
+  if form.privacy_setting_id ~= nil then
+    input.privacy_setting_id = form.privacy_setting_id
+  end
+  return input
+end
+
+-- label of a metric or a privacy id, for the form's rows
+function Goals.metricLabel(key)
+  for _, m in ipairs(Goals.METRICS) do if m.key == key then return m.label end end
+  return ""
+end
+
+function Goals.privacyLabel(id)
+  for _, p in ipairs(Goals.PRIVACY) do if p.id == id then return p.label end end
+  return nil
+end
+
+-- The list with `goal` in it: replacing the one with its id, else added. A copy.
+function Goals.upsert(goals, goal)
+  local out, placed = {}, false
+  for _, g in ipairs(goals or {}) do
+    if g.id == goal.id then
+      out[#out + 1] = goal
+      placed = true
+    else
+      out[#out + 1] = g
+    end
+  end
+  if not placed then out[#out + 1] = goal end
+  return out
+end
+
+-- The list without the goal with this id. A copy.
+function Goals.remove(goals, id)
+  local out = {}
+  for _, g in ipairs(goals or {}) do
+    if g.id ~= id then out[#out + 1] = g end
+  end
+  return out
 end
 
 return Goals

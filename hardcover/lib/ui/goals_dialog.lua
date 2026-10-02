@@ -36,6 +36,7 @@ local GoalsDialog = InputContainer:extend {
   note = nil,             -- "Offline. Showing your goals as of ..."
   message = nil,          -- shown instead of the goals
   open_cb = nil,          -- called with the chosen goal
+  new_cb = nil,           -- the "New goal" button appears when this is set
   close_callback = nil,
 }
 
@@ -85,6 +86,14 @@ function GoalsDialog:buildContent(width, viewport)
       padding = Theme.space.s, margin = 0, background = Blitbuffer.COLOR_WHITE,
       TextBoxWidget:new { text = self.note, face = Theme.face("small"), width = width - 2 * Theme.space.s - 2 * Theme.line.hair },
     })
+    table.insert(content, Theme.span("m"))
+  end
+
+  if self.new_cb then
+    table.insert(content, Theme.button(_("New goal"), width, {
+      size = "body", viewport = viewport,
+      callback = function() self.new_cb() end,
+    }))
     table.insert(content, Theme.span("m"))
   end
 

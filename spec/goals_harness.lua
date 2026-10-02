@@ -132,4 +132,103 @@ check("a book finished offline counts toward a running book goal, not a page or 
   assert(p.progress == 48 and p.extra == 2 and p.status == "4 behind pace", p.status)
 end)
 
+print("\n== making and changing goals ==")
+
+check("a date survives the trip to a string and back, across every month length and leap day", function()
+  for _, ymd in ipairs({ { 1970, 1, 1 }, { 2000, 2, 29 }, { 2024, 2, 29 }, { 2026, 12, 31 }, { 2027, 1, 1 }, { 1999, 12, 31 }, { 2100, 3, 1 } }) do
+    local d = D(ymd[1], ymd[2], ymd[3])
+    local str = Goals.dateString(d)
+    assert(str == string.format("%04d-%02d-%02d", ymd[1], ymd[2], ymd[3]), str)
+    assert(Goals.parseDate(str) == d)
+  end
+  for d = D(2024, 1, 1), D(2025, 12, 31) do assert(Goals.parseDate(Goals.dateString(d)) == d) end
+end)
+
+check("the presets are this year, next year and this month, ending on the day after", function()
+  local p = Goals.presets(TODAY)
+  assert(#p == 3 and p[1].key == "this_year" and p[2].key == "next_year" and p[3].key == "this_month")
+  assert(p[1].start_date == "2026-01-01" and p[1].end_date == "2027-01-01" and p[1].name == "2026 Reading Goal")
+  assert(p[2].start_date == "2027-01-01" and p[2].end_date == "2028-01-01")
+  assert(p[3].start_date == "2026-10-01" and p[3].end_date == "2026-11-01" and p[3].name == "October Reading Goal")
+  assert(p[3].label == "This month (October)" and p[1].label == "This year (2026)")
+  -- December rolls into January of the next year
+  local dec = Goals.presets(D(2026, 12, 15))[3]
+  assert(dec.start_date == "2026-12-01" and dec.end_date == "2027-01-01", dec.end_date)
+  assert(Goals.presets(D(2026, 1, 1))[3].end_date == "2026-02-01")
+end)
+
+check("a new goal starts as a book a month for this year, and is fit to save", function()
+  local f = Goals.newForm(TODAY)
+  assert(f.target == 12 and f.metric == "book" and f.name == "2026 Reading Goal" and f.privacy_setting_id == nil)
+  assert(Goals.validate(f) == nil)
+end)
+
+check("validation names the first thing to fix", function()
+  local function with(over)
+    local f = Goals.newForm(TODAY)
+    for k, v in pairs(over) do f[k] = v end
+    return f
+  end
+  assert(Goals.validate(with({ name = "   " })) == "Give the goal a name.")
+  assert(Goals.validate(with({ name = string.rep("x", 121) })) == "The name is too long.")
+  assert(Goals.validate(with({ metric = "audio" })) == "Choose books or pages.")
+  for _, bad in ipairs({ 0, -3, 2.5, "abc", false }) do
+    assert(Goals.validate(with({ target = bad })) == "The target must be a whole number, at least 1.", tostring(bad))
+  end
+  assert(Goals.validate(with({ target = 10001 })) == "The target can be at most 10000.")
+  assert(Goals.validate(with({ metric = "page", target = 10001 })) == nil, "pages allow far bigger targets")
+  assert(Goals.validate(with({ metric = "page", target = 1000001 })) == "The target can be at most 1000000.")
+  assert(Goals.validate(with({ start_date = "2026-13-01" })) == "Choose when the goal starts and ends.")
+  assert(Goals.validate(with({ end_date = "2026-01-01" })) == "The goal must end after it starts.")
+  assert(Goals.validate(with({ end_date = "2026-01-01", start_date = "2026-01-01" })) == "The goal must end after it starts.")
+  assert(Goals.validate(with({ end_date = "2040-01-01" })) == "The goal can run for 10 years at most.")
+  assert(Goals.validate(with({ privacy_setting_id = 9 })) == "Choose who can see the goal.")
+  assert(Goals.validate(with({ privacy_setting_id = 3 })) == nil)
+  assert(Goals.validate(nil) == "Nothing to save.")
+end)
+
+check("the request carries what the API's GoalInput takes, trimmed and whole", function()
+  local f = Goals.newForm(TODAY)
+  f.name = "  My goal  "
+  f.target = "30"
+  local input = Goals.input(f)
+  assert(input.description == "My goal" and input.goal == 30 and input.metric == "book")
+  assert(input.start_date == "2026-01-01" and input.end_date == "2027-01-01")
+  assert(input.privacy_setting_id == nil, "a form with no visibility leaves it out")
+  f.privacy_setting_id = 2
+  assert(Goals.input(f).privacy_setting_id == 2)
+  -- only fields GoalInput has
+  local allowed = { description = true, metric = true, goal = true, start_date = true, end_date = true, privacy_setting_id = true }
+  for k in pairs(Goals.input(f)) do assert(allowed[k], "GoalInput has no field " .. k) end
+end)
+
+check("an existing goal fills the form, and keeps its visibility", function()
+  local g = Goals.normalize({ row({ id = 7, privacy_setting_id = 3 }) })[1]
+  assert(g.privacy_setting_id == 3)
+  local f = Goals.formFrom(g)
+  assert(f.id == 7 and f.target == 70 and f.metric == "book" and f.privacy_setting_id == 3 and f.start_date == "2026-01-01")
+  assert(Goals.validate(f) == nil)
+  assert(Goals.normalize({ row({ privacy_setting_id = nil }) })[1].privacy_setting_id == nil)
+end)
+
+check("a saved goal replaces the one with its id, or joins the list; an archived one leaves it", function()
+  local gs = Goals.normalize({ row({ id = 1 }), row({ id = 2, goal = 30 }) })
+  local changed = Goals.normalize({ row({ id = 2, goal = 99 }) })[1]
+  local out = Goals.upsert(gs, changed)
+  assert(#out == 2 and out[2].target == 99 and out[1].id == 1 and gs[2].target == 30, "the original list must not change")
+  local added = Goals.upsert(gs, Goals.normalize({ row({ id = 3 }) })[1])
+  assert(#added == 3 and added[3].id == 3)
+  local gone = Goals.remove(gs, 1)
+  assert(#gone == 1 and gone[1].id == 2 and #gs == 2)
+  assert(#Goals.upsert(nil, changed) == 1 and #Goals.remove(nil, 1) == 0)
+end)
+
+check("labels for the form's rows", function()
+  assert(Goals.metricLabel("book") == "Books" and Goals.metricLabel("page") == "Pages" and Goals.metricLabel("x") == "")
+  assert(Goals.privacyLabel(1) == "Public" and Goals.privacyLabel(2) == "Follows" and Goals.privacyLabel(3) == "Private" and Goals.privacyLabel(nil) == nil)
+  assert(Goals.periodText("2026-01-01", "2027-01-01") == "Jan 1 \226\128\147 Dec 31, 2026")
+  assert(Goals.periodText("x", "2027-01-01") == "")
+  assert(Goals.WRITE_SCOPE == "write:goals")
+end)
+
 r.finish()

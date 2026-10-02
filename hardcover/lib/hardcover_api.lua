@@ -799,6 +799,7 @@ function HardcoverApi:getGoals()
           end_date
           progress
           archived
+          privacy_setting_id
         }
       }
     }
@@ -811,6 +812,150 @@ function HardcoverApi:getGoals()
     return nil, err or { completed = false }
   end
   return Goals.normalize(me.goals)
+end
+
+-- The fields of a goal we read back from the goal mutations: the same ones getGoals
+-- reads, so what comes back is a row Goals.normalize takes.
+local GOAL_FIELDS = [[
+  id
+  goal
+  metric
+  description
+  start_date
+  end_date
+  progress
+  archived
+  privacy_setting_id
+]]
+
+--
+-- Make a goal (`id` nil) or change one, from a GoalInput (see Goals.input). Needs the
+-- write:goals scope; without it the answer is an insufficient-scope refusal (see
+-- Lists.isScopeError). Returns the saved goal as Goals.normalize shapes it, or nil and
+-- the error.
+--
+-- A new goal with no visibility set takes the account's own setting (one extra
+-- request): a private account must not get a public goal by default.
+--
+-- Hardcover counts a goal's progress on its side, from the books finished in its
+-- period, so after a save it is asked to count again (update_goal_progress): changing
+-- the dates or what is counted changes the number. If that second request fails the
+-- goal is still saved, and its number is brought up to date by the next fetch.
+--
+function HardcoverApi:saveGoal(id, input)
+  input = input or {}
+
+  if not id and input.privacy_setting_id == nil then
+    local me = self:me()
+    local setting = type(me) == "table" and tonumber(me.account_privacy_setting_id) or nil
+    local copy = {}
+    for k, v in pairs(input) do copy[k] = v end
+    copy.privacy_setting_id = setting or 1
+    input = copy
+  end
+
+  local query, vars, field
+  if id then
+    field = "update_goal"
+    query = [[
+      mutation ($id: Int!, $object: GoalInput!) {
+        update_goal(id: $id, object: $object) {
+          id
+          errors
+          goal { ]] .. GOAL_FIELDS .. [[ }
+        }
+      }
+    ]]
+    vars = { id = id, object = input }
+  else
+    field = "insert_goal"
+    query = [[
+      mutation ($object: GoalInput!) {
+        insert_goal(object: $object) {
+          id
+          errors
+          goal { ]] .. GOAL_FIELDS .. [[ }
+        }
+      }
+    ]]
+    vars = { object = input }
+  end
+
+  local result, err = self:query(query, vars)
+  local saved = result and result[field]
+  if type(saved) ~= "table" then
+    return nil, err or { completed = false }
+  end
+  if type(saved.errors) == "string" and saved.errors ~= "" then
+    return nil, saved.errors
+  end
+  local goal_id = tonumber(saved.id) or (type(saved.goal) == "table" and tonumber(saved.goal.id)) or nil
+  if not goal_id then
+    return nil, err or { completed = false }
+  end
+
+  local function row_of(answer)
+    local goal = type(answer) == "table" and answer.goal
+    if type(goal) == "table" and goal[1] ~= nil then goal = goal[1] end
+    return type(goal) == "table" and goal or nil
+  end
+
+  local row = row_of(saved)
+  local recount = self:query([[
+    mutation ($id: Int!) {
+      update_goal_progress(id: $id) {
+        id
+        errors
+        goal { ]] .. GOAL_FIELDS .. [[ }
+      }
+    }
+  ]], { id = goal_id })
+  local recounted = recount and recount.update_goal_progress
+  if type(recounted) == "table" and not (type(recounted.errors) == "string" and recounted.errors ~= "") then
+    row = row_of(recounted) or row
+  end
+
+  -- what Hardcover sent back, else what was sent (progress as it was, or 0 for a new goal)
+  local goal = Goals.normalize({ row })[1]
+  if not goal then
+    goal = Goals.normalize({ {
+      id = goal_id,
+      goal = input.goal,
+      metric = input.metric,
+      description = input.description,
+      start_date = input.start_date,
+      end_date = input.end_date,
+      progress = row and row.progress or 0,
+      privacy_setting_id = input.privacy_setting_id,
+    } })[1]
+  end
+  if not goal then
+    return nil, err or { completed = false }
+  end
+  return goal
+end
+
+--
+-- Archive a goal: it stays on Hardcover but is hidden (the same as archiving it on
+-- the website), so it can be brought back. Returns true, or nil and the error.
+--
+function HardcoverApi:archiveGoal(id)
+  local result, err = self:query([[
+    mutation ($id: Int!) {
+      update_goal(id: $id, object: { archived: true }) {
+        id
+        errors
+      }
+    }
+  ]], { id = id })
+  local out = result and result.update_goal
+  if type(out) ~= "table" then
+    return nil, err or { completed = false }
+  end
+  if type(out.errors) == "string" and out.errors ~= "" then
+    return nil, out.errors
+  end
+  return true
 end
 
 --
@@ -1483,6 +1628,14 @@ local function async(callback, fn, ...)
     end
     deliver(callback, unpack(results, 2, table.maxn(results)))
   end)
+end
+
+function HardcoverApi:saveGoalAsync(id, input, callback)
+  async(callback, self.saveGoal, self, id, input)
+end
+
+function HardcoverApi:archiveGoalAsync(id, callback)
+  async(callback, self.archiveGoal, self, id)
 end
 
 function HardcoverApi:getGoalsAsync(callback)

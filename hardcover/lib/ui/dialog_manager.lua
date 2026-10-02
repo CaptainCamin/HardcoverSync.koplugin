@@ -13,6 +13,7 @@ local Background = require("hardcover/lib/background")
 local Book = require("hardcover/lib/book")
 local BookSearch = require("hardcover/lib/book_search")
 local Home = require("hardcover/lib/home")
+local Goals = require("hardcover/lib/goals")
 local Lists = require("hardcover/lib/lists")
 local Reviews = require("hardcover/lib/reviews")
 local Shelf = require("hardcover/lib/shelf")
@@ -835,6 +836,9 @@ function DialogManager:showGoals(done_callback)
     open_cb = function(goal)
       self:showGoal(goal, note)
     end,
+    new_cb = function()
+      self:showGoalForm(nil)
+    end,
     close_callback = function()
       if done_callback then done_callback() end
     end,
@@ -864,14 +868,144 @@ end
 
 -- One goal, big. `note` is the saved-copy note when the goals shown are not fresh.
 function DialogManager:showGoal(goal, note, done_callback)
-  UIManager:show(require("hardcover/lib/ui/goal_dialog"):new {
+  local dialog = require("hardcover/lib/ui/goal_dialog"):new {
     goal = goal,
     finished_offline = self:finishedOffline(),
     note = note,
+    edit_cb = function(current)
+      self:showGoalForm(current)
+    end,
     close_callback = function()
       if done_callback then done_callback() end
     end,
-  })
+  }
+  self.goal_dialog = dialog
+  UIManager:show(dialog)
+end
+
+--
+-- Making a goal (`goal` nil) or changing one: a form that stays open until the save
+-- has gone through, so a failure (no connection, a refusal) keeps what was typed.
+-- Saving needs the connection and the write:goals permission; neither is assumed:
+-- offline says so without sending anything, and a sign-in from before the
+-- permission existed is asked to sign in again.
+--
+function DialogManager:showGoalForm(goal, on_saved)
+  local dialog
+  dialog = require("hardcover/lib/ui/goal_form_dialog"):new {
+    goal = goal,
+    on_save = function(form)
+      self:saveGoal(dialog, form, on_saved)
+    end,
+    on_archive = goal and function()
+      self:archiveGoal(dialog, goal, on_saved)
+    end or nil,
+  }
+  self.goal_form_dialog = dialog
+  UIManager:show(dialog)
+  return dialog
+end
+
+local SIGN_IN_AGAIN = _("Sign out and back in (Settings > Account) to change goals.")
+
+-- why a write failed, in a sentence: a refusal for the permission says to sign in
+-- again, Hardcover's own words are passed on, anything else is "no answer"
+local function goalWriteProblem(err)
+  if Lists.isScopeError(err) then return SIGN_IN_AGAIN end
+  if type(err) == "string" and err ~= "" then
+    -- Hardcover's text may or may not end in a full stop, and a sentence follows it
+    err = err:gsub("%s+$", "")
+    if not err:match("[%.!%?]$") then err = err .. "." end
+    return err
+  end
+  return _("Hardcover did not answer.")
+end
+
+-- The goals as they are now (a list), everywhere they are shown: saved for offline,
+-- on the Goals screen, on Home's card, and on the goal screen if it is open.
+function DialogManager:applyGoals(goals, changed)
+  local user_id = User:getId()
+  if self.shelf_cache then self.shelf_cache:putGoals(user_id, goals) end
+
+  local screen = self.goals_dialog
+  if screen and UIManager:isWidgetShown(screen) then
+    screen:setGoals(goals, nil, self:finishedOffline())
+  end
+  local home = self.home_dialog
+  if home and UIManager:isWidgetShown(home) then
+    home.goals = goals
+    home.finished_offline = self:finishedOffline()
+    home:rebuild()
+  end
+  local one = self.goal_dialog
+  if changed and one and UIManager:isWidgetShown(one) and one.goal and one.goal.id == changed.id then
+    one:setGoal(changed)
+  end
+end
+
+-- the goals saved on the device (a list; empty when none)
+function DialogManager:savedGoals()
+  local cache = self.shelf_cache
+  return cache and cache:goals(User:getId()) or {}
+end
+
+function DialogManager:saveGoal(dialog, form, on_saved)
+  if not NetworkManager:isConnected() then
+    dialog:setMessage(_("You're offline. Your changes are kept here: save when you're connected."))
+    return
+  end
+  if Api.auth and Api.auth:hasScope(Goals.WRITE_SCOPE) == false then
+    dialog:setMessage(SIGN_IN_AGAIN)
+    return
+  end
+
+  dialog:setBusy(true)
+  Api:saveGoalAsync(form.id, Goals.input(form), function(saved, err)
+    -- the goal is saved on Hardcover whether or not the form is still open, so the
+    -- saved copy follows either way
+    if saved then
+      self:applyGoals(Goals.upsert(self:savedGoals(), saved), saved)
+    end
+    if not UIManager:isWidgetShown(dialog) then return end
+    if not saved then
+      dialog:setBusy(false)
+      dialog:setMessage(string.format(_("Couldn't save the goal: %s Your changes are kept."), goalWriteProblem(err)))
+      return
+    end
+    UIManager:close(dialog)
+    if on_saved then on_saved(saved) end
+  end)
+end
+
+function DialogManager:archiveGoal(dialog, goal, on_saved)
+  if not NetworkManager:isConnected() then
+    dialog:setMessage(_("You're offline. Archiving needs a connection."))
+    return
+  end
+  if Api.auth and Api.auth:hasScope(Goals.WRITE_SCOPE) == false then
+    dialog:setMessage(SIGN_IN_AGAIN)
+    return
+  end
+
+  dialog:setBusy(true)
+  Api:archiveGoalAsync(goal.id, function(done, err)
+    if done then
+      self:applyGoals(Goals.remove(self:savedGoals(), goal.id))
+    end
+    if not UIManager:isWidgetShown(dialog) then return end
+    if not done then
+      dialog:setBusy(false)
+      dialog:setMessage(string.format(_("Couldn't archive the goal: %s"), goalWriteProblem(err)))
+      return
+    end
+    UIManager:close(dialog)
+    -- the goal screen under the form is about a goal that is no longer listed
+    local one = self.goal_dialog
+    if one and UIManager:isWidgetShown(one) and one.goal and one.goal.id == goal.id then
+      UIManager:close(one)
+    end
+    if on_saved then on_saved(nil) end
+  end)
 end
 
 --

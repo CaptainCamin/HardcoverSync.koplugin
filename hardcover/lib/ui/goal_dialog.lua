@@ -28,6 +28,7 @@ local GoalDialog = InputContainer:extend {
   today = nil,
   finished_offline = 0,
   note = nil,
+  edit_cb = nil,          -- the "Edit goal" button appears when this is set
   close_callback = nil,
 }
 
@@ -38,7 +39,7 @@ function GoalDialog:init()
   self:build()
 end
 
-function GoalDialog:buildContent(width)
+function GoalDialog:buildContent(width, viewport)
   local goal = self.goal
   local p = Goals.pace(goal, self.today, Goals.extra(goal, self.today, self.finished_offline))
   local c = VerticalGroup:new { align = "left" }
@@ -84,6 +85,14 @@ function GoalDialog:buildContent(width)
     table.insert(c, text(_("You reached this goal."), "body", { grey = true, width = width }))
     table.insert(c, Theme.span("l"))
   end
+
+  if self.edit_cb then
+    table.insert(c, Theme.button(_("Edit goal"), width, {
+      size = "body", viewport = viewport,
+      callback = function() self.edit_cb(goal) end,
+    }))
+    table.insert(c, Theme.span("l"))
+  end
   return c
 end
 
@@ -97,15 +106,16 @@ function GoalDialog:build()
   }
   local room = screen_h - title_bar:getSize().h
   local width = screen_w - 2 * M
-  local content = self:buildContent(width)
+  local content = self:buildContent(width, nil)
   local body
   self.scroll = nil
   if content:getSize().h + Theme.space.m > room then
     local gutter = 3 * (ScrollableContainer.scroll_bar_width or Screen:scaleBySize(6))
     width = screen_w - 2 * M - gutter
     self.scroll = ScrollableContainer:new { dimen = Geom:new { x = 0, y = 0, w = screen_w, h = room }, show_parent = self }
-    self.scroll[1] = HorizontalGroup:new { Theme.hspan(M), self:buildContent(width) }
-    body = self.scroll
+    local scroll = self.scroll
+    scroll[1] = HorizontalGroup:new { Theme.hspan(M), self:buildContent(width, function() return scroll.dimen end) }
+    body = scroll
   else
     body = HorizontalGroup:new { Theme.hspan(M), content }
   end
@@ -116,6 +126,17 @@ function GoalDialog:build()
     VerticalGroup:new { align = "left", title_bar, body },
   }
   self[1] = self.frame
+end
+
+-- the goal was changed: show it as it is now
+function GoalDialog:setGoal(goal)
+  self.goal = goal
+  if self[1] and type(self[1].free) == "function" then
+    pcall(function() self[1]:free() end)
+  end
+  self[1] = nil
+  self:build()
+  UIManager:setDirty(self, "ui")
 end
 
 function GoalDialog:onCloseWidget()
