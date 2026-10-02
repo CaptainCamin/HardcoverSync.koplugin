@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.0
+
+### Added
+
+* Search for books from the home screen. A **Search books** button at the top opens a box to type a title or an
+  author; the results come back as a list of covers (five to a page, like the shelves), and tapping one opens that
+  book's details. Closing the list returns to the home screen. It searches when you submit, not while you type, in the
+  background, and says so when it is offline or the search fails (with a retry). Only the first 25 matches are shown,
+  to stay within Hardcover's request limits.
+
 ## 0.7.1
 
 ### Fixed

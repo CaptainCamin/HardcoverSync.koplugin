@@ -66,6 +66,12 @@ return {
       emu:expectText(expected)
     end
 
+    -- the search button is at the top, above the cards, and the cards still fit
+    local order = {}
+    for i, node in ipairs(emu:screenNodes()) do order[node.text] = order[node.text] or i end
+    assert(order["Search books"] and order["Currently reading"]
+      and order["Search books"] < order["Currently reading"], "the search button is not above the cards")
+
     local rows = dialog.rows
     assert(#rows == 4 and rows[1].title == "Currently Reading",
       "rows are not in the expected order")
