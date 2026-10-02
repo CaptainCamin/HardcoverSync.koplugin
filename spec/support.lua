@@ -228,6 +228,38 @@ end
 -- caller never makes a request. Without these the require chain dies before a
 -- harness gets to assert anything. Stock Lua also has no ssl.https (it lives in
 -- LuaSec, which KOReader bundles), so that is stood in for too.
+--
+-- Permissive stand-ins for the KOReader widget modules the plugin's design
+-- module (hardcover/lib/ui/theme.lua) loads, for harnesses that stub the UI
+-- strictly and only care that a dialog builds. Every index, call and
+-- arithmetic operation on one yields another stand-in; modules a harness has
+-- already provided are left alone.
+--
+function support.preload_theme_stubs()
+  local function make()
+    return setmetatable({}, {
+      __index = function() return make() end,
+      __call = function() return make() end,
+      __add = function() return 0 end, __sub = function() return 0 end,
+      __mul = function() return 0 end, __div = function() return 0 end,
+      __concat = function() return "" end,
+      __lt = function() return false end, __le = function() return false end,
+    })
+  end
+  for _, name in ipairs({
+    "ffi/blitbuffer", "ffi/util", "ui/font", "ui/geometry", "ui/widget/button",
+    "ui/widget/horizontalgroup", "ui/widget/horizontalspan", "ui/widget/linewidget",
+    "ui/widget/textwidget", "ui/widget/textboxwidget", "ui/widget/titlebar",
+    "ui/widget/verticalgroup", "ui/widget/verticalspan", "ui/widget/container/leftcontainer",
+    "ui/widget/container/centercontainer", "ui/widget/container/framecontainer",
+    "ui/widget/container/inputcontainer", "ui/gesturerange",
+  }) do
+    if not package.preload[name] and not package.loaded[name] then
+      package.preload[name] = make
+    end
+  end
+end
+
 function support.preload_http_stubs()
   package.preload["socket"] = function() return {} end
   package.preload["socket.http"] = function() return {} end

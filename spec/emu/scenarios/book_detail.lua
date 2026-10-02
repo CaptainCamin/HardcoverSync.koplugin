@@ -86,7 +86,8 @@ return {
     for _, node in ipairs(emu:screenNodes()) do
       -- Long strings are legitimately repeated in a scrolling view only if
       -- they are genuinely distinct widgets; compare exactly, not by prefix.
-      if seen[node.text] then
+      -- (the title bar's own title is reported by several of its widgets)
+      if seen[node.text] and node.text ~= dialog.title then
         dupes[#dupes + 1] = node.text
       end
       seen[node.text] = true
@@ -163,6 +164,22 @@ return {
       emu:expectText(expected)
     end
     emu:shot("book_detail_typical")
+
+    -- the action bar sits inside the page margins (the buttons used to run a few
+    -- pixels past the right one) and its buttons are comfortably tall
+    local M = require("hardcover/lib/ui/theme").margin
+    for _, name in ipairs({ "shelf_button", "reviews_button" }) do
+      local b = typical[name]
+      assert(b and b.dimen and b.dimen.w > 0, name .. " is not on screen")
+      assert(b.dimen.x >= M, name .. " starts left of the margin")
+      assert(b.dimen.x + b.dimen.w <= emu.Screen:getWidth() - M, name .. " runs past the right margin")
+      assert(b.dimen.h >= emu.Screen:scaleBySize(48), name .. " is under 48 units tall")
+    end
+
+    -- the strip is below the first screenful now: scroll to it (taps are only
+    -- answered where the page is showing)
+    typical.scroll:scrollToRatio(0, 1)
+    emu:shot("book_detail_typical_end")
 
     local function centre(w) return w.dimen.x + math.floor(w.dimen.w / 2), w.dimen.y + math.floor(w.dimen.h / 2) end
 

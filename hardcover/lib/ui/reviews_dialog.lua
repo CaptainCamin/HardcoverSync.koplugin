@@ -1,44 +1,62 @@
--- Other readers' reviews of one book: a full-screen list, a few reviews to a page.
+-- Other readers' reviews of one book: a full-screen list of review cards, as
+-- many to a page as fit, paged with Previous / Next.
 --
--- A stock Menu with multi-line rows, paged with its own footer arrows, so there
--- is no scrolling container and no shifted tap ranges to clip (see
--- viewport.lua for the trouble those cause). Each row is one review: who, the
--- stars, the likes, then an excerpt. Tapping a row does the one useful thing
--- for it:
+-- Not a Menu any more and not scrolled: the cards are laid out whole (name,
+-- stars, date, the excerpt, likes and a Read more button), measured, and dealt
+-- out into pages, so every tappable thing is where it is drawn and there are no
+-- shifted tap ranges to clip (see viewport.lua for the trouble those cause).
 --
---   * a spoiler that is still hidden: reveals it (a Contains-spoilers row until
+-- The model is `self.items`, one entry per card (plus a last "Load more" one),
+-- exactly what the Menu rows were: { text, review, action }. Tapping what a
+-- card offers does the one useful thing for it:
+--
+--   * a spoiler that is still hidden: reveals it (a Contains-spoilers bar until
 --     then, and hidden again whenever the list is rebuilt from scratch);
---   * a long review: opens the whole text in a scrollable viewer;
---   * the last row, "Load more reviews": fetches the next page.
+--   * a long review: Read more opens the whole text in a scrollable viewer;
+--   * the last card, "Load more reviews": fetches the next page.
 --
 -- The dialog fetches nothing itself. `fetch_page(offset, limit, callback)` is
--- supplied by DialogManager, which owns the offline check and the retry.
+-- supplied by DialogManager, which owns the offline check and the retry. An
+-- optional `summary` ({ title, rating, count }, from Reviews.summary) heads the
+-- first page: the book and how it is rated. The API has no breakdown by star,
+-- so there is no histogram, only the figure and the star glyphs.
 --
 -- Row text and what each tap does come from hardcover/lib/reviews.lua.
 
+local Blitbuffer = require("ffi/blitbuffer")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
+local FrameContainer = require("ui/widget/container/framecontainer")
+local Geom = require("ui/geometry")
+local GestureRange = require("ui/gesturerange")
+local HorizontalGroup = require("ui/widget/horizontalgroup")
 local InputContainer = require("ui/widget/container/inputcontainer")
-local Menu = require("ui/widget/menu")
+local TopContainer = require("ui/widget/container/topcontainer")
+local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextViewer = require("ui/widget/textviewer")
+local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
+local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
 
 local Reviews = require("hardcover/lib/reviews")
+local Theme = require("hardcover/lib/ui/theme")
 
 local Screen = Device.screen
 
 local ReviewsDialog = InputContainer:extend {
   name = "hardcover_reviews_dialog",
   title = _("Reviews"),
+  summary = nil,       -- { title, rating, count }: the book, shown above page one
   reviews = nil,       -- normalised (Reviews.normalize), in display order
-  message = nil,       -- a single non-interactive row: loading, empty
+  message = nil,       -- a single non-interactive message: loading, empty
   has_more = false,
   loading = false,
   offset = 0,          -- how many rows the server has already given us
   page_size = Reviews.PAGE_SIZE,
   fetch_page = nil,    -- function(offset, limit, callback(rows, err))
   close_callback = nil,
+  page = 1,
 }
 
 function ReviewsDialog:init()
@@ -46,70 +64,332 @@ function ReviewsDialog:init()
   self.revealed = self.revealed or {}
   self.width = Screen:getWidth()
   self.height = Screen:getHeight()
+  self.page = 1
+  self.dimen = Geom:new { x = 0, y = 0, w = self.width, h = self.height }
 
-  self.menu = Menu:new {
-    -- Rows wrap at a fixed font and are cut with an ellipsis if they overflow
-    -- (multilines_forced: no shrinking the font to fit, no single-line mode).
-    single_line = false,
-    multilines_forced = true,
-    -- four tall rows: a headline, an excerpt of about six lines and a "Read
-    -- more" line fit in one at the default panel size
-    items_per_page = 4,
-    items_font_size = 20,
-    is_enable_shortcut = false,
+  self.key_events.CloseReviews = { { "Back" } }
+  self.key_events.NextPage = { { "RPgFwd" } }
+  self.key_events.PrevPage = { { "RPgBack" } }
+  if Device:isTouchDevice() then
+    -- a swipe turns the page, as in every other list
+    self.ges_events = self.ges_events or {}
+    self.ges_events.Swipe = {
+      GestureRange:new { ges = "swipe", range = self.dimen },
+    }
+  end
+
+  self.title_bar = Theme.titleBar {
     title = self.title,
-    fullscreen = true,
-    is_borderless = true,
-    is_popout = false,
-    item_table = self:buildItems(),
-    width = self.width,
-    height = self.height,
-    onMenuSelect = function(_, item) self:onSelectItem(item) end,
     close_callback = function() self:onClose() end,
+    show_parent = self,
   }
+  self.close_button = self.title_bar.right_button
 
-  self.container = CenterContainer:new {
-    dimen = Screen:getSize(),
-    self.menu,
-  }
-  self.menu.show_parent = self
-  self[1] = self.container
+  self:refresh()
 end
 
--- Rows for the current state. `mandatory` is always a string: Menu draws it
--- unconditionally and a nil there aborts the whole page.
+-- The model: one item per card, then the Load more item when there is more.
+-- (`mandatory` is gone with the Menu it was for.)
 function ReviewsDialog:buildItems()
   local items = {}
   if self.message then
-    items[1] = { text = self.message, mandatory = "", dim = true }
+    items[1] = { text = self.message, message = true }
     return items
   end
 
   for _, review in ipairs(self.reviews) do
     local text, action = Reviews.rowText(review, self.revealed[review.id or review])
-    items[#items + 1] = { text = text, mandatory = "", review = review, action = action }
+    items[#items + 1] = { text = text, review = review, action = action }
   end
   if self.has_more then
     items[#items + 1] = {
       text = self.loading and _("Loading reviews\226\128\166") or _(Reviews.LOAD_MORE),
-      mandatory = "",
       action = "more",
     }
   end
   return items
 end
 
--- Swap in the current rows. `item_number` keeps the reader on a page;
--- switchItemTable otherwise goes back to the first one.
+------------------------------------------------------------------ the cards
+
+local function text(str, size, opts)
+  opts = opts or {}
+  return TextWidget:new {
+    text = str,
+    face = Theme.face(size),
+    bold = opts.bold,
+    max_width = opts.width,
+    fgcolor = opts.grey and Theme.DARK_GREY or Theme.BLACK,
+  }
+end
+
+local function rowOf(left, right, width)
+  local gap = math.max(0, width - left:getSize().w - right:getSize().w)
+  return HorizontalGroup:new { align = "center", left, Theme.hspan(gap), right }
+end
+
+-- One review: who, stars and date; the excerpt (or the spoiler bar); likes and
+-- Read more.
+function ReviewsDialog:buildCard(item, width)
+  local review = item.review
+  local card = VerticalGroup:new { align = "left" }
+  table.insert(card, Theme.rule(width, false))
+  table.insert(card, Theme.span("m"))
+
+  -- the head: name and stars at the left, the date at the right
+  local date = review.date and text(review.date, "small", { grey = true }) or nil
+  local date_w = date and (date:getSize().w + Theme.space.m) or 0
+  local stars = review.rating_value and text(
+    "\226\152\133 " .. (review.rating:gsub("%*$", "")), "body", { bold = true }) or nil
+  local stars_w = stars and (stars:getSize().w + Theme.space.m) or 0
+  local name = text(review.reviewer, "title", { bold = true, width = width - date_w - stars_w })
+  local head = HorizontalGroup:new { align = "center", name }
+  if stars then
+    table.insert(head, Theme.hspan("m"))
+    table.insert(head, stars)
+  end
+  if date then
+    table.insert(card, rowOf(head, date, width))
+  else
+    table.insert(card, head)
+  end
+  table.insert(card, Theme.span("s"))
+
+  -- the body
+  local hidden = review.has_spoilers and not self.revealed[review.id or review]
+  if hidden then
+    table.insert(card, Theme.button(Reviews.SPOILER_PROMPT, width, {
+      h = Screen:scaleBySize(46),
+      callback = function() self:onSelectItem(item) end,
+    }))
+  else
+    table.insert(card, TextBoxWidget:new {
+      text = review.excerpt,
+      face = Theme.face("body"),
+      width = width,
+      alignment = "left",
+    })
+  end
+  table.insert(card, Theme.span("s"))
+
+  -- the foot: likes, and Read more when there is more to read
+  local likes = text(review.likes or " ", "small", { bold = true })
+  local more
+  if review.truncated and not hidden then
+    more = Theme.button(_(Reviews.READ_MORE), Screen:scaleBySize(110), {
+      h = Screen:scaleBySize(46),
+      callback = function() self:showFull(review) end,
+    })
+  end
+  if more then
+    table.insert(card, rowOf(likes, more, width))
+  else
+    table.insert(card, likes)
+  end
+  table.insert(card, Theme.span("m"))
+  return card
+end
+
+-- The Load more card: one full-width button.
+function ReviewsDialog:buildMore(item, width)
+  local button = Theme.button(item.text, width, {
+    h = Theme.BUTTON_H,
+    callback = function() self:onSelectItem(item) end,
+  })
+  return VerticalGroup:new {
+    align = "left",
+    Theme.rule(width, false),
+    Theme.span("m"),
+    button,
+    Theme.span("m"),
+  }
+end
+
+-- The book and its rating, above the first card.
+function ReviewsDialog:buildSummary(width)
+  local summary = self.summary
+  if type(summary) ~= "table" then return nil end
+  local group = VerticalGroup:new { align = "left" }
+  if summary.title then
+    table.insert(group, Theme.sectionHeader(summary.title, width))
+    table.insert(group, Theme.span("m"))
+  end
+  if summary.rating then
+    local figure = text(string.format("%.1f", summary.rating), "display", { bold = true })
+    local label = summary.count
+      and string.format(_("%d ratings"), summary.count) or _("rating")
+    local beside = VerticalGroup:new {
+      align = "left",
+      text(Reviews.stars(summary.rating), "title"),
+      text(label, "small", { grey = true, width = width }),
+    }
+    table.insert(group, HorizontalGroup:new { align = "center", figure, Theme.hspan("l"), beside })
+    table.insert(group, Theme.span("m"))
+  end
+  return group
+end
+
+------------------------------------------------------------------ the pages
+
+-- Lay every card out, then deal them into pages that fit. Rebuilt whenever the
+-- items change; turning a page only re-assembles the cards already built.
+function ReviewsDialog:layout()
+  local M = Theme.margin
+  local width = self.width - 2 * M
+  self.items = self:buildItems()
+
+  self.pager_h = Theme.BUTTON_H + Theme.space.m * 2
+  local room = self.height - self.title_bar:getSize().h - self.pager_h
+
+  self.pages = {}
+  if self.message then
+    self.pages[1] = { widgets = {}, message = self.message }
+    return
+  end
+
+  local summary = self:buildSummary(width)
+  local current = { widgets = {}, first = 1 }
+  local used = 0
+  if summary then
+    current.summary = summary
+    used = summary:getSize().h
+  end
+  for i, item in ipairs(self.items) do
+    local widget = item.review and self:buildCard(item, width) or self:buildMore(item, width)
+    local h = widget:getSize().h
+    -- a card that does not fit starts the next page (unless it is the only one)
+    if used + h > room and #current.widgets > 0 then
+      self.pages[#self.pages + 1] = current
+      current = { widgets = {}, first = i }
+      used = 0
+    end
+    table.insert(current.widgets, widget)
+    current.last = i
+    used = used + h
+  end
+  self.pages[#self.pages + 1] = current
+  self.page = math.max(1, math.min(self.page, #self.pages))
+end
+
+-- Show page `n` of the cards in the dialog's frame.
+function ReviewsDialog:showPage(n)
+  local M = Theme.margin
+  local width = self.width - 2 * M
+  self.page = math.max(1, math.min(n or self.page, #self.pages))
+  local page = self.pages[self.page]
+
+  local body = VerticalGroup:new { align = "left" }
+  local body_h = self.height - self.title_bar:getSize().h - self.pager_h
+  if page.message then
+    table.insert(body, CenterContainer:new {
+      dimen = Geom:new { w = self.width, h = body_h },
+      text(page.message, "body", { grey = true, width = width }),
+    })
+  else
+    table.insert(body, Theme.span("m"))
+    if page.summary then table.insert(body, page.summary) end
+    for _, widget in ipairs(page.widgets) do table.insert(body, widget) end
+  end
+  body:resetLayout()
+
+  -- the pager: Previous at the left, where you are in the middle, Next at the
+  -- right; an end that has nowhere to go is left blank
+  local button_w = Screen:scaleBySize(120)
+  local pager = HorizontalGroup:new { align = "center" }
+  local function slot(button)
+    return button or Theme.hspan(button_w)
+  end
+  local has_prev, has_next = self.page > 1, self.page < #self.pages
+  self.prev_button = has_prev and Theme.button(_("Previous"), button_w, {
+    callback = function() self:showPage(self.page - 1); UIManager:setDirty(self, "ui") end,
+  }) or nil
+  self.next_button = has_next and Theme.button(_("Next"), button_w, {
+    callback = function() self:showPage(self.page + 1); UIManager:setDirty(self, "ui") end,
+  }) or nil
+  local label = text(string.format(_("Page %d of %d"), self.page, #self.pages), "small", { bold = true })
+  local middle_w = width - 2 * button_w
+  table.insert(pager, slot(self.prev_button))
+  table.insert(pager, CenterContainer:new {
+    dimen = Geom:new { w = middle_w, h = Theme.BUTTON_H },
+    label,
+  })
+  table.insert(pager, slot(self.next_button))
+  self.page_label = label
+
+  local footer = VerticalGroup:new {
+    align = "left",
+    HorizontalGroup:new { Theme.hspan(M), Theme.rule(width, true) },
+    Theme.span("m"),
+    HorizontalGroup:new { Theme.hspan(M), #self.pages > 1 and pager or Theme.span(Theme.BUTTON_H) },
+  }
+
+  self.body_h = body_h
+  self.frame = FrameContainer:new {
+    width = self.width,
+    height = self.height,
+    background = Blitbuffer.COLOR_WHITE,
+    bordersize = 0,
+    padding = 0,
+    margin = 0,
+    VerticalGroup:new {
+      align = "left",
+      self.title_bar,
+      -- the body hangs from the top of its box, inset by the margin
+      TopContainer:new {
+        dimen = Geom:new { w = self.width, h = body_h },
+        HorizontalGroup:new { Theme.hspan(M), body },
+      },
+      footer,
+    },
+  }
+  self[1] = self.frame
+end
+
+-- Rebuild everything from the current state. `item_number` stays on the page
+-- that holds that item; otherwise the current page is kept.
 function ReviewsDialog:refresh(item_number)
-  self.menu:switchItemTable(self.title, self:buildItems(), item_number)
+  self:layout()
+  if item_number then
+    for n, page in ipairs(self.pages) do
+      if page.first and item_number >= page.first and item_number <= (page.last or 0) then
+        self.page = n
+        break
+      end
+    end
+  end
+  self:showPage()
   UIManager:setDirty(self, "ui")
 end
 
--- The number of the row on the page being viewed, to stay on it across a rebuild.
+-- The number of the first item on the page being viewed, to stay on it across a
+-- rebuild.
 function ReviewsDialog:currentItemNumber()
-  if self.menu.page and self.menu.perpage then
-    return (self.menu.page - 1) * self.menu.perpage + 1
+  local page = self.pages and self.pages[self.page]
+  return page and page.first
+end
+
+function ReviewsDialog:onNextPage()
+  if self.pages and self.page < #self.pages then
+    self:showPage(self.page + 1)
+    UIManager:setDirty(self, "ui")
+  end
+  return true
+end
+
+function ReviewsDialog:onPrevPage()
+  if self.pages and self.page > 1 then
+    self:showPage(self.page - 1)
+    UIManager:setDirty(self, "ui")
+  end
+  return true
+end
+
+function ReviewsDialog:onSwipe(_, ges)
+  local direction = ges and ges.direction
+  if direction == "west" then
+    return self:onNextPage()
+  elseif direction == "east" then
+    return self:onPrevPage()
   end
 end
 
@@ -188,6 +468,16 @@ function ReviewsDialog:loadMore()
     end
     self:addPage(rows, raw_count, offset)
   end)
+end
+
+-- UIManager:close() queues no refresh of its own; without this the screen stays
+-- on the panel after it has closed.
+function ReviewsDialog:onCloseWidget()
+  UIManager:setDirty(nil, "ui")
+end
+
+function ReviewsDialog:onCloseReviews()
+  return self:onClose()
 end
 
 function ReviewsDialog:onClose()

@@ -4,7 +4,6 @@
 -- covers, paging and compatibility mode behave identically. Selecting a row
 -- opens BookDetailDialog; the left icon loads the next page.
 
-local ButtonDialog = require("ui/widget/buttondialog")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
 local InputContainer = require("ui/widget/container/inputcontainer")
@@ -14,6 +13,8 @@ local _ = require("gettext")
 
 local SearchMenu = require("hardcover/lib/ui/search_menu")
 local Shelf = require("hardcover/lib/shelf")
+local Picker = require("hardcover/lib/ui/picker")
+local ListChrome = require("hardcover/lib/ui/list_chrome")
 local ListRow = require("hardcover/lib/ui/list_row")
 local ShelfSort = require("hardcover/lib/shelf_sort")
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
@@ -78,8 +79,10 @@ function ShelfDialog:init()
   self.height = Screen:getHeight()
 
   local menu_class = self.compatibility_mode and Menu or SearchMenu
+  local chrome = ListChrome.options(function() return self.menu end)
 
   self.menu = menu_class:new {
+    page_info_text = chrome.page_info_text,
     single_line = false,
     multilines_show_more_text = true,
     -- five tall rows, so the covers are big enough to recognise (the default is
@@ -217,35 +220,33 @@ function ShelfDialog:showSortMenu()
     self.sort_menu = nil
   end
 
-  local buttons = {}
+  local rows = {}
   if self.has_more and self.fetch_page then
-    buttons[#buttons + 1] = { {
+    rows[#rows + 1] = {
       text = _("Load the rest of the list"),
+      bold = true,
       callback = function()
         UIManager:close(self.sort_menu)
         self.sort_menu = nil
         self:loadMore()
       end,
-    } }
+    }
   end
 
   local current = self.sort_key or ShelfSort.DEFAULT
   for _, option in ipairs(ShelfSort.OPTIONS) do
-    buttons[#buttons + 1] = { {
+    rows[#rows + 1] = {
       text = (option.key == current and "\226\156\147 " or "") .. option.label,
+      current = option.key == current,
       callback = function()
         UIManager:close(self.sort_menu)
         self.sort_menu = nil
         self:setSort(option.key)
       end,
-    } }
+    }
   end
 
-  self.sort_menu = ButtonDialog:new {
-    title = _("Sort by"),
-    title_align = "center",
-    buttons = buttons,
-  }
+  self.sort_menu = Picker.new { title = _("Sort by"), rows = rows }
   UIManager:show(self.sort_menu)
 end
 

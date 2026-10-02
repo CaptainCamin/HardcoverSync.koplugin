@@ -115,6 +115,37 @@ function Reviews.excerpt(text, max_chars)
 end
 
 --
+-- Five star glyphs for a rating out of five, rounded to the nearest whole star
+-- (a filled star for each, an outlined one for the rest); "" for no rating.
+-- U+2605 and U+2606 as bytes, for the CI Lua.
+--
+function Reviews.stars(rating)
+  rating = tonumber(rating)
+  if not rating or rating <= 0 then return "" end
+  local full = math.min(5, math.max(0, math.floor(rating + 0.5)))
+  return string.rep("\226\152\133", full) .. string.rep("\226\152\134", 5 - full)
+end
+
+--
+-- What the reviews screen says about the book itself: its title and the
+-- community rating (with how many rated it), from the details the reader was
+-- looking at. The API gives no breakdown of the ratings by star (it would take
+-- a query of its own), so this is all there is to summarise; nil when there is
+-- nothing to show.
+--
+function Reviews.summary(detail)
+  local book = type(detail) == "table" and detail.book
+  if type(book) ~= "table" then return nil end
+  local title = type(book.title) == "string" and book.title ~= "" and book.title or nil
+  local rating = tonumber(book.rating)
+  if rating and rating <= 0 then rating = nil end
+  local count = tonumber(book.ratings_count)
+  if count and count <= 0 then count = nil end
+  if not (title or rating) then return nil end
+  return { title = title, rating = rating, count = count }
+end
+
+--
 -- One API user_books row as the dialog needs it.
 --
 -- `text` is the whole review; `excerpt`/`truncated` is what the list shows.
@@ -129,6 +160,7 @@ function Reviews.normalize(user_book)
     id = user_book.id,
     reviewer = Reviews.reviewer(user_book),
     rating = Reviews.ratingText(user_book.rating),
+    rating_value = (tonumber(user_book.rating) or 0) > 0 and tonumber(user_book.rating) or nil,
     likes = Reviews.likesText(user_book.likes_count),
     date = Reviews.dateText(user_book.reviewed_at),
     has_spoilers = user_book.review_has_spoilers == true,
