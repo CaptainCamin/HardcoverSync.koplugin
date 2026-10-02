@@ -503,6 +503,15 @@ function DialogManager:showHome(done_callback)
     lists_cb = function()
       self:showLists()
     end,
+    -- the saved goals, so the card is there at once and offline
+    goals = cache and cache:goals(user_id) or nil,
+    finished_offline = self:finishedOffline(),
+    goal_cb = function(goal)
+      self:showGoal(goal, nil)
+    end,
+    goals_cb = function()
+      self:showGoals()
+    end,
     close_callback = function()
       if done_callback then done_callback() end
     end,
@@ -554,6 +563,17 @@ function DialogManager:showHome(done_callback)
     if list_count and UIManager:isWidgetShown(dialog) and dialog.list_count ~= list_count then
       dialog.list_count = list_count
       dialog:rebuild()
+    end
+
+    -- the goal card: fresh goals replace the saved ones
+    if UIManager:isWidgetShown(dialog) then
+      local goals = Api:getGoals()
+      if goals and UIManager:isWidgetShown(dialog) then
+        if cache then cache:putGoals(user_id, goals) end
+        dialog.goals = goals
+        dialog.finished_offline = self:finishedOffline()
+        dialog:rebuild()
+      end
     end
   end)
 end
@@ -777,6 +797,80 @@ function DialogManager:showShelf(status_id, title, done_callback)
       end,
       function() end)
   end)
+end
+
+--
+-- Reading goals. Shown at once from the saved copy (or a loading line), refreshed
+-- when the network answers; the saved copy is what an offline device shows, with a
+-- note saying when it is from. Pace is worked out on the device (see goals.lua), and
+-- books finished here but not yet sent count toward the number.
+--
+local function goalsNote(saved_at, why)
+  local when = os.date("%b %d", saved_at or os.time())
+  return string.format(_("%s Showing your goals as of %s."), why, when)
+end
+
+function DialogManager:finishedOffline()
+  return self.sync_queue and self.sync_queue:finishedCount() or 0
+end
+
+function DialogManager:showGoals(done_callback)
+  local user_id = User:getId()
+  local cache = self.shelf_cache
+  local cached, saved_at = cache and cache:goals(user_id)
+
+  discard(self.goals_dialog)
+  self.goals_dialog = nil
+
+  local note
+  local online = NetworkManager:isConnected()
+  if cached and not online then note = goalsNote(saved_at, _("Offline.")) end
+
+  local dialog = require("hardcover/lib/ui/goals_dialog"):new {
+    goals = cached,
+    finished_offline = self:finishedOffline(),
+    note = note,
+    message = cached == nil and (online and _("Loading your goals\226\128\166") or _("Goals need an internet connection the first time.")) or nil,
+    open_cb = function(goal)
+      self:showGoal(goal, note)
+    end,
+    close_callback = function()
+      if done_callback then done_callback() end
+    end,
+  }
+  if cached and #cached == 0 then
+    dialog.message = _("No goals yet. Set one on hardcover.app and it will show up here.")
+  end
+  self.goals_dialog = dialog
+  UIManager:show(dialog)
+  if not online then return end
+
+  Api:getGoalsAsync(function(goals, err)
+    if not UIManager:isWidgetShown(dialog) then return end
+    if goals then
+      if cache then cache:putGoals(user_id, goals) end
+      dialog.open_cb = function(goal) self:showGoal(goal, nil) end
+      dialog:setGoals(goals, nil, self:finishedOffline())
+    elseif cached then
+      dialog:setGoals(cached, goalsNote(saved_at, _("Couldn't refresh.")), self:finishedOffline())
+    else
+      StatusDialogs.retry(err, _("Loading your goals"),
+        function() self:showGoals(done_callback) end,
+        function() UIManager:close(dialog) end)
+    end
+  end)
+end
+
+-- One goal, big. `note` is the saved-copy note when the goals shown are not fresh.
+function DialogManager:showGoal(goal, note, done_callback)
+  UIManager:show(require("hardcover/lib/ui/goal_dialog"):new {
+    goal = goal,
+    finished_offline = self:finishedOffline(),
+    note = note,
+    close_callback = function()
+      if done_callback then done_callback() end
+    end,
+  })
 end
 
 --

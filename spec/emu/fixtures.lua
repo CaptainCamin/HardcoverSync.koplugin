@@ -418,6 +418,14 @@ function M.install(opts)
     return page
   end
 
+  Api.getGoals = function(_)
+    record("getGoals")
+    if M.goals_fail then return nil, { completed = false } end
+    -- no goals unless a scenario brings some (opts.goals_rows, as `me.goals` returns them):
+    -- a goal card changes the home screen's height, which most scenarios do not want
+    return require("hardcover/lib/goals").normalize(deepcopy(opts.goals_rows or {}))
+  end
+
   Api.getLists = function(_)
     record("getLists")
     if M.lists_fail then return nil, { completed = false } end

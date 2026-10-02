@@ -183,6 +183,36 @@ function ShelfCache:putReading(user_id, entries)
   return (pcall(store.flush, store))
 end
 
+-- Your goals, as last loaded (a list of Goals.normalize rows) and when. nil when
+-- never saved; an empty list is a real answer (no goals).
+function ShelfCache:goals(user_id)
+  local store = self:_store()
+  local saved = store and store:readSetting("goals")
+  local mine = saved and saved[tostring(user_id or 0)]
+  if mine and type(mine.goals) == "table" then
+    return mine.goals, mine.saved_at
+  end
+end
+
+function ShelfCache:putGoals(user_id, goals)
+  local store = self:_store()
+  if not store or type(goals) ~= "table" then return false end
+
+  local saved = store:readSetting("goals")
+  if not saved then
+    saved = {}
+    store:saveSetting("goals", saved)
+  end
+  local kept = {}
+  for i, goal in ipairs(goals) do
+    local copy = {}
+    for k, v in pairs(goal) do copy[k] = v end
+    kept[i] = copy
+  end
+  saved[tostring(user_id or 0)] = { goals = kept, saved_at = os.time() }
+  return (pcall(store.flush, store))
+end
+
 -- The cached row for a book, from any of this user's shelves. Lets a book's
 -- details be shown offline from what the shelf already had.
 function ShelfCache:findEntry(user_id, book_id)
@@ -235,6 +265,7 @@ function ShelfCache:clear()
   store:saveSetting("shelves", nil)
   store:saveSetting("counts", nil)
   store:saveSetting("reading", nil)
+  store:saveSetting("goals", nil)
   return (pcall(store.flush, store))
 end
 

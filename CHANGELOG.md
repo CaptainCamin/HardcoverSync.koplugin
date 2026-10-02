@@ -8,6 +8,15 @@
   Home shows the first three books you are reading; the "Currently reading" heading, which now says how many
   you are reading, opens the rest.
 
+### Added
+
+* Reading goals. Home shows a "Goals" card under the Library tiles for the goal that is nearest to ending (a
+  book goal before a page goal; one that is already done is passed over); the heading opens the Goals screen
+  (current goals as cards with a progress bar and a tick where you should be today, then past goals) and the
+  card opens that goal (you against pace, what finishing takes). Pace, days left and "books a week to finish"
+  are worked out on the device, so goals read the same offline from the saved copy ("Offline. Showing your
+  goals as of ..."), and a book you finish offline is counted straight away ("+1 finished offline").
+
 ## 1.0.5
 
 ### Added

@@ -169,6 +169,8 @@ function HardcoverApp:init()
     page_mapper = self.page_mapper,
     settings = self.settings,
     shelf_cache = self.shelf_cache,
+    -- books finished offline, for the reading goal's number
+    sync_queue = self.sync_queue,
     -- the settings, for the home screen's Settings button; read when asked, as
     -- the menu is built after this
     settings_items = function()

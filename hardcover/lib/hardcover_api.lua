@@ -11,6 +11,7 @@ local UIManager = require("ui/uimanager")
 local socketutil = require("socketutil")
 
 local Book = require("hardcover/lib/book")
+local Goals = require("hardcover/lib/goals")
 local Lists = require("hardcover/lib/lists")
 local Shelf = require("hardcover/lib/shelf")
 local VERSION = require("hardcover_version")
@@ -779,6 +780,40 @@ function HardcoverApi:getListBooks(list_id, source, ranked, offset, limit)
 end
 
 --
+-- Your reading goals, as a list (see Goals.normalize: archived ones are left out).
+-- Everything about pace is worked out on the device from this and the date.
+--
+function HardcoverApi:getGoals()
+  local query = [[
+    query {
+      me {
+        goals(
+          where: { archived: { _eq: false } }
+          order_by: [{ end_date: asc }, { id: asc }]
+        ) {
+          id
+          goal
+          metric
+          description
+          start_date
+          end_date
+          progress
+          archived
+        }
+      }
+    }
+  ]]
+
+  local results, err = self:query(query, {})
+  local me = results and results.me
+  if type(me) == "table" and me[1] ~= nil then me = me[1] end
+  if type(me) ~= "table" or type(me.goals) ~= "table" then
+    return nil, err or { completed = false }
+  end
+  return Goals.normalize(me.goals)
+end
+
+--
 -- How many books are on each of the given shelves, as { [status_id] = count }.
 --
 -- One aggregate per shelf, all in a single request. Each aliased aggregate counts
@@ -1362,6 +1397,10 @@ local function async(callback, fn, ...)
     end
     deliver(callback, unpack(results, 2, table.maxn(results)))
   end)
+end
+
+function HardcoverApi:getGoalsAsync(callback)
+  async(callback, self.getGoals, self)
 end
 
 function HardcoverApi:getListsAsync(callback)

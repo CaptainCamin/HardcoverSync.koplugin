@@ -29,6 +29,8 @@ local VerticalGroup = require("ui/widget/verticalgroup")
 local LeftContainer = require("ui/widget/container/leftcontainer")
 local _ = require("gettext")
 
+local Goals = require("hardcover/lib/goals")
+local GoalWidgets = require("hardcover/lib/ui/goal_widgets")
 local Home = require("hardcover/lib/home")
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local TapRow = require("hardcover/lib/ui/tap_row")
@@ -47,6 +49,10 @@ local HomeDialog = InputContainer:extend {
   settings_cb = nil,
   search_cb = nil,
   lists_cb = nil,    -- the "More lists" tile appears when this is set
+  goals = nil,       -- Goals.normalize rows (saved or fresh); the goal card shows the chosen one
+  finished_offline = 0, -- books finished here and not yet counted by Hardcover
+  goal_cb = nil,     -- called with the goal when its card is tapped
+  goals_cb = nil,    -- the "Goals" heading: opens the Goals screen
   list_count = nil,
   close_callback = nil,
 }
@@ -187,6 +193,24 @@ end
 
 -- Build everything from the current rows and entries. Pure function of both, so
 -- a rebuild cannot leave a stale widget behind.
+-- The goal card under the library: the caller's own (goal_card_fn, for tests and
+-- mock-ups) or the one Goals.pick chooses from the saved goals; nil when there is
+-- no current goal. Worked out on the device from the saved goal and the date, so
+-- it shows the same offline.
+function HomeDialog:buildGoalCard(width, viewport)
+  if self.goal_card_fn then
+    return self.goal_card_fn(width, viewport)
+  end
+  if type(self.goals) ~= "table" or #self.goals == 0 then return nil end
+  local today = Goals.today()
+  local goal = Goals.pick(self.goals, today)
+  if not goal then return nil end
+  local p = Goals.pace(goal, today, Goals.extra(goal, today, self.finished_offline))
+  return GoalWidgets.homeCard(goal, p, width, viewport,
+    function() if self.goal_cb then self.goal_cb(goal) end end,
+    function() if self.goals_cb then self.goals_cb() end end)
+end
+
 -- The column of everything on the home screen, laid out in `width`. `viewport`
 -- (a function returning the visible rectangle of the scroll area, or nil when the
 -- page is not scrolling) clips every tap range to what is on screen.
@@ -245,7 +269,7 @@ function HomeDialog:buildColumn(width, viewport)
 
   -- an optional card under the library (the reading goal): built by the caller,
   -- at the page width
-  local goal_card = self.goal_card_fn and self.goal_card_fn(width, viewport) or nil
+  local goal_card = self:buildGoalCard(width, viewport)
 
   local column = VerticalGroup:new { align = "left" }
   table.insert(column, Theme.span("m"))
