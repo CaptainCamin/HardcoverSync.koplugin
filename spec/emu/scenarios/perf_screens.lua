@@ -136,6 +136,42 @@ return {
     results.panel_close = probe:report("reader panel: close")
     print("        small: " .. perf.small_regions(results.panel_close))
 
+    ----------------------------------------------------------------- settings
+    local ticks = {}
+    local items = {}
+    for i = 1, 16 do
+      ticks[i] = false
+      items[i] = {
+        text = "Option number " .. i,
+        checked_func = function() return ticks[i] end,
+        callback = function(menu) ticks[i] = not ticks[i]; if menu then menu:updateItems() end end,
+      }
+    end
+    local SettingsDialog = require("hardcover/lib/ui/settings_dialog")
+    local screen = SettingsDialog.show { items = items, title = "Settings" }
+    perf.run_loop()
+    assert(screen.scroll, "the settings did not scroll: the check needs a page taller than the screen")
+    screen.scroll:setScrolledOffset({ x = 0, y = 400 })
+    UIManager:setDirty(screen, "ui")
+    perf.run_loop()
+    local before_offset = screen.scroll:getScrolledOffset().y
+    -- tick the 8th option, in view at this offset, with a real tap
+    local target
+    for _, node in ipairs(emu:screenNodes()) do
+      if node.text == "Option number 8" then target = node end
+    end
+    assert(target, "option 8 is not on screen at the scrolled position")
+    probe:reset()
+    emu:tapExpecting(target.x + 5, target.y + 5)
+    perf.run_loop()
+    results.settings_tick = probe:report("settings: one option ticked")
+    print("        small: " .. perf.small_regions(results.settings_tick))
+    assert(ticks[8] == true, "the tap did not tick the option")
+    assert(screen.scroll:getScrolledOffset().y == before_offset, string.format(
+      "ticking an option moved the page from %d to %d", before_offset, screen.scroll:getScrolledOffset().y))
+    emu:closeAll()
+    perf.run_loop()
+
     ------------------------------------------------------------------ budget
     -- what each user action may cost the panel. A screen's first draw is one
     -- full refresh; whatever arrives later redraws only its own box or region.
@@ -158,5 +194,7 @@ return {
     within("reader panel open", results.panel_open, 0, 0.6)
     within("reader panel tick", results.panel_toggle, 0, 0.6)
     within("reader panel close", results.panel_close, 0, 0.6)
+    -- ticking an option redraws that row, not the page
+    within("settings tick", results.settings_tick, 0, 0.1)
   end,
 }

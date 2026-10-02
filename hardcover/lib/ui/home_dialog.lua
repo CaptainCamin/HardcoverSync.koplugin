@@ -339,6 +339,7 @@ end
 function HomeDialog:paintTo(...)
   InputContainer.paintTo(self, ...)
   self.painted = true
+  self.pending_before = nil
 end
 
 -- UIManager:show() queues no refresh of its own (it relies on a full-panel
@@ -364,13 +365,16 @@ end
 -- Before the first paint, or when the layouts cannot be compared, it is the whole
 -- panel.
 function HomeDialog:rebuild()
-  local before = self.painted and self:snapshot() or nil
+  -- two rebuilds before a paint (counts and the reading list arriving together)
+  -- compare with what was last on screen, not with the first one's unpainted tree
+  local before = self.painted and self:snapshot() or self.pending_before
 
   if self[1] and type(self[1].free) == "function" then
     pcall(function() self[1]:free() end)
   end
   self[1] = nil
   self:build()
+  self.pending_before = before
 
   if not before then
     UIManager:setDirty(self, "ui")
