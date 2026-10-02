@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.0
+
+### Added
+
+- Swipe the "More in …" and "Similar to …" strips left or right to turn their page, the same as the arrows. Swiping up or down on a strip still scrolls the page.
+- An **On device** button on a book's details screen opens KOReader's file search with the book's title filled in (a subtitle and the author are left off, so the search finds more), so you can see whether you already have the book. You pick the folder to search in. It is in the file manager and in the reader.
+
 ## 1.3.4
 
 ### Fixed

@@ -108,6 +108,38 @@ return {
     for _, expected in ipairs({ "Similar to The Left Hand of Darkness", "8 books", "More in Hainish Cycle" }) do
       emu:expectText(expected)
     end
+    -- a swipe along a strip turns its page (like the arrows); a vertical swipe scrolls the page
+    local function swipe(strip, direction)
+      local d = strip.holder.dimen
+      local Time = require("ui/time")
+      local gesture = { ges = "swipe", direction = direction, time = Time.now(),
+        pos = require("ui/geometry"):new { x = d.x + math.floor(d.w / 2), y = d.y + math.floor(d.h / 2), w = 0, h = 0 } }
+      local consumed = top():handleEvent(emu.Event:new("Gesture", gesture))
+      emu:pump()
+      return consumed
+    end
+    local s_first, r_first = details.similar_carousel.first, details.carousel.first
+    assert(swipe(details.similar_carousel, "west"), "a swipe on the similar strip was not handled")
+    assert(details.similar_carousel.first > s_first, "swiping left did not turn the similar strip")
+    assert(details.carousel.first == r_first, "swiping the similar strip turned the series strip")
+    assert(swipe(details.carousel, "west"), "a swipe on the series strip was not handled")
+    assert(details.carousel.first > r_first, "swiping left did not turn the series strip")
+    local advanced = details.carousel.first
+    swipe(details.carousel, "east")
+    assert(details.carousel.first < advanced, "swiping right did not turn the series strip back")
+    details.carousel.first = r_first
+    details.carousel:render()
+    assert(swipe(details.similar_carousel, "east"))
+    assert(details.similar_carousel.first == s_first, "swiping right did not turn back")
+    swipe(details.similar_carousel, "east") -- already at the start: nothing happens, nothing breaks
+    assert(details.similar_carousel.first == s_first)
+    local before = details.scroll:getScrolledOffset()
+    swipe(details.similar_carousel, "south")
+    assert(details.similar_carousel.first == s_first, "a vertical swipe turned the strip")
+    assert(details.scroll:getScrolledOffset().y ~= before.y, "a vertical swipe on the strip did not scroll the page")
+    details.scroll:scrollToRatio(0, 1)
+    emu:pump()
+
     local sim_first = details.similar_carousel.first
     local ser_first = details.carousel.first
     local function centre(w) return w.dimen.x + math.floor(w.dimen.w / 2), w.dimen.y + math.floor(w.dimen.h / 2) end

@@ -21,6 +21,7 @@ local Lists = require("hardcover/lib/lists")
 local Recommendations = require("hardcover/lib/recommendations")
 local Reviews = require("hardcover/lib/reviews")
 local Shelf = require("hardcover/lib/shelf")
+local DeviceSearch = require("hardcover/lib/device_search")
 local Zlibrary = require("hardcover/lib/zlibrary")
 local User = require("hardcover/lib/user")
 
@@ -1230,6 +1231,8 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
     loading = true,
     -- the details on screen go along, so the reviews can say which book and how it is rated
     on_reviews = function(d) self:showReviews(book_id, nil, Reviews.summary(d and d.detail)) end,
+    -- KOReader's file search, with the title filled in (it is in the file manager and the reader)
+    on_find = DeviceSearch.available(self.ui) and function(d) self:findOnDevice(d) end or nil,
     -- only when the Z-library plugin is there: no button that does nothing
     on_zlibrary = Zlibrary.available(self.ui) and function(d) self:searchZlibrary(d) end or nil,
     on_shelf = function(d) self:chooseShelf(d) end,
@@ -1330,6 +1333,21 @@ function DialogManager:searchZlibrary(dialog)
     StatusDialogs.info(_("This book has no title to search for."))
   else
     StatusDialogs.info(_("Could not open the Z-library search."))
+  end
+end
+
+-- Look for the book on screen among the files on this device: KOReader's file search
+-- opens on top of this screen with the title filled in, and the reader picks the folder.
+function DialogManager:findOnDevice(dialog)
+  local detail = dialog and dialog.detail
+  local summary = detail and detail.book and Shelf.detailSummary(detail) or {}
+  local ok, why = DeviceSearch.search(self.ui, { title = summary.title })
+  if ok then return end
+
+  if why == "no_title" then
+    StatusDialogs.info(_("This book has no title to search for."))
+  else
+    StatusDialogs.info(_("Could not open the file search."))
   end
 end
 
