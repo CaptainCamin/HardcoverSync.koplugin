@@ -283,6 +283,14 @@ function HomeDialog:build()
   table.insert(column, header)
   table.insert(column, Theme.span("m"))
 
+  if #cards == 0 then
+    -- nothing loaded (offline with nothing saved) or nothing being read: say so,
+    -- and where to go, rather than leaving a heading with nothing under it
+    table.insert(column, text(_("Nothing to show yet. Tap the heading to open the shelf."), "small",
+      { grey = true, width = width }))
+    table.insert(column, Theme.span("l"))
+  end
+
   if #cards > 0 then
     column:resetLayout() -- a VerticalGroup keeps its size until told otherwise
     local room = screen_h - title_bar:getSize().h - column:getSize().h
