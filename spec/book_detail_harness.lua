@@ -696,11 +696,11 @@ check("Reviews: an action bar button that calls back, and none without a callbac
   assert(d.reviews_button, "the rebuild lost the button")
 end)
 
-check("Readers also liked: a strip of covers above the series, tapping one opens that book", function()
+check("Similar to T: a strip of covers above the series, tapping one opens that book", function()
   local opened = {}
   local d = BookDetailDialog:new { detail = detail({ title = "T", description = "About it." }) }
   assert(d.similar_card == nil and d.similar_carousel == nil)
-  local card = { title = "Readers also liked", subtitle = "6 books", items = {} }
+  local card = { title = "Similar to T", subtitle = "6 books", items = {} }
   for i = 1, 6 do card.items[i] = { book_id = 100 + i, number = "Author " .. i, title = "Book " .. i, current = false } end
   d:setSimilar(card, function(id) opened[#opened + 1] = id end)
   assert(d.similar_carousel and contains(d.content_group, d.similar_carousel.widget), "the strip is not in the page")

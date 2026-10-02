@@ -1,5 +1,5 @@
 --[[--
-"Readers also liked" on a book's details: a strip of covers (Hardcover's ranking, in its
+"Similar to <title>" on a book's details: a strip of covers (Hardcover's ranking, in its
 order) that arrives after the screen is up, a tap opening that book, a book with no
 ranking or a failed answer showing nothing (the screen carries on), and the offline
 case (no request at all).
@@ -59,7 +59,7 @@ return {
     for i, idx in ipairs(fixtures.similar_ids) do
       assert(details.similar_card.items[i].book_id == fixtures.shelf_books[idx].book_id, "cover " .. i .. " is not in ranking order")
     end
-    for _, expected in ipairs({ "Readers also liked", "4 books" }) do emu:expectText(expected) end
+    for _, expected in ipairs({ "Similar to The Lathe of Heaven", "4 books" }) do emu:expectText(expected) end
     emu:shot("similar_strip")
 
     -- a tap on a cover opens that book on top of this one; closing comes back

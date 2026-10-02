@@ -1791,14 +1791,14 @@ function DialogManager:loadSeries(dialog, book, user_id)
   end)
 end
 
--- "Readers also liked" on a book's details: Hardcover's ranking, fetched after the
+-- "Similar to <title>" on a book's details: Hardcover's ranking, fetched after the
 -- screen is up (two requests) and shown as a strip of covers. A failure or an empty
 -- ranking shows nothing: the rest of the screen does not depend on it.
 function DialogManager:loadSimilar(dialog, book_id)
   if not Network.connected() then return end
   Api:getSimilarBooksAsync(book_id, function(entries)
     if not UIManager:isWidgetShown(dialog) then return end
-    local card = Recommendations.card(entries)
+    local card = Recommendations.card(entries, dialog.detail and dialog.detail.book and dialog.detail.book.title)
     if not card then return end
     dialog:setSimilar(card, function(id)
       self:showBookDetail(id)

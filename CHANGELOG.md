@@ -1,10 +1,10 @@
 # Changelog
 
-## 1.3.1
+## 1.4.0
 
 ### Changed
 
-- Similar books is now a "Readers also liked" strip of covers on the book's details screen, between About and the series strip, paged with arrows like the series one, instead of a Similar button. It loads after the screen is up, shows nothing if Hardcover has no ranking for the book (or the request fails), and costs two requests per book you open.
+- Similar books is now a "Similar to <title>" strip of covers on the book's details screen, between About and the series strip, paged with arrows like the series one, instead of a Similar button. It loads after the screen is up, shows nothing if Hardcover has no ranking for the book (or the request fails), and costs two requests per book you open.
 
 ## 1.3.0
 

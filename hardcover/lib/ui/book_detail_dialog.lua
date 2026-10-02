@@ -412,7 +412,7 @@ function BookDetailDialog:init()
   end
 
   -- Strips of covers, paged with arrows; tapping one opens that book. Below About, so
-  -- the book itself comes first: "Readers also liked", then "More in this series".
+  -- the book itself comes first: "Similar to <title>", then "More in this series".
   self.carousel, self.similar_carousel = nil, nil
   local function strip(card, on_open)
     return SeriesCarousel:new {
@@ -604,7 +604,7 @@ function BookDetailDialog:setSeries(card, on_open_book)
 end
 
 --
--- Show "Readers also liked" once it has been fetched.
+-- Show "Similar to <title>" once it has been fetched.
 --
 -- `card` is Recommendations.card's result (nil clears it); `on_open(book_id)` is called
 -- when a cover is tapped. Like the series, it arrives after the screen is up.
