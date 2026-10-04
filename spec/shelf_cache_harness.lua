@@ -313,4 +313,18 @@ check("invalidate and clear empty the small file too, and the old copy does not 
   assert(c:counts(1, { 1 })[1] == nil and c:reading(1) == nil, "clear left home data behind")
 end)
 
+check("the For you picks are saved apart, with when, per user; descriptions are dropped; clear forgets them", function()
+  local c = newPair()
+  assert(c:forYou(1) == nil, "something saved from the start")
+  assert(c:putForYou(1, { { book_id = 5, title = "T", reason = "Wool", description = "long text" } }) ~= false)
+  local entries, at = c:forYou(1)
+  assert(#entries == 1 and entries[1].reason == "Wool" and entries[1].description == nil, "entry")
+  assert(type(at) == "number", "no date")
+  assert(c:forYou(2) == nil, "another user's picks")
+  assert(c:counts(1, { 1 })[1] == nil and c:reading(1) == nil, "the picks leaked into the home data")
+  c:clear()
+  assert(c:forYou(1) == nil, "clear left the picks behind")
+  assert(c:putForYou(1, "junk") == false)
+end)
+
 r.finish()

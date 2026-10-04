@@ -1173,7 +1173,17 @@ function HardcoverApi:getSimilarBooks(book_id, limit)
   local ids = Recommendations.ids(type(book) == "table" and book.cached_similar_book_ids, limit)
   if #ids == 0 then return {} end
 
-  local second, err2 = self:query([[
+  return self:getBooksByIds(ids)
+end
+
+--
+-- The books for `ids`, as shelf entries in the order of `ids` (the API returns them in
+-- any order, and leaves out ones it does not know). One request. nil and the error when
+-- it fails.
+--
+function HardcoverApi:getBooksByIds(ids)
+  if #ids == 0 then return {} end
+  local result, err = self:query([[
     query ($ids: [Int!]) {
       books(where: { id: { _in: $ids } }) {
         book_id: id
@@ -1191,11 +1201,55 @@ function HardcoverApi:getSimilarBooks(book_id, limit)
       }
     }
   ]], { ids = ids }, true)
-  if second == nil or type(second.books) ~= "table" then
-    return nil, err2 or { completed = false }
+  if result == nil or type(result.books) ~= "table" then
+    return nil, err or { completed = false }
   end
-  return Recommendations.entries(ids, second.books)
+  return Recommendations.entries(ids, result.books)
 end
+
+--
+-- "For you": books suggested from the ones you rated 4 or more, computed here from
+-- Hardcover's similar-books rankings (see Recommendations.score). Two requests: your
+-- best-rated books with their rankings and the ids of your whole library, then the books
+-- for the top ids. Each entry carries `reason`, the title of the book it came from. Returns
+-- entries (empty, with the note "no_ratings", when nothing is rated 4 or more yet), or
+-- nil and the error.
+--
+function HardcoverApi:getForYou(limit)
+  local first, err = self:query([[
+    query {
+      me {
+        seeds: user_books(where: { rating: { _gte: 4 } }, order_by: { updated_at: desc }, limit: 15) {
+          rating
+          book { id title cached_similar_book_ids }
+        }
+        own: user_books { book_id }
+      }
+    }
+  ]], nil, true)
+  local me = first and first.me
+  if type(me) == "table" and me[1] ~= nil then me = me[1] end
+  if type(me) ~= "table" then return nil, err or { completed = false } end
+
+  local seeds = type(me.seeds) == "table" and me.seeds or {}
+  if #seeds == 0 then return {}, nil, "no_ratings" end
+  local own = {}
+  for _, row in ipairs(type(me.own) == "table" and me.own or {}) do own[#own + 1] = row.book_id end
+
+  local picks = Recommendations.score(seeds, own, limit or Recommendations.LIMIT)
+  local ids, reasons = {}, {}
+  for _, pick in ipairs(picks) do
+    ids[#ids + 1] = pick.id
+    reasons[pick.id] = pick.reason
+  end
+  local entries, err2 = self:getBooksByIds(ids)
+  if entries == nil then return nil, err2 end
+  for _, entry in ipairs(entries) do
+    entry.reason = reasons[entry.book_id] -- the title of the book it was suggested for
+  end
+  return entries
+end
+
 
 --
 -- Full detail for one book, including description and community rating.
@@ -1764,6 +1818,10 @@ end
 
 function HardcoverApi:getShelfAsync(user_id, status_id, offset, limit, callback)
   async(callback, self.getShelf, self, user_id, status_id, offset, limit)
+end
+
+function HardcoverApi:getForYouAsync(callback)
+  async(callback, self.getForYou, self)
 end
 
 function HardcoverApi:getSimilarBooksAsync(book_id, callback)

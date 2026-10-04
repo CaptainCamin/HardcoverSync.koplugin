@@ -520,6 +520,10 @@ function DialogManager:showHome(done_callback)
     lists_cb = function()
       self:showLists()
     end,
+    -- books suggested from your ratings; a setting turns the tile off
+    for_you_cb = self.settings:readSetting(SETTING.SHOW_FOR_YOU) ~= false and function()
+      self:showForYou()
+    end or nil,
     -- the saved goals, so the card is there at once and offline
     goals = self:shownGoals(cache and cache:goals(user_id) or nil),
     finished_offline = self:finishedOffline(),
@@ -1130,6 +1134,76 @@ function DialogManager:showLists(done_callback)
       return
     end
     dialog:setLists(lists.mine, lists.following)
+  end)
+end
+
+--
+-- "For you": books suggested from the ones you rated 4 or more (see Api:getForYou), in the
+-- shelf screen with the reason under each. The saved picks show at once (and are all
+-- there is offline, with the date they are from); a fresh set replaces them when it
+-- arrives and is saved for next time.
+--
+function DialogManager:showForYou(done_callback)
+  local user_id = User:getId()
+  local cache = self.shelf_cache
+  local saved, saved_at
+  if cache then saved, saved_at = cache:forYou(user_id) end
+
+  local dialog
+  dialog = require("hardcover/lib/ui/shelf_dialog"):new {
+    compatibility_mode = self.settings:compatibilityMode(),
+    title = _("For you"),
+    sortable = false,
+    entries = saved or {},
+    has_more = false,
+    offset = saved and #saved or 0,
+    page_size = SHELF_PAGE_SIZE,
+    fetch_page = function(_offset, _limit, callback) callback(nil, _("not available offline")) end,
+    select_entry_cb = function(entry)
+      self:showBookDetail(entry.book_id, nil, done_callback)
+    end,
+    close_callback = function()
+      if done_callback then done_callback() end
+    end,
+  }
+  self.for_you_dialog = dialog
+  UIManager:show(dialog)
+
+  if not Network.connected() then
+    if saved and #saved > 0 then
+      StatusDialogs.info(T(_("Offline: showing your picks from %1."), os.date("%b %d", saved_at or os.time())))
+    else
+      StatusDialogs.info(_("Suggestions need an internet connection."))
+      UIManager:close(dialog)
+    end
+    return
+  end
+
+  local loading = not (saved and #saved > 0) and StatusDialogs.loading(_("Finding books for you\226\128\166"))
+  Api:getForYouAsync(function(entries, err, note)
+    if loading then StatusDialogs.close(loading) end
+    if not UIManager:isWidgetShown(dialog) then return end
+
+    if entries == nil then
+      if saved and #saved > 0 then return end -- keep the saved picks
+      StatusDialogs.retry(err, _("Finding books for you"),
+        function()
+          UIManager:close(dialog)
+          self:showForYou(done_callback)
+        end,
+        function() UIManager:close(dialog) end)
+      return
+    end
+
+    if #entries == 0 then
+      dialog:setEmptyState(note == "no_ratings"
+        and _("Rate a few books 4 or 5 stars and suggestions will appear here.")
+        or _("No suggestions yet."))
+      return
+    end
+    if cache then cache:putForYou(user_id, entries) end
+    dialog.offset = #entries
+    dialog:setEntries(entries, false, true)
   end)
 end
 

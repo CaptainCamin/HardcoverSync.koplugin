@@ -1307,6 +1307,17 @@ end
 function HardcoverMenu:getSettingsSubMenuItems()
   return {
     {
+      text = _("Show \"For you\" on Home"),
+      checked_func = function()
+        return self.settings:readSetting(SETTING.SHOW_FOR_YOU) ~= false
+      end,
+      callback = function()
+        self.settings:updateSetting(SETTING.SHOW_FOR_YOU,
+          self.settings:readSetting(SETTING.SHOW_FOR_YOU) == false)
+      end,
+      keep_menu_open = true,
+    },
+    {
       text = "Automatically link by ISBN",
       checked_func = function()
         return self.settings:readSetting(SETTING.LINK_BY_ISBN) == true

@@ -493,6 +493,25 @@ function M.install(opts)
     return require("hardcover/lib/lists").normalize(deepcopy(opts.lists_me or M.lists_me))
   end
 
+  -- "For you": M.for_you_ids index the fixture books; M.for_you_note "no_ratings" gives an
+  -- empty list; M.for_you_fail fails
+  Api.getForYou = function(_)
+    record("getForYou")
+    if M.for_you_fail then return nil, { completed = false } end
+    if M.for_you_note == "no_ratings" then return {}, nil, "no_ratings" end
+    local entries = {}
+    for n, i in ipairs(M.for_you_ids or {}) do
+      local b = M.shelf_books[i]
+      if b then
+        local e = require("hardcover/lib/shelf").normalizeEntry({ book = b })
+        e.user_book_id = nil
+        e.reason = (M.for_you_reasons or {})[n] or "Wool"
+        entries[#entries + 1] = e
+      end
+    end
+    return entries
+  end
+
   Api.getListCount = function(_)
     record("getListCount")
     local me = (opts.lists_me or M.lists_me)[1]

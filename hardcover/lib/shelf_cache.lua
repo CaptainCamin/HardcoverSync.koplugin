@@ -243,6 +243,37 @@ function ShelfCache:putReading(user_id, entries)
   return (pcall(store.flush, store))
 end
 
+-- The "For you" picks as last loaded, and when (nil when never saved). Kept in the small
+-- home file, apart from the shelves.
+function ShelfCache:forYou(user_id)
+  local home = self:_home()
+  local saved = home and home:readSetting("for_you")
+  local mine = saved and saved[tostring(user_id or 0)]
+  if mine and type(mine.entries) == "table" then
+    return mine.entries, mine.saved_at
+  end
+end
+
+function ShelfCache:putForYou(user_id, entries)
+  local home = self:_home()
+  if not home or type(entries) ~= "table" then return false end
+
+  local saved = home:readSetting("for_you")
+  if not saved then
+    saved = {}
+    home:saveSetting("for_you", saved)
+  end
+  local kept = {}
+  for i, entry in ipairs(entries) do
+    local copy = {}
+    for k, v in pairs(entry) do copy[k] = v end
+    copy.description = nil
+    kept[i] = copy
+  end
+  saved[tostring(user_id or 0)] = { entries = kept, saved_at = os.time() }
+  return (pcall(home.flush, home))
+end
+
 -- Your goals, as last loaded (a list of Goals.normalize rows) and when. nil when
 -- never saved; an empty list is a real answer (no goals).
 function ShelfCache:goals(user_id)
@@ -346,6 +377,7 @@ function ShelfCache:clear()
   if home and home ~= store then
     home:saveSetting("counts", nil)
     home:saveSetting("reading", nil)
+    home:saveSetting("for_you", nil)
     ok = (pcall(home.flush, home)) and ok
   end
   return ok
