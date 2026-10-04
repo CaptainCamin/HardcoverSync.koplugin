@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased (1.6.0 betas)
+
+### Added
+
+- **Stats**: a tile on Home that opens your reading as a page of charts. The headline numbers (books, pages, average rating), then books per year (or per month for one year), a histogram of how you rate with your average marked, a genre donut with its legend, your most read authors, a breakdown of book lengths with the longest and shortest, and listening time for audiobooks. A **Period** button picks all time or any one year. Books with no finish date (imports) are counted in all time and say so under the chart instead of being guessed into a year; a finish known only to the month or year is never placed on a made-up day. The charts are drawn for e-ink: black and a few well-separated greys, no colour needed. Your finished books are saved on the device, so it opens at once and works offline with a note saying when the copy is from.
+
 ## 1.5.0
 
 ### Added
