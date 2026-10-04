@@ -18,6 +18,7 @@ local SpinWidget = require("ui/widget/spinwidget")
 
 local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
+local Network = require("hardcover/lib/network")
 local Github = require("hardcover/lib/github")
 local Updater = require("hardcover/lib/updater")
 local User = require("hardcover/lib/user")
@@ -828,13 +829,16 @@ function HardcoverMenu:savePage(current_read, edition_page, menu_instance)
   Background.run(function()
     local result
 
-    if current_read then
-      result = Api:updatePage(current_read.id, current_read.edition_id, edition_page,
-        current_read.started_at)
-    else
-      local start_date = os.date("%Y-%m-%d")
-      result = Api:createRead(self.state.book_status.id, self.state.book_status.edition_id, edition_page,
-        start_date)
+    -- offline there is nothing to wait for: straight to the queue
+    if Network.connected() then
+      if current_read then
+        result = Api:updatePage(current_read.id, current_read.edition_id, edition_page,
+          current_read.started_at)
+      else
+        local start_date = os.date("%Y-%m-%d")
+        result = Api:createRead(self.state.book_status.id, self.state.book_status.edition_id, edition_page,
+          start_date)
+      end
     end
 
     if result then
@@ -849,6 +853,14 @@ function HardcoverMenu:savePage(current_read, edition_page, menu_instance)
       end
       self.state.book_status = result
       menu_instance:updateItems()
+    elseif self.cache and self.sync_queue and self.ui and self.ui.document then
+      -- No connection (or Hardcover did not answer): keep the page on the device, show it,
+      -- and send it with the rest of what is queued. Saying "could not be saved" here lost
+      -- a page the reader had just set, and it was not even true.
+      self.cache:queuePage(self.ui.document.file, edition_page)
+      menu_instance:updateItems()
+      require("hardcover/lib/ui/status_dialogs").info(
+        _("Page saved on this device. It will be sent when you are back online."))
     else
       -- A failed page write used to be invisible, so a reader who set the page
       -- and saw nothing happen could not tell a rejected write from a working
@@ -860,12 +872,26 @@ function HardcoverMenu:savePage(current_read, edition_page, menu_instance)
 end
 
 -- `quiet` is the clear-rating long press: no error when it fails, as before.
+-- Offline (or when Hardcover does not answer) the rating is kept on the device, shown
+-- at once, and sent when there is a connection, as it is from the details screen.
 function HardcoverMenu:saveRating(value, menu_instance, quiet)
   Background.run(function()
-    local result = Api:updateRating(self.state.book_status.id, value)
+    local result
+    if Network.connected() then
+      result = Api:updateRating(self.state.book_status.id, value)
+    end
+
     if result then
       self.state.book_status = result
       menu_instance:updateItems()
+    elseif self.rating_queue and self.state.book_status.id then
+      self.rating_queue:queue(self.state.book_status.id, value)
+      self.state.book_status.rating = value > 0 and value or nil
+      menu_instance:updateItems()
+      if not quiet then
+        require("hardcover/lib/ui/status_dialogs").info(
+          _("Rating saved on this device. It will be sent when you are back online."))
+      end
     elseif not quiet then
       self.dialog_manager:showError(_("Rating could not be saved"))
     end

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.1
+
+### Fixed
+
+- Setting the page by hand (reader menu > Update page) while offline no longer fails with "Page could not be saved". The page is shown, kept on the device and sent when you are back online, as it already was when you simply read on. A page you type in is sent even if Hardcover is further along, rather than turning into a sync question.
+- The same for a rating set from the reader menu: kept and sent later instead of an error. (Rating from a book's details screen already worked offline.)
+
 ## 1.4.0
 
 ### Added
