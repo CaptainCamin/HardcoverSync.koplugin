@@ -109,6 +109,20 @@ check("cancelling a page also drops the question it was waiting on", function()
   assert(q.sync_queue:conflictCount() == 0, "still asking about a page that was cancelled")
 end)
 
+check("cancelling the status leaves a question about the page, and the answer given, alone", function()
+  local q = queues()
+  q.sync_queue:enqueuePage("/b/a.epub", { mapped_page = 50, book_id = 1, title = "A" })
+  q.sync_queue:enqueueStatus("/b/a.epub", { status_id = HARDCOVER.STATUS.FINISHED, book_id = 1, title = "A" })
+  local entry = q.sync_queue:get("/b/a.epub")
+  entry.conflict = { kind = "page", local_page = 50, cloud_page = 200 }
+  entry.reread = true
+  for _, row in ipairs(PendingChanges.list(q)) do if row.kind == "status" then row.cancel() end end
+  entry = q.sync_queue:get("/b/a.epub")
+  assert(entry.mapped_page == 50 and entry.conflict and entry.conflict.kind == "page" and entry.reread == true,
+    "the page's question was dropped with the status")
+  assert(q.sync_queue:conflictCount() == 1)
+end)
+
 check("cancelling a rating or a goal change leaves the rest", function()
   local q = queues()
   q.rating_queue:queue(55, 4.5, "Dune")

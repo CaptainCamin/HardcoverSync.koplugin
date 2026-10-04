@@ -221,16 +221,18 @@ check("the strips' requests ignore touches (a dummy trap widget); an ordinary re
   assert(seen[2] == true, "an ordinary request lost its trap")
 end)
 
-check("For you: the seeds and your library, then the books for the best picks, with their reasons", function()
-  answers(ok({ me = { {
-    seeds = { { rating = 5, book = { id = 1, title = "Wool", cached_similar_book_ids = { 10, 20, 2 } } } },
-    own = { { book_id = 1 }, { book_id = 2 } },
-  } } }), ok({ books = { book(20), book(10) } }))
+check("For you: the seeds, then which of the best candidates you own, then the books left, with their reasons", function()
+  answers(ok({ me = { { seeds = { { rating = 5, book = { id = 1, title = "Wool", cached_similar_book_ids = { 10, 20, 2, 30 } } } } } } }),
+    ok({ me = { { owned = { { book_id = 20 } } } } }),
+    ok({ books = { book(30), book(10) } }))
   local entries, err, note = Api:getForYou()
   assert(entries and not err and note == nil, tostring(err))
-  assert(#sent == 2 and sent[1].q:find("_gte: 4", 1, true) and sent[2].vars.ids[1] == 10 and #sent[2].vars.ids == 2,
-    "the second request asks for " .. (sent[2] and #sent[2].vars.ids or "nothing"))
-  assert(entries[1].book_id == 10 and entries[2].book_id == 20, "not in score order")
+  assert(#sent == 3, "requests: " .. #sent)
+  assert(sent[1].q:find("_gte: 4", 1, true) and not sent[1].q:find("own:", 1, true), "the whole library was asked for")
+  assert(sent[2].q:find("_in: $ids", 1, true) and #sent[2].vars.ids == 4, "ownership asked for " .. #sent[2].vars.ids)
+  assert(table.concat(sent[3].vars.ids, ",") == "10,2,30",
+    "a book you own was suggested: " .. table.concat(sent[3].vars.ids, ","))
+  assert(entries[1].book_id == 10 and entries[2].book_id == 30, "not in score order")
   assert(entries[1].reason == "Wool" and entries[1].user_book_id == nil)
 end)
 
@@ -244,10 +246,14 @@ check("For you: a failure at either step is nil and the reason", function()
   answers(fail({ completed = false }))
   local entries, err = Api:getForYou()
   assert(entries == nil and err and err.completed == false)
-  answers(ok({ me = { { seeds = { { rating = 5, book = { id = 1, title = "W", cached_similar_book_ids = { 9 } } } }, own = {} } } }),
+  answers(ok({ me = { { seeds = { { rating = 5, book = { id = 1, title = "W", cached_similar_book_ids = { 9 } } } } } } }),
     fail({ status = 500 }))
   entries, err = Api:getForYou()
-  assert(entries == nil and err and err.status == 500)
+  assert(entries == nil and err and err.status == 500, "the ownership step")
+  answers(ok({ me = { { seeds = { { rating = 5, book = { id = 1, title = "W", cached_similar_book_ids = { 9 } } } } } } }),
+    ok({ me = { { owned = {} } } }), fail({ status = 503 }))
+  entries, err = Api:getForYou()
+  assert(entries == nil and err and err.status == 503, "the books step")
 end)
 
 r.finish()

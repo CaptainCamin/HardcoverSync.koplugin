@@ -1211,13 +1211,14 @@ end
 
 --
 -- "For you": books suggested from the ones you rated 4 or more, computed here from
--- Hardcover's similar-books rankings (see Recommendations.score). Two requests: your
--- best-rated books with their rankings and the ids of your whole library, then the books
--- for the top ids. Each entry carries `reason`, the title of the book it came from. Returns
+-- Hardcover's similar-books rankings (see Recommendations.score). Three requests: your
+-- best-rated books with their rankings, which of the best-scoring candidates you already
+-- have, then the books for the ones left. Each entry carries `reason`, the title of the book it came from. Returns
 -- entries (empty, with the note "no_ratings", when nothing is rated 4 or more yet), or
 -- nil and the error.
 --
 function HardcoverApi:getForYou(limit)
+  limit = limit or Recommendations.LIMIT
   local first, err = self:query([[
     query {
       me {
@@ -1225,7 +1226,6 @@ function HardcoverApi:getForYou(limit)
           rating
           book { id title cached_similar_book_ids }
         }
-        own: user_books { book_id }
       }
     }
   ]], nil, true)
@@ -1235,17 +1235,35 @@ function HardcoverApi:getForYou(limit)
 
   local seeds = type(me.seeds) == "table" and me.seeds or {}
   if #seeds == 0 then return {}, nil, "no_ratings" end
-  local own = {}
-  for _, row in ipairs(type(me.own) == "table" and me.own or {}) do own[#own + 1] = row.book_id end
 
-  local picks = Recommendations.score(seeds, own, limit or Recommendations.LIMIT)
+  -- A pool well past what is shown, then the ones already in your library are dropped. The
+  -- library is not fetched whole (a long one would be cut short by the API's row limit and
+  -- let owned books through): only these few ids are asked about.
+  local pool = Recommendations.score(seeds, {}, limit * 4)
+  local pool_ids = {}
+  for _, pick in ipairs(pool) do pool_ids[#pool_ids + 1] = pick.id end
+
+  local second, err2 = self:query([[
+    query ($ids: [Int!]) {
+      me { owned: user_books(where: { book_id: { _in: $ids } }) { book_id } }
+    }
+  ]], { ids = pool_ids }, true)
+  local owner = second and second.me
+  if type(owner) == "table" and owner[1] ~= nil then owner = owner[1] end
+  if type(owner) ~= "table" then return nil, err2 or { completed = false } end
+  local owned = {}
+  for _, row in ipairs(type(owner.owned) == "table" and owner.owned or {}) do owned[tonumber(row.book_id)] = true end
+
   local ids, reasons = {}, {}
-  for _, pick in ipairs(picks) do
-    ids[#ids + 1] = pick.id
-    reasons[pick.id] = pick.reason
+  for _, pick in ipairs(pool) do
+    if not owned[pick.id] and #ids < limit then
+      ids[#ids + 1] = pick.id
+      reasons[pick.id] = pick.reason
+    end
   end
-  local entries, err2 = self:getBooksByIds(ids)
-  if entries == nil then return nil, err2 end
+
+  local entries, err3 = self:getBooksByIds(ids)
+  if entries == nil then return nil, err3 end
   for _, entry in ipairs(entries) do
     entry.reason = reasons[entry.book_id] -- the title of the book it was suggested for
   end

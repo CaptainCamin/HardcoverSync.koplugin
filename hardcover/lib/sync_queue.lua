@@ -163,12 +163,13 @@ function SyncQueue:cancelPage(filepath)
   return true
 end
 
+-- (A question about the book's page, and the answer given to it, belong to the page: they
+-- stay when only the status is cancelled.)
 function SyncQueue:cancelStatus(filepath)
   local entry = self:get(filepath)
   if type(entry) ~= "table" then return false end
   entry.status_id, entry.status_updated_at = nil, nil
-  entry.privacy_setting_id, entry.reread = nil, nil
-  entry.conflict, entry.failures = nil, nil
+  entry.privacy_setting_id, entry.failures = nil, nil
   self:save(filepath, entry)
   return true
 end
