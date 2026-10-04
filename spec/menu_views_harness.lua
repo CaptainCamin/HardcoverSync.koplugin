@@ -70,7 +70,7 @@ local function newMenu(opts)
     auth = {
       usingOAuth = function() return true end,
       needsReauth = function() return opts.signed_out == true end,
-      statusText = function() return "Signed in" end,
+      statusText = function(_, name) return name and ("Signed in as " .. name) or "Signed in" end,
     },
   }, { __index = HardcoverMenu })
 end
@@ -200,6 +200,19 @@ check("it can be disabled like the rest of the plugin", function()
   local m, item = mainMenuItem(false)
   m.enabled = false
   assert(item.enabled_func() == false)
+end)
+
+print("\n== the account line ==")
+
+check("the account item names the signed-in user when the name is saved, and says plain 'Signed in' before", function()
+  local User = real_require("hardcover/lib/user")
+  local m = newMenu()
+  User.settings = { readSetting = function() return nil end, updateSetting = function() end }
+  User.name_asked = true -- no lookup from a harness
+  assert(m:getAccountMenuItem().text_func() == "Account: Signed in", m:getAccountMenuItem().text_func())
+  User.settings = { readSetting = function(_, k) return k == "user_name" and "ChananyaMinster" or nil end, updateSetting = function() end }
+  assert(m:getAccountMenuItem().text_func() == "Account: Signed in as ChananyaMinster", m:getAccountMenuItem().text_func())
+  User.settings = nil
 end)
 
 print("\n== pending changes ==")

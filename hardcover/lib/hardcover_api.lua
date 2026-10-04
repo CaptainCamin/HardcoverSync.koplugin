@@ -120,6 +120,7 @@ function HardcoverApi:me()
   local result = self:query([[{
     me {
       id
+      username
       account_privacy_setting_id
     }
   }]])
@@ -1895,6 +1896,10 @@ end
 
 function HardcoverApi:getForYouAsync(callback)
   async(callback, self.getForYou, self)
+end
+
+function HardcoverApi:meAsync(callback)
+  async(callback, self.me, self)
 end
 
 function HardcoverApi:getSimilarBooksAsync(book_id, callback)

@@ -22,6 +22,7 @@ local Settings = {
   UPDATE_CHECK = "update_check",
   UPDATE_LAST_CHECK = "update_last_check",
   USER_ID = "user_id",
+  USER_NAME = "user_name",
 }
 
 Settings.AUTOLINK_OPTIONS = { Settings.LINK_BY_HARDCOVER, Settings.LINK_BY_ISBN, Settings.LINK_BY_TITLE }

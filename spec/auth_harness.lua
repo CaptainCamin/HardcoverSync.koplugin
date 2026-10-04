@@ -13,6 +13,12 @@ package.path = PLUGIN .. "/?.lua;" .. PLUGIN .. "/?/init.lua;" .. package.path
 -- A real decoder, not a stub. The OAuth error codes these tests depend on
 -- arrive inside a JSON body, so a fake that raised on every body would leave
 -- exactly the interesting paths untestable.
+package.preload["ffi/util"] = function()
+  return { template = function(t, ...)
+    local args = { ... }
+    return (tostring(t):gsub("%%(%d)", function(n) return tostring(args[tonumber(n)]) end))
+  end }
+end
 package.preload["json"] = function()
   return dofile(PLUGIN .. "/spec/json.lua")
 end
@@ -595,6 +601,25 @@ end)
 check("the plugin asks for read:social at sign in", function()
   local Config = dofile(PLUGIN .. "/hardcover/lib/default_config.lua")
   assert(Config.scope:find("read:social", 1, true), "default_config.lua does not request read:social")
+end)
+
+print("\n== the account line ==")
+
+check("signed in, the status names the account when it is known", function()
+  local a = newAuth()
+  a.tokens = { access_token = "a", refresh_token = "r", expires_at = os.time() + 3600, obtained_at = os.time() }
+  eq(a:statusText(), "Signed in to Hardcover")
+  eq(a:statusText("ChananyaMinster"), "Signed in as ChananyaMinster")
+  eq(a:statusText(""), "Signed in to Hardcover")
+  -- a token waiting to be renewed is still a signed-in account
+  a.tokens.expires_at = os.time() - 10
+  eq(a:statusText("chan"), "Signed in as chan")
+end)
+
+check("signed out, no name is shown", function()
+  local a = newAuth()
+  a.tokens = nil
+  eq(a:statusText("chan"), "Sign in to Hardcover")
 end)
 
 print("")

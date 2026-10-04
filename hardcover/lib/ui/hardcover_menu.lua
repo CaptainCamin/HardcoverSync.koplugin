@@ -749,7 +749,9 @@ end
 function HardcoverMenu:getAccountMenuItem()
   return {
     text_func = function()
-      return T(_("Account: %1"), self.auth:statusText())
+      -- who is signed in, by name; found out once if this account was signed in before it was kept
+      User:refreshName()
+      return T(_("Account: %1"), self.auth:statusText(User:getName()))
     end,
     sub_item_table_func = function()
       local items = {}

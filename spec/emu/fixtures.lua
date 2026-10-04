@@ -711,7 +711,7 @@ function M.install(opts)
     return Api.findBooks(nil, title, author, userId)
   end
 
-  Api.me = function() return { id = M.USER_ID, account_privacy_setting_id = 1 } end
+  Api.me = function() return { id = M.USER_ID, username = M.USERNAME or "fixture_reader", account_privacy_setting_id = 1 } end
 
   -- Mutations: record and echo back something shaped like the real response,
   -- so a scenario can verify a write path without a network.

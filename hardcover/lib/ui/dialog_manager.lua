@@ -551,6 +551,9 @@ function DialogManager:showHome(done_callback)
     return
   end
 
+  -- the account line in Settings names who is signed in: found out here if it is not known yet
+  User:refreshName()
+
   -- Two requests, one after the other, each independent of the other's outcome.
   Background.run(function()
     local counts = Api:getShelfCounts(user_id, ids)
