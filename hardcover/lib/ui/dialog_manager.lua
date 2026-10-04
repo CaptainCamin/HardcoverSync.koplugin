@@ -525,6 +525,9 @@ function DialogManager:showHome(done_callback)
     vibes_cb = function()
       self:showVibes()
     end,
+    stats_cb = function()
+      self:showStats()
+    end,
     -- books suggested from your ratings; a setting turns the tile off
     for_you_cb = self.settings:readSetting(SETTING.SHOW_FOR_YOU) ~= false and function()
       self:showForYou()
@@ -915,6 +918,56 @@ function DialogManager:showGoals(done_callback)
     else
       StatusDialogs.retry(err, _("Loading your goals"),
         function() self:showGoals(done_callback) end,
+        function() UIManager:close(dialog) end)
+    end
+  end)
+end
+
+local function statsNote(saved_at, why)
+  local when = os.date("%b %d", saved_at or os.time())
+  return string.format(_("%s Showing your stats as of %s."), why, when)
+end
+
+-- Your reading as charts. The saved copy shows at once (or a loading line the first time),
+-- and a fresh load replaces it when the connection allows. A change of shelf marks the
+-- saved copy stale, so it is refreshed here even when it is recent.
+function DialogManager:showStats(done_callback)
+  local user_id = User:getId()
+  local cache = self.shelf_cache
+  local saved = cache and cache:stats(user_id)
+
+  discard(self.stats_dialog)
+  self.stats_dialog = nil
+
+  local online = Network.connected()
+  local dialog = require("hardcover/lib/ui/stats_dialog"):new {
+    close_callback = function()
+      if done_callback then done_callback() end
+    end,
+  }
+  if saved then
+    dialog.rows, dialog.genres, dialog.complete = saved.rows, saved.genres, saved.complete ~= false
+    if not online then dialog.note = statsNote(saved.saved_at, _("Offline.")) end
+    dialog:rebuild()
+  elseif online then
+    dialog.message = _("Loading your stats\226\128\166")
+  else
+    dialog.message = _("Stats need an internet connection the first time.")
+  end
+  self.stats_dialog = dialog
+  UIManager:show(dialog)
+  if not online then return end
+
+  Api:getStatsAsync(user_id, function(stats, err)
+    if not UIManager:isWidgetShown(dialog) then return end
+    if stats then
+      if cache then cache:putStats(user_id, stats) end
+      dialog:setStats(stats, nil)
+    elseif saved then
+      dialog:setStats(saved, statsNote(saved.saved_at, _("Couldn't refresh.")))
+    else
+      StatusDialogs.retry(err, _("Loading your stats"),
+        function() self:showStats(done_callback) end,
         function() UIManager:close(dialog) end)
     end
   end)

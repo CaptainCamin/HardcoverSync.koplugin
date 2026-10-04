@@ -46,6 +46,15 @@ local function book_row(id, title, year, pages, opts)
     users_read_count = opts.users_read_count or (500 + id * 11),
     rating = opts.rating or 4.2,
     ratings_count = opts.ratings_count or 120,
+    ratings_distribution = opts.ratings_distribution or {
+      { rating = 1.0, count = 4 }, { rating = 2.0, count = 6 }, { rating = 2.5, count = 8 }, { rating = 3.0, count = 14 },
+      { rating = 3.5, count = 22 }, { rating = 4.0, count = 31 }, { rating = 4.5, count = 17 }, { rating = 5.0, count = 18 },
+    },
+    cached_tags = opts.cached_tags or {
+      Genre = { { tag = "Science fiction", count = 40 }, { tag = "Fiction", count = 22 }, { tag = "Classics", count = 9 } },
+      Mood = { { tag = "reflective", count = 31 }, { tag = "mysterious", count = 24 }, { tag = "challenging", count = 12 }, { tag = "slow-paced", count = 8 } },
+      ["Content Warning"] = { { tag = "Death", count = 6 }, { tag = "Violence", count = 4 } },
+    },
     description = opts.description or
       "A lone envoy arrives on a frozen world to bring its people into a league " ..
       "of planets, and finds that nothing about the place, its politics, its " ..
@@ -134,6 +143,41 @@ Generated rather than hand-written because nobody reads row 40 of a fixture;
 what matters is only that there are enough distinct rows to overflow a page at
 the emulated resolution.
 ]]
+-- A deterministic library for Stats: finish dates through 2023..2025 (busier in the winter),
+-- ratings that lean to 4, a few audiobooks, undated imports and one year-only finish.
+function M.default_stats_raw()
+  local authors = { "Brandon Sanderson", "Ursula K. Le Guin", "Becky Chambers", "N. K. Jemisin", "Terry Pratchett",
+    "Andy Weir", "Ann Leckie", "Octavia E. Butler", "Martha Wells", "Someone With A Rather Long Name Indeed" }
+  local weights = { 5, 4, 3, 2, 2, 1, 1, 1, 1, 1 }
+  local pool = {}
+  for i, w in ipairs(weights) do for _ = 1, w do pool[#pool + 1] = authors[i] end end
+  local rated = { 3, 3.5, 4, 4, 4, 4.5, 4.5, 5, 2.5, 4, 3.5, 4 }
+  local rows = {}
+  for i = 1, 96 do
+    local year = 2023 + (i % 3)
+    local month = ((i * 5) % 12) + 1
+    local date = string.format("%d-%02d-%02d", year, month, (i % 27) + 1)
+    local read = { finished_at = date, finished_at_precision = 1 }
+    if i == 7 then read.finished_at_precision = 3 end
+    local audio = (i % 17 == 0) and (9 + i % 8) * 3600 or nil
+    rows[#rows + 1] = {
+      id = i, rating = (i % 9 ~= 0) and rated[(i % #rated) + 1] or nil,
+      last_read_date = date, user_book_reads = (i % 11 == 0) and {} or { read },
+      book = { title = "Fixture Book " .. i, pages = (not audio) and (140 + (i * 37) % 520) or nil, audio_seconds = audio,
+        contributions = { { author = { name = pool[(i * 7) % #pool + 1] } } } },
+    }
+  end
+  for i = 1, 9 do -- imports with no dates
+    rows[#rows + 1] = { id = 200 + i, rating = 4, user_book_reads = {}, book = { title = "Imported " .. i, pages = 300 } }
+  end
+  return rows
+end
+
+function M.default_stats_genres()
+  return { { tag = "Fantasy", count = 41 }, { tag = "Science fiction", count = 33 }, { tag = "Adventure", count = 18 },
+    { tag = "Young Adult", count = 12 }, { tag = "Fiction", count = 9 }, { tag = "Horror", count = 4 }, { tag = "Classics", count = 3 } }
+end
+
 M.shelf_books = {}
 do
   local titles = {
@@ -530,6 +574,16 @@ function M.install(opts)
       end
     end
     return vibes, covers
+  end
+  -- Stats: M.stats_raw (the API's finished `user_books` rows; default a three-year library
+  -- with half-star ratings, an audiobook, undated imports and a year-only finish);
+  -- M.stats_genres; M.stats_fail fails
+  Api.getStats = function(_, user_id)
+    record("getStats")
+    if M.stats_fail then return nil, { completed = false } end
+    local Stats = require("hardcover/lib/stats")
+    return { rows = Stats.normalizeAll(M.stats_raw or M.default_stats_raw()),
+      genres = Stats.genres(M.stats_genres or M.default_stats_genres()), complete = true }
   end
   Api.getBooksByIds = function(_, ids)
     record("getBooksByIds")
