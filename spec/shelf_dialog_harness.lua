@@ -66,6 +66,12 @@ end
 
 support.preload_theme_stubs() -- (after the containers above, which are real stubs)
 
+package.preload["ffi/util"] = function()
+  return { template = function(t, ...)
+    local args = { ... }
+    return (tostring(t):gsub("%%(%d)", function(n) return tostring(args[tonumber(n)]) end))
+  end }
+end
 package.preload["device"] = function()
   return {
     screen = {
@@ -244,6 +250,16 @@ line to put the author on.
         "mandatory = " .. tostring(item.mandatory))
   r.check("no page count or year clutters the row", item.pages == nil and not (item.title or ""):find("%(%d%d%d%d%)"),
         "pages = " .. tostring(item.pages) .. ", title = " .. tostring(item.title))
+  r.check("a suggestion says why, where a series would be", (function()
+    buildDialog({ entry({ reason = "Wool", book_series = { { position = 2, series = { name = "Shift" } } } }) })
+    local row = (lastSpec().item_table or {})[1]
+    return row and row.series and row.series:find("Wool", 1, true) ~= nil and row.series_index == nil
+  end)(), "the reason did not replace the series")
+  r.check("in the one-line list the reason ends the line", (function()
+    local d = buildDialog({ entry() }, { compatibility_mode = true })
+    local row = d:createListItem(entry({ reason = "Wool" }))
+    return row.text:find(" - Because you liked Wool", 1, true) ~= nil
+  end)(), "the stock list lost the reason")
   r.check("a rating is the only thing in the right-hand column",
         (function()
           local rated = buildDialog({ entry({ user_rating = 4 }) })

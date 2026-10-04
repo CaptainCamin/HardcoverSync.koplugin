@@ -50,9 +50,30 @@ function RatingQueue:get(user_book_id)
   if valid(op) then return tonumber(op.rating) end
 end
 
-function RatingQueue:queue(user_book_id, rating)
-  self:ops()[tostring(user_book_id)] = { user_book_id = user_book_id, rating = rating }
+function RatingQueue:queue(user_book_id, rating, title)
+  self:ops()[tostring(user_book_id)] = { user_book_id = user_book_id, rating = rating, title = title }
   self:persist()
+end
+
+-- every waiting rating as { user_book_id, rating (0 = a clear), title }, in a stable order
+function RatingQueue:list()
+  local out = {}
+  for _, op in pairs(self:ops()) do
+    if valid(op) then
+      out[#out + 1] = { user_book_id = op.user_book_id, rating = tonumber(op.rating), title = op.title }
+    end
+  end
+  table.sort(out, function(a, b) return tostring(a.user_book_id) < tostring(b.user_book_id) end)
+  return out
+end
+
+-- Cancel the rating waiting for one book.
+function RatingQueue:cancel(user_book_id)
+  local ops = self:ops()
+  local had = ops[tostring(user_book_id)] ~= nil
+  ops[tostring(user_book_id)] = nil
+  self:persist()
+  return had
 end
 
 -- Send what is waiting, one request each. A rating Hardcover did not answer for

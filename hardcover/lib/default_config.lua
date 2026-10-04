@@ -25,7 +25,7 @@ return {
   -- archiving goals (Goals.WRITE_SCOPE). The OAuth app
   -- must allow every scope listed here: asking for one it does not allow fails
   -- the whole sign-in with invalid_scope.
-  scope = "read:catalog read:catalog:search read:me:content read:library read:social read:users write:library write:lists write:goals",
+  scope = "read:catalog read:catalog:search read:me:content read:library read:social read:users read:vibes write:library write:lists write:goals",
 
   -- Personal access token. Left empty on purpose: sign in from the plugin
   -- instead. A token in your hardcover_config.lua is used in place of signing

@@ -441,6 +441,7 @@ function BookDetailDialog:init()
       end,
     }
   end
+  self.build_strip = strip -- setSimilar swaps the "Similar to" strip in place with it
   if self.series_card then
     self.carousel = strip(self.series_card, self.on_open_book)
     add(Theme.span("l"))
@@ -617,8 +618,38 @@ end
 -- when a cover is tapped. Like the series, it arrives after the screen is up.
 --
 function BookDetailDialog:setSimilar(card, on_open)
+  local old = self.similar_carousel
   self.similar_card = card
   self.on_open_similar = on_open
+
+  -- The books arriving where the loading placeholder is: the same size, so swap the strip
+  -- in place and redraw just its box, not the whole panel.
+  if old and card and not card.loading and old.card.loading and self.content_group then
+    for i, child in ipairs(self.content_group) do
+      if child == old.widget then
+        local strip = self.build_strip(card, on_open)
+        self.content_group[i] = strip.widget
+        -- the strip's rectangle: its covers' box (the only part with a position) and the
+        -- heading above it, which is the rest of the strip's height
+        local holder = old.holder.dimen
+        local where = holder and holder.x and {
+          x = holder.x, y = holder.y - (old.widget:getSize().h - holder.h), w = holder.w, h = old.widget:getSize().h,
+        }
+        old:release()
+        self.similar_carousel = strip
+        -- its arrows join the focus rows, after the series' and before Close
+        if strip.paged and self.layout then
+          table.insert(self.layout, #self.layout, { strip.prev, strip.next })
+        end
+        -- the strip's own box (same place, same size), clipped to what the page shows; never
+        -- the whole panel (a strip not yet painted has no position, and gets none)
+        if where then
+          Refresh.box(self, function() return where end, function() return self.scroll and self.scroll.dimen end)
+        end
+        return
+      end
+    end
+  end
 
   local offset = self.scroll and self.scroll.getScrolledOffset and self.scroll:getScrolledOffset()
   self:rebuild()

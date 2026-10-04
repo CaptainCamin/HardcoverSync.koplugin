@@ -4,6 +4,7 @@
 -- PAT remains supported: if hardcover_config.lua supplies a token and no OAuth
 -- client id is set, the plugin keeps using it exactly as before.
 
+local T = require("ffi/util").template
 local LuaSettings = require("luasettings")
 local logger = require("logger")
 local _ = require("gettext")
@@ -30,10 +31,14 @@ local OAuthClient = require("hardcover/lib/oauth_client")
 --   Reading goals needs nothing new; a sign-in from before this lacks it, and the
 --   goal editor then says to sign out and back in.
 --
+-- read:vibes: reading Hardcover's vibes (Top Picks, Recommendations...), Vibes.SCOPE.
+--   A sign-in from before this was asked for lacks it, and the vibes screen then says
+--   to sign out and back in. (Checked: Hardcover's sign-in accepts it.)
+--
 -- There is no separate write:journal scope: requesting one fails the whole
 -- authorization with `invalid_scope`. Journal writes are part of
 -- write:library, and read:journal is implied by read:library.
-local DEFAULT_SCOPE = "read:catalog read:catalog:search read:me:content read:library read:social read:users write:library write:lists write:goals"
+local DEFAULT_SCOPE = "read:catalog read:catalog:search read:me:content read:library read:social read:users read:vibes write:library write:lists write:goals"
 
 local Auth = {}
 Auth.__index = Auth
@@ -339,17 +344,24 @@ end
 --
 -- Human-readable state for the settings menu.
 --
-function Auth:statusText()
+function Auth:statusText(name)
   if self:usingOAuth() then
     if OAuth.needsReauth(self.guard, self.tokens) then
       return _("Sign in to Hardcover")
     end
 
     if OAuth.isAccessValid(self.tokens) then
+      if type(name) == "string" and name ~= "" then
+        return T(_("Signed in as %1"), name)
+      end
       return _("Signed in to Hardcover")
     end
 
     if OAuth.canRefresh(self.tokens) then
+      -- still signed in: the token is only renewed when it is next used
+      if type(name) == "string" and name ~= "" then
+        return T(_("Signed in as %1"), name)
+      end
       return _("Signed in (token expired, will refresh)")
     end
 

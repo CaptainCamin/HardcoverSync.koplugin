@@ -269,6 +269,15 @@ function GoalQueue:flush(api, opts)
   return { sent = sent, held = self:heldCount(), waiting = self:count(), stopped = stopped }
 end
 
+-- Cancel the change waiting for one goal (a goal made here and not sent just goes). The
+-- screens show the goal as Hardcover last said it again once this is called (see apply).
+function GoalQueue:cancel(key)
+  local had = self:find(key) ~= nil
+  drop(self, key)
+  self:persist()
+  return had
+end
+
 -- Let held changes try again (after signing in again, say).
 function GoalQueue:retryHeld()
   for _, op in ipairs(self:ops()) do

@@ -10,6 +10,7 @@ local InputContainer = require("ui/widget/container/inputcontainer")
 local Menu = require("ui/widget/menu")
 local UIManager = require("ui/uimanager")
 local _ = require("gettext")
+local T = require("ffi/util").template
 
 local SearchMenu = require("hardcover/lib/ui/search_menu")
 local Shelf = require("hardcover/lib/shelf")
@@ -64,6 +65,14 @@ function ShelfDialog:createListItem(entry)
   -- a ranked list numbers its books, in the column a shelf uses for your rating
   if entry.rank then
     item.mandatory = "#" .. tostring(entry.rank)
+  end
+  -- "For you": why it was suggested, where a series would be named
+  if type(entry.reason) == "string" and entry.reason ~= "" then
+    local why = T(_("Because you liked %1"), entry.reason)
+    item.series = why
+    item.series_index = nil
+    -- the stock list (compatibility mode) is one line: the reason goes at its end
+    if self.compatibility_mode and item.text then item.text = item.text .. " - " .. why end
   end
   item.entry = entry
 

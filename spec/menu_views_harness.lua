@@ -70,7 +70,7 @@ local function newMenu(opts)
     auth = {
       usingOAuth = function() return true end,
       needsReauth = function() return opts.signed_out == true end,
-      statusText = function() return "Signed in" end,
+      statusText = function(_, name) return name and ("Signed in as " .. name) or "Signed in" end,
     },
   }, { __index = HardcoverMenu })
 end
@@ -200,6 +200,42 @@ check("it can be disabled like the rest of the plugin", function()
   local m, item = mainMenuItem(false)
   m.enabled = false
   assert(item.enabled_func() == false)
+end)
+
+print("\n== the account line ==")
+
+check("the account item names the signed-in user when the name is saved, and says plain 'Signed in' before", function()
+  local User = real_require("hardcover/lib/user")
+  local m = newMenu()
+  User.settings = { readSetting = function() return nil end, updateSetting = function() end }
+  User.name_pending = true -- no lookup from a harness
+  assert(m:getAccountMenuItem().text_func() == "Account: Signed in", m:getAccountMenuItem().text_func())
+  User.settings = { readSetting = function(_, k) return k == "user_name" and "ChananyaMinster" or nil end, updateSetting = function() end }
+  assert(m:getAccountMenuItem().text_func() == "Account: Signed in as ChananyaMinster", m:getAccountMenuItem().text_func())
+  User.settings = nil
+end)
+
+print("\n== pending changes ==")
+
+check("Pending changes (N) is listed only while something waits, and counts ratings and goals too", function()
+  local m = newMenu()
+  m.sync_queue = { pendingCount = function() return 0 end, hasPending = function() return false end }
+  local none = {}
+  for _, item in ipairs(m:getSubMenuItems(true)) do
+    local ok, t = pcall(function() return item.text or (item.text_func and item.text_func()) end)
+    none[#none + 1] = ok and tostring(t) or "?"
+  end
+  assert(not has(none, "Pending changes (0)"), "listed with nothing waiting")
+  m.sync_queue = { pendingCount = function() return 1 end, hasPending = function() return true end }
+  m.goal_queue = { count = function() return 1 end }
+  m.rating_queue = { count = function() return 1 end }
+  local item
+  for _, it in ipairs(m:getSubMenuItems(true)) do
+    local ok, t = pcall(function() return it.text or (it.text_func and it.text_func()) end)
+    if ok and tostring(t):find("Pending changes", 1, true) then item = it end
+  end
+  assert(item, "no Pending changes item with changes waiting")
+  assert(item.text_func() == "Pending changes (3)", item.text_func())
 end)
 
 print("\n== updates: the beta switch ==")

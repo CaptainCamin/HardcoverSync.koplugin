@@ -327,7 +327,7 @@ function HardcoverApp:signIn()
 
   -- on success, clear any cached user id: a different account may be signed in
   dialog.success_callback = function()
-    self.settings:updateSetting(SETTING.USER_ID, nil)
+    User:forget()
   end
 
   -- onShowSignIn shows the dialog and starts polling, so do not show it here as

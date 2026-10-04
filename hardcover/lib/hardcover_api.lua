@@ -14,6 +14,7 @@ local Book = require("hardcover/lib/book")
 local Goals = require("hardcover/lib/goals")
 local Lists = require("hardcover/lib/lists")
 local Recommendations = require("hardcover/lib/recommendations")
+local Vibes = require("hardcover/lib/vibes")
 local Shelf = require("hardcover/lib/shelf")
 local VERSION = require("hardcover_version")
 
@@ -119,6 +120,7 @@ function HardcoverApi:me()
   local result = self:query([[{
     me {
       id
+      username
       account_privacy_setting_id
     }
   }]])
@@ -1173,7 +1175,17 @@ function HardcoverApi:getSimilarBooks(book_id, limit)
   local ids = Recommendations.ids(type(book) == "table" and book.cached_similar_book_ids, limit)
   if #ids == 0 then return {} end
 
-  local second, err2 = self:query([[
+  return self:getBooksByIds(ids)
+end
+
+--
+-- The books for `ids`, as shelf entries in the order of `ids` (the API returns them in
+-- any order, and leaves out ones it does not know). One request. nil and the error when
+-- it fails.
+--
+function HardcoverApi:getBooksByIds(ids)
+  if #ids == 0 then return {} end
+  local result, err = self:query([[
     query ($ids: [Int!]) {
       books(where: { id: { _in: $ids } }) {
         book_id: id
@@ -1191,11 +1203,73 @@ function HardcoverApi:getSimilarBooks(book_id, limit)
       }
     }
   ]], { ids = ids }, true)
-  if second == nil or type(second.books) ~= "table" then
-    return nil, err2 or { completed = false }
+  if result == nil or type(result.books) ~= "table" then
+    return nil, err or { completed = false }
   end
-  return Recommendations.entries(ids, second.books)
+  return Recommendations.entries(ids, result.books)
 end
+
+--
+-- "For you": books suggested from the ones you rated 4 or more, computed here from
+-- Hardcover's similar-books rankings (see Recommendations.score). Three requests: your
+-- best-rated books with their rankings, which of the best-scoring candidates you already
+-- have, then the books for the ones left. Each entry carries `reason`, the title of the book it came from. Returns
+-- entries (empty, with the note "no_ratings", when nothing is rated 4 or more yet), or
+-- nil and the error.
+--
+function HardcoverApi:getForYou(limit)
+  limit = limit or Recommendations.LIMIT
+  local first, err = self:query([[
+    query {
+      me {
+        seeds: user_books(where: { rating: { _gte: 4 } }, order_by: { updated_at: desc }, limit: 15) {
+          rating
+          book { id title cached_similar_book_ids }
+        }
+      }
+    }
+  ]], nil, true)
+  local me = first and first.me
+  if type(me) == "table" and me[1] ~= nil then me = me[1] end
+  if type(me) ~= "table" then return nil, err or { completed = false } end
+
+  local seeds = type(me.seeds) == "table" and me.seeds or {}
+  if #seeds == 0 then return {}, nil, "no_ratings" end
+
+  -- A pool well past what is shown, then the ones already in your library are dropped. The
+  -- library is not fetched whole (a long one would be cut short by the API's row limit and
+  -- let owned books through): only these few ids are asked about.
+  local pool = Recommendations.score(seeds, {}, limit * 4)
+  local pool_ids = {}
+  for _, pick in ipairs(pool) do pool_ids[#pool_ids + 1] = pick.id end
+
+  local second, err2 = self:query([[
+    query ($ids: [Int!]) {
+      me { owned: user_books(where: { book_id: { _in: $ids } }) { book_id } }
+    }
+  ]], { ids = pool_ids }, true)
+  local owner = second and second.me
+  if type(owner) == "table" and owner[1] ~= nil then owner = owner[1] end
+  if type(owner) ~= "table" then return nil, err2 or { completed = false } end
+  local owned = {}
+  for _, row in ipairs(type(owner.owned) == "table" and owner.owned or {}) do owned[tonumber(row.book_id)] = true end
+
+  local ids, reasons = {}, {}
+  for _, pick in ipairs(pool) do
+    if not owned[pick.id] and #ids < limit then
+      ids[#ids + 1] = pick.id
+      reasons[pick.id] = pick.reason
+    end
+  end
+
+  local entries, err3 = self:getBooksByIds(ids)
+  if entries == nil then return nil, err3 end
+  for _, entry in ipairs(entries) do
+    entry.reason = reasons[entry.book_id] -- the title of the book it was suggested for
+  end
+  return entries
+end
+
 
 --
 -- Full detail for one book, including description and community rating.
@@ -1764,6 +1838,86 @@ end
 
 function HardcoverApi:getShelfAsync(user_id, status_id, offset, limit, callback)
   async(callback, self.getShelf, self, user_id, status_id, offset, limit)
+end
+
+--
+-- Your vibes (Vibes.normalize's rows), with the covers of each one's first books for the
+-- index. Two requests: the vibes of yours (Hardcover's own for your account included),
+-- then the covers. Needs the read:vibes permission: without it the answer is a refusal
+-- (see Vibes.isScopeError). Returns vibes, cover_urls (vibe id -> urls), or nil and the error.
+--
+function HardcoverApi:getVibes(user_id)
+  local first, err = self:query([[
+    query ($userId: Int!) {
+      vibes(where: { user_id: { _eq: $userId } }, order_by: [{ id: asc }]) {
+        id
+        title
+        description
+        vibe_type
+        privacy_setting_id
+        books_generated_at
+        cached_book_ids
+      }
+    }
+  ]], { userId = user_id }, true)
+  if first == nil or type(first.vibes) ~= "table" then
+    return nil, err or { completed = false }
+  end
+
+  local vibes = Vibes.normalize(first.vibes)
+  local wanted, owner = {}, {}
+  for _, vibe in ipairs(vibes) do
+    for i = 1, math.min(Vibes.COVERS, #vibe.ids) do
+      wanted[#wanted + 1] = vibe.ids[i]
+      owner[vibe.ids[i]] = owner[vibe.ids[i]] or {}
+      table.insert(owner[vibe.ids[i]], vibe.id)
+    end
+  end
+
+  -- the covers are a nicety: a failure here still gives the index (with empty boxes)
+  local covers = {}
+  if #wanted > 0 then
+    local second = self:query([[
+      query ($ids: [Int!]) {
+        books(where: { id: { _in: $ids } }) { book_id: id cached_image }
+      }
+    ]], { ids = wanted }, true)
+    local by_id = {}
+    for _, book in ipairs(second and type(second.books) == "table" and second.books or {}) do
+      local cover = Shelf.coverOf(book)
+      if cover then by_id[tonumber(book.book_id)] = cover.url end
+    end
+    for _, vibe in ipairs(vibes) do
+      local urls = {}
+      for i = 1, math.min(Vibes.COVERS, #vibe.ids) do
+        local url = by_id[vibe.ids[i]]
+        if url then urls[#urls + 1] = url end
+      end
+      covers[vibe.id] = urls
+    end
+  end
+  return vibes, covers
+end
+
+-- One page of a vibe's books, in the vibe's ranking, as shelf entries (one request).
+function HardcoverApi:getVibeBooks(vibe, offset, limit)
+  return self:getBooksByIds(Vibes.page(vibe, offset, limit))
+end
+
+function HardcoverApi:getBooksByIdsAsync(ids, callback)
+  async(callback, self.getBooksByIds, self, ids)
+end
+
+function HardcoverApi:getVibesAsync(user_id, callback)
+  async(callback, self.getVibes, self, user_id)
+end
+
+function HardcoverApi:getForYouAsync(callback)
+  async(callback, self.getForYou, self)
+end
+
+function HardcoverApi:meAsync(callback)
+  async(callback, self.me, self)
 end
 
 function HardcoverApi:getSimilarBooksAsync(book_id, callback)

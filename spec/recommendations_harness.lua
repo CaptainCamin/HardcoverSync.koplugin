@@ -122,6 +122,56 @@ check("the loading card: the heading, a loading subtitle, flagged so it cannot b
   assert(Recommendations.loadingCard(nil).title == "Similar books")
 end)
 
+print("\n== for you: scoring ==")
+
+local function seed(id, rating, title, similar) return { rating = rating, book = { id = id, title = title, cached_similar_book_ids = similar } } end
+
+check("a book high in several favourites' lists beats one that tops a single list", function()
+  local out = Recommendations.score({
+    seed(1, 5, "One", { 100, 200, 300 }),
+    seed(2, 5, "Two", { 200, 300, 400 }),
+    seed(3, 4, "Three", { 300, 100 }),
+  }, {})
+  assert(out[1].id == 300, "best is " .. out[1].id)
+  assert(#out == 4, #out)
+end)
+
+check("a rating of 4.5 or more counts double, a 4 once; below 4 is not a seed", function()
+  local out = Recommendations.score({
+    seed(1, 4.5, "Loved", { 10 }),
+    seed(2, 4, "Liked", { 20 }),
+    seed(3, 3.5, "Meh", { 30 }),
+  }, {})
+  assert(out[1].id == 10 and out[2].id == 20 and #out == 2, #out .. " picks")
+  assert(out[1].score == 2 * out[2].score, "double weight")
+end)
+
+check("books you have, and the seeds themselves, are never suggested", function()
+  local out = Recommendations.score({ seed(1, 5, "One", { 1, 2, 3, 4 }), seed(2, 5, "Two", { 1, 5 }) }, { 3, "4" })
+  local ids = {}
+  for _, p in ipairs(out) do ids[p.id] = true end
+  assert(not ids[1] and not ids[2] and not ids[3] and not ids[4], "a library book was suggested")
+  assert(ids[5], "a new book was dropped")
+end)
+
+check("the reason is the seed that contributed most; ties order by id; the limit holds", function()
+  local out = Recommendations.score({ seed(1, 5, "A", { 9, 8 }), seed(2, 5, "B", { 8, 9 }) }, {})
+  assert(out[1].score == out[2].score and out[1].id < out[2].id, "ties are not stable")
+  assert(out[1].reason == "A" and out[2].reason == "A" or out[1].reason, "no reason")
+  local many = {}
+  for i = 1, 50 do many[i] = 1000 + i end
+  assert(#Recommendations.score({ seed(1, 5, "A", many) }, {}, 7) == 7)
+  assert(#Recommendations.score({ seed(1, 5, "A", many) }, {}) == Recommendations.LIMIT)
+end)
+
+check("only the first SEED_DEPTH of a ranking counts; junk is ignored", function()
+  local long = {}
+  for i = 1, 60 do long[i] = 500 + i end
+  assert(#Recommendations.score({ seed(1, 5, "A", long) }, {}, 100) == Recommendations.SEED_DEPTH)
+  assert(#Recommendations.score(nil, nil) == 0 and #Recommendations.score({ "x", {}, { rating = "a" } }, {}) == 0)
+  assert(#Recommendations.score({ seed(1, 5, "A", nil) }, {}) == 0)
+end)
+
 print("\n== the requests ==")
 
 check("two requests: the ranking of the book, then those books; the result is in rank order", function()
@@ -169,6 +219,41 @@ check("the strips' requests ignore touches (a dummy trap widget); an ordinary re
   assert(Api:query("query { x }", {}), "no answer")
   assert(type(seen[1]) == "table" and seen[1].dismiss_callback == nil, "a background request got a real trap")
   assert(seen[2] == true, "an ordinary request lost its trap")
+end)
+
+check("For you: the seeds, then which of the best candidates you own, then the books left, with their reasons", function()
+  answers(ok({ me = { { seeds = { { rating = 5, book = { id = 1, title = "Wool", cached_similar_book_ids = { 10, 20, 2, 30 } } } } } } }),
+    ok({ me = { { owned = { { book_id = 20 } } } } }),
+    ok({ books = { book(30), book(10) } }))
+  local entries, err, note = Api:getForYou()
+  assert(entries and not err and note == nil, tostring(err))
+  assert(#sent == 3, "requests: " .. #sent)
+  assert(sent[1].q:find("_gte: 4", 1, true) and not sent[1].q:find("own:", 1, true), "the whole library was asked for")
+  assert(sent[2].q:find("_in: $ids", 1, true) and #sent[2].vars.ids == 4, "ownership asked for " .. #sent[2].vars.ids)
+  assert(table.concat(sent[3].vars.ids, ",") == "10,2,30",
+    "a book you own was suggested: " .. table.concat(sent[3].vars.ids, ","))
+  assert(entries[1].book_id == 10 and entries[2].book_id == 30, "not in score order")
+  assert(entries[1].reason == "Wool" and entries[1].user_book_id == nil)
+end)
+
+check("For you: nothing rated 4 or more is an empty list with a note, and one request", function()
+  answers(ok({ me = { { seeds = {}, own = {} } } }))
+  local entries, err, note = Api:getForYou()
+  assert(entries and #entries == 0 and note == "no_ratings" and #sent == 1 and not err)
+end)
+
+check("For you: a failure at either step is nil and the reason", function()
+  answers(fail({ completed = false }))
+  local entries, err = Api:getForYou()
+  assert(entries == nil and err and err.completed == false)
+  answers(ok({ me = { { seeds = { { rating = 5, book = { id = 1, title = "W", cached_similar_book_ids = { 9 } } } } } } }),
+    fail({ status = 500 }))
+  entries, err = Api:getForYou()
+  assert(entries == nil and err and err.status == 500, "the ownership step")
+  answers(ok({ me = { { seeds = { { rating = 5, book = { id = 1, title = "W", cached_similar_book_ids = { 9 } } } } } } }),
+    ok({ me = { { owned = {} } } }), fail({ status = 503 }))
+  entries, err = Api:getForYou()
+  assert(entries == nil and err and err.status == 503, "the books step")
 end)
 
 r.finish()

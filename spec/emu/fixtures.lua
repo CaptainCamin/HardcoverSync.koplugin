@@ -493,6 +493,58 @@ function M.install(opts)
     return require("hardcover/lib/lists").normalize(deepcopy(opts.lists_me or M.lists_me))
   end
 
+  -- "For you": M.for_you_ids index the fixture books; M.for_you_note "no_ratings" gives an
+  -- empty list; M.for_you_fail fails
+  Api.getForYou = function(_)
+    record("getForYou")
+    if M.for_you_fail then return nil, { completed = false } end
+    if M.for_you_note == "no_ratings" then return {}, nil, "no_ratings" end
+    local entries = {}
+    for n, i in ipairs(M.for_you_ids or {}) do
+      local b = M.shelf_books[i]
+      if b then
+        local e = require("hardcover/lib/shelf").normalizeEntry({ book = b })
+        e.user_book_id = nil
+        e.reason = (M.for_you_reasons or {})[n] or "Wool"
+        entries[#entries + 1] = e
+      end
+    end
+    return entries
+  end
+
+  -- Vibes: M.vibes_rows (the API's `vibes` rows, ids index the fixture books); M.vibes_fail fails;
+  -- M.vibes_scope_error answers like a token without read:vibes
+  Api.getVibes = function(_, user_id)
+    record("getVibes")
+    if M.vibes_scope_error then return nil, { status = 403, errors = { { message = "Missing scopes: read:vibes" } } } end
+    if M.vibes_fail then return nil, { completed = false } end
+    local Vibes = require("hardcover/lib/vibes")
+    local vibes = Vibes.normalize(deepcopy(M.vibes_rows or {}))
+    local covers = {}
+    for _, vibe in ipairs(vibes) do
+      covers[vibe.id] = {}
+      for i = 1, math.min(3, #vibe.ids) do
+        local b = M.shelf_books[vibe.ids[i]]
+        local image = b and b.cached_image
+        if image and image.url then covers[vibe.id][#covers[vibe.id] + 1] = image.url end
+      end
+    end
+    return vibes, covers
+  end
+  Api.getBooksByIds = function(_, ids)
+    record("getBooksByIds")
+    local entries = {}
+    for _, i in ipairs(ids) do
+      local b = M.shelf_books[i]
+      if b then
+        local e = require("hardcover/lib/shelf").normalizeEntry({ book = b })
+        e.user_book_id = nil
+        entries[#entries + 1] = e
+      end
+    end
+    return entries
+  end
+
   Api.getListCount = function(_)
     record("getListCount")
     local me = (opts.lists_me or M.lists_me)[1]
@@ -659,7 +711,7 @@ function M.install(opts)
     return Api.findBooks(nil, title, author, userId)
   end
 
-  Api.me = function() return { id = M.USER_ID, account_privacy_setting_id = 1 } end
+  Api.me = function() return { id = M.USER_ID, username = M.USERNAME or "fixture_reader", account_privacy_setting_id = 1 } end
 
   -- Mutations: record and echo back something shaped like the real response,
   -- so a scenario can verify a write path without a network.

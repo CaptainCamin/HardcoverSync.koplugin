@@ -66,6 +66,9 @@ return {
 
     ------------------------------------------------------------ book details
     probe:reset()
+    -- a book with a series strip and a "Similar to" strip: the placeholder is there at once
+    -- and the books replace it in place, so the extra strip costs no extra full refresh
+    fixtures.similar_ids = { 9, 4, 7, 2, 1, 3 }
     manager:showBookDetail(103)
     perf.run_loop()
     results.detail = probe:report("book details: open (series, covers)")
@@ -187,7 +190,8 @@ return {
     -- a shelf page turn: the page, then each cover's own frame
     within("shelf open", results.shelf, 2, 2.4)
     within("shelf page turn", results.shelf_page, 1, 1.3)
-    -- details: the loading screen, the book, the series; covers are boxes
+    -- details: the loading screen, the book, the series; covers are boxes; the similar strip is
+    -- in the book's own draw (a placeholder) and filled in place
     within("book details", results.detail, 2, 2.4)
     -- the sign-in bar stepping: the bar and its line, nothing else
     within("sign-in bar", results.signin, 0, 0.1)
