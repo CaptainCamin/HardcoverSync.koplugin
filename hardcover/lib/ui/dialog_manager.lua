@@ -1722,7 +1722,7 @@ function DialogManager:rateBook(dialog)
     title_text = _("Set Rating"),
     -- 0 clears the rating
     callback = function(spin)
-      queue:queue(detail.user_book_id, spin.value)
+      queue:queue(detail.user_book_id, spin.value, detail.book.title)
       if UIManager:isWidgetShown(dialog) then dialog:setRating(spin.value) end
       if Network.connected() then
         if self.flush_goals then self.flush_goals() end

@@ -2,6 +2,10 @@
 
 ## 1.4.2
 
+### Added
+
+- **Pending changes** (the Hardcover menu, and Settings on Home): every change still waiting to be sent, one row each, with what it is ("Dune: page 120", "Kindred: mark as Read", "Solaris: rating 4.5", "New goal ..."), and why when one is stuck. Tap a row to cancel just that change (Hardcover keeps what it has); "Send them now" sends the rest. Before, the only choices were send everything or discard everything.
+
 ### Fixed
 
 - The book's panel in the reader (Hardcover button) opens at once. It used to ask Hardcover for the book's record first and show nothing until the answer came, which on a slow connection was seconds of a frozen screen. It now opens from what the device already knows and refreshes in the background, redrawing only if the answer changed something.

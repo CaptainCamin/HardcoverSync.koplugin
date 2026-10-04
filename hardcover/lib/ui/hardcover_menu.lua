@@ -423,6 +423,7 @@ function HardcoverMenu:getSubMenuItems(book_view)
       separator = true
     },
     self:getSyncMenuItem(),
+    self:pendingTotal() > 0 and self:getPendingChangesMenuItem(),
     self:conflictCount() > 0 and self:getSyncConflictsMenuItem(),
     -- OAuth sign-in/out. Only offered when hardcover_config.lua supplies a
     -- client_id; with a static API key there is nothing to sign in to.
@@ -623,10 +624,47 @@ end
 -- everything waiting to be sent: progress and status changes, and goal changes
 function HardcoverMenu:pendingTotal()
   return self.sync_queue:pendingCount() + (self.goal_queue and self.goal_queue:count() or 0)
+    + (self.rating_queue and self.rating_queue:count() or 0)
 end
 
 function HardcoverMenu:conflictCount()
   return self.sync_queue and self.sync_queue.conflictCount and self.sync_queue:conflictCount() or 0
+end
+
+-- Every change waiting to be sent, each with a way to cancel just that one.
+function HardcoverMenu:getPendingChangesMenuItem()
+  return {
+    text_func = function()
+      return T(_("Pending changes (%1)"), self:pendingTotal())
+    end,
+    enabled_func = function()
+      return self:pendingTotal() > 0
+    end,
+    callback = function(menu_instance)
+      -- loaded here, not at the top: the screen pulls in the settings page and its widgets
+      require("hardcover/lib/ui/pending_changes_dialog").show {
+        queues = { sync_queue = self.sync_queue, goal_queue = self.goal_queue, rating_queue = self.rating_queue },
+        on_cancel = function(row) self:pendingCancelled(row) end,
+        on_send = function()
+          self:withWifiThen(function() self.on_flush_sync_queue() end, true)
+        end,
+      }
+      if menu_instance and menu_instance.updateItems then menu_instance:updateItems() end
+    end,
+    keep_menu_open = true,
+  }
+end
+
+-- A waiting change was cancelled: the screens that showed it as if it had happened go back
+-- to what Hardcover has (goals right away; the open book's record is read again).
+function HardcoverMenu:pendingCancelled(row)
+  if row.kind == "goal" and self.dialog_manager and self.dialog_manager.applyGoals then
+    self.dialog_manager:applyGoals(self.dialog_manager:savedGoals())
+  end
+  if (row.kind == "page" or row.kind == "status" or row.kind == "rating")
+      and self.cache and self.settings:bookLinked() and self.ui and self.ui.document then
+    Background.run(function() self.cache:cacheUserBook() end)
+  end
 end
 
 function HardcoverMenu:getSyncConflictsMenuItem()
@@ -780,6 +818,9 @@ function HardcoverMenu:getHomeSettingsItems(opts)
   local items = {}
   if opts.sync ~= false then
     items[1] = self:getSyncMenuItem()
+    if self:pendingTotal() > 0 then
+      items[#items + 1] = self:getPendingChangesMenuItem()
+    end
     if self:conflictCount() > 0 then
       items[#items + 1] = self:getSyncConflictsMenuItem()
     end
@@ -922,7 +963,8 @@ function HardcoverMenu:saveRating(value, menu_instance, quiet)
       self.state.book_status = result
       menu_instance:updateItems()
     elseif self.rating_queue and self.state.book_status.id then
-      self.rating_queue:queue(self.state.book_status.id, value)
+      self.rating_queue:queue(self.state.book_status.id, value,
+        self.settings and self.settings.getLinkedTitle and self.settings:getLinkedTitle() or nil)
       self.state.book_status.rating = value > 0 and value or nil
       menu_instance:updateItems()
       if not quiet then

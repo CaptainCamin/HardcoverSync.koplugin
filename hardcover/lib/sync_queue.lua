@@ -148,6 +148,31 @@ function SyncQueue:save(filepath, entry)
   self:persist()
 end
 
+--
+-- Cancel one waiting change of one book, leaving the others. The entry goes when nothing
+-- is left in it. (A page that was waiting for the reader's answer to a question is no
+-- longer asked about once it is cancelled.)
+--
+function SyncQueue:cancelPage(filepath)
+  local entry = self:get(filepath)
+  if type(entry) ~= "table" then return false end
+  entry.mapped_page, entry.page_updated_at = nil, nil
+  entry.force_page, entry.first_page_date, entry.reread = nil, nil, nil
+  entry.conflict, entry.failures = nil, nil
+  self:save(filepath, entry)
+  return true
+end
+
+function SyncQueue:cancelStatus(filepath)
+  local entry = self:get(filepath)
+  if type(entry) ~= "table" then return false end
+  entry.status_id, entry.status_updated_at = nil, nil
+  entry.privacy_setting_id, entry.reread = nil, nil
+  entry.conflict, entry.failures = nil, nil
+  self:save(filepath, entry)
+  return true
+end
+
 function SyncQueue:clear(filepath)
   local pending = self:pending()
   pending[filepath] = nil

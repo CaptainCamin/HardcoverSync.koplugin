@@ -202,6 +202,29 @@ check("it can be disabled like the rest of the plugin", function()
   assert(item.enabled_func() == false)
 end)
 
+print("\n== pending changes ==")
+
+check("Pending changes (N) is listed only while something waits, and counts ratings and goals too", function()
+  local m = newMenu()
+  m.sync_queue = { pendingCount = function() return 0 end, hasPending = function() return false end }
+  local none = {}
+  for _, item in ipairs(m:getSubMenuItems(true)) do
+    local ok, t = pcall(function() return item.text or (item.text_func and item.text_func()) end)
+    none[#none + 1] = ok and tostring(t) or "?"
+  end
+  assert(not has(none, "Pending changes (0)"), "listed with nothing waiting")
+  m.sync_queue = { pendingCount = function() return 1 end, hasPending = function() return true end }
+  m.goal_queue = { count = function() return 1 end }
+  m.rating_queue = { count = function() return 1 end }
+  local item
+  for _, it in ipairs(m:getSubMenuItems(true)) do
+    local ok, t = pcall(function() return it.text or (it.text_func and it.text_func()) end)
+    if ok and tostring(t):find("Pending changes", 1, true) then item = it end
+  end
+  assert(item, "no Pending changes item with changes waiting")
+  assert(item.text_func() == "Pending changes (3)", item.text_func())
+end)
+
 print("\n== updates: the beta switch ==")
 
 check("Include beta versions is off by default, and the switch turns it on and asks again soon", function()
