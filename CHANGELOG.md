@@ -2,6 +2,10 @@
 
 ## Unreleased (1.6.1 betas)
 
+### Added
+
+- More in a book's **Details**: the edition's release day and when the book was first published, an audiobook's length ("8h 41m"), everyone else who worked on it by role (illustrator, translator, narrator...), and how many written reviews, lists and editions it has. Reads now has thousands separators.
+
 ### Changed
 
 - The ratings breakdown (how many readers gave each rating, with the average marked) moved from the book's details to the top of the **Reviews** screen, under the rating figure. The details keep the genres, moods and content warnings.

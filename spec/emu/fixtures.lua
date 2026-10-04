@@ -46,6 +46,10 @@ local function book_row(id, title, year, pages, opts)
     users_read_count = opts.users_read_count or (500 + id * 11),
     rating = opts.rating or 4.2,
     ratings_count = opts.ratings_count or 120,
+    first_release_date = opts.first_release_date or (year .. "-03-14"),
+    reviews_count = opts.reviews_count or 37,
+    lists_count = opts.lists_count or 412,
+    editions_count = opts.editions_count or 58,
     ratings_distribution = opts.ratings_distribution or {
       { rating = 1.0, count = 4 }, { rating = 2.0, count = 6 }, { rating = 2.5, count = 8 }, { rating = 3.0, count = 14 },
       { rating = 3.5, count = 22 }, { rating = 4.0, count = 31 }, { rating = 4.5, count = 17 }, { rating = 5.0, count = 18 },
@@ -61,7 +65,8 @@ local function book_row(id, title, year, pages, opts)
       "weather or its customs, is what he was told to expect. Long enough to wrap " ..
       "across several lines, so wrapping and page-count behaviour are visible.",
     contributions = opts.contributions or {
-      { author = { name = opts.author or "Ursula K. Le Guin" } },
+      { contribution = "Author", author = { name = opts.author or "Ursula K. Le Guin" } },
+      { contribution = "Illustrator", author = { name = "Jane Illustrator" } },
     },
     -- Not `opts.no_image and nil or {...}`: `a and nil or b` is always b, because
     -- nil is falsy, so every "no cover" book here used to have a cover and the
