@@ -20,6 +20,7 @@ local GoalQueue = require("hardcover/lib/goal_queue")
 local Lists = require("hardcover/lib/lists")
 local Recommendations = require("hardcover/lib/recommendations")
 local Reviews = require("hardcover/lib/reviews")
+local Vibes = require("hardcover/lib/vibes")
 local Shelf = require("hardcover/lib/shelf")
 local DeviceSearch = require("hardcover/lib/device_search")
 local Zlibrary = require("hardcover/lib/zlibrary")
@@ -519,6 +520,10 @@ function DialogManager:showHome(done_callback)
     end,
     lists_cb = function()
       self:showLists()
+    end,
+    -- Hardcover's own recommendation lists (Top Picks, Recommendations, ...)
+    vibes_cb = function()
+      self:showVibes()
     end,
     -- books suggested from your ratings; a setting turns the tile off
     for_you_cb = self.settings:readSetting(SETTING.SHOW_FOR_YOU) ~= false and function()
@@ -1204,6 +1209,117 @@ function DialogManager:showForYou(done_callback)
     if cache then cache:putForYou(user_id, entries) end
     dialog.offset = #entries
     dialog:setEntries(entries, false, true)
+  end)
+end
+
+--
+-- Hardcover's vibes for your account: the ones it makes for you (Top Picks, Recommendations,
+-- "Based on ...") and the ones you made, each with its first covers; one opens in the shelf
+-- screen in its own ranking (showVibe). Needs the read:vibes permission, which a sign-in from
+-- before it was asked for lacks.
+--
+function DialogManager:showVibes(done_callback)
+  discard(self.vibes_dialog)
+  self.vibes_dialog = nil
+
+  local dialog = require("hardcover/lib/ui/lists_dialog"):new {
+    title = _("Vibes"),
+    mine_title = _("From Hardcover"),
+    following_title = _("Made by you"),
+    message = _("Loading your vibes\226\128\166"),
+    select_cb = function(row)
+      self:showVibe(row.vibe)
+    end,
+    close_callback = function()
+      if done_callback then done_callback() end
+    end,
+  }
+  self.vibes_dialog = dialog
+  UIManager:show(dialog)
+
+  if Api.auth and Api.auth:hasScope(Vibes.SCOPE) == false then
+    dialog:setMessage(_("Sign out and back in (Settings > Account) to see your vibes."))
+    return
+  end
+  if not Network.connected() then
+    dialog:setMessage(_("Vibes need an internet connection."))
+    return
+  end
+
+  Api:getVibesAsync(User:getId(), function(vibes, covers_or_err)
+    if not UIManager:isWidgetShown(dialog) then return end
+    if not vibes then
+      if Vibes.isScopeError(covers_or_err) then
+        dialog:setMessage(_("Sign out and back in (Settings > Account) to see your vibes."))
+        return
+      end
+      StatusDialogs.retry(covers_or_err, _("Loading your vibes"),
+        function() self:showVibes(done_callback) end,
+        function() UIManager:close(dialog) end)
+      return
+    end
+    if #vibes == 0 then
+      dialog:setMessage(_("No vibes yet. Make one on hardcover.app and it will show up here."))
+      return
+    end
+    local system, mine = Vibes.rows(vibes, covers_or_err)
+    dialog:setLists(system, mine)
+  end)
+end
+
+-- One vibe's books in its ranking, in the shelf screen, a page at a time as you page on.
+function DialogManager:showVibe(vibe, done_callback)
+  local PAGE = 20
+  local dialog
+  local function fetch_page(offset, limit, callback)
+    Api:getBooksByIdsAsync(Vibes.page(vibe, offset, limit), function(entries, err)
+      if not UIManager:isWidgetShown(dialog) then return end
+      callback(entries, err, offset + (limit or PAGE) < #vibe.ids)
+    end)
+  end
+  dialog = require("hardcover/lib/ui/shelf_dialog"):new {
+    compatibility_mode = self.settings:compatibilityMode(),
+    title = vibe.title,
+    sortable = false,
+    entries = {},
+    has_more = false,
+    offset = 0,
+    page_size = PAGE,
+    fetch_page = fetch_page,
+    select_entry_cb = function(entry)
+      self:showBookDetail(entry.book_id, nil, done_callback)
+    end,
+    close_callback = function()
+      if done_callback then done_callback() end
+    end,
+  }
+  UIManager:show(dialog)
+
+  if not Network.connected() then
+    StatusDialogs.info(_("Vibes need an internet connection."))
+    UIManager:close(dialog)
+    return
+  end
+
+  local loading = StatusDialogs.loading(_("Loading the books\226\128\166"))
+  Api:getBooksByIdsAsync(Vibes.page(vibe, 0, PAGE), function(entries, err)
+    StatusDialogs.close(loading)
+    if not UIManager:isWidgetShown(dialog) then return end
+    if not entries then
+      StatusDialogs.retry(err, _("Loading the vibe"),
+        function()
+          UIManager:close(dialog)
+          self:showVibe(vibe, done_callback)
+        end,
+        function() UIManager:close(dialog) end)
+      return
+    end
+    if #entries == 0 then
+      dialog:setEmptyState(_("No books in this vibe yet"))
+      return
+    end
+    dialog.offset = PAGE
+    dialog:setEntries(entries, #vibe.ids > PAGE, true)
   end)
 end
 

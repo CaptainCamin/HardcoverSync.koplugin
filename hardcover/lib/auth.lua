@@ -30,10 +30,14 @@ local OAuthClient = require("hardcover/lib/oauth_client")
 --   Reading goals needs nothing new; a sign-in from before this lacks it, and the
 --   goal editor then says to sign out and back in.
 --
+-- read:vibes: reading Hardcover's vibes (Top Picks, Recommendations...), Vibes.SCOPE.
+--   A sign-in from before this was asked for lacks it, and the vibes screen then says
+--   to sign out and back in. (Checked: Hardcover's sign-in accepts it.)
+--
 -- There is no separate write:journal scope: requesting one fails the whole
 -- authorization with `invalid_scope`. Journal writes are part of
 -- write:library, and read:journal is implied by read:library.
-local DEFAULT_SCOPE = "read:catalog read:catalog:search read:me:content read:library read:social read:users write:library write:lists write:goals"
+local DEFAULT_SCOPE = "read:catalog read:catalog:search read:me:content read:library read:social read:users read:vibes write:library write:lists write:goals"
 
 local Auth = {}
 Auth.__index = Auth

@@ -14,6 +14,7 @@ local Book = require("hardcover/lib/book")
 local Goals = require("hardcover/lib/goals")
 local Lists = require("hardcover/lib/lists")
 local Recommendations = require("hardcover/lib/recommendations")
+local Vibes = require("hardcover/lib/vibes")
 local Shelf = require("hardcover/lib/shelf")
 local VERSION = require("hardcover_version")
 
@@ -1818,6 +1819,78 @@ end
 
 function HardcoverApi:getShelfAsync(user_id, status_id, offset, limit, callback)
   async(callback, self.getShelf, self, user_id, status_id, offset, limit)
+end
+
+--
+-- Your vibes (Vibes.normalize's rows), with the covers of each one's first books for the
+-- index. Two requests: the vibes of yours (Hardcover's own for your account included),
+-- then the covers. Needs the read:vibes permission: without it the answer is a refusal
+-- (see Vibes.isScopeError). Returns vibes, cover_urls (vibe id -> urls), or nil and the error.
+--
+function HardcoverApi:getVibes(user_id)
+  local first, err = self:query([[
+    query ($userId: Int!) {
+      vibes(where: { user_id: { _eq: $userId } }, order_by: [{ id: asc }]) {
+        id
+        title
+        description
+        vibe_type
+        privacy_setting_id
+        books_generated_at
+        cached_book_ids
+      }
+    }
+  ]], { userId = user_id }, true)
+  if first == nil or type(first.vibes) ~= "table" then
+    return nil, err or { completed = false }
+  end
+
+  local vibes = Vibes.normalize(first.vibes)
+  local wanted, owner = {}, {}
+  for _, vibe in ipairs(vibes) do
+    for i = 1, math.min(Vibes.COVERS, #vibe.ids) do
+      wanted[#wanted + 1] = vibe.ids[i]
+      owner[vibe.ids[i]] = owner[vibe.ids[i]] or {}
+      table.insert(owner[vibe.ids[i]], vibe.id)
+    end
+  end
+
+  -- the covers are a nicety: a failure here still gives the index (with empty boxes)
+  local covers = {}
+  if #wanted > 0 then
+    local second = self:query([[
+      query ($ids: [Int!]) {
+        books(where: { id: { _in: $ids } }) { book_id: id cached_image }
+      }
+    ]], { ids = wanted }, true)
+    local by_id = {}
+    for _, book in ipairs(second and type(second.books) == "table" and second.books or {}) do
+      local cover = Shelf.coverOf(book)
+      if cover then by_id[tonumber(book.book_id)] = cover.url end
+    end
+    for _, vibe in ipairs(vibes) do
+      local urls = {}
+      for i = 1, math.min(Vibes.COVERS, #vibe.ids) do
+        local url = by_id[vibe.ids[i]]
+        if url then urls[#urls + 1] = url end
+      end
+      covers[vibe.id] = urls
+    end
+  end
+  return vibes, covers
+end
+
+-- One page of a vibe's books, in the vibe's ranking, as shelf entries (one request).
+function HardcoverApi:getVibeBooks(vibe, offset, limit)
+  return self:getBooksByIds(Vibes.page(vibe, offset, limit))
+end
+
+function HardcoverApi:getBooksByIdsAsync(ids, callback)
+  async(callback, self.getBooksByIds, self, ids)
+end
+
+function HardcoverApi:getVibesAsync(user_id, callback)
+  async(callback, self.getVibes, self, user_id)
 end
 
 function HardcoverApi:getForYouAsync(callback)

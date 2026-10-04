@@ -6,6 +6,7 @@
 
 - **For you**: a tile on Home that opens books suggested from the ones you rated 4 or more stars. Worked out on the device from Hardcover's own "readers also liked" lists for your favourites (a book high on several of them scores best, one you rated 4.5 or more counts double, and anything already in your library is left out), with the reason under each ("Because you liked ..."). It needs no new permission. The last picks are kept for offline, with the date they are from. Settings > "Show 'For you' on Home" turns the tile off.
 
+- **Vibes**: a tile on Home that opens Hardcover's own recommendation lists for your account: Top Picks, Recommendations and the "Based on ..." ones Hardcover makes for you, then any vibes you made yourself, each with its first covers. Tap one for its books in Hardcover's ranking, 20 at a time. It asks for a new permission (read:vibes): **sign out and back in once** (Settings > Account) to see them; until then the screen says so. It needs a connection.
 - **Pending changes** (the Hardcover menu, and Settings on Home): every change still waiting to be sent, one row each, with what it is ("Dune: page 120", "Kindred: mark as Read", "Solaris: rating 4.5", "New goal ..."), and why when one is stuck. Tap a row to cancel just that change (Hardcover keeps what it has); "Send them now" sends the rest. Before, the only choices were send everything or discard everything.
 
 ### Fixed

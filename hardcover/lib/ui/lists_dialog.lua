@@ -36,6 +36,8 @@ local ListsDialog = InputContainer:extend {
   mine = nil,        -- rows (see Lists.normalize); nil while loading
   following = nil,
   message = nil,     -- shown instead of the rows ("Loading your lists…", an empty state)
+  mine_title = nil,       -- the first group's heading (default "Your lists")
+  following_title = nil,  -- the second group's heading (default "Following")
   select_cb = nil,   -- called with the chosen row
   close_callback = nil,
   image_loader = nil,
@@ -146,8 +148,8 @@ function ListsDialog:buildContent(width, viewport)
     table.insert(content, text(self.message, "body", { grey = true, width = width }))
     return content
   end
-  section(_("Your lists"), self.mine)
-  section(_("Following"), self.following)
+  section(self.mine_title or _("Your lists"), self.mine)
+  section(self.following_title or _("Following"), self.following)
   return content
 end
 

@@ -50,6 +50,7 @@ local HomeDialog = InputContainer:extend {
   settings_cb = nil,
   search_cb = nil,
   lists_cb = nil,    -- the "More lists" tile appears when this is set
+  vibes_cb = nil,    -- the "Vibes" tile (Hardcover's own recommendation lists) appears when this is set
   for_you_cb = nil,  -- the "For you" tile (books suggested from your ratings) appears when this is set
   goals = nil,       -- Goals.normalize rows (saved or fresh); the goal card shows the chosen one
   finished_offline = 0, -- books finished here and not yet counted by Hardcover
@@ -179,6 +180,8 @@ function HomeDialog:buildTile(row, w, h, viewport)
         if self.lists_cb then self.lists_cb() end
       elseif row.for_you then
         if self.for_you_cb then self.for_you_cb() end
+      elseif row.vibes then
+        if self.vibes_cb then self.vibes_cb() end
       elseif self.select_cb then
         self.select_cb(row)
       end
@@ -187,7 +190,7 @@ function HomeDialog:buildTile(row, w, h, viewport)
   }
   -- what the tile shows, so a rebuild can tell which tiles changed (and so which
   -- part of the panel needs redrawing)
-  self.tiles[#self.tiles + 1] = { key = row.lists and "lists" or (row.for_you and "for_you") or tostring(row.status_id or row.title),
+  self.tiles[#self.tiles + 1] = { key = row.lists and "lists" or (row.for_you and "for_you") or (row.vibes and "vibes") or tostring(row.status_id or row.title),
     shows = (row.title or "") .. "|" .. Home.countText(row.count), tile = tile }
   return tile
 end
@@ -264,6 +267,9 @@ function HomeDialog:buildColumn(width, viewport)
   end
   if self.for_you_cb then
     rows[#rows + 1] = { for_you = true, title = _("For you") }
+  end
+  if self.vibes_cb then
+    rows[#rows + 1] = { vibes = true, title = _("Vibes") }
   end
   for i = 1, #rows, 2 do
     local pair = HorizontalGroup:new { self:buildTile(rows[i], tile_w, tile_h, viewport) }

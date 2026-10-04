@@ -512,6 +512,39 @@ function M.install(opts)
     return entries
   end
 
+  -- Vibes: M.vibes_rows (the API's `vibes` rows, ids index the fixture books); M.vibes_fail fails;
+  -- M.vibes_scope_error answers like a token without read:vibes
+  Api.getVibes = function(_, user_id)
+    record("getVibes")
+    if M.vibes_scope_error then return nil, { status = 403, errors = { { message = "Missing scopes: read:vibes" } } } end
+    if M.vibes_fail then return nil, { completed = false } end
+    local Vibes = require("hardcover/lib/vibes")
+    local vibes = Vibes.normalize(deepcopy(M.vibes_rows or {}))
+    local covers = {}
+    for _, vibe in ipairs(vibes) do
+      covers[vibe.id] = {}
+      for i = 1, math.min(3, #vibe.ids) do
+        local b = M.shelf_books[vibe.ids[i]]
+        local image = b and b.cached_image
+        if image and image.url then covers[vibe.id][#covers[vibe.id] + 1] = image.url end
+      end
+    end
+    return vibes, covers
+  end
+  Api.getBooksByIds = function(_, ids)
+    record("getBooksByIds")
+    local entries = {}
+    for _, i in ipairs(ids) do
+      local b = M.shelf_books[i]
+      if b then
+        local e = require("hardcover/lib/shelf").normalizeEntry({ book = b })
+        e.user_book_id = nil
+        entries[#entries + 1] = e
+      end
+    end
+    return entries
+  end
+
   Api.getListCount = function(_)
     record("getListCount")
     local me = (opts.lists_me or M.lists_me)[1]
