@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased (1.6.1 betas)
+
+### Changed
+
+- The ratings breakdown (how many readers gave each rating, with the average marked) moved from the book's details to the top of the **Reviews** screen, under the rating figure. The details keep the genres, moods and content warnings.
+
 ## 1.6.0
 
 ### Added

@@ -100,13 +100,13 @@ return {
     emu:expectText("Maya Okafor")
     emu:expectText("\226\152\133 4.5")
     emu:expectText("48 likes")
-    emu:expectText("A reader")
     emu:expectText("Read more")
-    -- the book and its rating head the first page (the API has no breakdown by
-    -- star, so it is the figure and the glyphs, not a histogram)
+    -- the book and its rating head the first page: the figure, the glyphs and the
+    -- breakdown by star
     emu:expectText("The Left Hand of Darkness")
     emu:expectText("4.2")
     emu:expectText("120 ratings")
+    assert(dialog.summary and dialog.summary.distribution and dialog.summary.distribution.total == 120, "no rating breakdown")
     emu:shot("reviews_first")
 
     -- cards are dealt into pages that fit, and Next / Previous turn them
@@ -119,6 +119,7 @@ return {
     tap_row(emu, dialog, "Next")
     assert(dialog.page == 2, "Next did not turn the page")
     emu:expectText("Page 2 of")
+    emu:expectText("A reader")
     tap_row(emu, dialog, "Previous")
     assert(dialog.page == 1, "Previous did not turn back")
     emu:expectText("Maya Okafor")
