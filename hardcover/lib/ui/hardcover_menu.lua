@@ -465,13 +465,13 @@ end
 function HardcoverMenu:showRelease(release)
   if not release.version then
     UIManager:show(InfoMessage:new {
-      text = T(_("Hardcover Sync is up to date (v%1)."), table.concat(VERSION, ".")),
+      text = T(_("Hardcover Sync is up to date (v%1)."), (VERSION.text or table.concat(VERSION, "."))),
     })
     return
   end
   local notes = release.notes and release.notes ~= "" and ("\n\n" .. release.notes:sub(1, 600)) or ""
   UIManager:show(ConfirmBox:new {
-    text = T(_("Version %1 is available (you have v%2).%3"), release.version, table.concat(VERSION, "."), notes),
+    text = T(_("Version %1 is available (you have v%2).%3"), release.version, (VERSION.text or table.concat(VERSION, ".")), notes),
     ok_text = release.zip_url and _("Install") or _("OK"),
     cancel_text = _("Later"),
     ok_callback = function()
@@ -499,7 +499,7 @@ function HardcoverMenu:getUpdateMenuItems()
           end
           Updater.remember(self.settings, release)
           self:showRelease(release)
-        end)
+        end, self.settings:readSetting(SETTING.UPDATE_BETA) == true)
       end,
       keep_menu_open = true,
     },
@@ -514,6 +514,19 @@ function HardcoverMenu:getUpdateMenuItems()
       end,
       keep_menu_open = true,
     },
+    {
+      text = _("Include beta versions"),
+      checked_func = function()
+        return self.settings:readSetting(SETTING.UPDATE_BETA) == true
+      end,
+      callback = function()
+        self.settings:updateSetting(SETTING.UPDATE_BETA,
+          self.settings:readSetting(SETTING.UPDATE_BETA) ~= true)
+        -- ask again at the next chance, not tomorrow: the answer is different now
+        self.settings:updateSetting(SETTING.UPDATE_LAST_CHECK, 0)
+      end,
+      keep_menu_open = true,
+    },
   }
 end
 
@@ -524,7 +537,7 @@ function HardcoverMenu:getAboutMenuItem()
   return {
     text = _("About"),
     callback = function()
-      local version = table.concat(VERSION, ".")
+      local version = (VERSION.text or table.concat(VERSION, "."))
       local settings_file = DataStorage:getSettingsDir() .. "/" .. "hardcoversync_settings.lua"
 
       -- Build the text with a placeholder for the "latest release" note, show
@@ -581,7 +594,7 @@ Settings:
             " (latest v" .. new_release .. ")")
           UIManager:setDirty(message, "ui")
         end
-      end)
+      end, self.settings:readSetting(SETTING.UPDATE_BETA) == true)
     end,
     keep_menu_open = true
   }

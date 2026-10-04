@@ -35,6 +35,16 @@ jobs:
       - name: Run the harnesses
         run: ./spec/run_all.sh
 
+      # A pre-release carries its tag as its version ("1.4.1-beta.2"), so an
+      # installed beta knows which beta it is and the update check can tell the
+      # next one from it. Done after the harnesses, on the checkout only.
+      - name: Stamp the version of a pre-release
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.prerelease == 'true'
+        run: |
+          tag="${{ github.event.inputs.tag }}"
+          sed -i "s/^\([[:space:]]*version[[:space:]]*=[[:space:]]*\)\"[^\"]*\"/\1\"${tag#v}\"/" _meta.lua
+          grep -n 'version' _meta.lua
+
       # package_release.sh is the single definition of what ships; it also
       # verifies the built zip.
       - name: Zip release

@@ -468,6 +468,7 @@ end
 function DialogManager:checkForUpdate()
   local Updater = require("hardcover/lib/updater")
   if not Updater.due(self.settings) then return end
+  local beta = self.settings:readSetting(SETTING.UPDATE_BETA) == true
   require("hardcover/lib/github"):latestReleaseAsync(function(release)
     if not release then return end
     local before = Updater.available(self.settings, VERSION)
@@ -478,7 +479,7 @@ function DialogManager:checkForUpdate()
         timeout = 5,
       })
     end
-  end)
+  end, beta)
 end
 
 function DialogManager:showHome(done_callback)

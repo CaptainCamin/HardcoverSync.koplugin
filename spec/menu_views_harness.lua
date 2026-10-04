@@ -202,6 +202,25 @@ check("it can be disabled like the rest of the plugin", function()
   assert(item.enabled_func() == false)
 end)
 
+print("\n== updates: the beta switch ==")
+
+check("Include beta versions is off by default, and the switch turns it on and asks again soon", function()
+  local m = newMenu()
+  local store = {}
+  m.settings.readSetting = function(_, k) return store[k] end
+  m.settings.updateSetting = function(_, k, v) store[k] = v end
+  local item
+  for _, it in ipairs(m:getUpdateMenuItems()) do if it.text == "Include beta versions" then item = it end end
+  assert(item, "no Include beta versions item")
+  assert(item.checked_func() == false, "on by default")
+  store.update_last_check = 123456
+  item.callback()
+  assert(store.update_beta == true and item.checked_func() == true, "not turned on")
+  assert(store.update_last_check == 0, "the next check is not asked for")
+  item.callback()
+  assert(store.update_beta == false and item.checked_func() == false, "not turned off")
+end)
+
 print("\n== the settings screen holds what the first menu screen used to ==")
 
 local function homeSettingsLabels(opts)

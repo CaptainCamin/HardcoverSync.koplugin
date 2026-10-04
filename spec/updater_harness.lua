@@ -12,7 +12,8 @@ local function check(label, fn) local ok, err = pcall(fn); r.check(label, ok, er
 
 package.preload["hardcover_version"] = function() return { 1, 0, 0 } end
 package.preload["hardcover/lib/github"] = function()
-  return { newerVersion = function(tag, current)
+  return { newerVersion = function(tag, current, include_beta)
+    if tag:find("-beta", 1, true) and not include_beta then return nil end
     return tag:gsub("^v", "") ~= table.concat(current, ".") and tag:gsub("^v", "") or nil
   end }
 end
@@ -26,6 +27,15 @@ local function settings(initial)
     updateSetting = function(_, k, v) store[k] = v end,
   }, store
 end
+
+print("\n== a remembered beta ==")
+
+check("a remembered beta shows only while beta updates are on", function()
+  local on = settings({ update_available = { version = "1.1.0-beta.1" }, update_beta = true })
+  assert(Updater.available(on, { 1, 0, 0 }), "hidden with betas on")
+  local off = settings({ update_available = { version = "1.1.0-beta.1" } })
+  assert(Updater.available(off, { 1, 0, 0 }) == nil, "shown with betas off")
+end)
 
 print("\n== when to ask ==")
 
