@@ -1,0 +1,71 @@
+--[[--
+The chart widgets (columns, histogram with a marker, bars, donut, KPI tiles) drawn on a page,
+in the data shapes a reader's library can take: plenty, a single value, nothing, long labels.
+
+Screens: charts_a, charts_b, charts_c.
+]]
+
+local fixtures = require("fixtures")
+local UIManager = require("ui/uimanager")
+local Device = require("device")
+local Screen = Device.screen
+
+return {
+  name = "charts",
+
+  run = function(emu)
+    local settings = fixtures.real_settings(emu)
+    fixtures.install({ settings = settings })
+
+    local Charts = require("hardcover/lib/charts")
+    local CW = require("hardcover/lib/ui/chart_widgets")
+    local Theme = require("hardcover/lib/ui/theme")
+    local VerticalGroup = require("ui/widget/verticalgroup")
+    local FrameContainer = require("ui/widget/container/framecontainer")
+    local Blitbuffer = require("ffi/blitbuffer")
+
+    local W = Screen:getWidth() - 2 * Theme.space.l
+    local function page(name, parts)
+      local group = VerticalGroup:new { align = "left" }
+      for _, p in ipairs(parts) do
+        table.insert(group, p)
+        table.insert(group, Theme.span("l"))
+      end
+      local frame = FrameContainer:new { background = Blitbuffer.COLOR_WHITE, bordersize = 0,
+        padding = Theme.space.l, group }
+      UIManager:show(frame)
+      emu:pump()
+      emu:shot(name)
+      UIManager:close(frame)
+      emu:pump()
+    end
+
+    local months = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" }
+    page("charts_a", {
+      CW.kpis { width = W, tiles = { { value = "47", label = "books" }, { value = "14,820", label = "pages" },
+        { value = "4.1", label = "avg rating" } } },
+      CW.columns { width = W, height = Theme.px(200), values = { 3, 5, 2, 6, 9, 4, 1, 0, 5, 7, 2, 3 },
+        labels = months, highlight = 5, emphasis = true },
+      CW.columns { width = W, height = Theme.px(170), values = { 1, 0, 2, 5, 11, 20, 7, 9, 3, 1 },
+        labels = { "0.5", "1", "1.5", "2", "2.5", "3", "3.5", "4", "4.5", "5" },
+        marker = { at = 7.2, text = "avg 3.7" } },
+    })
+
+    local slices = Charts.slices({ { label = "Fantasy", value = 120 }, { label = "Science fiction", value = 70 },
+      { label = "Mystery & thriller", value = 40 }, { label = "Romance", value = 22 }, { label = "Nonfiction", value = 9 },
+      { label = "History", value = 5 }, { label = "Poetry", value = 2 } }, 5, "Other")
+    page("charts_b", {
+      CW.donut { width = W, slices = slices, center = { top = "268", bottom = "books" } },
+      CW.bars { width = W, rows = { { label = "Brandon Sanderson", value = 14 }, { label = "Ursula K. Le Guin", value = 9 },
+        { label = "A very long author name that will not fit on one line", value = 6 }, { label = "Becky Chambers", value = 3, text = "3" } } },
+    })
+
+    page("charts_c", {
+      CW.kpis { width = W, tiles = { { value = "1", label = "book" }, { value = "0", label = "pages" } }, per_row = 2 },
+      CW.columns { width = W, height = Theme.px(150), values = { 0, 0, 1 }, labels = { "2023", "2024", "2025" } },
+      CW.columns { width = W, height = Theme.px(150), values = {}, labels = {} },
+      CW.donut { width = W, slices = Charts.slices({ { label = "Fantasy", value = 1 } }, 5, "Other"), center = { top = "1", bottom = "book" } },
+      CW.bars { width = W, rows = {} },
+    })
+  end,
+}
