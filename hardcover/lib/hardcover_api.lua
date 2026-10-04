@@ -1924,7 +1924,7 @@ function HardcoverApi:getStats(user_id)
   for page = 0, STATS_MAX_PAGES - 1 do
     local result, err = self:query([[
       query ($userId: Int!, $offset: Int!, $limit: Int!) {
-        me { cached_genres }
+        ]] .. (page == 0 and "me { cached_genres }" or "") .. [[
         user_books(
           where: { user_id: { _eq: $userId }, status_id: { _eq: 3 } }
           order_by: [{ id: asc }]
