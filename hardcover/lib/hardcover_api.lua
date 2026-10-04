@@ -15,6 +15,7 @@ local Goals = require("hardcover/lib/goals")
 local Lists = require("hardcover/lib/lists")
 local Recommendations = require("hardcover/lib/recommendations")
 local Vibes = require("hardcover/lib/vibes")
+local Stats = require("hardcover/lib/stats")
 local Shelf = require("hardcover/lib/shelf")
 local VERSION = require("hardcover_version")
 
@@ -1902,6 +1903,59 @@ end
 -- One page of a vibe's books, in the vibe's ranking, as shelf entries (one request).
 function HardcoverApi:getVibeBooks(vibe, offset, limit)
   return self:getBooksByIds(Vibes.page(vibe, offset, limit))
+end
+
+--
+-- The books you have finished, for Stats: lean rows (no covers, no descriptions) in pages of
+-- STATS_PAGE, in a fixed order so the pages do not overlap, plus your genre counts. Returns
+-- { rows = Stats rows, genres = Stats.genres, complete = bool } (complete false when the
+-- library is longer than STATS_MAX_PAGES pages), or nil and the error.
+--
+local STATS_PAGE = 500
+local STATS_MAX_PAGES = 8
+
+function HardcoverApi:getStats(user_id)
+  local raw, genres = {}, nil
+  local complete = false
+  for page = 0, STATS_MAX_PAGES - 1 do
+    local result, err = self:query([[
+      query ($userId: Int!, $offset: Int!, $limit: Int!) {
+        me { cached_genres }
+        user_books(
+          where: { user_id: { _eq: $userId }, status_id: { _eq: 3 } }
+          order_by: [{ id: asc }]
+          offset: $offset
+          limit: $limit
+        ) {
+          id
+          rating
+          last_read_date
+          user_book_reads(order_by: [{ finished_at: desc_nulls_last }], limit: 1) {
+            finished_at
+            finished_at_precision
+          }
+          book { title pages audio_seconds contributions { author { name } } }
+        }
+      }
+    ]], { userId = user_id, offset = page * STATS_PAGE, limit = STATS_PAGE }, true)
+    if result == nil or type(result.user_books) ~= "table" then
+      return nil, err or { completed = false }
+    end
+    if page == 0 then
+      local me = type(result.me) == "table" and result.me[1] or nil
+      genres = Stats.genres(type(me) == "table" and me.cached_genres or nil)
+    end
+    for _, row in ipairs(result.user_books) do raw[#raw + 1] = row end
+    if #result.user_books < STATS_PAGE then
+      complete = true
+      break
+    end
+  end
+  return { rows = Stats.normalizeAll(raw), genres = genres or {}, complete = complete }
+end
+
+function HardcoverApi:getStatsAsync(user_id, callback)
+  async(callback, self.getStats, self, user_id)
 end
 
 function HardcoverApi:getBooksByIdsAsync(ids, callback)

@@ -323,6 +323,29 @@ function ShelfCache:findEntry(user_id, book_id)
   end
 end
 
+-- Your finished books as Stats last loaded them: { rows, genres, complete, saved_at }, or
+-- nil. Rows are small (no covers or descriptions), so this lives in the shelf file.
+function ShelfCache:stats(user_id)
+  local store = self:_store()
+  local saved = store and store:readSetting("stats")
+  local mine = saved and saved[tostring(user_id or 0)]
+  if mine and type(mine.rows) == "table" then return mine end
+end
+
+function ShelfCache:putStats(user_id, stats)
+  local store = self:_store()
+  if not store or type(stats) ~= "table" or type(stats.rows) ~= "table" then return false end
+  local saved = store:readSetting("stats")
+  if not saved then
+    saved = {}
+    store:saveSetting("stats", saved)
+  end
+  saved[tostring(user_id or 0)] = {
+    rows = stats.rows, genres = stats.genres or {}, complete = stats.complete ~= false, saved_at = os.time(),
+  }
+  return (pcall(store.flush, store))
+end
+
 -- Forget what is saved about a user's library that a change of shelf makes
 -- wrong: the lists for `status_ids` (a book left one and joined another), the
 -- list with no status filter, the shelf counts and the reading list. Other
@@ -339,6 +362,12 @@ function ShelfCache:invalidate(user_id, status_ids)
       shelves[shelfKey(user_id, status_id)] = nil
     end
   end
+
+  -- what Stats saved is a view of the finished books: kept (it is still the best there is
+  -- offline) but marked, so the next Stats screen refreshes it
+  local stats = store:readSetting("stats")
+  local mine_stats = stats and stats[tostring(user_id or 0)]
+  if mine_stats then mine_stats.stale = true end
 
   -- counts and the reading list: the small file, and what an earlier version
   -- saved in the shelf file
@@ -371,6 +400,7 @@ function ShelfCache:clear()
   store:saveSetting("counts", nil)
   store:saveSetting("reading", nil)
   store:saveSetting("goals", nil)
+  store:saveSetting("stats", nil)
   local ok = (pcall(store.flush, store))
 
   local home = self:_home()
