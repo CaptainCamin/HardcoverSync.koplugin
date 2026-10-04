@@ -36,7 +36,7 @@ return {
       },
       state = { book_status = { id = 1, status_id = 2, rating = 4.5,
         user_book_reads = { { progress_pages = 142 } } } },
-      cache = { cacheUserBook = function() end },
+      cache = { cacheUserBook = function() calls.fetched_with_panel_up = emu:top() and emu:top().name == "hardcover_reader_panel" end },
       sync_queue = { pendingCount = function() return 0 end, hasPending = function() return false end },
       auth = { usingOAuth = function() return true end, needsReauth = function() return false end,
                statusText = function() return "Signed in" end },
@@ -68,6 +68,8 @@ return {
     local panel = menu:showReaderPanel()
     emu:pump()
     assert(panel_is_top(), "the panel is not on top after opening")
+    -- the book's record is fetched after the panel is up, not before it can appear
+    assert(calls.fetched_with_panel_up == true, "the record was fetched before the panel was shown")
 
     -- the tick
     tapText("Update Hardcover as I read")

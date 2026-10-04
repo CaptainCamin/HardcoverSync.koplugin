@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.2
+
+### Fixed
+
+- The book's panel in the reader (Hardcover button) opens at once. It used to ask Hardcover for the book's record first and show nothing until the answer came, which on a slow connection was seconds of a frozen screen. It now opens from what the device already knows and refreshes in the background, redrawing only if the answer changed something.
+- A "Similar to" strip filling in no longer redraws the whole details screen: the loading placeholder is swapped for the books in place, redrawing just the strip.
+
 ## 1.4.1
 
 ### Added

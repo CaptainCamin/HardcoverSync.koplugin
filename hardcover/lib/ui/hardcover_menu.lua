@@ -262,8 +262,26 @@ function HardcoverMenu:showReaderPanel()
     }
   end
 
-  if self.settings:bookLinked() then self.cache:cacheUserBook() end
+  -- The panel opens at once, from what the device already knows (the saved copy with
+  -- the offline queue over it). The book's record is fetched after, in the background:
+  -- it used to be fetched first, with the screen frozen for as long as Hardcover took
+  -- to answer, and the panel only appeared after that.
   panel = require("hardcover/lib/ui/reader_panel").show { model = model }
+  if self.settings:bookLinked() then
+    local function signature()
+      local status = self.state.book_status or {}
+      local reads = status.user_book_reads
+      local read = reads and reads[#reads]
+      return table.concat({ tostring(status.status_id), tostring(status.rating),
+        tostring(read and read.progress_pages) }, "|")
+    end
+    local before = signature()
+    Background.run(function()
+      self.cache:cacheUserBook()
+      -- redraw only when the answer changed what the panel shows
+      if panel and UIManager:isWidgetShown(panel) and signature() ~= before then panel:render() end
+    end)
+  end
   return panel
 end
 
