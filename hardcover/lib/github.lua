@@ -29,15 +29,17 @@ local Github = {}
 function Github.parse(tag)
   if type(tag) ~= "string" then return nil end
 
+  -- the version is what comes before a pre-release suffix ("-beta.2"), so the number in
+  -- the suffix is not taken for a minor or patch number ("v1.5-beta.2" is 1.5, beta 2)
+  local base, suffix = tag:match("^(.-%d)%-(%a.*)$")
   local parts = {}
-  for number in tag:gmatch("%d+") do
+  for number in (base or tag):gmatch("%d+") do
     parts[#parts + 1] = tonumber(number)
     if #parts == 3 then break end
   end
   if #parts == 0 then return nil end
 
   local beta
-  local suffix = tag:match("%d%-(%a.*)$")
   if suffix then beta = tonumber(suffix:match("(%d+)%s*$")) or 0 end
   return { parts = parts, beta = beta }
 end

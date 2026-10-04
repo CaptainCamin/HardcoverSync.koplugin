@@ -12,7 +12,7 @@ on:
         description: 'Tag to create, e.g. v0.7.0 (must match the version in _meta.lua)'
         required: true
       prerelease:
-        description: 'Publish as a pre-release from this branch (tag like v1.0.2-preview; the _meta.lua match is skipped, and it is never "latest")'
+        description: 'Publish as a pre-release from this branch (tag like v1.4.2-beta.1: the number counts the betas; the _meta.lua match is skipped, and it is never "latest")'
         required: false
         default: 'false'
 
@@ -40,9 +40,15 @@ jobs:
       # next one from it. Done after the harnesses, on the checkout only.
       - name: Stamp the version of a pre-release
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.prerelease == 'true'
+        env:
+          TAG: ${{ github.event.inputs.tag }}
         run: |
-          tag="${{ github.event.inputs.tag }}"
-          sed -i "s/^\([[:space:]]*version[[:space:]]*=[[:space:]]*\)\"[^\"]*\"/\1\"${tag#v}\"/" _meta.lua
+          # the tag is typed by hand: only this shape is let near the shell and sed
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$'; then
+            echo "A pre-release tag must look like v1.4.2-beta.1 (got: $TAG)"
+            exit 1
+          fi
+          sed -i "s/^\([[:space:]]*version[[:space:]]*=[[:space:]]*\)\"[^\"]*\"/\1\"${TAG#v}\"/" _meta.lua
           grep -n 'version' _meta.lua
 
       # package_release.sh is the single definition of what ships; it also
@@ -55,9 +61,11 @@ jobs:
       # "update available".
       - name: Check the tag matches _meta.lua
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.prerelease != 'true'
+        env:
+          TAG: ${{ github.event.inputs.tag }}
         run: |
           version=$(sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' _meta.lua | head -1)
-          tag="${{ github.event.inputs.tag }}"
+          tag="$TAG"
           if [ "${tag#v}" != "$version" ]; then
             echo "Tag $tag does not match _meta.lua version $version"
             exit 1

@@ -4,6 +4,7 @@
 
 ### Added
 
+- The "Similar to …" strip is on the details screen as soon as the book is: its heading says "Loading…" over empty covers where the books will be, so nothing jumps or appears out of nowhere. With no ranking for the book, or if it cannot be loaded, the empty strip goes away.
 - **Include beta versions** (Settings > Updates): the update check also offers pre-release builds, newest first. Off by default; the check then looks only at stable releases, as before. A beta knows which beta it is, so you are offered the next beta and then the stable release of it, never an older build.
 - One button for both places: **Hardcover** in the main menu now opens the Home screen in the file browser and the open book's panel while reading (it used to open a long menu in the reader). Everything the old reader menu held (link, unlink, change edition, sync now, settings...) is behind the panel's new **More** button. A gesture action, "Hardcover: Home or this book" (Settings > Taps and gestures), does the same from a tap or swipe.
 

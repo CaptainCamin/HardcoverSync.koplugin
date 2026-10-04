@@ -95,6 +95,17 @@ check("from a beta: the next beta, the stable release of it, but not an older be
   assert(Github.newerVersion("v1.4.0", beta2, true) == nil)
 end)
 
+check("the number in a beta suffix is not a version part", function()
+  local p = Github.parse("v1.5-beta.2")
+  assert(#p.parts == 2 and p.parts[1] == 1 and p.parts[2] == 5 and p.beta == 2, #p.parts .. " parts")
+  assert(Github.newerVersion("v1.5-beta.2", { 1, 5, 1 }, true) == nil, "ranked above 1.5.1")
+  assert(Github.newerVersion("v1.5-beta.2", { 1, 4, 9 }, true) == "1.5-beta.2")
+  local q = Github.parse("v2-beta.7")
+  assert(#q.parts == 1 and q.parts[1] == 2 and q.beta == 7)
+  local plain = Github.parse("release-1.0")
+  assert(plain.beta == nil and plain.parts[1] == 1)
+end)
+
 check("tags that are not versions never raise, betas on or off", function()
   for _, tag in ipairs({ "latest", "", "v-beta", "1.0.0-", "x-beta.9" }) do
     assert(pcall(Github.newerVersion, tag, { 1, 0, 0, beta = 1 }, true), tag)

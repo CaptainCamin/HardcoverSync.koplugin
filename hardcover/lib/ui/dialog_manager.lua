@@ -1317,6 +1317,9 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
       return
     end
 
+    -- the "Similar to" strip is there at once, empty and saying it is loading, so it is
+    -- no surprise when the books arrive (and the page does not jump when they do)
+    dialog.similar_card = Recommendations.loadingCard(detail.book and detail.book.title)
     dialog:setDetail(self:withPendingRating(detail))
     if done_callback then
       done_callback()
@@ -1829,7 +1832,12 @@ local SIMILAR_CANCEL_TRIES = 8
 local SIMILAR_FAIL_TRIES = 3
 
 function DialogManager:loadSimilar(dialog, book_id)
-  if not Network.connected() then return end
+  -- (the placeholder is only there when the details were fetched online; the connection
+  -- may have dropped since)
+  if not Network.connected() then
+    dialog:setSimilar(nil)
+    return
+  end
   local tries = 0
   local function attempt()
     tries = tries + 1
@@ -1840,15 +1848,20 @@ function DialogManager:loadSimilar(dialog, book_id)
         local cancelled = type(err) == "table" and err.completed == false
         if tries < (cancelled and SIMILAR_CANCEL_TRIES or SIMILAR_FAIL_TRIES) then
           UIManager:scheduleIn(2, function()
-            if UIManager:isWidgetShown(dialog) and Network.connected() then attempt() end
+            if not UIManager:isWidgetShown(dialog) then return end
+            if Network.connected() then attempt() else dialog:setSimilar(nil) end
           end)
         else
+          dialog:setSimilar(nil)
           StatusDialogs.info(_("Couldn't load similar books."))
         end
         return
       end
       local card = Recommendations.card(entries, dialog.detail and dialog.detail.book and dialog.detail.book.title)
-      if not card then return end
+      if not card then
+        dialog:setSimilar(nil) -- no ranking for this book: the placeholder goes away
+        return
+      end
       dialog:setSimilar(card, function(id)
         self:showBookDetail(id)
       end)
