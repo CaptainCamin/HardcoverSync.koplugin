@@ -1308,6 +1308,10 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
             users_read_count
             rating
             ratings_count
+          ratings_distribution
+          cached_tags
+            ratings_distribution
+            cached_tags
             description
             contributions {
               author {

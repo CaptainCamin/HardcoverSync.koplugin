@@ -382,6 +382,30 @@ function ChartWidgets.kpis(opts)
   return group
 end
 
+--
+-- Labels as small pills, flowing onto as many lines as the width needs.
+--
+function ChartWidgets.pills(opts)
+  local width = opts.width
+  local gap = Theme.space.s
+  local group = VerticalGroup:new { align = "left" }
+  local row, used = nil, 0
+  for _, label in ipairs(opts.labels or {}) do
+    local pill = Theme.pill(label, { size = "small", max_width = width - Theme.space.l * 2 })
+    local w = pill:getSize().w
+    if not row or used + gap + w > width then
+      if row then table.insert(group, Theme.span("xs")) end
+      row = HorizontalGroup:new { align = "center" }
+      table.insert(group, row)
+      used = 0
+    end
+    if used > 0 then table.insert(row, Theme.hspan(gap)); used = used + gap end
+    table.insert(row, pill)
+    used = used + w
+  end
+  return group
+end
+
 ChartWidgets.Canvas = Canvas
 
 return ChartWidgets

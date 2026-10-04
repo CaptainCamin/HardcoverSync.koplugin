@@ -418,6 +418,13 @@ function BookDetailDialog:init()
     add(self.description_text)
   end
 
+  -- what other readers say: how they rated it, and what they tagged it with
+  local community = self:communitySections(width)
+  if community then
+    add(Theme.span("l"))
+    add(community)
+  end
+
   -- Strips of covers, paged with arrows; tapping one opens that book. Below About, so
   -- the book itself comes first: "More in this series", then "Similar to <title>".
   self.carousel, self.similar_carousel = nil, nil
@@ -525,6 +532,46 @@ function BookDetailDialog:init()
   else
     self:loadCover(summary.cover, cover_width, cover_height)
   end
+end
+
+--
+-- "Readers say": the breakdown of the ratings the book has had (a histogram with the average
+-- marked) and its genres, moods and content warnings as pills. nil when Hardcover has none.
+--
+function BookDetailDialog:communitySections(width)
+  local book = self.detail and self.detail.book
+  if not book then return nil end
+  local Community = require("hardcover/lib/community")
+  local ChartWidgets = require("hardcover/lib/ui/chart_widgets")
+  local Charts = require("hardcover/lib/charts")
+
+  local group = VerticalGroup:new { align = "left" }
+  local dist = Community.distribution(book)
+  if dist then
+    table.insert(group, Theme.sectionHeader(_("Ratings"), width))
+    table.insert(group, Theme.span("s"))
+    table.insert(group, ChartWidgets.columns {
+      width = width, height = Theme.px(170), values = dist.counts,
+      labels = { "0.5", "1", "1.5", "2", "2.5", "3", "3.5", "4", "4.5", "5" },
+      marker = { at = dist.average * 2, text = string.format(_("avg %.1f"), dist.average) },
+      value_text = function(v) return Charts.number(v) end,
+    })
+  end
+
+  local tags = Community.tags(book)
+  for _i, spec in ipairs({
+    { tags.genres, _("Genres") }, { tags.moods, _("Moods") }, { tags.warnings, _("Content warnings") },
+  }) do
+    if #spec[1] > 0 then
+      if #group > 0 then table.insert(group, Theme.span("l")) end
+      table.insert(group, Theme.sectionHeader(spec[2], width))
+      table.insert(group, Theme.span("s"))
+      local labels = {}
+      for i, t in ipairs(spec[1]) do labels[i] = t.tag end
+      table.insert(group, ChartWidgets.pills { width = width, labels = labels })
+    end
+  end
+  return #group > 0 and group or nil
 end
 
 --

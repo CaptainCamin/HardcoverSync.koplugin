@@ -46,6 +46,15 @@ local function book_row(id, title, year, pages, opts)
     users_read_count = opts.users_read_count or (500 + id * 11),
     rating = opts.rating or 4.2,
     ratings_count = opts.ratings_count or 120,
+    ratings_distribution = opts.ratings_distribution or {
+      { rating = 1.0, count = 4 }, { rating = 2.0, count = 6 }, { rating = 2.5, count = 8 }, { rating = 3.0, count = 14 },
+      { rating = 3.5, count = 22 }, { rating = 4.0, count = 31 }, { rating = 4.5, count = 17 }, { rating = 5.0, count = 18 },
+    },
+    cached_tags = opts.cached_tags or {
+      Genre = { { tag = "Science fiction", count = 40 }, { tag = "Fiction", count = 22 }, { tag = "Classics", count = 9 } },
+      Mood = { { tag = "reflective", count = 31 }, { tag = "mysterious", count = 24 }, { tag = "challenging", count = 12 }, { tag = "slow-paced", count = 8 } },
+      ["Content Warning"] = { { tag = "Death", count = 6 }, { tag = "Violence", count = 4 } },
+    },
     description = opts.description or
       "A lone envoy arrives on a frozen world to bring its people into a league " ..
       "of planets, and finds that nothing about the place, its politics, its " ..
