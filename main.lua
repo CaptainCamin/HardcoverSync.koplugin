@@ -96,6 +96,15 @@ function HardcoverApp:onDispatcherRegisterActions()
     general = true,
   })
 
+  -- The one button: the open book's panel while reading, the home screen in the file
+  -- browser. The same as the Hardcover entry in the main menu.
+  Dispatcher:registerAction("hardcover_open", {
+    category = "none",
+    event = "HardcoverOpen",
+    title = _("Hardcover: Home or this book"),
+    general = true,
+  })
+
   Dispatcher:registerAction("hardcover_update_progress", {
     category = "none",
     event = "HardcoverUpdateProgress",
@@ -345,6 +354,11 @@ end
 
 function HardcoverApp:onHardcoverHome()
   self.dialog_manager:showHome()
+  return true
+end
+
+function HardcoverApp:onHardcoverOpen()
+  self.menu:open()
   return true
 end
 

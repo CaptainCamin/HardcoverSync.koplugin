@@ -2,7 +2,13 @@
 
 ## 1.4.1
 
+### Added
+
+- One button for both places: **Hardcover** in the main menu now opens the Home screen in the file browser and the open book's panel while reading (it used to open a long menu in the reader). Everything the old reader menu held (link, unlink, change edition, sync now, settings...) is behind the panel's new **More** button. A gesture action, "Hardcover: Home or this book" (Settings > Taps and gestures), does the same from a tap or swipe.
+
 ### Fixed
+
+- Home's Currently Reading shows what you read offline: a page past the saved one, a book you finished or dropped offline gone from the list, and a book you started offline at the top. (It used to show the list as it was when last online until the sync went through.)
 
 - Setting the page by hand (reader menu > Update page) while offline no longer fails with "Page could not be saved". The page is shown, kept on the device and sent when you are back online, as it already was when you simply read on. A page you type in is sent even if Hardcover is further along, rather than turning into a sync question.
 - The same for a rating set from the reader menu: kept and sent later instead of an error. (Rating from a book's details screen already worked offline.)

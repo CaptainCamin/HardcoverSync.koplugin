@@ -643,6 +643,73 @@ check("clear removes one book and leaves the rest", function()
   eq(q:hasPending("/books/b.epub"), true, "the other book survives")
 end)
 
+-- ---------------------------------------------------------------- Home's reading cards
+
+print("\n== what Home's Currently Reading shows offline ==")
+
+local function cards()
+  return {
+    { book_id = 7, title = "Seven", progress_pages = 100, pages = 300 },
+    { book_id = 8, title = "Eight", progress_pages = 10, pages = 200 },
+    { book_id = 9, title = "Nine", progress_pages = 50, pages = 250 },
+  }
+end
+
+check("nothing queued: the cards come back as they are", function()
+  local q = SyncQueue:new { settings = fakeSettings() }
+  local saved = cards()
+  local out = q:applyToReading(saved)
+  eq(#out, 3, "cards")
+  eq(out[1].progress_pages, 100, "progress")
+  eq(#q:applyToReading(nil), 0, "no cards")
+end)
+
+check("a queued page further on than the card's is shown; a lower one is not", function()
+  local q = SyncQueue:new { settings = fakeSettings() }
+  q:enqueuePage("/b/7.epub", { mapped_page = 180, book_id = 7 })
+  q:enqueuePage("/b/8.epub", { mapped_page = 4, book_id = 8 })
+  local saved = cards()
+  local out = q:applyToReading(saved)
+  eq(out[1].progress_pages, 180, "book 7 shows the offline page")
+  eq(out[2].progress_pages, 10, "book 8 is never taken backwards")
+  eq(saved[1].progress_pages, 100, "the saved card itself is not changed")
+end)
+
+check("a book finished, dropped or put back offline leaves Currently Reading", function()
+  local q = SyncQueue:new { settings = fakeSettings() }
+  q:enqueueStatus("/b/7.epub", { status_id = HARDCOVER.STATUS.FINISHED, book_id = 7 })
+  q:enqueueStatus("/b/9.epub", { status_id = HARDCOVER.STATUS.DNF, book_id = 9 })
+  local out = q:applyToReading(cards())
+  eq(#out, 1, "cards left")
+  eq(out[1].book_id, 8, "the one still being read")
+end)
+
+check("a book started offline comes first, with the shelf row's cover when there is one", function()
+  local q = SyncQueue:new { settings = fakeSettings() }
+  q:enqueueStatus("/b/20.epub", { status_id = HARDCOVER.STATUS.READING, book_id = 20, title = "Twenty" })
+  q:enqueuePage("/b/20.epub", { mapped_page = 33, book_id = 20 })
+  local looked
+  local out = q:applyToReading(cards(), function(id)
+    looked = id
+    return { book_id = 20, title = "Twenty (shelf)", pages = 400, cached_image = { url = "c.jpg" } }
+  end)
+  eq(#out, 4, "cards")
+  eq(out[1].book_id, 20, "the new book is first")
+  eq(looked, 20, "looked up in the saved shelves")
+  eq(out[1].pages, 400, "page count from the shelf row")
+  eq(out[1].progress_pages, 33, "the offline page")
+  -- with no shelf row the card still exists, from what the queue knows
+  local bare = q:applyToReading({})
+  eq(#bare, 1, "a card for the new book")
+  eq(bare[1].title, "Twenty", "title from the queue")
+end)
+
+check("a book already reading with only a queued page is not added twice", function()
+  local q = SyncQueue:new { settings = fakeSettings() }
+  q:enqueueStatus("/b/8.epub", { status_id = HARDCOVER.STATUS.READING, book_id = 8 })
+  eq(#q:applyToReading(cards()), 3, "cards")
+end)
+
 -- ---------------------------------------------------------------- persistence
 
 print("\n== surviving a restart ==")

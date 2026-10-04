@@ -87,33 +87,33 @@ local privacy_labels = {
 }
 
 function HardcoverMenu:mainMenu()
-  -- In the file browser (no book open) the entry is not a menu: it opens the home
-  -- screen, which holds everything else (Sync, Account, Settings and About are
-  -- behind its cog). In the reader it is the tracking menu for the open book.
-  if not (self.ui and self.ui.document) then
-    return {
-      text = _("Hardcover"),
-      enabled_func = function()
-        return self.enabled
-      end,
-      callback = function()
-        self.dialog_manager:showHome()
-      end,
-    }
-  end
-
+  -- One button for both places. In the file browser (no book open) it opens the home
+  -- screen, which holds everything else (Sync, Account, Settings and About are behind
+  -- its cog). In the reader it opens the panel for the open book; the full tracking
+  -- menu (link, remove, sync...) is behind that panel's More button.
   return {
     enabled_func = function()
       return self.enabled
     end,
     text_func = function()
-      return self.settings:bookLinked() and _("Hardcover: " .. ICON.LINK) or _("Hardcover")
+      if self.ui and self.ui.document and self.settings:bookLinked() then
+        return _("Hardcover: " .. ICON.LINK)
+      end
+      return _("Hardcover")
     end,
-    sub_item_table_func = function()
-      local has_book = self.ui.document and true or false
-      return self:getSubMenuItems(has_book)
+    callback = function()
+      self:open()
     end,
   }
+end
+
+-- What the Hardcover button does: the open book's panel while reading, the home
+-- screen otherwise (the file browser). Also what the "Hardcover" gesture action runs.
+function HardcoverMenu:open()
+  if self.ui and self.ui.document then
+    return self:showReaderPanel()
+  end
+  return self.dialog_manager:showHome()
 end
 
 -- The panel for the open book (see ui/reader_panel.lua). It is the same actions
@@ -242,6 +242,12 @@ function HardcoverMenu:showReaderPanel()
       add(_("Link this book"), link_item, { primary = true, wide = true })
       add(_("Settings"), settings_item, { wide = true })
     end
+    -- everything the reader's tracking menu holds (unlink, remove, sync now...)
+    add(_("More"), {
+      enabled_func = function() return true end,
+      text = _("Hardcover"),
+      sub_item_table_func = function() return self:getSubMenuItems(true) end,
+    }, { wide = true })
 
     return {
       title = title,

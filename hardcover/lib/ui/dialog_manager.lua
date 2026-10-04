@@ -491,10 +491,19 @@ function DialogManager:showHome(done_callback)
 
   local saved_counts = cache and cache:counts(user_id, ids) or {}
   local saved_reading = cache and cache:reading(user_id) or {}
+  -- what Currently Reading shows: the saved or fetched cards with the reading done
+  -- offline (pages turned, books finished or started) laid over them
+  local function shownReading(entries)
+    local queue = self.sync_queue
+    if not (queue and queue.applyToReading) then return entries end
+    return queue:applyToReading(entries, function(book_id)
+      return cache and cache:findEntry(user_id, book_id)
+    end)
+  end
 
   local dialog = require("hardcover/lib/ui/home_dialog"):new {
     rows = Home.rows(saved_counts),
-    entries = saved_reading,
+    entries = shownReading(saved_reading),
     select_cb = function(row)
       self:showShelf(row.status_id, row.title)
     end,
@@ -560,8 +569,10 @@ function DialogManager:showHome(done_callback)
       if cache then
         cache:putReading(user_id, entries)
       end
-      if not Home.sameCards(entries, saved_reading) then
-        dialog:setReading(entries, true)
+      -- the saved copy keeps what Hardcover said; the card shows it with the queue over it
+      local shown = shownReading(entries)
+      if not Home.sameCards(shown, shownReading(saved_reading)) then
+        dialog:setReading(shown, true)
       end
     end
 
