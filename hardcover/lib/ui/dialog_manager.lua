@@ -468,6 +468,7 @@ end
 function DialogManager:checkForUpdate()
   local Updater = require("hardcover/lib/updater")
   if not Updater.due(self.settings) then return end
+  local beta = self.settings:readSetting(SETTING.UPDATE_BETA) == true
   require("hardcover/lib/github"):latestReleaseAsync(function(release)
     if not release then return end
     local before = Updater.available(self.settings, VERSION)
@@ -478,7 +479,7 @@ function DialogManager:checkForUpdate()
         timeout = 5,
       })
     end
-  end)
+  end, beta)
 end
 
 function DialogManager:showHome(done_callback)
@@ -491,10 +492,19 @@ function DialogManager:showHome(done_callback)
 
   local saved_counts = cache and cache:counts(user_id, ids) or {}
   local saved_reading = cache and cache:reading(user_id) or {}
+  -- what Currently Reading shows: the saved or fetched cards with the reading done
+  -- offline (pages turned, books finished or started) laid over them
+  local function shownReading(entries)
+    local queue = self.sync_queue
+    if not (queue and queue.applyToReading) then return entries end
+    return queue:applyToReading(entries, function(book_id)
+      return cache and cache:findEntry(user_id, book_id)
+    end)
+  end
 
   local dialog = require("hardcover/lib/ui/home_dialog"):new {
     rows = Home.rows(saved_counts),
-    entries = saved_reading,
+    entries = shownReading(saved_reading),
     select_cb = function(row)
       self:showShelf(row.status_id, row.title)
     end,
@@ -560,8 +570,10 @@ function DialogManager:showHome(done_callback)
       if cache then
         cache:putReading(user_id, entries)
       end
-      if not Home.sameCards(entries, saved_reading) then
-        dialog:setReading(entries, true)
+      -- the saved copy keeps what Hardcover said; the card shows it with the queue over it
+      local shown = shownReading(entries)
+      if not Home.sameCards(shown, shownReading(saved_reading)) then
+        dialog:setReading(shown, true)
       end
     end
 
@@ -1305,6 +1317,9 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
       return
     end
 
+    -- the "Similar to" strip is there at once, empty and saying it is loading, so it is
+    -- no surprise when the books arrive (and the page does not jump when they do)
+    dialog.similar_card = Recommendations.loadingCard(detail.book and detail.book.title)
     dialog:setDetail(self:withPendingRating(detail))
     if done_callback then
       done_callback()
@@ -1817,7 +1832,12 @@ local SIMILAR_CANCEL_TRIES = 8
 local SIMILAR_FAIL_TRIES = 3
 
 function DialogManager:loadSimilar(dialog, book_id)
-  if not Network.connected() then return end
+  -- (the placeholder is only there when the details were fetched online; the connection
+  -- may have dropped since)
+  if not Network.connected() then
+    dialog:setSimilar(nil)
+    return
+  end
   local tries = 0
   local function attempt()
     tries = tries + 1
@@ -1828,15 +1848,20 @@ function DialogManager:loadSimilar(dialog, book_id)
         local cancelled = type(err) == "table" and err.completed == false
         if tries < (cancelled and SIMILAR_CANCEL_TRIES or SIMILAR_FAIL_TRIES) then
           UIManager:scheduleIn(2, function()
-            if UIManager:isWidgetShown(dialog) and Network.connected() then attempt() end
+            if not UIManager:isWidgetShown(dialog) then return end
+            if Network.connected() then attempt() else dialog:setSimilar(nil) end
           end)
         else
+          dialog:setSimilar(nil)
           StatusDialogs.info(_("Couldn't load similar books."))
         end
         return
       end
       local card = Recommendations.card(entries, dialog.detail and dialog.detail.book and dialog.detail.book.title)
-      if not card then return end
+      if not card then
+        dialog:setSimilar(nil) -- no ranking for this book: the placeholder goes away
+        return
+      end
       dialog:setSimilar(card, function(id)
         self:showBookDetail(id)
       end)

@@ -155,7 +155,7 @@ check("signed out, the account is not listed twice in the reader", function()
   assert(not has(settingsLabels({ signed_out = true }), "Account"), "Account is in both places")
 end)
 
-print("\n== the file browser: Hardcover opens the home screen ==")
+print("\n== one button: Home in the file browser, the book's panel while reading ==")
 
 -- the entry as KOReader's menu sees it: a document being open decides which
 local function mainMenuItem(has_document, opts)
@@ -171,18 +171,54 @@ check("with no book open the entry is a button that opens Home, not a submenu", 
   assert(type(item.callback) == "function", "it does nothing when chosen")
   item.callback()
   assert(m.dialog_manager.home_opened == 1, "it did not open the home screen")
-  assert(item.text == "Hardcover", tostring(item.text))
+  assert(item.text_func() == "Hardcover", tostring(item.text_func()))
 end)
 
-check("with a book open it is the tracking menu, as before", function()
-  local _, item = mainMenuItem(true)
-  assert(type(item.sub_item_table_func) == "function" and item.callback == nil)
+check("with a book open the same entry opens the book's panel, not a menu", function()
+  local m, item = mainMenuItem(true)
+  assert(item.sub_item_table_func == nil and item.sub_item_table == nil, "it still opens a menu")
+  local panels = 0
+  m.showReaderPanel = function() panels = panels + 1 end
+  item.callback()
+  assert(panels == 1, "it did not open the panel")
+  assert(m.dialog_manager.home_opened == 0, "it opened Home inside a book")
+  assert(item.text_func() == "Hardcover" or item.text_func():find("Hardcover", 1, true))
+end)
+
+check("open() is what the gesture action runs: Home with no book, the panel with one", function()
+  local m = mainMenuItem(false)
+  m:open()
+  assert(m.dialog_manager.home_opened == 1)
+  local r = mainMenuItem(true)
+  local panels = 0
+  r.showReaderPanel = function() panels = panels + 1 end
+  r:open()
+  assert(panels == 1 and r.dialog_manager.home_opened == 0)
 end)
 
 check("it can be disabled like the rest of the plugin", function()
   local m, item = mainMenuItem(false)
   m.enabled = false
   assert(item.enabled_func() == false)
+end)
+
+print("\n== updates: the beta switch ==")
+
+check("Include beta versions is off by default, and the switch turns it on and asks again soon", function()
+  local m = newMenu()
+  local store = {}
+  m.settings.readSetting = function(_, k) return store[k] end
+  m.settings.updateSetting = function(_, k, v) store[k] = v end
+  local item
+  for _, it in ipairs(m:getUpdateMenuItems()) do if it.text == "Include beta versions" then item = it end end
+  assert(item, "no Include beta versions item")
+  assert(item.checked_func() == false, "on by default")
+  store.update_last_check = 123456
+  item.callback()
+  assert(store.update_beta == true and item.checked_func() == true, "not turned on")
+  assert(store.update_last_check == 0, "the next check is not asked for")
+  item.callback()
+  assert(store.update_beta == false and item.checked_func() == false, "not turned off")
 end)
 
 print("\n== the settings screen holds what the first menu screen used to ==")

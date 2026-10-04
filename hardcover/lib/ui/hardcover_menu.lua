@@ -18,6 +18,7 @@ local SpinWidget = require("ui/widget/spinwidget")
 
 local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
+local Network = require("hardcover/lib/network")
 local Github = require("hardcover/lib/github")
 local Updater = require("hardcover/lib/updater")
 local User = require("hardcover/lib/user")
@@ -86,33 +87,33 @@ local privacy_labels = {
 }
 
 function HardcoverMenu:mainMenu()
-  -- In the file browser (no book open) the entry is not a menu: it opens the home
-  -- screen, which holds everything else (Sync, Account, Settings and About are
-  -- behind its cog). In the reader it is the tracking menu for the open book.
-  if not (self.ui and self.ui.document) then
-    return {
-      text = _("Hardcover"),
-      enabled_func = function()
-        return self.enabled
-      end,
-      callback = function()
-        self.dialog_manager:showHome()
-      end,
-    }
-  end
-
+  -- One button for both places. In the file browser (no book open) it opens the home
+  -- screen, which holds everything else (Sync, Account, Settings and About are behind
+  -- its cog). In the reader it opens the panel for the open book; the full tracking
+  -- menu (link, remove, sync...) is behind that panel's More button.
   return {
     enabled_func = function()
       return self.enabled
     end,
     text_func = function()
-      return self.settings:bookLinked() and _("Hardcover: " .. ICON.LINK) or _("Hardcover")
+      if self.ui and self.ui.document and self.settings:bookLinked() then
+        return _("Hardcover: " .. ICON.LINK)
+      end
+      return _("Hardcover")
     end,
-    sub_item_table_func = function()
-      local has_book = self.ui.document and true or false
-      return self:getSubMenuItems(has_book)
+    callback = function()
+      self:open()
     end,
   }
+end
+
+-- What the Hardcover button does: the open book's panel while reading, the home
+-- screen otherwise (the file browser). Also what the "Hardcover" gesture action runs.
+function HardcoverMenu:open()
+  if self.ui and self.ui.document then
+    return self:showReaderPanel()
+  end
+  return self.dialog_manager:showHome()
 end
 
 -- The panel for the open book (see ui/reader_panel.lua). It is the same actions
@@ -241,6 +242,12 @@ function HardcoverMenu:showReaderPanel()
       add(_("Link this book"), link_item, { primary = true, wide = true })
       add(_("Settings"), settings_item, { wide = true })
     end
+    -- everything the reader's tracking menu holds (unlink, remove, sync now...)
+    add(_("More"), {
+      enabled_func = function() return true end,
+      text = _("Hardcover"),
+      sub_item_table_func = function() return self:getSubMenuItems(true) end,
+    }, { wide = true })
 
     return {
       title = title,
@@ -458,13 +465,13 @@ end
 function HardcoverMenu:showRelease(release)
   if not release.version then
     UIManager:show(InfoMessage:new {
-      text = T(_("Hardcover Sync is up to date (v%1)."), table.concat(VERSION, ".")),
+      text = T(_("Hardcover Sync is up to date (v%1)."), (VERSION.text or table.concat(VERSION, "."))),
     })
     return
   end
   local notes = release.notes and release.notes ~= "" and ("\n\n" .. release.notes:sub(1, 600)) or ""
   UIManager:show(ConfirmBox:new {
-    text = T(_("Version %1 is available (you have v%2).%3"), release.version, table.concat(VERSION, "."), notes),
+    text = T(_("Version %1 is available (you have v%2).%3"), release.version, (VERSION.text or table.concat(VERSION, ".")), notes),
     ok_text = release.zip_url and _("Install") or _("OK"),
     cancel_text = _("Later"),
     ok_callback = function()
@@ -492,7 +499,7 @@ function HardcoverMenu:getUpdateMenuItems()
           end
           Updater.remember(self.settings, release)
           self:showRelease(release)
-        end)
+        end, self.settings:readSetting(SETTING.UPDATE_BETA) == true)
       end,
       keep_menu_open = true,
     },
@@ -507,6 +514,19 @@ function HardcoverMenu:getUpdateMenuItems()
       end,
       keep_menu_open = true,
     },
+    {
+      text = _("Include beta versions"),
+      checked_func = function()
+        return self.settings:readSetting(SETTING.UPDATE_BETA) == true
+      end,
+      callback = function()
+        self.settings:updateSetting(SETTING.UPDATE_BETA,
+          self.settings:readSetting(SETTING.UPDATE_BETA) ~= true)
+        -- ask again at the next chance, not tomorrow: the answer is different now
+        self.settings:updateSetting(SETTING.UPDATE_LAST_CHECK, 0)
+      end,
+      keep_menu_open = true,
+    },
   }
 end
 
@@ -517,7 +537,7 @@ function HardcoverMenu:getAboutMenuItem()
   return {
     text = _("About"),
     callback = function()
-      local version = table.concat(VERSION, ".")
+      local version = (VERSION.text or table.concat(VERSION, "."))
       local settings_file = DataStorage:getSettingsDir() .. "/" .. "hardcoversync_settings.lua"
 
       -- Build the text with a placeholder for the "latest release" note, show
@@ -574,7 +594,7 @@ Settings:
             " (latest v" .. new_release .. ")")
           UIManager:setDirty(message, "ui")
         end
-      end)
+      end, self.settings:readSetting(SETTING.UPDATE_BETA) == true)
     end,
     keep_menu_open = true
   }
@@ -828,13 +848,16 @@ function HardcoverMenu:savePage(current_read, edition_page, menu_instance)
   Background.run(function()
     local result
 
-    if current_read then
-      result = Api:updatePage(current_read.id, current_read.edition_id, edition_page,
-        current_read.started_at)
-    else
-      local start_date = os.date("%Y-%m-%d")
-      result = Api:createRead(self.state.book_status.id, self.state.book_status.edition_id, edition_page,
-        start_date)
+    -- offline there is nothing to wait for: straight to the queue
+    if Network.connected() then
+      if current_read then
+        result = Api:updatePage(current_read.id, current_read.edition_id, edition_page,
+          current_read.started_at)
+      else
+        local start_date = os.date("%Y-%m-%d")
+        result = Api:createRead(self.state.book_status.id, self.state.book_status.edition_id, edition_page,
+          start_date)
+      end
     end
 
     if result then
@@ -849,6 +872,14 @@ function HardcoverMenu:savePage(current_read, edition_page, menu_instance)
       end
       self.state.book_status = result
       menu_instance:updateItems()
+    elseif self.cache and self.sync_queue and self.ui and self.ui.document then
+      -- No connection (or Hardcover did not answer): keep the page on the device, show it,
+      -- and send it with the rest of what is queued. Saying "could not be saved" here lost
+      -- a page the reader had just set, and it was not even true.
+      self.cache:queuePage(self.ui.document.file, edition_page)
+      menu_instance:updateItems()
+      require("hardcover/lib/ui/status_dialogs").info(
+        _("Page saved on this device. It will be sent when you are back online."))
     else
       -- A failed page write used to be invisible, so a reader who set the page
       -- and saw nothing happen could not tell a rejected write from a working
@@ -860,12 +891,26 @@ function HardcoverMenu:savePage(current_read, edition_page, menu_instance)
 end
 
 -- `quiet` is the clear-rating long press: no error when it fails, as before.
+-- Offline (or when Hardcover does not answer) the rating is kept on the device, shown
+-- at once, and sent when there is a connection, as it is from the details screen.
 function HardcoverMenu:saveRating(value, menu_instance, quiet)
   Background.run(function()
-    local result = Api:updateRating(self.state.book_status.id, value)
+    local result
+    if Network.connected() then
+      result = Api:updateRating(self.state.book_status.id, value)
+    end
+
     if result then
       self.state.book_status = result
       menu_instance:updateItems()
+    elseif self.rating_queue and self.state.book_status.id then
+      self.rating_queue:queue(self.state.book_status.id, value)
+      self.state.book_status.rating = value > 0 and value or nil
+      menu_instance:updateItems()
+      if not quiet then
+        require("hardcover/lib/ui/status_dialogs").info(
+          _("Rating saved on this device. It will be sent when you are back online."))
+      end
     elseif not quiet then
       self.dialog_manager:showError(_("Rating could not be saved"))
     end

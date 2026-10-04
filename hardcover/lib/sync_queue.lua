@@ -201,6 +201,62 @@ function SyncQueue:applyPending(filepath, book_status)
   return book_status
 end
 
+--
+-- The Currently Reading cards with what is queued laid over them, so Home shows the
+-- reading done offline: a queued page further on than the card's, a book moved off
+-- Currently Reading (finished, dropped, put back to want-to-read) gone, and a book set
+-- to Currently Reading offline first in the list. `entries` are the saved or fetched
+-- cards (not changed: copies come back); `lookup(book_id, queued)` may return the saved
+-- shelf row for a book that is not among them (for its cover and page count).
+--
+function SyncQueue:applyToReading(entries, lookup)
+  entries = type(entries) == "table" and entries or {}
+
+  local queued = {}
+  for _, filepath in ipairs(self:filepaths()) do
+    local entry = self:get(filepath)
+    local book_id = type(entry) == "table" and tonumber(entry.book_id)
+    if book_id then queued[book_id] = entry end
+  end
+  if next(queued) == nil then return entries end
+
+  local out, have = {}, {}
+  for _, entry in ipairs(entries) do
+    local id = tonumber(entry.book_id)
+    local q = id and queued[id]
+    if id then have[id] = true end
+    if not (q and q.status_id and q.status_id ~= HARDCOVER.STATUS.READING) then
+      local card = {}
+      for k, v in pairs(entry) do card[k] = v end
+      if q and q.mapped_page ~= nil then
+        local shown = tonumber(card.progress_pages)
+        if not shown or shown < q.mapped_page then card.progress_pages = q.mapped_page end
+      end
+      out[#out + 1] = card
+    end
+  end
+
+  -- books started (or put back to Currently Reading) offline, the newest first
+  local fresh = {}
+  for id, q in pairs(queued) do
+    if q.status_id == HARDCOVER.STATUS.READING and not have[id] then fresh[#fresh + 1] = { id = id, q = q } end
+  end
+  table.sort(fresh, function(a, b)
+    return (a.q.status_updated_at or 0) > (b.q.status_updated_at or 0)
+  end)
+  for i = #fresh, 1, -1 do
+    local id, q = fresh[i].id, fresh[i].q
+    local row = lookup and lookup(id, q)
+    local card = {}
+    for k, v in pairs(type(row) == "table" and row or {}) do card[k] = v end
+    card.book_id = id
+    card.title = card.title or q.title
+    if q.mapped_page ~= nil then card.progress_pages = q.mapped_page end
+    table.insert(out, 1, card)
+  end
+  return out
+end
+
 local function hasUserBook(user_book)
   return type(user_book) == "table" and user_book.id ~= nil
 end

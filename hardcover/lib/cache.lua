@@ -145,6 +145,28 @@ function Cache:syncPage(filename, mapped_page)
   return enqueue()
 end
 
+-- Keep a page the reader set by hand: shown at once, and sent when there is a connection.
+-- `edition_page` is the page of the edition. A page typed in is the reader's own say, so
+-- it is sent even if the cloud is further along (the sync would otherwise ask, or skip it).
+function Cache:queuePage(filename, edition_page)
+  local book_status = self.state.book_status or {}
+  local reads = book_status.user_book_reads
+  local current_read = reads and reads[#reads]
+  local edition_id = (current_read and current_read.edition_id) or book_status.edition_id
+    or self.settings:readBookSetting(filename, "edition_id")
+
+  self:applyLocalPage(edition_page, edition_id, current_read and current_read.started_at, current_read and current_read.id)
+
+  local payload = self:queueMeta(filename)
+  payload.mapped_page = edition_page
+  local entry = self.sync_queue:enqueuePage(filename, payload)
+  if type(entry) == "table" then
+    entry.force_page = true
+    self.sync_queue:save(filename, entry)
+  end
+  return entry
+end
+
 function Cache:updateBookStatus(filename, status, privacy_setting_id)
   local settings = self.settings:readBookSettings(filename) or {}
   local book_id = settings.book_id

@@ -68,6 +68,13 @@ function SeriesCarousel:build()
   local strip_width = width - 2 * self.arrow_width
   -- at least 20% of the width for each cover, between three and five at a time
   self.per_page = math.max(3, math.min(5, math.floor(strip_width / (width * 0.20))))
+  if self.card.loading then
+    -- empty covers where the books will be: as many as the strip shows at once (the
+    -- dialog's own card is left as it is)
+    items = {}
+    for i = 1, self.per_page do items[i] = { number = " ", title = " " } end
+    self.card = setmetatable({ items = items }, { __index = self.card })
+  end
   self.item_width = math.floor(strip_width / self.per_page)
   self.cover_width = self.item_width - 20
   self.cover_height = math.floor(self.cover_width * 1.5)
@@ -227,7 +234,8 @@ function SeriesCarousel:buildItem(item)
     group,
   }
 
-  if item.current then
+  -- the book on screen, and the empty covers of a strip still loading, are not tappable
+  if item.current or self.card.loading then
     return cell
   end
 
@@ -255,7 +263,7 @@ function SeriesCarousel:render()
   table.insert(row, self.left_cell)
   for i = window.first, window.last do
     local cell = self:buildItem(items[i])
-    if not items[i].current then self.targets[#self.targets + 1] = cell end
+    if not items[i].current and not self.card.loading then self.targets[#self.targets + 1] = cell end
     table.insert(row, cell)
   end
   -- a short page is padded so the strip is always the same width

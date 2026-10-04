@@ -4,7 +4,7 @@ order) that arrives after the screen is up, a tap opening that book, a book with
 ranking or a failed answer showing nothing (the screen carries on), and the offline
 case (no request at all).
 
-Screens: similar_strip, similar_none, similar_with_series, similar_with_series_end.
+Screens: similar_strip, similar_none, similar_loading, similar_with_series, similar_with_series_end.
 ]]
 
 local fixtures = require("fixtures")
@@ -162,13 +162,18 @@ return {
     assert(top() ~= details and top().name == "hardcover_book_detail", "a series cover did not open")
     emu:closeAll()
 
-    -- no ranking, or a failed answer: no strip, and nothing in its place
+    -- no ranking: no strip. A failed answer: the placeholder stays while it is tried again
+    -- (it goes, with a message, when the tries run out: see the retries below)
     for _, mode in ipairs({ "empty", "failed" }) do
       fixtures.similar_ids = mode == "empty" and {} or { 9 }
       fixtures.similar_fail = mode == "failed" or nil
       details = manager:showBookDetail(book_id)
       emu:pump()
-      assert(details.similar_carousel == nil and details.similar_card == nil, "a strip with " .. mode)
+      if mode == "empty" then
+        assert(details.similar_carousel == nil and details.similar_card == nil, "a strip with no ranking")
+      else
+        assert(details.similar_card and details.similar_card.loading, "no placeholder while retrying")
+      end
       emu:expectText("The Lathe of Heaven")
       if mode == "failed" then emu:shot("similar_none") end
       emu:closeAll()
@@ -194,13 +199,50 @@ return {
     fixtures.similar_fail = nil
     UIManager.scheduleIn = schedule
 
+    -- the strip is there at once, empty and saying it is loading, then filled in place; with no
+    -- ranking (or after failing) the placeholder goes away
+    local Api = require("hardcover/lib/hardcover_api")
+    local held
+    local real_async = Api.getSimilarBooksAsync
+    Api.getSimilarBooksAsync = function(_, _, callback) held = callback end
+    fixtures.similar_ids = { 9, 4, 7, 2 }
+    details = manager:showBookDetail(book_id)
+    emu:pump()
+    assert(held, "the ranking was not asked for")
+    assert(details.similar_carousel and details.similar_card.loading, "no placeholder while loading")
+    emu:expectText("Similar to The Lathe of Heaven")
+    emu:expectText("Loading")
+    assert(#details.similar_carousel.targets == 0, "an empty cover can be tapped")
+    emu:shot("similar_loading")
+    local entries = {}
+    for _, idx in ipairs(fixtures.similar_ids) do
+      local e = require("hardcover/lib/shelf").normalizeEntry({ book = fixtures.shelf_books[idx] })
+      e.user_book_id = nil
+      entries[#entries + 1] = e
+    end
+    held(entries)
+    emu:pump()
+    assert(details.similar_card and not details.similar_card.loading and #details.similar_carousel.targets == 4,
+      "the books did not replace the placeholder")
+    emu:closeAll()
+    -- no ranking: the placeholder goes
+    details = manager:showBookDetail(book_id)
+    emu:pump()
+    held({})
+    emu:pump()
+    assert(details.similar_card == nil and details.similar_carousel == nil, "the placeholder stayed with no ranking")
+    emu:closeAll()
+    Api.getSimilarBooksAsync = real_async
+
     -- offline: no request
     local NetworkManager = require("ui/network/manager")
     local was, was_state = NetworkManager.isConnected, NetworkManager.getConnectionState
     NetworkManager.isConnected = function() return false end
     NetworkManager.getConnectionState = function() return false end
     local before = calls_named("getSimilarBooks")
-    manager:loadSimilar({}, book_id)
+    local cleared
+    manager:loadSimilar({ setSimilar = function() cleared = true end }, book_id)
+    assert(cleared, "the placeholder stayed after the connection dropped")
     NetworkManager.isConnected, NetworkManager.getConnectionState = was, was_state
     assert(calls_named("getSimilarBooks") == before, "asked for similar books while offline")
     emu:closeAll()

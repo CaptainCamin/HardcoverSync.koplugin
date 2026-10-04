@@ -36,7 +36,8 @@ end
 function Updater.available(settings, current)
   local found = settings:readSetting(SETTING.UPDATE_AVAILABLE)
   if type(found) ~= "table" or type(found.version) ~= "string" then return nil end
-  if not require("hardcover/lib/github").newerVersion(found.version, current) then return nil end
+  local beta = settings:readSetting(SETTING.UPDATE_BETA) == true
+  if not require("hardcover/lib/github").newerVersion(found.version, current, beta) then return nil end
   return found
 end
 

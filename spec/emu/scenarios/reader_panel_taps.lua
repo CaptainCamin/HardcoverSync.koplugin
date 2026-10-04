@@ -101,6 +101,13 @@ return {
     tapText("Reviews")
     assert(calls.reviews == 328491, "Reviews did not open the book's reviews")
 
+    -- More: the reader's full tracking menu (unlink, remove, sync...) as a list over the panel
+    tapText("More")
+    emu:expectText("Linked book")
+    emu:shot("reader_panel_more")
+    emu:press("Back")
+    assert(panel_is_top(), "Back from More did not return to the panel")
+
     tapText("Set page")
     emu:shot("reader_panel_set_page")
     emu:closeAll()

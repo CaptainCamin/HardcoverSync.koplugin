@@ -74,4 +74,17 @@ function Recommendations.card(entries, name)
   }
 end
 
+-- The strip while the ranking is on its way: the same heading with "Loading…", and empty
+-- covers where the books will be, so the screen does not grow when they arrive. The
+-- carousel fills it with as many empty covers as it shows at once; they cannot be tapped.
+function Recommendations.loadingCard(name)
+  return {
+    title = (type(name) == "string" and name ~= "") and ("Similar to " .. name) or "Similar books",
+    subtitle = "Loading\226\128\166",
+    title_first = true,
+    loading = true,
+    items = { { number = " ", title = " " } },
+  }
+end
+
 return Recommendations

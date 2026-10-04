@@ -116,6 +116,12 @@ check("the carousel card: author line, title, cover; nothing to show is nil", fu
   assert(Recommendations.card({}) == nil and Recommendations.card(nil) == nil)
 end)
 
+check("the loading card: the heading, a loading subtitle, flagged so it cannot be tapped", function()
+  local c = Recommendations.loadingCard("Dune")
+  assert(c.title == "Similar to Dune" and c.loading == true and c.title_first == true and c.subtitle:find("Loading", 1, true))
+  assert(Recommendations.loadingCard(nil).title == "Similar books")
+end)
+
 print("\n== the requests ==")
 
 check("two requests: the ranking of the book, then those books; the result is in rank order", function()

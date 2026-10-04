@@ -72,6 +72,46 @@ check("it still works with no current version", function()
   assert(Github.newerVersion("v1.0.0", nil) == "1.0.0" and Github.newerVersion("v1.0.0", {}) == "1.0.0")
 end)
 
+print("\n== beta versions ==")
+
+check("a beta is offered only when betas are on", function()
+  assert(Github.newerVersion("v1.5.0-beta.2", CURRENT) == nil)
+  assert(Github.newerVersion("v1.5.0-beta.2", CURRENT, true) == "1.5.0-beta.2")
+  assert(Github.newerVersion("v0.9.1", CURRENT, true) == "0.9.1", "a stable release is still offered")
+end)
+
+check("a beta of the version you have, or an older one, is not an update", function()
+  assert(Github.newerVersion("v0.9.0-beta.3", CURRENT, true) == nil, "a beta of what you already run stable")
+  assert(Github.newerVersion("v0.8.0-beta.1", CURRENT, true) == nil)
+end)
+
+check("from a beta: the next beta, the stable release of it, but not an older beta", function()
+  local beta2 = { 1, 4, 1, beta = 2 }
+  assert(Github.newerVersion("v1.4.1-beta.3", beta2, true) == "1.4.1-beta.3")
+  assert(Github.newerVersion("v1.4.1-beta.2", beta2, true) == nil)
+  assert(Github.newerVersion("v1.4.1-beta.1", beta2, true) == nil)
+  assert(Github.newerVersion("v1.4.1", beta2) == "1.4.1", "the stable release comes without betas on")
+  assert(Github.newerVersion("v1.4.2-beta.1", beta2, true) == "1.4.2-beta.1")
+  assert(Github.newerVersion("v1.4.0", beta2, true) == nil)
+end)
+
+check("the number in a beta suffix is not a version part", function()
+  local p = Github.parse("v1.5-beta.2")
+  assert(#p.parts == 2 and p.parts[1] == 1 and p.parts[2] == 5 and p.beta == 2, #p.parts .. " parts")
+  assert(Github.newerVersion("v1.5-beta.2", { 1, 5, 1 }, true) == nil, "ranked above 1.5.1")
+  assert(Github.newerVersion("v1.5-beta.2", { 1, 4, 9 }, true) == "1.5-beta.2")
+  local q = Github.parse("v2-beta.7")
+  assert(#q.parts == 1 and q.parts[1] == 2 and q.beta == 7)
+  local plain = Github.parse("release-1.0")
+  assert(plain.beta == nil and plain.parts[1] == 1)
+end)
+
+check("tags that are not versions never raise, betas on or off", function()
+  for _, tag in ipairs({ "latest", "", "v-beta", "1.0.0-", "x-beta.9" }) do
+    assert(pcall(Github.newerVersion, tag, { 1, 0, 0, beta = 1 }, true), tag)
+  end
+end)
+
 print("\n== asking GitHub ==")
 
 check("the async check hands back nil, not an error, when the answer is junk", function()
@@ -101,6 +141,33 @@ check("the latest release carries its tag, version, notes and zip", function()
   Github:latestReleaseAsync(function(release) got = release end)
   assert(got and got.tag == "v1.2.0" and got.version == "1.2.0", tostring(got and got.version))
   assert(got.notes == "notes" and got.zip_url == "https://z")
+end)
+
+check("with betas on, the newest version in the list is taken, not just the first", function()
+  local real = require("json")
+  local requested
+  local http = require("socket.http")
+  local original = http.request
+  http.request = function(req) requested = req.url; return original(req) end
+  real.decode = setmetatable({ simple = true }, { __call = function() return {
+    { tag_name = "v0.9.5-beta.1", assets = { { name = "a.koplugin.zip", browser_download_url = "https://beta1" } } },
+    { tag_name = "v1.0.0", draft = true },
+    { tag_name = "v0.9.5-beta.3", assets = { { name = "a.koplugin.zip", browser_download_url = "https://beta3" } } },
+    { tag_name = "v0.9.4", assets = { { name = "a.koplugin.zip", browser_download_url = "https://stable" } } },
+  } end })
+  body = "{}"
+  local got
+  Github:latestReleaseAsync(function(release) got = release end, true)
+  http.request = original
+  assert(requested and requested:find("/releases?", 1, true), "asked for " .. tostring(requested))
+  assert(got and got.tag == "v0.9.5-beta.3" and got.version == "0.9.5-beta.3", tostring(got and got.tag))
+  assert(got.zip_url == "https://beta3")
+  -- the same answer with betas off asks for the latest stable release only
+  requested = nil
+  http.request = function(req) requested = req.url; return original(req) end
+  Github:latestReleaseAsync(function(release) got = release end)
+  http.request = original
+  assert(requested and requested:find("/releases/latest", 1, true), "asked for " .. tostring(requested))
 end)
 
 r.finish()
