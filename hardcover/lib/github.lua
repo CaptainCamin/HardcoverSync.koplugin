@@ -17,6 +17,8 @@ local RELEASE_LIST_API = "https://api.github.com/repos/CaptainCamin/HardcoverSyn
 -- said GitHub could not be reached. The blocking time is per read, the total is the limit.
 local RELEASE_BLOCK_TIMEOUT = 15
 local RELEASE_TOTAL_TIMEOUT = 30
+-- the check that runs by itself when Home opens must not hold the screen for long
+local QUIET_TIMEOUT = 5
 
 local Github = {}
 
@@ -90,7 +92,7 @@ end
 -- { tag, version (only when newer than the installed one), notes, zip_url }.
 -- Blocks for at most RELEASE_TIMEOUT seconds; callers use the Async wrapper.
 --
-function Github:latestRelease(include_beta)
+function Github:latestRelease(include_beta, quiet)
   local responseBody = {}
 
   -- A timeout is essential. This request used to have none, so on a device with
@@ -98,7 +100,11 @@ function Github:latestRelease(include_beta)
   -- seconds to minutes -- and because the caller shows its dialog only after
   -- this returns, nothing appeared at all. On e-ink that reads as a dead screen
   -- until something forces a repaint.
-  socketutil:set_timeout(RELEASE_BLOCK_TIMEOUT, RELEASE_TOTAL_TIMEOUT)
+  if quiet then
+    socketutil:set_timeout(QUIET_TIMEOUT, QUIET_TIMEOUT)
+  else
+    socketutil:set_timeout(RELEASE_BLOCK_TIMEOUT, RELEASE_TOTAL_TIMEOUT)
+  end
 
   local ok, res, code = pcall(http.request, {
     url = include_beta and RELEASE_LIST_API or RELEASE_API,
@@ -172,9 +178,9 @@ end
 -- appear immediately and fill in the version comparison if the answer arrives.
 -- See the timeout note above for what the blocking version cost.
 --
-function Github:latestReleaseAsync(callback, include_beta)
+function Github:latestReleaseAsync(callback, include_beta, quiet)
   UIManager:nextTick(function()
-    local ok, release, why = pcall(Github.latestRelease, Github, include_beta)
+    local ok, release, why = pcall(Github.latestRelease, Github, include_beta, quiet)
     if ok and release then callback(release) else callback(nil, ok and why or "answer") end
   end)
 end

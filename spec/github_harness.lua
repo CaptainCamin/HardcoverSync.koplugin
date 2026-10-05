@@ -202,4 +202,15 @@ check("the release check waits long enough for the list of releases on a slow co
   assert(block and block >= 10 and total and total >= 20, "timeouts " .. tostring(block) .. "/" .. tostring(total))
 end)
 
+check("the check that runs by itself keeps to a short wait", function()
+  local su = require("socketutil")
+  local block, total
+  local original = su.set_timeout
+  su.set_timeout = function(_, b, t) block, total = b, t end
+  body = "{}"
+  Github:latestReleaseAsync(function() end, true, true)
+  su.set_timeout = original
+  assert(block == 5 and total == 5, "timeouts " .. tostring(block) .. "/" .. tostring(total))
+end)
+
 r.finish()
