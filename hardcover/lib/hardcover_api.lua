@@ -1276,6 +1276,48 @@ end
 -- Full detail for one book, including description and community rating.
 -- `edition_id` is optional; when given, edition level fields are included.
 --
+-- What the details screen shows of a book, the same whether the book is asked for by itself or
+-- through a linked edition (the edition's own fields are laid over these afterwards). One list,
+-- so a field added for the screen cannot reach only one of the two requests.
+local BOOK_DETAIL_FIELDS = [[
+  book_id: id
+  title
+  subtitle
+  cached_image
+  release_year
+  pages
+  users_count
+  users_read_count
+  rating
+  ratings_count
+  ratings_distribution
+  cached_tags
+  first_release_date: release_date
+  reviews_count
+  lists_count
+  editions_count
+  default_audio_edition { audio_seconds }
+  description
+  contributions {
+    contribution
+    author {
+      name
+    }
+  }
+  book_series {
+    position
+    series {
+      id
+      name
+    }
+  }
+  user_books(where: { user_id: { _eq: $userId }}) {
+    id
+    status_id
+    rating
+  }
+]]
+
 function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
   local query
 
@@ -1299,42 +1341,7 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
             language
           }
           book {
-            book_id: id
-            title
-            subtitle
-            cached_image
-            release_year
-            pages
-            users_count
-            users_read_count
-            rating
-            ratings_count
-            ratings_distribution
-            cached_tags
-            first_release_date: release_date
-            reviews_count
-            lists_count
-            editions_count
-            default_audio_edition { audio_seconds }
-            description
-            contributions {
-              contribution
-              author {
-                name
-              }
-            }
-            book_series {
-              position
-              series {
-                id
-                name
-              }
-            }
-            user_books(where: { user_id: { _eq: $userId }}) {
-              id
-              status_id
-              rating
-            }
+            ]] .. BOOK_DETAIL_FIELDS .. [[
           }
         }
       }
@@ -1343,42 +1350,7 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
     query = [[
       query ($bookId: Int!, $userId: Int!) {
         books(where: { id: { _eq: $bookId } }) {
-          book_id: id
-          title
-          subtitle
-          release_year
-          pages
-          users_count
-          users_read_count
-          rating
-          ratings_count
-          ratings_distribution
-          cached_tags
-          first_release_date: release_date
-          reviews_count
-          lists_count
-          editions_count
-          default_audio_edition { audio_seconds }
-          description
-          contributions {
-            contribution
-            author {
-              name
-            }
-          }
-          cached_image
-          book_series {
-            position
-            series {
-              id
-              name
-            }
-          }
-          user_books(where: { user_id: { _eq: $userId }}) {
-            id
-            status_id
-            rating
-          }
+          ]] .. BOOK_DETAIL_FIELDS .. [[
         }
       }
     ]]
