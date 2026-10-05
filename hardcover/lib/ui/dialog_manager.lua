@@ -24,6 +24,7 @@ local Reviews = require("hardcover/lib/reviews")
 local Vibes = require("hardcover/lib/vibes")
 local Shelf = require("hardcover/lib/shelf")
 local ScreenLoad = require("hardcover/lib/screen_load")
+local ScreenRegistry = require("hardcover/lib/screen_registry")
 local ShelfLoader = require("hardcover/lib/shelf_loader")
 local DeviceSearch = require("hardcover/lib/device_search")
 local Zlibrary = require("hardcover/lib/zlibrary")
@@ -45,6 +46,18 @@ DialogManager.__index = DialogManager
 
 function DialogManager:new(o)
   return setmetatable(o or {}, self)
+end
+
+-- The open screens by kind (see screen_registry.lua). Built on first use so a manager
+-- made without it, or by a test, still works.
+function DialogManager:screens()
+  if not self._screens then
+    self._screens = ScreenRegistry.new(self, {
+      is_shown = function(widget) return UIManager:isWidgetShown(widget) end,
+      close = function(widget) UIManager:close(widget) end,
+    })
+  end
+  return self._screens
 end
 
 local function mapJournalData(data)
@@ -454,7 +467,7 @@ function DialogManager:searchBooks(query)
 end
 
 function DialogManager:showSearchResults(query, books)
-  discard(self.search_results_dialog)
+  self:screens():discard("search_results")
 
   local dialog = require("hardcover/lib/ui/shelf_dialog"):new {
     compatibility_mode = self.settings:compatibilityMode(),
@@ -466,7 +479,7 @@ function DialogManager:showSearchResults(query, books)
       self:showBookDetail(entry.book_id)
     end,
   }
-  self.search_results_dialog = dialog
+  self:screens():track("search_results", dialog)
   UIManager:show(dialog)
 
   if #books == 0 then
@@ -498,8 +511,7 @@ function DialogManager:showHome(done_callback)
   local cache = self.shelf_cache
   local ids = Home.statusIds()
 
-  discard(self.home_dialog)
-  self.home_dialog = nil
+  self:screens():discard("home")
 
   local saved_counts = cache and cache:counts(user_id, ids) or {}
   local saved_reading = cache and cache:reading(user_id) or {}
@@ -555,7 +567,7 @@ function DialogManager:showHome(done_callback)
       if done_callback then done_callback() end
     end,
   }
-  self.home_dialog = dialog
+  self:screens():track("home", dialog)
 
   UIManager:show(dialog)
   self:checkForUpdate()
@@ -606,8 +618,7 @@ function DialogManager:showShelf(status_id, title, done_callback)
   local user_id = User:getId()
   local cache = self.shelf_cache
 
-  discard(self.shelf_dialog)
-  self.shelf_dialog = nil
+  self:screens():discard("shelf")
 
   -- The whole list as it was last loaded, if it ever was. Shown at once, so the
   -- shelf is there before (or without) the network; the load below then
@@ -655,7 +666,7 @@ function DialogManager:showShelf(status_id, title, done_callback)
       end
     end,
   }
-  self.shelf_dialog = dialog
+  self:screens():track("shelf", dialog)
 
   UIManager:show(dialog)
 
@@ -781,8 +792,7 @@ function DialogManager:showGoals(done_callback)
   local cache = self.shelf_cache
   local cached, saved_at = cache and cache:goals(user_id)
 
-  discard(self.goals_dialog)
-  self.goals_dialog = nil
+  self:screens():discard("goals")
 
   local online = Network.connected()
   local start = ScreenLoad.start(cached, online)
@@ -809,7 +819,7 @@ function DialogManager:showGoals(done_callback)
   if cached and #(self:shownGoals(cached)) == 0 then
     dialog.message = _("No goals yet. Tap New goal to set one.")
   end
-  self.goals_dialog = dialog
+  self:screens():track("goals", dialog)
   UIManager:show(dialog)
   if not online then return end
 
@@ -843,8 +853,7 @@ function DialogManager:showStats(done_callback)
   local cache = self.shelf_cache
   local saved = cache and cache:stats(user_id)
 
-  discard(self.stats_dialog)
-  self.stats_dialog = nil
+  self:screens():discard("stats")
 
   local online = Network.connected()
   local start = ScreenLoad.start(saved, online)
@@ -862,7 +871,7 @@ function DialogManager:showStats(done_callback)
   else
     dialog.message = _("Stats need an internet connection the first time.")
   end
-  self.stats_dialog = dialog
+  self:screens():track("stats", dialog)
   UIManager:show(dialog)
   if not online then return end
 
@@ -895,7 +904,7 @@ function DialogManager:showGoal(goal, note, done_callback)
       if done_callback then done_callback() end
     end,
   }
-  self.goal_dialog = dialog
+  self:screens():track("goal", dialog)
   UIManager:show(dialog)
 end
 
@@ -917,7 +926,7 @@ function DialogManager:showGoalForm(goal, on_saved)
       self:archiveGoal(dialog, goal, on_saved)
     end or nil,
   }
-  self.goal_form_dialog = dialog
+  self:screens():track("goal_form", dialog)
   UIManager:show(dialog)
   return dialog
 end
@@ -929,18 +938,18 @@ function DialogManager:applyGoals(goals, changed)
   if self.shelf_cache then self.shelf_cache:putGoals(user_id, goals) end
 
   local shown = self:shownGoals(goals)
-  local screen = self.goals_dialog
-  if screen and UIManager:isWidgetShown(screen) then
+  local screen = self:screens():open("goals")
+  if screen then
     screen:setGoals(shown, nil, self:finishedOffline())
   end
-  local home = self.home_dialog
-  if home and UIManager:isWidgetShown(home) then
+  local home = self:screens():open("home")
+  if home then
     home.goals = shown
     home.finished_offline = self:finishedOffline()
     home:rebuild()
   end
-  local one = self.goal_dialog
-  if changed and one and UIManager:isWidgetShown(one) and one.goal and one.goal.id == changed.id then
+  local one = changed and self:screens():open("goal")
+  if one and one.goal and one.goal.id == changed.id then
     one:setGoal(changed)
   end
 end
@@ -953,8 +962,8 @@ end
 
 -- the goal screen under a form is about a goal that is no longer listed
 function DialogManager:closeGoalScreen(goal_id)
-  local one = self.goal_dialog
-  if one and UIManager:isWidgetShown(one) and one.goal and one.goal.id == goal_id then
+  local one = self:screens():open("goal")
+  if one and one.goal and one.goal.id == goal_id then
     UIManager:close(one)
   end
 end
@@ -1066,8 +1075,7 @@ end
 -- when the answer arrives; a list opens in the shelf screen (showList).
 --
 function DialogManager:showLists(done_callback)
-  discard(self.lists_dialog)
-  self.lists_dialog = nil
+  self:screens():discard("lists")
 
   local dialog = require("hardcover/lib/ui/lists_dialog"):new {
     message = _("Loading your lists\226\128\166"),
@@ -1078,7 +1086,7 @@ function DialogManager:showLists(done_callback)
       if done_callback then done_callback() end
     end,
   }
-  self.lists_dialog = dialog
+  self:screens():track("lists", dialog)
   UIManager:show(dialog)
 
   if not Network.connected() then
@@ -1131,7 +1139,7 @@ function DialogManager:showForYou(done_callback)
       if done_callback then done_callback() end
     end,
   }
-  self.for_you_dialog = dialog
+  self:screens():track("for_you", dialog)
   UIManager:show(dialog)
 
   if not Network.connected() then
@@ -1179,8 +1187,7 @@ end
 -- before it was asked for lacks.
 --
 function DialogManager:showVibes(done_callback)
-  discard(self.vibes_dialog)
-  self.vibes_dialog = nil
+  self:screens():discard("vibes")
 
   local dialog = require("hardcover/lib/ui/lists_dialog"):new {
     title = _("Vibes"),
@@ -1194,7 +1201,7 @@ function DialogManager:showVibes(done_callback)
       if done_callback then done_callback() end
     end,
   }
-  self.vibes_dialog = dialog
+  self:screens():track("vibes", dialog)
   UIManager:show(dialog)
 
   if scopeMissing(Vibes.SCOPE) then
@@ -1642,8 +1649,8 @@ end
 
 -- The lists screen, when it is open underneath, shows the new size of a list.
 function DialogManager:refreshListsScreen(list_id, count)
-  local screen = self.lists_dialog
-  if not (screen and UIManager:isWidgetShown(screen)) then return end
+  local screen = self:screens():open("lists")
+  if not screen then return end
   local changed = false
   for _i, row in ipairs(screen.mine or {}) do
     if row.id == list_id and row.count ~= count then
