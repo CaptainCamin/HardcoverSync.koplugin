@@ -1,14 +1,9 @@
 local config = require("hardcover/lib/config")
 local logger = require("logger")
-local http = require("socket.http")
-local ltn12 = require("ltn12")
 local json = require("json")
 local _t = require("hardcover/lib/table_util")
 local T = require("ffi/util").template
-local Trapper = require("ui/trapper")
 local Network = require("hardcover/lib/network")
-local UIManager = require("ui/uimanager")
-local socketutil = require("socketutil")
 
 local Book = require("hardcover/lib/book")
 local Goals = require("hardcover/lib/goals")
@@ -27,6 +22,18 @@ local user_agent = T("hardcoversync.koplugin/%1 (https://github.com/CaptainCamin
 local HardcoverApi = {
   enabled = true
 }
+
+-- How a request is run and sent. These are KOReader's (runtime.lua forks it and hands the
+-- answer back on the UI's tick; transport.lua does the HTTP), found when first needed so
+-- that this file does not tie the layer to the UI, and a test can set
+-- `HardcoverApi.runtime` / `HardcoverApi.transport` to plain-Lua fakes.
+local function runtime()
+  return HardcoverApi.runtime or require("hardcover/lib/runtime")
+end
+
+local function transport()
+  return HardcoverApi.transport or require("hardcover/lib/transport")
+end
 
 --
 -- Resolve the Bearer token for one request.
@@ -150,9 +157,9 @@ function HardcoverApi:query(query, parameters, background)
   -- chain, forcing a fresh sign in.
   local headers = request_headers()
 
-  completed, content = Trapper:dismissableRunInSubprocess(function()
+  completed, content = runtime().subprocess(function()
     return self:_query(query, parameters, headers)
-  end, background and {} or true, true)
+  end, background)
 
   if completed and content then
     local code, response = string.match(content, "^([^:]*):(.*)")
@@ -192,47 +199,12 @@ function HardcoverApi:query(query, parameters, background)
   end
 end
 
+-- Runs in the subprocess: send the request, return "<code>:<body>" (see transport.lua).
 function HardcoverApi:_query(query, parameters, headers)
-  local requestBody = {
+  return transport().post(api_url, headers or request_headers(), {
     query = query,
-    variables = parameters
-  }
-
-  local maxtime = 12
-  local timeout = 6
-
-  local sink = {}
-  socketutil:set_timeout(timeout, maxtime or 30)
-  local request = {
-    url = api_url,
-    method = "POST",
-    headers = headers or request_headers(),
-    source = ltn12.source.string(json.encode(requestBody)),
-    sink = socketutil.table_sink(sink),
-  }
-
-  local _, code, _headers, _status = http.request(request)
-  socketutil:reset_timeout()
-
-  local content = table.concat(sink) -- empty or content accumulated till now
-  --logger.warn(requestBody)
-  if code == socketutil.TIMEOUT_CODE or
-    code == socketutil.SSL_HANDSHAKE_CODE or
-    code == socketutil.SINK_TIMEOUT_CODE
-  then
-    logger.warn("request interrupted:", code)
-    return code .. ':'
-  end
-
-  if type(code) == "string" then
-    logger.dbg("Request error", code)
-  end
-
-  if type(code) == "number" and (code < 200 or code > 299) then
-    logger.dbg("Request error", code, content)
-  end
-
-  return code .. ':' .. content
+    variables = parameters,
+  })
 end
 
 function HardcoverApi:hydrateBooks(ids, user_id)
@@ -1753,7 +1725,7 @@ end
 --
 -- Async wrappers.
 --
--- Each one runs the call inside Trapper:wrap. That is what makes the request
+-- Each one runs the call inside a wrap (Trapper:wrap, through runtime.lua). That is what makes the request
 -- non-blocking: inside a wrapped coroutine, query() forks a subprocess and
 -- yields back to KOReader's event loop, so the screen the caller just showed
 -- (a "Loading..." message, an empty dialog) actually gets painted while the
@@ -1763,7 +1735,7 @@ end
 -- reply arrives -- which is what these did when they merely called the
 -- blocking function and delayed the callback.
 --
--- Every callback is invoked through UIManager:nextTick, so a caller may touch
+-- Every callback is invoked on the next UI tick (UIManager:nextTick), so a caller may touch
 -- widgets directly. Callers must still check UIManager:isWidgetShown before
 -- writing to a dialog: the user can close it while the request is in flight,
 -- and updating a freed widget crashes.
@@ -1778,7 +1750,7 @@ end
 local function deliver(callback, ...)
   local args = { ... }
   local n = select("#", ...)
-  UIManager:nextTick(function()
+  runtime().next_tick(function()
     callback(unpack(args, 1, n))
   end)
 end
@@ -1786,7 +1758,7 @@ end
 local function async(callback, fn, ...)
   local args = { ... }
   local n = select("#", ...)
-  Trapper:wrap(function()
+  runtime().wrap(function()
     local results = { pcall(fn, unpack(args, 1, n)) }
     if not results[1] then
       logger.warn("hardcover api: async call raised", results[2])
@@ -1797,40 +1769,44 @@ local function async(callback, fn, ...)
   end)
 end
 
-function HardcoverApi:saveGoalAsync(id, input, callback)
-  async(callback, self.saveGoal, self, id, input)
-end
+--
+-- One wrapper per blocking call below: `name .. "Async"` takes the same arguments as
+-- `name` plus a callback as the last one, and calls it with whatever `name` returned.
+-- `name` is looked up when the wrapper is called, so a replaced method (a test, a
+-- spec's stub) is the one that runs.
+--
+local ASYNC_METHODS = {
+  "saveGoal",
+  "archiveGoal",
+  "getGoals",
+  "getLists",
+  "getBookLists",
+  "addToList",
+  "removeFromList",
+  "getListCount",
+  "getShelf",
+  "getStats",
+  "getBooksByIds",
+  "getVibes",
+  "getForYou",
+  "me",
+  "getSimilarBooks",
+  "getBookDetail",
+  "getReviews",
+  "updateUserBook",
+  "removeUserBook",
+  "findBooks",
+  "findEditions",
+  "findDefaultEdition",
+  "findBookByIdentifiers",
+}
 
-function HardcoverApi:archiveGoalAsync(goal, callback)
-  async(callback, self.archiveGoal, self, goal)
-end
-
-function HardcoverApi:getGoalsAsync(callback)
-  async(callback, self.getGoals, self)
-end
-
-function HardcoverApi:getListsAsync(callback)
-  async(callback, self.getLists, self)
-end
-
-function HardcoverApi:getBookListsAsync(book_id, callback)
-  async(callback, self.getBookLists, self, book_id)
-end
-
-function HardcoverApi:addToListAsync(book_id, list_id, position, callback)
-  async(callback, self.addToList, self, book_id, list_id, position)
-end
-
-function HardcoverApi:removeFromListAsync(list_book_id, callback)
-  async(callback, self.removeFromList, self, list_book_id)
-end
-
-function HardcoverApi:getListCountAsync(callback)
-  async(callback, self.getListCount, self)
-end
-
-function HardcoverApi:getShelfAsync(user_id, status_id, offset, limit, callback)
-  async(callback, self.getShelf, self, user_id, status_id, offset, limit)
+for _, name in ipairs(ASYNC_METHODS) do
+  HardcoverApi[name .. "Async"] = function(self, ...)
+    local n = select("#", ...)
+    local callback = select(n, ...)
+    async(callback, self[name], self, unpack({ ... }, 1, n - 1))
+  end
 end
 
 --
@@ -1944,62 +1920,6 @@ function HardcoverApi:getStats(user_id)
     end
   end
   return { rows = Stats.normalizeAll(raw), genres = genres or {}, complete = complete }
-end
-
-function HardcoverApi:getStatsAsync(user_id, callback)
-  async(callback, self.getStats, self, user_id)
-end
-
-function HardcoverApi:getBooksByIdsAsync(ids, callback)
-  async(callback, self.getBooksByIds, self, ids)
-end
-
-function HardcoverApi:getVibesAsync(user_id, callback)
-  async(callback, self.getVibes, self, user_id)
-end
-
-function HardcoverApi:getForYouAsync(callback)
-  async(callback, self.getForYou, self)
-end
-
-function HardcoverApi:meAsync(callback)
-  async(callback, self.me, self)
-end
-
-function HardcoverApi:getSimilarBooksAsync(book_id, callback)
-  async(callback, self.getSimilarBooks, self, book_id)
-end
-
-function HardcoverApi:getBookDetailAsync(book_id, user_id, edition_id, callback)
-  async(callback, self.getBookDetail, self, book_id, user_id, edition_id)
-end
-
-function HardcoverApi:getReviewsAsync(book_id, limit, offset, callback)
-  async(callback, self.getReviews, self, book_id, limit, offset)
-end
-
-function HardcoverApi:updateUserBookAsync(book_id, status_id, privacy_setting_id, edition_id, callback)
-  async(callback, self.updateUserBook, self, book_id, status_id, privacy_setting_id, edition_id)
-end
-
-function HardcoverApi:removeUserBookAsync(user_book_id, callback)
-  async(callback, self.removeUserBook, self, user_book_id)
-end
-
-function HardcoverApi:findBooksAsync(title, author, user_id, callback)
-  async(callback, self.findBooks, self, title, author, user_id)
-end
-
-function HardcoverApi:findEditionsAsync(book_id, user_id, callback)
-  async(callback, self.findEditions, self, book_id, user_id)
-end
-
-function HardcoverApi:findDefaultEditionAsync(book_id, user_id, callback)
-  async(callback, self.findDefaultEdition, self, book_id, user_id)
-end
-
-function HardcoverApi:findBookByIdentifiersAsync(identifiers, user_id, callback)
-  async(callback, self.findBookByIdentifiers, self, identifiers, user_id)
 end
 
 return HardcoverApi

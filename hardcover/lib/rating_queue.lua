@@ -6,42 +6,26 @@
 -- rating per book: rating a book twice offline leaves the newest. A rating of 0
 -- clears it.
 
-local RatingQueue = {}
-RatingQueue.__index = RatingQueue
+local OfflineQueue = require("hardcover/lib/offline_queue")
 
-function RatingQueue:new(o)
-  o = o or {}
-  setmetatable(o, self)
-  return o
-end
-
-function RatingQueue:ops()
-  local ops = self.settings:readSetting("rating_ops")
-  if type(ops) ~= "table" then
-    ops = {}
-    self.settings:saveSetting("rating_ops", ops)
-  end
-  return ops
-end
-
-function RatingQueue:persist()
-  if self.settings.flush then self.settings:flush() end
-end
+local RatingQueue = OfflineQueue.extend({})
+RatingQueue.store_key = "rating_ops"
 
 local function valid(op)
   return type(op) == "table" and op.user_book_id ~= nil and tonumber(op.rating) ~= nil
 end
 
-function RatingQueue:count()
-  local n = 0
-  for _, op in pairs(self:ops()) do
-    if valid(op) then n = n + 1 end
-  end
-  return n
+function RatingQueue:valid(op)
+  return valid(op)
+end
+
+-- waiting ratings by library record, as stored
+function RatingQueue:ops()
+  return self:store()
 end
 
 function RatingQueue:isEmpty()
-  return self:count() == 0
+  return not self:hasPending()
 end
 
 -- the rating waiting for this library record (0 = a clear), or nil
@@ -80,23 +64,26 @@ end
 -- stays queued for the next try. `on_sent(user_book_id, user_book)` is called for
 -- each one that went through. Returns the number still waiting.
 function RatingQueue:flush(api, on_sent)
-  local ops = self:ops()
-  local keys = {}
-  for key, op in pairs(ops) do
-    if valid(op) then keys[#keys + 1] = key else ops[key] = nil end
-  end
-  table.sort(keys)
+  -- a second flush while one is out waits for the first (each rating is sent once)
+  return self:withFlushLock(function() return self:count() end, function()
+    local ops = self:ops()
+    local keys = {}
+    for key, op in pairs(ops) do
+      if valid(op) then keys[#keys + 1] = key else ops[key] = nil end
+    end
+    table.sort(keys)
 
-  for _, key in ipairs(keys) do
-    local op = ops[key]
-    local user_book = api:updateRating(op.user_book_id, tonumber(op.rating))
-    if not user_book then break end
-    -- a newer rating made while this one was in flight stays
-    if ops[key] == op then ops[key] = nil end
-    self:persist()
-    if on_sent then on_sent(op.user_book_id, user_book) end
-  end
-  return self:count()
+    for _, key in ipairs(keys) do
+      local op = ops[key]
+      local user_book = api:updateRating(op.user_book_id, tonumber(op.rating))
+      if not user_book then break end
+      -- a newer rating made while this one was in flight stays
+      if ops[key] == op then ops[key] = nil end
+      self:persist()
+      if on_sent then on_sent(op.user_book_id, user_book) end
+    end
+    return self:count()
+  end)
 end
 
 return RatingQueue
