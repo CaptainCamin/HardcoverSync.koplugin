@@ -124,13 +124,19 @@ return {
     assert(dialog.page == 1, "Previous did not turn back")
     emu:expectText("Maya Okafor")
 
-    -- the spoiler is hidden by default, and its text is not drawn anywhere
+    -- the spoiler is hidden by default, and its text is not drawn anywhere. The rating
+    -- summary heads page 1, so the spoiler card (the second review) is dealt to a later page.
+    page_to(emu, dialog, "Contains spoilers")
     emu:expectText("Contains spoilers - tap to show")
     gone(emu, "turns out to have been dead")
     tap_row(emu, dialog, "Contains spoilers")
     emu:expectText("turns out to have been dead")
     gone(emu, "Contains spoilers - tap to show")
     emu:shot("reviews_spoiler_shown")
+    while dialog.page > 1 do
+      dialog:onPrevPage()
+      emu:pump()
+    end
 
     -- a long review is cut in the list; the end of it is not drawn
     gone(emu, "(6)")
