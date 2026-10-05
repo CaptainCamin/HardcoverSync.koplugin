@@ -1,14 +1,9 @@
 local config = require("hardcover/lib/config")
 local logger = require("logger")
-local http = require("socket.http")
-local ltn12 = require("ltn12")
 local json = require("json")
 local _t = require("hardcover/lib/table_util")
 local T = require("ffi/util").template
-local Trapper = require("ui/trapper")
 local Network = require("hardcover/lib/network")
-local UIManager = require("ui/uimanager")
-local socketutil = require("socketutil")
 
 local Book = require("hardcover/lib/book")
 local Goals = require("hardcover/lib/goals")
@@ -27,6 +22,18 @@ local user_agent = T("hardcoversync.koplugin/%1 (https://github.com/CaptainCamin
 local HardcoverApi = {
   enabled = true
 }
+
+-- How a request is run and sent. These are KOReader's (runtime.lua forks it and hands the
+-- answer back on the UI's tick; transport.lua does the HTTP), found when first needed so
+-- that this file does not tie the layer to the UI, and a test can set
+-- `HardcoverApi.runtime` / `HardcoverApi.transport` to plain-Lua fakes.
+local function runtime()
+  return HardcoverApi.runtime or require("hardcover/lib/runtime")
+end
+
+local function transport()
+  return HardcoverApi.transport or require("hardcover/lib/transport")
+end
 
 --
 -- Resolve the Bearer token for one request.
@@ -150,9 +157,9 @@ function HardcoverApi:query(query, parameters, background)
   -- chain, forcing a fresh sign in.
   local headers = request_headers()
 
-  completed, content = Trapper:dismissableRunInSubprocess(function()
+  completed, content = runtime().subprocess(function()
     return self:_query(query, parameters, headers)
-  end, background and {} or true, true)
+  end, background)
 
   if completed and content then
     local code, response = string.match(content, "^([^:]*):(.*)")
@@ -192,47 +199,12 @@ function HardcoverApi:query(query, parameters, background)
   end
 end
 
+-- Runs in the subprocess: send the request, return "<code>:<body>" (see transport.lua).
 function HardcoverApi:_query(query, parameters, headers)
-  local requestBody = {
+  return transport().post(api_url, headers or request_headers(), {
     query = query,
-    variables = parameters
-  }
-
-  local maxtime = 12
-  local timeout = 6
-
-  local sink = {}
-  socketutil:set_timeout(timeout, maxtime or 30)
-  local request = {
-    url = api_url,
-    method = "POST",
-    headers = headers or request_headers(),
-    source = ltn12.source.string(json.encode(requestBody)),
-    sink = socketutil.table_sink(sink),
-  }
-
-  local _, code, _headers, _status = http.request(request)
-  socketutil:reset_timeout()
-
-  local content = table.concat(sink) -- empty or content accumulated till now
-  --logger.warn(requestBody)
-  if code == socketutil.TIMEOUT_CODE or
-    code == socketutil.SSL_HANDSHAKE_CODE or
-    code == socketutil.SINK_TIMEOUT_CODE
-  then
-    logger.warn("request interrupted:", code)
-    return code .. ':'
-  end
-
-  if type(code) == "string" then
-    logger.dbg("Request error", code)
-  end
-
-  if type(code) == "number" and (code < 200 or code > 299) then
-    logger.dbg("Request error", code, content)
-  end
-
-  return code .. ':' .. content
+    variables = parameters,
+  })
 end
 
 function HardcoverApi:hydrateBooks(ids, user_id)
@@ -1753,7 +1725,7 @@ end
 --
 -- Async wrappers.
 --
--- Each one runs the call inside Trapper:wrap. That is what makes the request
+-- Each one runs the call inside a wrap (Trapper:wrap, through runtime.lua). That is what makes the request
 -- non-blocking: inside a wrapped coroutine, query() forks a subprocess and
 -- yields back to KOReader's event loop, so the screen the caller just showed
 -- (a "Loading..." message, an empty dialog) actually gets painted while the
@@ -1763,7 +1735,7 @@ end
 -- reply arrives -- which is what these did when they merely called the
 -- blocking function and delayed the callback.
 --
--- Every callback is invoked through UIManager:nextTick, so a caller may touch
+-- Every callback is invoked on the next UI tick (UIManager:nextTick), so a caller may touch
 -- widgets directly. Callers must still check UIManager:isWidgetShown before
 -- writing to a dialog: the user can close it while the request is in flight,
 -- and updating a freed widget crashes.
@@ -1778,7 +1750,7 @@ end
 local function deliver(callback, ...)
   local args = { ... }
   local n = select("#", ...)
-  UIManager:nextTick(function()
+  runtime().next_tick(function()
     callback(unpack(args, 1, n))
   end)
 end
@@ -1786,7 +1758,7 @@ end
 local function async(callback, fn, ...)
   local args = { ... }
   local n = select("#", ...)
-  Trapper:wrap(function()
+  runtime().wrap(function()
     local results = { pcall(fn, unpack(args, 1, n)) }
     if not results[1] then
       logger.warn("hardcover api: async call raised", results[2])
