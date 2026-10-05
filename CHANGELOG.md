@@ -6,6 +6,10 @@
 
 - More in a book's **Details**: the edition's release day and when the book was first published, an audiobook's length ("8h 41m"), everyone else who worked on it by role (illustrator, translator, narrator...), and how many written reviews, lists and editions it has. Reads now has thousands separators.
 
+### Fixed
+
+- Genres, moods, content warnings and the ratings breakdown (1.6.0) were missing for a book opened without a chosen edition: only the request used when an edition is linked asked for them. Both requests now do, and a test checks it.
+
 ### Changed
 
 - The ratings breakdown (how many readers gave each rating, with the average marked) moved from the book's details to the top of the **Reviews** screen, under the rating figure. The details keep the genres, moods and content warnings.

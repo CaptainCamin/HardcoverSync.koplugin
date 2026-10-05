@@ -400,6 +400,22 @@ check("the detail rows add the dates, audiobook length, credits and counts when 
   assert(Shelf.extraRows({ audio_seconds = 20 })[1] == nil, "a few seconds is not a length")
 end)
 
+check("both detail queries (the book's and a linked edition's) ask for every field the details show", function()
+  local sent = {}
+  local Api = require("hardcover/lib/hardcover_api")
+  Api.enabled = true
+  Api.query = function(_, q) sent[#sent + 1] = q return nil end
+  Api:getBookDetail(1, 2)
+  Api:getBookDetail(1, 2, 3)
+  assert(#sent == 2, "queries sent: " .. #sent)
+  for i, q in ipairs(sent) do
+    for _, field in ipairs({ "ratings_distribution", "cached_tags", "first_release_date: release_date", "reviews_count",
+      "lists_count", "editions_count", "default_audio_edition", "contribution\n" }) do
+      assert(q:find(field, 1, true), "query " .. i .. " does not ask for " .. field)
+    end
+  end
+end)
+
 print("\n== leaving the screen ==")
 
 check("every key the dialog binds has a handler", function()

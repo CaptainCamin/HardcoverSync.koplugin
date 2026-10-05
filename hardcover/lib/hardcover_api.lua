@@ -1309,13 +1309,6 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
             users_read_count
             rating
             ratings_count
-          ratings_distribution
-          cached_tags
-          first_release_date: release_date
-          reviews_count
-          lists_count
-          editions_count
-          default_audio_edition { audio_seconds }
             ratings_distribution
             cached_tags
             first_release_date: release_date
@@ -1359,6 +1352,13 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
           users_read_count
           rating
           ratings_count
+          ratings_distribution
+          cached_tags
+          first_release_date: release_date
+          reviews_count
+          lists_count
+          editions_count
+          default_audio_edition { audio_seconds }
           description
           contributions {
             contribution
