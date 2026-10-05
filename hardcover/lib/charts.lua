@@ -7,6 +7,10 @@
 
 local Charts = {}
 
+-- math.atan2 is gone from Lua 5.3+, where math.atan takes (y, x); LuaJIT (KOReader) and 5.1 have
+-- only atan2, since there math.atan takes one argument.
+local atan2 = math.atan2 or math.atan
+
 --
 -- A clean top for an axis and the step between its ticks: 0..max in about four steps, each a
 -- 1, 2 or 5 times a power of ten. A max of 0 (nothing to plot) still gives a usable 0..4.
@@ -131,7 +135,7 @@ function Charts.sliceAt(slices, dx, dy, inner, outer)
   local d2 = dx * dx + dy * dy
   if d2 > outer * outer or d2 < inner * inner then return nil end
   -- a turn from 12 o'clock, clockwise: atan2(dx, -dy)
-  local turn = math.atan2(dx, -dy) / (2 * math.pi)
+  local turn = atan2(dx, -dy) / (2 * math.pi)
   if turn < 0 then turn = turn + 1 end
   for i, s in ipairs(slices) do
     if turn >= s.from and turn < s.to then return i end
@@ -145,7 +149,7 @@ end
 function Charts.sliceAtGap(slices, dx, dy, inner, outer, gap)
   local index = Charts.sliceAt(slices, dx, dy, inner, outer)
   if not index or #slices < 2 or not gap or gap <= 0 then return index end
-  local turn = math.atan2(dx, -dy) / (2 * math.pi)
+  local turn = atan2(dx, -dy) / (2 * math.pi)
   if turn < 0 then turn = turn + 1 end
   local s = slices[index]
   local r = math.sqrt(dx * dx + dy * dy)
