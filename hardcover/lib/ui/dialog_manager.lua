@@ -13,6 +13,7 @@ local InfoMessage = require("ui/widget/infomessage")
 local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
 local Book = require("hardcover/lib/book")
+local BookActions = require("hardcover/lib/book_actions")
 local BookSearch = require("hardcover/lib/book_search")
 local Home = require("hardcover/lib/home")
 local HomeLoader = require("hardcover/lib/home_loader")
@@ -1724,7 +1725,8 @@ function DialogManager:showListsPicker(dialog)
     r.busy = true
     redraw(r)
 
-    if not r.on then
+    local plan = Lists.togglePlan(r)
+    if plan == "add" then
       -- the end of the list: Lists.insertObject
       Api:addToListAsync(book_id, r.id, r.count, function(added, err)
         if not added then return failed(r, err) end
@@ -1741,24 +1743,21 @@ function DialogManager:showListsPicker(dialog)
         changed(r)
       end)
     end
-    if r.list_book_id then
+    if plan == "remove" then
       remove(r.list_book_id)
       return
     end
     -- added a moment ago and Hardcover's answer did not say which row it made:
     -- look it up (one request) rather than guess
     Api:getBookListsAsync(book_id, function(fresh, err)
-      local found
-      for _i, f in ipairs(fresh or {}) do
-        if f.id == r.id then found = f end
-      end
-      if not found then return failed(r, err or { message = _("the list was not found") }) end
-      if not found.on then
+      local outcome, list_book_id = Lists.resolveLookup(fresh, r.id)
+      if outcome == "not_found" then return failed(r, err or { message = _("the list was not found") }) end
+      if outcome == "already_off" then
         Lists.markRemoved(r) -- already off it
         return changed(r)
       end
-      if not found.list_book_id then return failed(r, { message = _("no answer from Hardcover") }) end
-      remove(found.list_book_id)
+      if outcome == "no_row_id" then return failed(r, { message = _("no answer from Hardcover") }) end
+      remove(list_book_id)
     end)
   end
 
@@ -1786,18 +1785,14 @@ end
 -- The saved shelves and counts that a change of status makes wrong.
 function DialogManager:forgetShelves(old_status_id, new_status_id)
   if not self.shelf_cache then return end
-  local ids = {}
-  if old_status_id then ids[#ids + 1] = old_status_id end
-  if new_status_id then ids[#ids + 1] = new_status_id end
-  self.shelf_cache:invalidate(User:getId(), ids)
+  self.shelf_cache:invalidate(User:getId(), BookActions.staleShelves(old_status_id, new_status_id))
 end
 
 -- A rating set offline and not yet sent shows in place of the one on record.
 function DialogManager:withPendingRating(detail)
   local queue = self.rating_queue
   local waiting = queue and detail and detail.user_book_id and queue:get(detail.user_book_id)
-  if waiting then detail.user_rating = waiting > 0 and waiting or nil end
-  return detail
+  return BookActions.withPendingRating(detail, waiting)
 end
 
 -- Rate the book on the details screen. The rating is shown at once and kept in
@@ -1805,10 +1800,10 @@ end
 -- one, or when the connection is back.
 function DialogManager:rateBook(dialog)
   local detail = dialog.detail
-  if not (detail and detail.book) then return end
-
   local queue = self.rating_queue
-  if not (detail.user_book_id and queue) then
+  local gate = BookActions.ratingGate(detail, queue ~= nil)
+  if gate == "no_book" then return end
+  if gate == "needs_shelf" then
     StatusDialogs.info(_("Put this book on a shelf to rate it."))
     return
   end
@@ -1846,14 +1841,11 @@ end
 function DialogManager:saveShelf(dialog, status_id)
   local detail = dialog.detail
   local old_status_id = detail.status_id
-  local in_library = detail.user_book_id ~= nil or old_status_id ~= nil
+  local request = BookActions.shelfRequest(detail, status_id)
 
   local loading = StatusDialogs.loading(_("Saving to your shelf…"))
 
-  -- the edition is only passed when the book is new to the library: for a book
-  -- already on a shelf, the upsert must not switch the edition it is read in
-  Api:updateUserBookAsync(detail.book.book_id, status_id, nil,
-    (not in_library) and detail.book.edition_id or nil,
+  Api:updateUserBookAsync(request.book_id, request.status_id, nil, request.edition_id,
     function(user_book, err)
       StatusDialogs.close(loading)
 
@@ -1928,13 +1920,9 @@ end
 
 -- "Similar to <title>" on a book's details: Hardcover's ranking, fetched after the
 -- screen is up (two requests, after the series) and shown as a strip of covers. An
--- empty ranking shows nothing. KOReader cancels a request in flight when the screen is
--- touched, and a reader who scrolls the details straight away does exactly that, so a
--- cancelled request is tried again (up to SIMILAR_CANCEL_TRIES) until they leave it
--- alone; one that really failed is tried twice more. If it still fails the reader is
--- told, so it is never just missing.
-local SIMILAR_CANCEL_TRIES = 8
-local SIMILAR_FAIL_TRIES = 3
+-- empty ranking shows nothing. A failed or cancelled request is tried again by
+-- Recommendations.retryPolicy; if it still fails the reader is told, so it is never
+-- just missing.
 
 function DialogManager:loadSimilar(dialog, book_id)
   -- (the placeholder is only there when the details were fetched online; the connection
@@ -1950,8 +1938,7 @@ function DialogManager:loadSimilar(dialog, book_id)
       if not UIManager:isWidgetShown(dialog) then return end
       if entries == nil then
         logger.warn("hardcover: similar books failed (try " .. tries .. ")", err)
-        local cancelled = type(err) == "table" and err.completed == false
-        if tries < (cancelled and SIMILAR_CANCEL_TRIES or SIMILAR_FAIL_TRIES) then
+        if Recommendations.retryPolicy(tries, err) == "retry" then
           UIManager:scheduleIn(2, function()
             if not UIManager:isWidgetShown(dialog) then return end
             if Network.connected() then attempt() else dialog:setSimilar(nil) end

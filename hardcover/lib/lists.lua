@@ -168,6 +168,38 @@ end
 -- rather than on top of #1, and on an unranked one it is ignored. No edition: the
 -- list is of the book, not of one edition of it.
 --
+--
+-- What a tap on a list's tick box does, from the row as it is now.
+--   "add"     the book goes on the list
+--   "remove"  it comes off, by the list_books row id the row already knows
+--   "lookup"  it was added a moment ago and Hardcover's answer did not say which row it
+--             made: ask which, then remove (see resolveLookup)
+--
+function Lists.togglePlan(r)
+  if not r.on then return "add" end
+  if r.list_book_id then return "remove" end
+  return "lookup"
+end
+
+--
+-- What a fresh look at the book's lists says about taking it off list `list_id`. `fresh`
+-- is getBookLists's answer (nil when it failed).
+--   "remove", list_book_id   take that row off
+--   "already_off"            it is no longer on the list: nothing to send
+--   "not_found"              the list is not in the answer
+--   "no_row_id"              it is on the list but the answer has no row id for it
+--
+function Lists.resolveLookup(fresh, list_id)
+  local found
+  for _i, f in ipairs(fresh or {}) do
+    if f.id == list_id then found = f end
+  end
+  if not found then return "not_found" end
+  if not found.on then return "already_off" end
+  if not found.list_book_id then return "no_row_id" end
+  return "remove", found.list_book_id
+end
+
 function Lists.insertObject(book_id, list_id, count)
   return { book_id = book_id, list_id = list_id, position = tonumber(count) or 0 }
 end
