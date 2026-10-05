@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.2
+
+### Fixed
+
+- Home's goal card said "No current goal" when the goals had not been saved yet (after signing in again, say): the request for them is the last of four Home makes, and touching the screen while they ran (to scroll down to the card) cancelled it. Those four requests are no longer cancelled by a touch, and a refused goals request is tried once more after a moment.
+- Wifi that the plugin switched on for a sync or a screen was switched off the moment the work started, which could cut its requests off. It is now switched off 15 seconds later, and not at all if more work asks for wifi in the meantime. (Not yet tried on a device.)
+- Choosing an option in the journal entry dialog (privacy, edition) redrew the whole screen; it now redraws the dialog.
+
 ## 1.6.1
 
 ### Added

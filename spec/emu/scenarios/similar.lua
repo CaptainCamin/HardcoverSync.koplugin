@@ -37,6 +37,13 @@ return {
       if image and image.url then fixtures.seed_cover(image.url, b.book_id % 3 + 1) end
     end
     fixtures.install({ settings = settings })
+    -- this scenario is about the two strips, which both have to show at the bottom of the page:
+    -- books with no community tags, ratings or extra detail rows keep the page short
+    for _, b in pairs(fixtures.books_by_id) do
+      b.cached_tags, b.ratings_distribution = {}, {}
+      b.first_release_date, b.reviews_count, b.lists_count, b.editions_count = nil, nil, nil, nil
+      b.contributions = { b.contributions and b.contributions[1] or nil }
+    end
     fixtures.similar_ids = { 9, 4, 7, 2 } -- indexes into the fixture books: Hyperion first
 
     local LuaSettings = require("luasettings")

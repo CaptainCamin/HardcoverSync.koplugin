@@ -25,7 +25,7 @@ local function card(id, page) return { book_id = id, title = "Book " .. id, prog
 -- value false means "the request failed" (nil).
 local function setup(answers, alive_script)
   answers = answers or {}
-  local log = { asked = {}, saved = {}, told = {} }
+  local log = { asked = {}, saved = {}, told = {}, slept = {} }
   local function reply(name, default)
     local v = answers[name]
     if v == nil then v = default end
@@ -51,6 +51,7 @@ local function setup(answers, alive_script)
     end,
     saved_counts = { [2] = 3 },
     saved_reading = { card(1, 10) },
+    sleep = function(seconds) log.slept[#log.slept + 1] = seconds end,
     shown_reading = function(entries) return entries end,
     on_counts = function(c) log.told[#log.told + 1] = "counts" end,
     on_reading = function(s) log.told[#log.told + 1] = "reading" end,
@@ -115,6 +116,49 @@ check("no cache is fine: nothing is saved, the screen still hears", function()
   opts.cache = nil
   HomeLoader.refresh(opts)
   assert(#log.saved == 0 and log.told[1] == "counts")
+end)
+
+print("\n== the goals are asked for twice when the first answer fails ==")
+
+check("a refused goals request is asked once more after a pause", function()
+  local opts, log = setup()
+  local calls = 0
+  function opts.api:getGoals()
+    calls = calls + 1
+    log.asked[#log.asked + 1] = "goals"
+    if calls == 1 then return nil end
+    return { { id = 1 } }
+  end
+  HomeLoader.refresh(opts)
+  assert(calls == 2, "calls: " .. calls)
+  assert(joined(log.slept) == tostring(HomeLoader.GOALS_RETRY_AFTER), "slept: " .. joined(log.slept))
+  assert(log.told[#log.told] == "goals" and log.saved[#log.saved] == "goals")
+end)
+
+check("goals that fail twice leave the card alone", function()
+  local opts, log = setup({ goals = false })
+  HomeLoader.refresh(opts)
+  local n = 0
+  for _, a in ipairs(log.asked) do if a == "goals" then n = n + 1 end end
+  assert(n == 2, "asked " .. n)
+  assert(log.told[#log.told] ~= "goals" and log.saved[#log.saved] ~= "goals")
+end)
+
+check("goals that arrive first time are not asked for again, and no pause", function()
+  local opts, log = setup()
+  HomeLoader.refresh(opts)
+  assert(#log.slept == 0)
+end)
+
+check("a screen closed during the pause does not ask again", function()
+  local opts, log = setup({ goals = false })
+  local dead = false
+  opts.sleep = function() dead = true end
+  opts.alive = function() return not dead end
+  HomeLoader.refresh(opts)
+  local n = 0
+  for _, a in ipairs(log.asked) do if a == "goals" then n = n + 1 end end
+  assert(n == 1, "asked " .. n)
 end)
 
 print("\n== when the screen goes away ==")

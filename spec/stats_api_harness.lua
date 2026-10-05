@@ -1,4 +1,5 @@
--- Api:getStats: the paged request for finished books, against a stubbed Api:query.
+-- Api:getStats (the paged request for finished books) and which requests a tap must not cancel,
+-- against a stubbed Api:query.
 --
 -- Run with:  lua spec/stats_api_harness.lua [plugin-root]
 
@@ -90,6 +91,19 @@ check("a failure is nil and the error, and a failure on a later page loses nothi
   answers({ result = { me = {}, user_books = rows(500) } }, { err = err })
   stats, e = Api:getStats(1)
   assert(stats == nil and e == err, "a partial library must not pass for a whole one")
+end)
+
+check("Home's four requests are not cancelled by a tap (the reader scrolls Home while they run)", function()
+  for _, call in ipairs({
+    function() Api:getGoals() end,
+    function() Api:getShelfCounts(1, { 1, 2 }) end,
+    function() Api:getCurrentlyReading(1, 5) end,
+    function() Api:getListCount() end,
+  }) do
+    answers({ result = { me = {} } })
+    pcall(call)
+    assert(#sent >= 1 and sent[1].background == true, "a Home request can be cancelled by a touch")
+  end
 end)
 
 r.finish()

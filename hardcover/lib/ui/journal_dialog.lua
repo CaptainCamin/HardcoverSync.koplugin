@@ -195,8 +195,9 @@ end
 
 function JournalDialog:onConfigChoose(values, name, event, args, position)
   UIManager:tickAfterNext(function()
-    -- TODO regional refresh
-    UIManager:setDirty(self.dialog, "ui")
+    -- the dialog's own area (`self.dialog` is nil on an InputDialog, which asked for the whole
+    -- screen to be redrawn)
+    UIManager:setDirty(self, "ui")
   end)
 end
 

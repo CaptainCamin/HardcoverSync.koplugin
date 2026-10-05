@@ -12,11 +12,15 @@ local Home = require("hardcover/lib/home")
 
 local HomeLoader = {}
 
+-- How long to wait before asking for the goals a second time.
+HomeLoader.GOALS_RETRY_AFTER = 3
+
 --
 -- `opts`:
 --   api            getShelfCounts, getCurrentlyReading, getListCount, getGoals
 --   cache          the shelf cache, or nil (nothing is saved then)
 --   alive          function() -> true while the home screen is still up
+--   sleep          function(seconds), a pause that does not freeze the UI
 --   user_id, status_ids
 --   saved_counts, saved_reading   what the screen was drawn from, to tell what changed
 --   shown_reading  function(entries) -> the cards with offline reading laid over them
@@ -69,6 +73,12 @@ function HomeLoader.refresh(opts)
   -- the goal card: fresh goals replace the saved ones
   if alive() then
     local goals = api:getGoals()
+    if not goals and alive() then
+      -- refused (rate limit) or cut off: once more shortly, so the card is not left
+      -- saying there is no goal when there is one
+      opts.sleep(HomeLoader.GOALS_RETRY_AFTER)
+      if alive() then goals = api:getGoals() end
+    end
     if goals and alive() then
       if cache then cache:putGoals(user_id, goals) end
       opts.on_goals(goals)

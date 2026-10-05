@@ -18,7 +18,6 @@ local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
-local TextWidget = require("ui/widget/textwidget")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local Widget = require("ui/widget/widget")
 
@@ -56,16 +55,8 @@ function Canvas:free()
   if self.on_free then self.on_free() end
 end
 
-local function text(str, size, opts)
-  opts = opts or {}
-  return TextWidget:new {
-    text = tostring(str),
-    face = Theme.face(size or "label"),
-    bold = opts.bold,
-    max_width = opts.width,
-    fgcolor = opts.grey and Theme.DARK_GREY or Theme.BLACK,
-  }
-end
+-- (the charts' own small type is the default)
+local function text(str, size, opts) return Theme.text(str, size or "label", opts) end
 
 -- draw text at x (its left, or centred on x, or right-aligned to x), top at y
 local function put(bb, tw, x, y, align)

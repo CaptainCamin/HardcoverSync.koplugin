@@ -22,7 +22,6 @@ local InputContainer = require("ui/widget/container/inputcontainer")
 local ProgressWidget = require("ui/widget/progresswidget")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
 local TextBoxWidget = require("ui/widget/textboxwidget")
-local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local LeftContainer = require("ui/widget/container/leftcontainer")
@@ -91,16 +90,7 @@ local function progressBar(width, height, fraction)
   }
 end
 
-local function text(str, size, opts)
-  opts = opts or {}
-  return TextWidget:new {
-    text = str,
-    face = Theme.face(size),
-    bold = opts.bold,
-    max_width = opts.width,
-    fgcolor = opts.grey and Theme.DARK_GREY or Theme.BLACK,
-  }
-end
+local text = Theme.text
 
 -- The wrapper that makes a card tappable (and only over what it draws)
 function HomeDialog:tappable(widget, book_id, viewport)
