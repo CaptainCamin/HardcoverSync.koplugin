@@ -506,7 +506,7 @@ function DialogManager:checkForUpdate()
   end, beta)
 end
 
-function DialogManager:showHome(done_callback)
+function DialogManager:showHome()
   local user_id = User:getId()
   local cache = self.shelf_cache
   local ids = Home.statusIds()
@@ -563,9 +563,6 @@ function DialogManager:showHome(done_callback)
     goals_cb = function()
       self:showGoals()
     end,
-    close_callback = function()
-      if done_callback then done_callback() end
-    end,
   }
   self:screens():track("home", dialog)
 
@@ -614,7 +611,7 @@ end
 -- The shelf loader owns the paging rules; list screens page by the same size.
 local SHELF_PAGE_SIZE = ShelfLoader.PAGE_SIZE
 
-function DialogManager:showShelf(status_id, title, done_callback)
+function DialogManager:showShelf(status_id, title)
   local user_id = User:getId()
   local cache = self.shelf_cache
 
@@ -658,12 +655,7 @@ function DialogManager:showShelf(status_id, title, done_callback)
       Api:getShelfAsync(user_id, status_id, offset, limit, callback)
     end,
     select_entry_cb = function(entry)
-      self:showBookDetail(entry.book_id, nil, done_callback)
-    end,
-    close_callback = function()
-      if done_callback then
-        done_callback()
-      end
+      self:showBookDetail(entry.book_id)
     end,
   }
   self:screens():track("shelf", dialog)
@@ -682,7 +674,7 @@ function DialogManager:showShelf(status_id, title, done_callback)
         os.date("%Y-%m-%d", cached.saved_at or os.time())))
     else
       StatusDialogs.retry(_("no internet connection"), _("Loading your shelf"),
-        function() self:showShelf(status_id, title, done_callback) end,
+        function() self:showShelf(status_id, title) end,
         function() end)
     end
     return
@@ -746,7 +738,7 @@ function DialogManager:showShelf(status_id, title, done_callback)
       -- error the reader can only dismiss and start again.
       StatusDialogs.retry(result.failure, _("Loading your shelf"),
         function()
-          self:showShelf(status_id, title, done_callback)
+          self:showShelf(status_id, title)
         end,
         function() end)
     end
@@ -787,7 +779,7 @@ function DialogManager:goalsFlushed(sent_goals, archived_keys)
   self:applyGoals(GoalActions.afterFlush(self:savedGoals(), sent_goals, archived_keys))
 end
 
-function DialogManager:showGoals(done_callback)
+function DialogManager:showGoals()
   local user_id = User:getId()
   local cache = self.shelf_cache
   local cached, saved_at = cache and cache:goals(user_id)
@@ -812,9 +804,6 @@ function DialogManager:showGoals(done_callback)
     new_cb = function()
       self:showGoalForm(nil)
     end,
-    close_callback = function()
-      if done_callback then done_callback() end
-    end,
   }
   if cached and #(self:shownGoals(cached)) == 0 then
     dialog.message = _("No goals yet. Tap New goal to set one.")
@@ -834,7 +823,7 @@ function DialogManager:showGoals(done_callback)
       dialog:setGoals(self:shownGoals(cached), goalsNote(saved_at, _("Couldn't refresh.")), self:finishedOffline())
     else
       StatusDialogs.retry(err, _("Loading your goals"),
-        function() self:showGoals(done_callback) end,
+        function() self:showGoals() end,
         function() UIManager:close(dialog) end)
     end
   end)
@@ -848,7 +837,7 @@ end
 -- Your reading as charts. The saved copy shows at once (or a loading line the first time),
 -- and a fresh load replaces it when the connection allows. A change of shelf marks the
 -- saved copy stale, so it is refreshed here even when it is recent.
-function DialogManager:showStats(done_callback)
+function DialogManager:showStats()
   local user_id = User:getId()
   local cache = self.shelf_cache
   local saved = cache and cache:stats(user_id)
@@ -858,9 +847,6 @@ function DialogManager:showStats(done_callback)
   local online = Network.connected()
   local start = ScreenLoad.start(saved, online)
   local dialog = require("hardcover/lib/ui/stats_dialog"):new {
-    close_callback = function()
-      if done_callback then done_callback() end
-    end,
   }
   if saved then
     dialog.rows, dialog.genres, dialog.complete = saved.rows, saved.genres, saved.complete ~= false
@@ -885,23 +871,20 @@ function DialogManager:showStats(done_callback)
       dialog:setStats(saved, statsNote(saved.saved_at, _("Couldn't refresh.")))
     else
       StatusDialogs.retry(err, _("Loading your stats"),
-        function() self:showStats(done_callback) end,
+        function() self:showStats() end,
         function() UIManager:close(dialog) end)
     end
   end)
 end
 
 -- One goal, big. `note` is the saved-copy note when the goals shown are not fresh.
-function DialogManager:showGoal(goal, note, done_callback)
+function DialogManager:showGoal(goal, note)
   local dialog = require("hardcover/lib/ui/goal_dialog"):new {
     goal = goal,
     finished_offline = self:finishedOffline(),
     note = note,
     edit_cb = function(current)
       self:showGoalForm(current)
-    end,
-    close_callback = function()
-      if done_callback then done_callback() end
     end,
   }
   self:screens():track("goal", dialog)
@@ -1074,16 +1057,13 @@ end
 -- Your lists and the ones you follow. Shown at once with a loading line, filled in
 -- when the answer arrives; a list opens in the shelf screen (showList).
 --
-function DialogManager:showLists(done_callback)
+function DialogManager:showLists()
   self:screens():discard("lists")
 
   local dialog = require("hardcover/lib/ui/lists_dialog"):new {
     message = _("Loading your lists\226\128\166"),
     select_cb = function(row)
       self:showList(row)
-    end,
-    close_callback = function()
-      if done_callback then done_callback() end
     end,
   }
   self:screens():track("lists", dialog)
@@ -1098,7 +1078,7 @@ function DialogManager:showLists(done_callback)
     if not UIManager:isWidgetShown(dialog) then return end
     if not lists then
       StatusDialogs.retry(err, _("Loading your lists"),
-        function() self:showLists(done_callback) end,
+        function() self:showLists() end,
         function() UIManager:close(dialog) end)
       return
     end
@@ -1116,7 +1096,7 @@ end
 -- there is offline, with the date they are from); a fresh set replaces them when it
 -- arrives and is saved for next time.
 --
-function DialogManager:showForYou(done_callback)
+function DialogManager:showForYou()
   local user_id = User:getId()
   local cache = self.shelf_cache
   local saved, saved_at
@@ -1133,10 +1113,7 @@ function DialogManager:showForYou(done_callback)
     page_size = SHELF_PAGE_SIZE,
     fetch_page = function(_offset, _limit, callback) callback(nil, _("not available offline")) end,
     select_entry_cb = function(entry)
-      self:showBookDetail(entry.book_id, nil, done_callback)
-    end,
-    close_callback = function()
-      if done_callback then done_callback() end
+      self:showBookDetail(entry.book_id)
     end,
   }
   self:screens():track("for_you", dialog)
@@ -1162,7 +1139,7 @@ function DialogManager:showForYou(done_callback)
       StatusDialogs.retry(err, _("Finding books for you"),
         function()
           UIManager:close(dialog)
-          self:showForYou(done_callback)
+          self:showForYou()
         end,
         function() UIManager:close(dialog) end)
       return
@@ -1186,7 +1163,7 @@ end
 -- screen in its own ranking (showVibe). Needs the read:vibes permission, which a sign-in from
 -- before it was asked for lacks.
 --
-function DialogManager:showVibes(done_callback)
+function DialogManager:showVibes()
   self:screens():discard("vibes")
 
   local dialog = require("hardcover/lib/ui/lists_dialog"):new {
@@ -1196,9 +1173,6 @@ function DialogManager:showVibes(done_callback)
     message = _("Loading your vibes\226\128\166"),
     select_cb = function(row)
       self:showVibe(row.vibe)
-    end,
-    close_callback = function()
-      if done_callback then done_callback() end
     end,
   }
   self:screens():track("vibes", dialog)
@@ -1221,7 +1195,7 @@ function DialogManager:showVibes(done_callback)
         return
       end
       StatusDialogs.retry(covers_or_err, _("Loading your vibes"),
-        function() self:showVibes(done_callback) end,
+        function() self:showVibes() end,
         function() UIManager:close(dialog) end)
       return
     end
@@ -1235,7 +1209,7 @@ function DialogManager:showVibes(done_callback)
 end
 
 -- One vibe's books in its ranking, in the shelf screen, a page at a time as you page on.
-function DialogManager:showVibe(vibe, done_callback)
+function DialogManager:showVibe(vibe)
   local PAGE = 20
   local dialog
   local function fetch_page(offset, limit, callback)
@@ -1254,10 +1228,7 @@ function DialogManager:showVibe(vibe, done_callback)
     page_size = PAGE,
     fetch_page = fetch_page,
     select_entry_cb = function(entry)
-      self:showBookDetail(entry.book_id, nil, done_callback)
-    end,
-    close_callback = function()
-      if done_callback then done_callback() end
+      self:showBookDetail(entry.book_id)
     end,
   }
   UIManager:show(dialog)
@@ -1276,7 +1247,7 @@ function DialogManager:showVibe(vibe, done_callback)
       StatusDialogs.retry(err, _("Loading the vibe"),
         function()
           UIManager:close(dialog)
-          self:showVibe(vibe, done_callback)
+          self:showVibe(vibe)
         end,
         function() UIManager:close(dialog) end)
       return
@@ -1295,7 +1266,7 @@ end
 -- numbers them). Loaded a page at a time in the background, like a shelf, but not
 -- saved for offline: a list is read when you open it.
 --
-function DialogManager:showList(row, done_callback)
+function DialogManager:showList(row)
   local dialog = require("hardcover/lib/ui/shelf_dialog"):new {
     compatibility_mode = self.settings:compatibilityMode(),
     title = row.name,
@@ -1306,10 +1277,7 @@ function DialogManager:showList(row, done_callback)
     page_size = SHELF_PAGE_SIZE,
     fetch_page = function(_offset, _limit, callback) callback(nil, _("not available offline")) end,
     select_entry_cb = function(entry)
-      self:showBookDetail(entry.book_id, nil, done_callback)
-    end,
-    close_callback = function()
-      if done_callback then done_callback() end
+      self:showBookDetail(entry.book_id)
     end,
   }
   UIManager:show(dialog)
@@ -1360,7 +1328,7 @@ function DialogManager:showList(row, done_callback)
       StatusDialogs.retry(result.failure, _("Loading the list"),
         function()
           UIManager:close(dialog)
-          self:showList(row, done_callback)
+          self:showList(row)
         end,
         function() UIManager:close(dialog) end)
     end
@@ -1376,12 +1344,12 @@ end
 -- before the dialog existed, so a failure showed an error in place of a screen
 -- and an offline tap did nothing at all.
 --
-function DialogManager:showBookDetail(book_id, edition_id, done_callback)
+function DialogManager:showBookDetail(book_id, edition_id)
   local dialog = require("hardcover/lib/ui/book_detail_dialog"):new {
     detail = nil,
     loading = true,
     -- the details on screen go along, so the reviews can say which book and how it is rated
-    on_reviews = function(d) self:showReviews(book_id, nil, Reviews.summary(d and d.detail)) end,
+    on_reviews = function(d) self:showReviews(book_id, Reviews.summary(d and d.detail)) end,
     -- KOReader's file search, with the title filled in (it is in the file manager and the reader)
     on_find = DeviceSearch.available(self.ui) and function(d) self:findOnDevice(d) end or nil,
     -- only when the Z-library plugin is there: no button that does nothing
@@ -1416,9 +1384,6 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
   local function showSaved()
     dialog:setDetail(self:withPendingRating(Shelf.detailFromEntry(saved_entry())))
     StatusDialogs.info(_("Offline: showing saved details"))
-    if done_callback then
-      done_callback()
-    end
   end
 
   if not Network.connected() then
@@ -1428,7 +1393,7 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
       StatusDialogs.retry(_("no internet connection"), _("Loading book details"),
         function()
           UIManager:close(dialog)
-          self:showBookDetail(book_id, edition_id, done_callback)
+          self:showBookDetail(book_id, edition_id)
         end,
         function() UIManager:close(dialog) end)
     end
@@ -1450,7 +1415,7 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
       StatusDialogs.retry(_("no response"), _("Loading book details"),
         function()
           UIManager:close(dialog)
-          self:showBookDetail(book_id, edition_id, done_callback)
+          self:showBookDetail(book_id, edition_id)
         end,
         function() UIManager:close(dialog) end)
       return
@@ -1460,9 +1425,6 @@ function DialogManager:showBookDetail(book_id, edition_id, done_callback)
     -- no surprise when the books arrive (and the page does not jump when they do)
     dialog.similar_card = Recommendations.loadingCard(detail.book and detail.book.title)
     dialog:setDetail(self:withPendingRating(detail))
-    if done_callback then
-      done_callback()
-    end
 
     -- one after the other: two requests in flight at once left one of them lost
     self:loadSeries(dialog, detail.book, user_id, function() self:loadSimilar(dialog, book_id) end)
@@ -1513,7 +1475,7 @@ end
 -- nothing to wait for, so say so and open nothing. A failed page offers a retry
 -- instead of a dead end.
 --
-function DialogManager:showReviews(book_id, done_callback, summary)
+function DialogManager:showReviews(book_id, summary)
   if not Network.connected() then
     StatusDialogs.info(_("Reviews need an internet connection"))
     return
@@ -1563,7 +1525,6 @@ function DialogManager:showReviews(book_id, done_callback, summary)
     summary = summary,
     hint = hint,
     fetch_page = fetch_page,
-    close_callback = done_callback,
   }
   UIManager:show(dialog)
 
