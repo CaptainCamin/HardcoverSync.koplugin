@@ -535,29 +535,16 @@ function BookDetailDialog:init()
 end
 
 --
--- "Readers say": the breakdown of the ratings the book has had (a histogram with the average
--- marked) and its genres, moods and content warnings as pills. nil when Hardcover has none.
+-- "Readers say": the book's genres, moods and content warnings as pills (the breakdown of
+-- its ratings is on the reviews screen). nil when Hardcover has none.
 --
 function BookDetailDialog:communitySections(width)
   local book = self.detail and self.detail.book
   if not book then return nil end
   local Community = require("hardcover/lib/community")
   local ChartWidgets = require("hardcover/lib/ui/chart_widgets")
-  local Charts = require("hardcover/lib/charts")
 
   local group = VerticalGroup:new { align = "left" }
-  local dist = Community.distribution(book)
-  if dist then
-    table.insert(group, Theme.sectionHeader(_("Ratings"), width))
-    table.insert(group, Theme.span("s"))
-    table.insert(group, ChartWidgets.columns {
-      width = width, height = Theme.px(170), values = dist.counts,
-      labels = { "0.5", "1", "1.5", "2", "2.5", "3", "3.5", "4", "4.5", "5" },
-      marker = { at = dist.average * 2, text = string.format(_("avg %.1f"), dist.average) },
-      value_text = function(v) return Charts.number(v) end,
-    })
-  end
-
   local tags = Community.tags(book)
   for _i, spec in ipairs({
     { tags.genres, _("Genres") }, { tags.moods, _("Moods") }, { tags.warnings, _("Content warnings") },

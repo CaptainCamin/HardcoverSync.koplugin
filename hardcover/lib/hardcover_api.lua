@@ -1287,6 +1287,7 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
           edition_format
           reading_format_id
           pages
+          audio_seconds
           isbn_13
           isbn_10
           release_date
@@ -1308,12 +1309,16 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
             users_read_count
             rating
             ratings_count
-          ratings_distribution
-          cached_tags
             ratings_distribution
             cached_tags
+            first_release_date: release_date
+            reviews_count
+            lists_count
+            editions_count
+            default_audio_edition { audio_seconds }
             description
             contributions {
+              contribution
               author {
                 name
               }
@@ -1347,8 +1352,16 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
           users_read_count
           rating
           ratings_count
+          ratings_distribution
+          cached_tags
+          first_release_date: release_date
+          reviews_count
+          lists_count
+          editions_count
+          default_audio_edition { audio_seconds }
           description
           contributions {
+            contribution
             author {
               name
             }
@@ -1407,6 +1420,9 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
 
     if edition.pages then
       row.pages = edition.pages
+    end
+    if edition.audio_seconds then
+      row.audio_seconds = edition.audio_seconds
     end
   else
     row = _t.dig(results, "books", 1)

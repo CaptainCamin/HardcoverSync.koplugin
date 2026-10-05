@@ -142,7 +142,7 @@ function Reviews.summary(detail)
   local count = tonumber(book.ratings_count)
   if count and count <= 0 then count = nil end
   if not (title or rating) then return nil end
-  return { title = title, rating = rating, count = count }
+  return { title = title, rating = rating, count = count, distribution = require("hardcover/lib/community").distribution(book) }
 end
 
 --

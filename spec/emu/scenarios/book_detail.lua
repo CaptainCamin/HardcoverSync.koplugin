@@ -232,10 +232,9 @@ return {
     back_on_details("status shelf")
     Api.findBooks = find_books
 
-    -- what other readers say: the rating breakdown and the tags
+    -- what other readers say: the tags
     typical.scroll:scrollToRatio(0, 0.4)
     emu:pump()
-    emu:expectText("Ratings")
     emu:expectText("Moods")
     emu:expectText("Reflective")
     emu:shot("book_detail_community")
