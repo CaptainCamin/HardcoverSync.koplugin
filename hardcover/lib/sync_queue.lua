@@ -1,28 +1,18 @@
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 
-local SyncQueue = {}
-SyncQueue.__index = SyncQueue
+local OfflineQueue = require("hardcover/lib/offline_queue")
 
-function SyncQueue:new(o)
-  o = o or {}
-  setmetatable(o, self)
-  o.flushing = false
-  return o
-end
+local SyncQueue = OfflineQueue.extend({})
+SyncQueue.store_key = "pending"
 
+-- one entry per book file: its queued page and status
 function SyncQueue:pending()
-  local pending = self.settings:readSetting("pending")
-  if type(pending) ~= "table" then
-    pending = {}
-    self.settings:saveSetting("pending", pending)
-  end
-  return pending
+  return self:store()
 end
 
-function SyncQueue:persist()
-  if self.settings.flush then
-    self.settings:flush()
-  end
+-- a malformed entry (a hand edit, a merged settings file) is not something to send
+function SyncQueue:valid(entry)
+  return not self:isEmpty(entry)
 end
 
 function SyncQueue:get(filepath)
@@ -376,16 +366,6 @@ function SyncQueue:takeResumePage(filepath)
   return page
 end
 
-function SyncQueue:heldCount()
-  local n = 0
-  for _, entry in pairs(self:pending()) do
-    if not self:isEmpty(entry) and self:isHeld(entry) then
-      n = n + 1
-    end
-  end
-  return n
-end
-
 -- Give held entries another go.
 function SyncQueue:retryHeld()
   for _, entry in pairs(self:pending()) do
@@ -650,32 +630,31 @@ function SyncQueue:flush(api, opts)
     return false
   end
 
-  self.flushing = true
+  return self:withFlushLock(false, function()
+    local all_sent = true
+    local consecutive_failures = 0
 
-  local all_sent = true
-  local consecutive_failures = 0
-
-  for _, filepath in ipairs(paths) do
-    -- An API call that throws must not leave `flushing` set, or every later
-    -- flush is refused until KOReader restarts.
-    local ok, sent, reason = pcall(self._flushEntry, self, api, filepath, opts)
-    if ok and sent then
-      consecutive_failures = 0
-    else
-      all_sent = false
-      if not ok or reason == "transient" then
-        consecutive_failures = consecutive_failures + 1
-        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES then
-          break
-        end
-      else
+    for _, filepath in ipairs(paths) do
+      -- An API call that throws must not leave `flushing` set, or every later
+      -- flush is refused until KOReader restarts.
+      local ok, sent, reason = pcall(self._flushEntry, self, api, filepath, opts)
+      if ok and sent then
         consecutive_failures = 0
+      else
+        all_sent = false
+        if not ok or reason == "transient" then
+          consecutive_failures = consecutive_failures + 1
+          if consecutive_failures >= MAX_CONSECUTIVE_FAILURES then
+            break
+          end
+        else
+          consecutive_failures = 0
+        end
       end
     end
-  end
 
-  self.flushing = false
-  return all_sent
+    return all_sent
+  end)
 end
 
 return SyncQueue

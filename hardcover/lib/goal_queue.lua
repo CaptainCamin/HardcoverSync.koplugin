@@ -13,35 +13,23 @@
 
 local Goals = require("hardcover/lib/goals")
 local Lists = require("hardcover/lib/lists")
+local OfflineQueue = require("hardcover/lib/offline_queue")
 
-local GoalQueue = {}
-GoalQueue.__index = GoalQueue
+local GoalQueue = OfflineQueue.extend({})
+GoalQueue.store_key = "goal_ops"
+GoalQueue.iterate = ipairs -- the ops are a list, in the order they were made
 
 -- An op the server refused (or that needs a permission the sign-in lacks) this many
 -- flushes in a row is held: it stays, shown as waiting, until the user acts.
 GoalQueue.MAX_REJECTIONS = 3
 
-function GoalQueue:new(o)
-  o = o or {}
-  setmetatable(o, self)
-  return o
-end
-
 function GoalQueue.isLocal(key)
   return type(key) == "string" and key:find("^local:") ~= nil
 end
 
+-- the waiting ops, in order
 function GoalQueue:ops()
-  local ops = self.settings:readSetting("goal_ops")
-  if type(ops) ~= "table" then
-    ops = {}
-    self.settings:saveSetting("goal_ops", ops)
-  end
-  return ops
-end
-
-function GoalQueue:persist()
-  if self.settings.flush then self.settings:flush() end
+  return self:store()
 end
 
 -- the ops that are well formed (a hand-edited or newer file must not break a screen)
@@ -49,24 +37,12 @@ local function valid(op)
   return type(op) == "table" and op.key ~= nil and (op.kind == "save" or op.kind == "archive")
 end
 
-function GoalQueue:count()
-  local n = 0
-  for _, op in ipairs(self:ops()) do
-    if valid(op) then n = n + 1 end
-  end
-  return n
-end
-
-function GoalQueue:heldCount()
-  local n = 0
-  for _, op in ipairs(self:ops()) do
-    if valid(op) and op.held then n = n + 1 end
-  end
-  return n
+function GoalQueue:valid(op)
+  return valid(op)
 end
 
 function GoalQueue:isEmpty()
-  return self:count() == 0
+  return not self:hasPending()
 end
 
 function GoalQueue:find(key)
@@ -213,9 +189,13 @@ end
 --
 function GoalQueue:flush(api, opts)
   opts = opts or {}
-  if self.flushing then return { sent = 0, held = self:heldCount(), waiting = self:count(), stopped = true } end
-  self.flushing = true
+  local busy = function()
+    return { sent = 0, held = self:heldCount(), waiting = self:count(), stopped = true }
+  end
+  return self:withFlushLock(busy, function() return self:_flush(api, opts) end)
+end
 
+function GoalQueue:_flush(api, opts)
   local sent, stopped = 0, false
   local snapshot = {}
   for _, op in ipairs(self:ops()) do snapshot[#snapshot + 1] = op end
@@ -265,7 +245,6 @@ function GoalQueue:flush(api, opts)
     end
   end
 
-  self.flushing = false
   return { sent = sent, held = self:heldCount(), waiting = self:count(), stopped = stopped }
 end
 
