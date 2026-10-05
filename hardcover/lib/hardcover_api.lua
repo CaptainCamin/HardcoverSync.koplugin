@@ -702,7 +702,7 @@ function HardcoverApi:getListCount()
       }
     }
   ]]
-  local results, err = self:query(query, {})
+  local results, err = self:query(query, {}, true) -- a tap while Home is scrolled must not cancel it
   local me = results and results.me
   if type(me) == "table" and me[1] ~= nil then me = me[1] end
   if type(me) ~= "table" then
@@ -822,7 +822,7 @@ function HardcoverApi:getGoals()
     }
   ]]
 
-  local results, err = self:query(query, {})
+  local results, err = self:query(query, {}, true)
   local me = results and results.me
   if type(me) == "table" and me[1] ~= nil then me = me[1] end
   if type(me) ~= "table" or type(me.goals) ~= "table" then
@@ -1037,7 +1037,7 @@ function HardcoverApi:getShelfCounts(user_id, status_ids)
 
   local query = "query ($userId: Int!) {\n  " .. table.concat(parts, "\n  ") .. "\n}"
 
-  local results, err = self:query(query, { userId = user_id })
+  local results, err = self:query(query, { userId = user_id }, true)
   if not results then
     return nil, err
   end
@@ -1095,7 +1095,7 @@ function HardcoverApi:getCurrentlyReading(user_id, limit)
     userId = user_id,
     statusId = 2,
     limit = limit,
-  })
+  }, true)
   if not results or not results.user_books then
     return nil, err or { completed = false }
   end

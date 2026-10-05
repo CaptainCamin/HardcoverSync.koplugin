@@ -602,6 +602,12 @@ function DialogManager:showHome(done_callback)
     -- the goal card: fresh goals replace the saved ones
     if UIManager:isWidgetShown(dialog) then
       local goals = Api:getGoals()
+      if not goals and UIManager:isWidgetShown(dialog) then
+        -- refused (rate limit) or cut off: once more shortly, so the card is not left saying
+        -- there is no goal when there is one
+        Background.sleep(3)
+        if UIManager:isWidgetShown(dialog) then goals = Api:getGoals() end
+      end
       if goals and UIManager:isWidgetShown(dialog) then
         if cache then cache:putGoals(user_id, goals) end
         dialog.goals = self:shownGoals(goals)
