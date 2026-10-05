@@ -105,6 +105,22 @@ end
 -- The carousel on the details screen, headed "Similar to <the book's title>" (same shape
 -- as Shelf.seriesCard): a cover, the bold title, the author under it (`title_first`; a
 -- series strip shows the book's number first). Nil when there is nothing to show.
+--
+-- Whether to ask for the similar books again after a failed try (`tries` is how many have
+-- been made, `err` what the last one said). KOReader cancels a request in flight when the
+-- screen is touched, and a reader who scrolls the details straight away does exactly that,
+-- so a cancelled request is tried again until they leave it alone; one that really failed
+-- is tried twice more. Returns "retry" or "give_up".
+--
+Recommendations.CANCEL_TRIES = 8
+Recommendations.FAIL_TRIES = 3
+
+function Recommendations.retryPolicy(tries, err)
+  local cancelled = type(err) == "table" and err.completed == false
+  local limit = cancelled and Recommendations.CANCEL_TRIES or Recommendations.FAIL_TRIES
+  return tries < limit and "retry" or "give_up"
+end
+
 function Recommendations.card(entries, name)
   if type(entries) ~= "table" or #entries == 0 then return nil end
   local items = {}
