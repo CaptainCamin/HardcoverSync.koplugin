@@ -37,20 +37,24 @@ ShelfLoader.MAX_PAGES = 200
 ShelfLoader.RATE_LIMIT_WAITS = 5
 
 --
--- Load the shelf. `opts`:
---   api         has getShelf(user_id, status_id, offset, limit) -> entries | nil, err
---   network     has connected()
+-- Load the whole list, a page at a time. `opts`:
+--   fetch       function(offset, limit) -> entries | nil, err [, has_more]
 --   alive       function() -> true while the screen that asked is still up
 --   sleep       function(seconds), a pause that does not freeze the UI
---   user_id, status_id
---   on_page     function(fresh): called after each page that had books, with
---               everything loaded so far (a list the loader keeps appending to)
+--   network     optional, has connected(): checked before each request
+--   dedupe      true to drop a book seen twice (a shelf can change while it loads,
+--               shifting later rows into earlier pages)
+--   use_has_more  true when `fetch` says whether more follows (a list does); the
+--               load then ends on "no more" instead of waiting for an empty page
+--   on_page     function(fresh): called after each page that had books and more
+--               to come, with everything loaded so far (a list the loader keeps
+--               appending to)
 --
 -- Returns nil when the screen went away (nothing is left to update), otherwise
 -- { entries = the whole list, complete = reached the end, failure = why not }.
 --
 function ShelfLoader.load(opts)
-  local api, network = opts.api, opts.network
+  local network = opts.network
   local fresh, seen = {}, {}
   local offset, retries, pages, rate_waits = 0, 0, 0, 0
   local complete, failure = false, nil
@@ -61,12 +65,12 @@ function ShelfLoader.load(opts)
       return nil
     end
 
-    if not network.connected() then
+    if network and not network.connected() then
       failure = _("no internet connection")
       break
     end
 
-    local entries, err = api:getShelf(opts.user_id, opts.status_id, offset, ShelfLoader.PAGE_SIZE)
+    local entries, err, has_more = opts.fetch(offset, ShelfLoader.PAGE_SIZE)
 
     if not opts.alive() then
       return nil
@@ -87,17 +91,15 @@ function ShelfLoader.load(opts)
       pages = pages + 1
       offset = offset + #entries
 
-      for _, entry in ipairs(entries) do
-        -- the shelf can change while it loads, shifting later rows into
-        -- earlier pages; do not show a book twice
-        local id = entry.user_book_id or entry.book_id
+      for _i, entry in ipairs(entries) do
+        local id = opts.dedupe and (entry.user_book_id or entry.book_id) or nil
         if id == nil or not seen[id] then
           if id ~= nil then seen[id] = true end
           fresh[#fresh + 1] = entry
         end
       end
 
-      if #entries == 0 then
+      if #entries == 0 or (opts.use_has_more and not has_more) then
         complete = true
         break
       end

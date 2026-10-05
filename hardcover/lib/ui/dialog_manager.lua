@@ -17,12 +17,13 @@ local BookSearch = require("hardcover/lib/book_search")
 local Home = require("hardcover/lib/home")
 local HomeLoader = require("hardcover/lib/home_loader")
 local Goals = require("hardcover/lib/goals")
-local GoalQueue = require("hardcover/lib/goal_queue")
+local GoalActions = require("hardcover/lib/goal_actions")
 local Lists = require("hardcover/lib/lists")
 local Recommendations = require("hardcover/lib/recommendations")
 local Reviews = require("hardcover/lib/reviews")
 local Vibes = require("hardcover/lib/vibes")
 local Shelf = require("hardcover/lib/shelf")
+local ScreenLoad = require("hardcover/lib/screen_load")
 local ShelfLoader = require("hardcover/lib/shelf_loader")
 local DeviceSearch = require("hardcover/lib/device_search")
 local Zlibrary = require("hardcover/lib/zlibrary")
@@ -94,6 +95,13 @@ local function discard(dialog)
     UIManager:close(dialog)
   end
   dialog:free()
+end
+
+-- True when the sign-in is known to lack `scope` (one from before it was asked for):
+-- the screen then says to sign out and back in. Unknown (no auth, or not yet
+-- learned) counts as fine; the request itself will say.
+local function scopeMissing(scope)
+  return Api.auth and Api.auth:hasScope(scope) == false
 end
 
 function DialogManager:buildSearchDialog(title, items, active_item, book_callback, search_callback, search)
@@ -686,12 +694,11 @@ function DialogManager:showShelf(status_id, title, done_callback)
   -- shrinks to its first page while it refreshes.
   Background.run(function()
     local result = ShelfLoader.load {
-      api = Api,
+      fetch = function(offset, limit) return Api:getShelf(user_id, status_id, offset, limit) end,
       network = Network,
+      dedupe = true,
       alive = function() return UIManager:isWidgetShown(dialog) end,
       sleep = Background.sleep,
-      user_id = user_id,
-      status_id = status_id,
       on_page = function(fresh)
         stopLoading()
         if not cached then
@@ -766,15 +773,7 @@ end
 -- the saved copy and every screen up to date with what went through.
 function DialogManager:goalsFlushed(sent_goals, archived_keys)
   if #sent_goals == 0 and #archived_keys == 0 then return end
-  local goals = self:savedGoals()
-  for _, entry in ipairs(sent_goals) do
-    -- a goal made here has its real id now
-    goals = Goals.upsert(Goals.remove(goals, entry.key), entry.goal)
-  end
-  for _, key in ipairs(archived_keys) do
-    goals = Goals.remove(goals, key)
-  end
-  self:applyGoals(goals)
+  self:applyGoals(GoalActions.afterFlush(self:savedGoals(), sent_goals, archived_keys))
 end
 
 function DialogManager:showGoals(done_callback)
@@ -785,15 +784,18 @@ function DialogManager:showGoals(done_callback)
   discard(self.goals_dialog)
   self.goals_dialog = nil
 
-  local note
   local online = Network.connected()
-  if cached and not online then note = goalsNote(saved_at, _("Offline.")) end
+  local start = ScreenLoad.start(cached, online)
+  local note
+  if start == "saved_offline" then note = goalsNote(saved_at, _("Offline.")) end
 
   local dialog = require("hardcover/lib/ui/goals_dialog"):new {
     goals = self:shownGoals(cached),
     finished_offline = self:finishedOffline(),
     note = note,
-    message = cached == nil and (online and _("Loading your goals\226\128\166") or _("Goals need an internet connection the first time.")) or nil,
+    message = (start == "loading" and _("Loading your goals\226\128\166"))
+      or (start == "needs_network" and _("Goals need an internet connection the first time."))
+      or nil,
     open_cb = function(goal)
       self:showGoal(goal, note)
     end,
@@ -813,11 +815,12 @@ function DialogManager:showGoals(done_callback)
 
   Api:getGoalsAsync(function(goals, err)
     if not UIManager:isWidgetShown(dialog) then return end
-    if goals then
+    local outcome = ScreenLoad.finish(goals, cached)
+    if outcome == "fresh" then
       if cache then cache:putGoals(user_id, goals) end
       dialog.open_cb = function(goal) self:showGoal(goal, nil) end
       dialog:setGoals(self:shownGoals(goals), nil, self:finishedOffline())
-    elseif cached then
+    elseif outcome == "stale" then
       dialog:setGoals(self:shownGoals(cached), goalsNote(saved_at, _("Couldn't refresh.")), self:finishedOffline())
     else
       StatusDialogs.retry(err, _("Loading your goals"),
@@ -844,6 +847,7 @@ function DialogManager:showStats(done_callback)
   self.stats_dialog = nil
 
   local online = Network.connected()
+  local start = ScreenLoad.start(saved, online)
   local dialog = require("hardcover/lib/ui/stats_dialog"):new {
     close_callback = function()
       if done_callback then done_callback() end
@@ -851,9 +855,9 @@ function DialogManager:showStats(done_callback)
   }
   if saved then
     dialog.rows, dialog.genres, dialog.complete = saved.rows, saved.genres, saved.complete ~= false
-    if not online then dialog.note = statsNote(saved.saved_at, _("Offline.")) end
+    if start == "saved_offline" then dialog.note = statsNote(saved.saved_at, _("Offline.")) end
     dialog:rebuild()
-  elseif online then
+  elseif start == "loading" then
     dialog.message = _("Loading your stats\226\128\166")
   else
     dialog.message = _("Stats need an internet connection the first time.")
@@ -864,10 +868,11 @@ function DialogManager:showStats(done_callback)
 
   Api:getStatsAsync(user_id, function(stats, err)
     if not UIManager:isWidgetShown(dialog) then return end
-    if stats then
+    local outcome = ScreenLoad.finish(stats, saved)
+    if outcome == "fresh" then
       if cache then cache:putStats(user_id, stats) end
       dialog:setStats(stats, nil)
-    elseif saved then
+    elseif outcome == "stale" then
       dialog:setStats(saved, statsNote(saved.saved_at, _("Couldn't refresh.")))
     else
       StatusDialogs.retry(err, _("Loading your stats"),
@@ -915,21 +920,6 @@ function DialogManager:showGoalForm(goal, on_saved)
   self.goal_form_dialog = dialog
   UIManager:show(dialog)
   return dialog
-end
-
-local SIGN_IN_AGAIN = _("Sign out and back in (Settings > Account) to change goals.")
-
--- why a write failed, in a sentence: a refusal for the permission says to sign in
--- again, Hardcover's own words are passed on, anything else is "no answer"
-local function goalWriteProblem(err)
-  if Lists.isScopeError(err) then return SIGN_IN_AGAIN end
-  if type(err) == "string" and err ~= "" then
-    -- Hardcover's text may or may not end in a full stop, and a sentence follows it
-    err = err:gsub("%s+$", "")
-    if not err:match("[%.!%?]$") then err = err .. "." end
-    return err
-  end
-  return _("Hardcover did not answer.")
 end
 
 -- The goals as they are now (a list), everywhere they are shown: saved for offline,
@@ -980,17 +970,21 @@ function DialogManager:queueGoalChange(dialog, apply_fn, on_saved, goal)
 end
 
 function DialogManager:saveGoal(dialog, form, on_saved)
-  if Api.auth and Api.auth:hasScope(Goals.WRITE_SCOPE) == false then
-    dialog:setMessage(SIGN_IN_AGAIN)
+  local queue = self.goal_queue
+  local route = GoalActions.route {
+    scope_missing = scopeMissing(Goals.WRITE_SCOPE),
+    queue = queue,
+    connected = Network.connected(),
+    goal_id = form.id,
+  }
+
+  if route == "sign_in" then
+    dialog:setMessage(GoalActions.SIGN_IN_AGAIN)
     return
   end
 
-  local queue = self.goal_queue
-  local waiting = queue and (GoalQueue.isLocal(form.id) or queue:pendingFor(form.id))
-
-  -- Offline, or a change to this goal is already waiting (a goal made here has no
-  -- id on Hardcover yet, and a newer edit must not be overtaken): keep it here.
-  if queue and (not Network.connected() or waiting) then
+  -- Offline, or a change to this goal is already waiting: keep it here.
+  if route == "queue" then
     local base
     for _i, g in ipairs(self:savedGoals()) do if g.id == form.id then base = g end end
     local goal = queue:queueSave(form, base)
@@ -999,7 +993,7 @@ function DialogManager:saveGoal(dialog, form, on_saved)
     return
   end
 
-  if not Network.connected() then
+  if route == "offline" then
     dialog:setMessage(_("You're offline. Your changes are kept here: save when you're connected."))
     return
   end
@@ -1014,7 +1008,7 @@ function DialogManager:saveGoal(dialog, form, on_saved)
     if not UIManager:isWidgetShown(dialog) then return end
     if not saved then
       dialog:setBusy(false)
-      dialog:setMessage(string.format(_("Couldn't save the goal: %s Your changes are kept."), goalWriteProblem(err)))
+      dialog:setMessage(string.format(_("Couldn't save the goal: %s Your changes are kept."), GoalActions.problem(err)))
       return
     end
     UIManager:close(dialog)
@@ -1023,14 +1017,20 @@ function DialogManager:saveGoal(dialog, form, on_saved)
 end
 
 function DialogManager:archiveGoal(dialog, goal, on_saved)
-  if Api.auth and Api.auth:hasScope(Goals.WRITE_SCOPE) == false then
-    dialog:setMessage(SIGN_IN_AGAIN)
+  local queue = self.goal_queue
+  local route = GoalActions.route {
+    scope_missing = scopeMissing(Goals.WRITE_SCOPE),
+    queue = queue,
+    connected = Network.connected(),
+    goal_id = goal.id,
+  }
+
+  if route == "sign_in" then
+    dialog:setMessage(GoalActions.SIGN_IN_AGAIN)
     return
   end
 
-  local queue = self.goal_queue
-  local waiting = queue and (GoalQueue.isLocal(goal.id) or queue:pendingFor(goal.id))
-  if queue and (not Network.connected() or waiting) then
+  if route == "queue" then
     queue:queueArchive(goal.id, goal)
     self:queueGoalChange(dialog, function() end, nil, nil)
     self:closeGoalScreen(goal.id)
@@ -1039,7 +1039,7 @@ function DialogManager:archiveGoal(dialog, goal, on_saved)
     return
   end
 
-  if not Network.connected() then
+  if route == "offline" then
     dialog:setMessage(_("You're offline. Archiving needs a connection."))
     return
   end
@@ -1052,7 +1052,7 @@ function DialogManager:archiveGoal(dialog, goal, on_saved)
     if not UIManager:isWidgetShown(dialog) then return end
     if not done then
       dialog:setBusy(false)
-      dialog:setMessage(string.format(_("Couldn't archive the goal: %s"), goalWriteProblem(err)))
+      dialog:setMessage(string.format(_("Couldn't archive the goal: %s"), GoalActions.problem(err)))
       return
     end
     UIManager:close(dialog)
@@ -1197,7 +1197,7 @@ function DialogManager:showVibes(done_callback)
   self.vibes_dialog = dialog
   UIManager:show(dialog)
 
-  if Api.auth and Api.auth:hasScope(Vibes.SCOPE) == false then
+  if scopeMissing(Vibes.SCOPE) then
     dialog:setMessage(_("Sign out and back in (Settings > Account) to see your vibes."))
     return
   end
@@ -1314,72 +1314,54 @@ function DialogManager:showList(row, done_callback)
   end
 
   local loading = StatusDialogs.loading(_("Loading the list\226\128\166"))
-  Background.run(function()
-    local fresh, offset, retries, pages, rate_waits = {}, 0, 0, 0, 0
-    local complete, failure = false, nil
-
-    local function stopLoading()
-      if loading then
-        StatusDialogs.close(loading)
-        loading = nil
-      end
+  local function stopLoading()
+    if loading then
+      StatusDialogs.close(loading)
+      loading = nil
     end
+  end
 
-    while UIManager:isWidgetShown(dialog) do
-      local entries, err, has_more = Api:getListBooks(row.id, row.source, row.ranked, offset, SHELF_PAGE_SIZE)
-
-      if not UIManager:isWidgetShown(dialog) then break end
-
-      if entries == nil then
-        if type(err) == "table" and err.completed == false and retries < SHELF_PAGE_RETRIES then
-          retries = retries + 1
-        elseif type(err) == "table" and err.status == 429 and rate_waits < SHELF_RATE_LIMIT_WAITS then
-          rate_waits = rate_waits + 1
-          Background.sleep(2 * rate_waits)
-        else
-          failure = err
-          break
-        end
-      else
-        retries = 0
-        pages = pages + 1
-        offset = offset + #entries
-        for _i, entry in ipairs(entries) do fresh[#fresh + 1] = entry end
-
-        if #entries == 0 or not has_more then
-          complete = true
-          break
-        end
+  Background.run(function()
+    local result = ShelfLoader.load {
+      fetch = function(offset, limit)
+        return Api:getListBooks(row.id, row.source, row.ranked, offset, limit)
+      end,
+      use_has_more = true,
+      alive = function() return UIManager:isWidgetShown(dialog) end,
+      sleep = Background.sleep,
+      on_page = function(fresh)
         stopLoading()
         dialog.offset = #fresh
         dialog:setEntries(fresh, true, true)
-        if pages >= SHELF_MAX_PAGES then break end
-      end
-    end
+      end,
+    }
 
     stopLoading()
-    if not UIManager:isWidgetShown(dialog) then return end
+    if not result then return end
 
-    if complete then
+    local plan = ShelfLoader.plan(result, false)
+    local fresh = result.entries
+
+    if plan == "replace" then
       if #fresh == 0 then
         dialog:setEmptyState(_("No books on this list yet"))
       else
         dialog.offset = #fresh
         dialog:setEntries(fresh, false, true)
       end
-      return
+    elseif plan == "retry" then
+      StatusDialogs.retry(result.failure, _("Loading the list"),
+        function()
+          UIManager:close(dialog)
+          self:showList(row, done_callback)
+        end,
+        function() UIManager:close(dialog) end)
     end
-
-    if #fresh > 0 then return end -- keep what arrived
-    StatusDialogs.retry(failure, _("Loading the list"),
-      function()
-        UIManager:close(dialog)
-        self:showList(row, done_callback)
-      end,
-      function() UIManager:close(dialog) end)
+    -- "partial": keep what arrived
   end)
 end
 
+--
 --
 -- Fetch and display full details for one book.
 --
@@ -1565,7 +1547,7 @@ function DialogManager:showReviews(book_id, done_callback, summary)
   -- sign-in from before that scope was asked for (false; nil = cannot tell, as
   -- with a personal token) shows "A reader" for everyone, so say why.
   local hint
-  if Api.auth and Api.auth:hasScope("read:users") == false then
+  if scopeMissing("read:users") then
     hint = _("Names are hidden: sign out and back in to see them.")
   end
 
@@ -1691,7 +1673,7 @@ function DialogManager:chooseLists(dialog)
 
   -- a sign-in known to lack the scope would only fail: say what to do instead
   -- (nil, as with a personal token, is "cannot tell": try and see)
-  if Api.auth and Api.auth:hasScope(Lists.WRITE_SCOPE) == false then
+  if scopeMissing(Lists.WRITE_SCOPE) then
     listsNeedNewSignIn()
     return
   end

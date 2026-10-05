@@ -20,25 +20,25 @@ local ShelfLoader = require("hardcover/lib/shelf_loader")
 
 local function book(id) return { book_id = id, user_book_id = id } end
 
--- An API that answers from a script: a list of replies, one per getShelf call.
+-- A fetch that answers from a script: a list of replies, one per call, each
+-- { entries, err, has_more }.
 local function scripted(replies)
   local api = { calls = {} }
-  function api:getShelf(user_id, status_id, offset, limit)
-    self.calls[#self.calls + 1] = { user_id = user_id, status_id = status_id, offset = offset, limit = limit }
-    local reply = replies[#self.calls] or { {} }
-    return reply[1], reply[2]
+  api.fetch = function(offset, limit)
+    api.calls[#api.calls + 1] = { offset = offset, limit = limit }
+    local reply = replies[#api.calls] or { {} }
+    return reply[1], reply[2], reply[3]
   end
   return api
 end
 
 local function run(api, extra)
   local opts = {
-    api = api,
+    fetch = api.fetch or api.getShelf,
     network = { connected = function() return true end },
+    dedupe = true,
     alive = function() return true end,
     sleep = function() end,
-    user_id = 7,
-    status_id = 2,
   }
   for k, v in pairs(extra or {}) do opts[k] = v end
   return ShelfLoader.load(opts), opts
@@ -52,7 +52,7 @@ check("pages are asked for until one comes back empty", function()
   assert(result.complete and #result.entries == 3, "entries: " .. #result.entries)
   assert(#api.calls == 3, "calls: " .. #api.calls)
   assert(api.calls[1].offset == 0 and api.calls[2].offset == 2 and api.calls[3].offset == 3, "offsets")
-  assert(api.calls[1].limit == ShelfLoader.PAGE_SIZE and api.calls[1].user_id == 7 and api.calls[1].status_id == 2)
+  assert(api.calls[1].limit == ShelfLoader.PAGE_SIZE)
 end)
 
 check("a short page is not the end: only an empty one is", function()
@@ -76,7 +76,7 @@ end)
 
 check("a shelf that never ends stops at the page limit, incomplete", function()
   local n = 0
-  local api = { getShelf = function() n = n + 1; return { book(n) } end }
+  local api = { fetch = function() n = n + 1; return { book(n) } end }
   local result = run(api)
   assert(n == ShelfLoader.MAX_PAGES and not result.complete, "pages: " .. n)
   assert(#result.entries == ShelfLoader.MAX_PAGES)
@@ -139,7 +139,7 @@ print("\n== when the world changes ==")
 
 check("going offline mid-load ends it with the offline message", function()
   local online = true
-  local api = { getShelf = function() online = false; return { book(1) } end }
+  local api = { fetch = function() online = false; return { book(1) } end }
   local result = run(api, { network = { connected = function() return online end } })
   assert(not result.complete and #result.entries == 1)
   assert(result.failure == "no internet connection", tostring(result.failure))
@@ -153,9 +153,35 @@ end)
 
 check("a screen closed while a page was in flight returns nil", function()
   local up = true
-  local api = { getShelf = function() up = false; return { book(1) } end }
+  local api = { fetch = function() up = false; return { book(1) } end }
   local result, opts = run(api, { alive = function() return up end })
   assert(result == nil)
+end)
+
+print("\n== a list: the same loop, told by the server when it ends ==")
+
+check("with use_has_more the load ends on the page that says no more", function()
+  local api = scripted({ { { book(1), book(2) }, nil, true }, { { book(3) }, nil, false } })
+  local result = run(api, { use_has_more = true })
+  assert(result.complete and #result.entries == 3 and #api.calls == 2, "calls: " .. #api.calls)
+end)
+
+check("without use_has_more a missing has_more is not an ending", function()
+  local api = scripted({ { { book(1) } }, { { book(2) } }, { {} } })
+  local result = run(api)
+  assert(#api.calls == 3 and #result.entries == 2)
+end)
+
+check("a list keeps a book that appears twice when not de-duplicating", function()
+  local api = scripted({ { { book(1), book(1) }, nil, false } })
+  local result = run(api, { use_has_more = true, dedupe = false })
+  assert(#result.entries == 2, "entries: " .. #result.entries)
+end)
+
+check("without a network check the load does not look for one", function()
+  local api = scripted({ { { book(1) }, nil, false } })
+  local result = run(api, { use_has_more = true, network = false })
+  assert(result.complete)
 end)
 
 print("\n== what the screen does with the outcome ==")
