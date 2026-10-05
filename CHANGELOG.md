@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased (1.6.2 betas)
+
+### Fixed
+
+- Wifi that the plugin switched on for a sync or a screen was switched off the moment the work started, which could cut its requests off. It is now switched off 15 seconds later, and not at all if more work asks for wifi in the meantime. (Not yet tried on a device.)
+- Choosing an option in the journal entry dialog (privacy, edition) redrew the whole screen; it now redraws the dialog.
+
 ## 1.6.1
 
 ### Added

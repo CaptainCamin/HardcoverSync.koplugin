@@ -65,6 +65,10 @@ package.preload["ui/network/manager"] = function()
   }
 end
 
+package.preload["ui/uimanager"] = function()
+  return { scheduleIn = function() end, unschedule = function() end }
+end
+
 package.preload["logger"] = function()
   return { dbg = function() end, info = function() end, warn = function() end, err = function() end }
 end
