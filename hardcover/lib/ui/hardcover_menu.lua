@@ -510,10 +510,16 @@ function HardcoverMenu:getUpdateMenuItems()
       callback = function()
         local checking = InfoMessage:new { text = _("Checking for updates…"), timeout = 10 }
         UIManager:show(checking)
-        Github:latestReleaseAsync(function(release)
+        Github:latestReleaseAsync(function(release, why)
           UIManager:close(checking)
           if not release then
-            UIManager:show(InfoMessage:new { text = _("Couldn't reach GitHub. Try again when you're online.") })
+            local message = _("Couldn't reach GitHub. Try again when you're online.")
+            if why == "limited" then
+              message = _("GitHub is limiting requests from this connection for now. Try again in a while.")
+            elseif why == "answer" then
+              message = _("GitHub answered, but not with a release list. Try again in a while.")
+            end
+            UIManager:show(InfoMessage:new { text = message })
             return
           end
           Updater.remember(self.settings, release)

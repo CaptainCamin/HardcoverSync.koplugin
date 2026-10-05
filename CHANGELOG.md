@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased (1.6.3 betas)
+
+### Fixed
+
+- "Check for updates" could say "Couldn't reach GitHub" while online: the whole check was given 5 seconds, too little for the list of releases (over 50 KB, asked for when beta updates are on) on a slow e-reader connection. It now waits up to 30 seconds, asks for fewer releases, and says what happened when it fails: no answer, GitHub refusing requests from this address for a while (its limit is 60 an hour per address), or an answer that is not a release list.
+
 ## 1.6.2
 
 ### Fixed
