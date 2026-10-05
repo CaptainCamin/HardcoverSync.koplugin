@@ -1797,40 +1797,44 @@ local function async(callback, fn, ...)
   end)
 end
 
-function HardcoverApi:saveGoalAsync(id, input, callback)
-  async(callback, self.saveGoal, self, id, input)
-end
+--
+-- One wrapper per blocking call below: `name .. "Async"` takes the same arguments as
+-- `name` plus a callback as the last one, and calls it with whatever `name` returned.
+-- `name` is looked up when the wrapper is called, so a replaced method (a test, a
+-- spec's stub) is the one that runs.
+--
+local ASYNC_METHODS = {
+  "saveGoal",
+  "archiveGoal",
+  "getGoals",
+  "getLists",
+  "getBookLists",
+  "addToList",
+  "removeFromList",
+  "getListCount",
+  "getShelf",
+  "getStats",
+  "getBooksByIds",
+  "getVibes",
+  "getForYou",
+  "me",
+  "getSimilarBooks",
+  "getBookDetail",
+  "getReviews",
+  "updateUserBook",
+  "removeUserBook",
+  "findBooks",
+  "findEditions",
+  "findDefaultEdition",
+  "findBookByIdentifiers",
+}
 
-function HardcoverApi:archiveGoalAsync(goal, callback)
-  async(callback, self.archiveGoal, self, goal)
-end
-
-function HardcoverApi:getGoalsAsync(callback)
-  async(callback, self.getGoals, self)
-end
-
-function HardcoverApi:getListsAsync(callback)
-  async(callback, self.getLists, self)
-end
-
-function HardcoverApi:getBookListsAsync(book_id, callback)
-  async(callback, self.getBookLists, self, book_id)
-end
-
-function HardcoverApi:addToListAsync(book_id, list_id, position, callback)
-  async(callback, self.addToList, self, book_id, list_id, position)
-end
-
-function HardcoverApi:removeFromListAsync(list_book_id, callback)
-  async(callback, self.removeFromList, self, list_book_id)
-end
-
-function HardcoverApi:getListCountAsync(callback)
-  async(callback, self.getListCount, self)
-end
-
-function HardcoverApi:getShelfAsync(user_id, status_id, offset, limit, callback)
-  async(callback, self.getShelf, self, user_id, status_id, offset, limit)
+for _, name in ipairs(ASYNC_METHODS) do
+  HardcoverApi[name .. "Async"] = function(self, ...)
+    local n = select("#", ...)
+    local callback = select(n, ...)
+    async(callback, self[name], self, unpack({ ... }, 1, n - 1))
+  end
 end
 
 --
@@ -1944,62 +1948,6 @@ function HardcoverApi:getStats(user_id)
     end
   end
   return { rows = Stats.normalizeAll(raw), genres = genres or {}, complete = complete }
-end
-
-function HardcoverApi:getStatsAsync(user_id, callback)
-  async(callback, self.getStats, self, user_id)
-end
-
-function HardcoverApi:getBooksByIdsAsync(ids, callback)
-  async(callback, self.getBooksByIds, self, ids)
-end
-
-function HardcoverApi:getVibesAsync(user_id, callback)
-  async(callback, self.getVibes, self, user_id)
-end
-
-function HardcoverApi:getForYouAsync(callback)
-  async(callback, self.getForYou, self)
-end
-
-function HardcoverApi:meAsync(callback)
-  async(callback, self.me, self)
-end
-
-function HardcoverApi:getSimilarBooksAsync(book_id, callback)
-  async(callback, self.getSimilarBooks, self, book_id)
-end
-
-function HardcoverApi:getBookDetailAsync(book_id, user_id, edition_id, callback)
-  async(callback, self.getBookDetail, self, book_id, user_id, edition_id)
-end
-
-function HardcoverApi:getReviewsAsync(book_id, limit, offset, callback)
-  async(callback, self.getReviews, self, book_id, limit, offset)
-end
-
-function HardcoverApi:updateUserBookAsync(book_id, status_id, privacy_setting_id, edition_id, callback)
-  async(callback, self.updateUserBook, self, book_id, status_id, privacy_setting_id, edition_id)
-end
-
-function HardcoverApi:removeUserBookAsync(user_book_id, callback)
-  async(callback, self.removeUserBook, self, user_book_id)
-end
-
-function HardcoverApi:findBooksAsync(title, author, user_id, callback)
-  async(callback, self.findBooks, self, title, author, user_id)
-end
-
-function HardcoverApi:findEditionsAsync(book_id, user_id, callback)
-  async(callback, self.findEditions, self, book_id, user_id)
-end
-
-function HardcoverApi:findDefaultEditionAsync(book_id, user_id, callback)
-  async(callback, self.findDefaultEdition, self, book_id, user_id)
-end
-
-function HardcoverApi:findBookByIdentifiersAsync(identifiers, user_id, callback)
-  async(callback, self.findBookByIdentifiers, self, identifiers, user_id)
 end
 
 return HardcoverApi
