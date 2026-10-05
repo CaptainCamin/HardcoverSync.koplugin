@@ -16,7 +16,6 @@ local HorizontalGroup = require("ui/widget/horizontalgroup")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local LeftContainer = require("ui/widget/container/leftcontainer")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
-local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
@@ -58,16 +57,7 @@ function ListsDialog:init()
   self:build()
 end
 
-local function text(str, size, opts)
-  opts = opts or {}
-  return TextWidget:new {
-    text = str,
-    face = Theme.face(size),
-    bold = opts.bold,
-    max_width = opts.width,
-    fgcolor = opts.grey and Theme.DARK_GREY or Theme.BLACK,
-  }
-end
+local text = Theme.text
 
 -- a cover box of the final size, with the generic book icon until the picture comes
 function ListsDialog:coverCell(url, w, h)

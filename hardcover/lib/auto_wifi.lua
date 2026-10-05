@@ -4,6 +4,12 @@ local Device = require("device")
 local logger = require("logger")
 
 local NetworkMgr = require("ui/network/manager")
+local UIManager = require("ui/uimanager")
+
+-- How long wifi that this plugin switched on stays up after its work started. The work
+-- (a sync, a screen's requests) runs asynchronously after the callback, and switching wifi off
+-- the moment the callback returns cut those requests off.
+local DISABLE_DELAY = 15
 
 local AutoWifi = {
   connection_pending = false
@@ -22,6 +28,9 @@ end
 -- could not restore wifi, when a connection was already pending, or when
 -- ENABLE_WIFI was off. In all of those the tapped menu item did nothing at all.
 function AutoWifi:withWifi(callback)
+  -- more work is starting: wifi we were about to switch off is wanted again
+  self:cancelScheduledDisable()
+
   if NetworkMgr:isWifiOn() then
     callback(false)
     return
@@ -46,8 +55,9 @@ function AutoWifi:withWifi(callback)
 
       callback(true)
 
-      -- TODO: schedule turn off wifi, debounce
-      self:wifiDisableSilent()
+      -- switched off a while later (not now: the work the callback started is still running),
+      -- and not at all if more work asks for wifi meanwhile
+      self:scheduleDisable()
     end)
 
     return
@@ -57,6 +67,22 @@ function AutoWifi:withWifi(callback)
   -- prompt so the user can decide, rather than returning with the dialog
   -- unopened.
   self:wifiPrompt(callback)
+end
+
+function AutoWifi:scheduleDisable()
+  self:cancelScheduledDisable()
+  self.disable_task = function()
+    self.disable_task = nil
+    self:wifiDisableSilent()
+  end
+  UIManager:scheduleIn(DISABLE_DELAY, self.disable_task)
+end
+
+function AutoWifi:cancelScheduledDisable()
+  if self.disable_task then
+    UIManager:unschedule(self.disable_task)
+    self.disable_task = nil
+  end
 end
 
 function AutoWifi:wifiDisableSilent()

@@ -18,12 +18,11 @@ local _ = require("gettext")
 
 local ChartWidgets = require("hardcover/lib/ui/chart_widgets")
 local Charts = require("hardcover/lib/charts")
-local GoalWidgets = require("hardcover/lib/ui/goal_widgets")
 local Stats = require("hardcover/lib/stats")
 local Theme = require("hardcover/lib/ui/theme")
 
 local Screen = Device.screen
-local text = GoalWidgets.text
+local text = Theme.text
 
 local StatsDialog = InputContainer:extend {
   name = "hardcover_stats",

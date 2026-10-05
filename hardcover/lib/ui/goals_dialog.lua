@@ -25,7 +25,7 @@ local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
 
 local Screen = Device.screen
-local text = GoalWidgets.text
+local text = Theme.text
 
 local GoalsDialog = InputContainer:extend {
   name = "hardcover_goals",
