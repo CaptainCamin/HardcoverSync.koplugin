@@ -5,7 +5,6 @@
 local Device = require("device")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local ProgressWidget = require("ui/widget/progresswidget")
-local TextWidget = require("ui/widget/textwidget")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
 
@@ -17,17 +16,7 @@ local Screen = Device.screen
 
 local GoalWidgets = {}
 
-local function text(str, size, opts)
-  opts = opts or {}
-  return TextWidget:new {
-    text = str,
-    face = Theme.face(size),
-    bold = opts.bold,
-    max_width = opts.width,
-    fgcolor = opts.grey and Theme.DARK_GREY or Theme.BLACK,
-  }
-end
-GoalWidgets.text = text
+local text = Theme.text
 
 -- The bar; a tick marks where you should be today, except on a goal that is done,
 -- over, or not started (no "should be" to point at).

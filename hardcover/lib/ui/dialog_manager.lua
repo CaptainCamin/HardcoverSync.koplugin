@@ -839,9 +839,14 @@ end
 -- note saying when it is from. Pace is worked out on the device (see goals.lua), and
 -- books finished here but not yet sent count toward the number.
 --
+-- "<why> Showing your <things> as of <date>.": `sentence` is the whole translated line (with the
+-- two %s), `why` what happened ("Offline.", "Couldn't refresh.")
+local function savedNote(sentence, saved_at, why)
+  return string.format(sentence, why, os.date("%b %d", saved_at or os.time()))
+end
+
 local function goalsNote(saved_at, why)
-  local when = os.date("%b %d", saved_at or os.time())
-  return string.format(_("%s Showing your goals as of %s."), why, when)
+  return savedNote(_("%s Showing your goals as of %s."), saved_at, why)
 end
 
 function DialogManager:finishedOffline()
@@ -924,8 +929,7 @@ function DialogManager:showGoals(done_callback)
 end
 
 local function statsNote(saved_at, why)
-  local when = os.date("%b %d", saved_at or os.time())
-  return string.format(_("%s Showing your stats as of %s."), why, when)
+  return savedNote(_("%s Showing your stats as of %s."), saved_at, why)
 end
 
 -- Your reading as charts. The saved copy shows at once (or a loading line the first time),

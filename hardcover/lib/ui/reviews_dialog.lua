@@ -34,7 +34,6 @@ local InputContainer = require("ui/widget/container/inputcontainer")
 local TopContainer = require("ui/widget/container/topcontainer")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextViewer = require("ui/widget/textviewer")
-local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
@@ -113,16 +112,7 @@ end
 
 ------------------------------------------------------------------ the cards
 
-local function text(str, size, opts)
-  opts = opts or {}
-  return TextWidget:new {
-    text = str,
-    face = Theme.face(size),
-    bold = opts.bold,
-    max_width = opts.width,
-    fgcolor = opts.grey and Theme.DARK_GREY or Theme.BLACK,
-  }
-end
+local text = Theme.text
 
 local function rowOf(left, right, width)
   local gap = math.max(0, width - left:getSize().w - right:getSize().w)
