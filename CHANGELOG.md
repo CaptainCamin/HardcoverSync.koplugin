@@ -5,6 +5,13 @@
 ### Fixed
 
 - "Check for updates" could say "Couldn't reach GitHub" while online: the whole check was given 5 seconds, too little for the list of releases (over 50 KB, asked for when beta updates are on) on a slow e-reader connection. It now waits up to 30 seconds, asks for fewer releases, and says what happened when it fails: no answer, GitHub refusing requests from this address for a while (its limit is 60 an hour per address), or an answer that is not a release list. The daily check that runs by itself when Home opens still waits only 5 seconds, and when it fails it tries again in a few hours instead of at every Home screen (a refused address stays refused for a while, and each try was a wait on screen).
+- A rating set offline could be sent twice when two syncs overlapped (a second sync started while the first was waiting on the connection). A sync that is already running is now waited for.
+- Goal changes made offline could stop syncing until KOReader was restarted if one sync ended in an error. The sync is now always released.
+- Going to sleep, or losing the connection, did not cancel the book-linking retry that runs while a book is open, so it could fire later against a book that was no longer being tracked. It is now cancelled.
+
+### Changed
+
+- Under the hood, most of what Home, the shelves, Goals, Lists, Vibes, the book details and the request code decide is now in small separate pieces with tests of their own, and the screens only show the result. **Nothing should look or behave differently**; if a screen does, that is a bug worth reporting.
 
 ## 1.6.2
 
