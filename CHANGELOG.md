@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (1.6.3 betas)
+## 1.6.3
 
 ### Fixed
 
