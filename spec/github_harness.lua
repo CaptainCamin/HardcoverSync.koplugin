@@ -170,4 +170,47 @@ check("with betas on, the newest version in the list is taken, not just the firs
   assert(requested and requested:find("/releases/latest", 1, true), "asked for " .. tostring(requested))
 end)
 
+check("the reason a check failed is told: no answer, refused for now, or not a release list", function()
+  local http = require("socket.http")
+  local original = http.request
+  local why
+  local function ask() local got; Github:latestReleaseAsync(function(rel, w) got = rel; why = w end); return got end
+
+  http.request = function() return nil, "timeout" end
+  assert(ask() == nil and why == "network", tostring(why))
+  http.request = function() error("socket exploded") end
+  assert(ask() == nil and why == "network", tostring(why))
+  code = 403
+  http.request = function(req) if req.sink then req.sink("{}") end return 1, 403 end
+  assert(ask() == nil and why == "limited", tostring(why))
+  http.request = function(req) if req.sink then req.sink("{}") end return 1, 429 end
+  assert(ask() == nil and why == "limited", tostring(why))
+  http.request = function(req) if req.sink then req.sink("<html>") end return 1, 502 end
+  assert(ask() == nil and why == "answer", tostring(why))
+  http.request = original
+  code = 200
+end)
+
+check("the release check waits long enough for the list of releases on a slow connection", function()
+  local su = require("socketutil")
+  local block, total
+  local original = su.set_timeout
+  su.set_timeout = function(_, b, t) block, total = b, t end
+  body = "{}"
+  Github:latestReleaseAsync(function() end, true)
+  su.set_timeout = original
+  assert(block and block >= 10 and total and total >= 20, "timeouts " .. tostring(block) .. "/" .. tostring(total))
+end)
+
+check("the check that runs by itself keeps to a short wait", function()
+  local su = require("socketutil")
+  local block, total
+  local original = su.set_timeout
+  su.set_timeout = function(_, b, t) block, total = b, t end
+  body = "{}"
+  Github:latestReleaseAsync(function() end, true, true)
+  su.set_timeout = original
+  assert(block == 5 and total == 5, "timeouts " .. tostring(block) .. "/" .. tostring(total))
+end)
+
 r.finish()

@@ -31,6 +31,12 @@ function Updater.remember(settings, release, now)
   } or false)
 end
 
+-- A check that failed: try again in a few hours, not at the next Home screen (every try that
+-- GitHub refuses is a wait on the screen, and a refused address stays refused for a while).
+function Updater.failed(settings, now)
+  settings:updateSetting(SETTING.UPDATE_LAST_CHECK, (now or os.time()) - DAY + 3 * 60 * 60)
+end
+
 -- { version, notes, zip_url } of a known newer release that is still newer than
 -- `current` (it may have been installed since the check), else nil.
 function Updater.available(settings, current)

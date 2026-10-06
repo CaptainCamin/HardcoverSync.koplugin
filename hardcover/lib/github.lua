@@ -9,12 +9,16 @@ local VERSION = require("hardcover_version")
 
 local RELEASE_API = "https://api.github.com/repos/CaptainCamin/HardcoverSync.koplugin/releases/latest"
 -- every release including pre-releases, newest first (used when beta updates are on)
-local RELEASE_LIST_API = "https://api.github.com/repos/CaptainCamin/HardcoverSync.koplugin/releases?per_page=15"
+local RELEASE_LIST_API = "https://api.github.com/repos/CaptainCamin/HardcoverSync.koplugin/releases?per_page=10"
 
 -- How long to wait for GitHub before giving up and showing the About box
--- without the version comparison. Kept short: this runs while the user is
--- waiting on a menu item, and the release check is a nicety, not the point.
-local RELEASE_TIMEOUT = 5
+-- without the version comparison. Not too short: 5 seconds in all was too little for the list
+-- of releases (the answer is over 50 KB) on a slow e-reader connection, and the check then
+-- said GitHub could not be reached. The blocking time is per read, the total is the limit.
+local RELEASE_BLOCK_TIMEOUT = 15
+local RELEASE_TOTAL_TIMEOUT = 30
+-- the check that runs by itself when Home opens must not hold the screen for long
+local QUIET_TIMEOUT = 5
 
 local Github = {}
 
@@ -82,11 +86,13 @@ function Github.newerVersion(tag, current, include_beta)
 end
 
 --
--- The newest release, or nil when GitHub can't be reached or answers oddly:
+-- The newest release, or nil and why when it cannot be had: "network" (no answer in time),
+-- "limited" (GitHub is refusing requests from this address for a while: HTTP 403 or 429) or
+-- "answer" (something that is not a release list):
 -- { tag, version (only when newer than the installed one), notes, zip_url }.
 -- Blocks for at most RELEASE_TIMEOUT seconds; callers use the Async wrapper.
 --
-function Github:latestRelease(include_beta)
+function Github:latestRelease(include_beta, quiet)
   local responseBody = {}
 
   -- A timeout is essential. This request used to have none, so on a device with
@@ -94,7 +100,11 @@ function Github:latestRelease(include_beta)
   -- seconds to minutes -- and because the caller shows its dialog only after
   -- this returns, nothing appeared at all. On e-ink that reads as a dead screen
   -- until something forces a repaint.
-  socketutil:set_timeout(RELEASE_TIMEOUT, RELEASE_TIMEOUT)
+  if quiet then
+    socketutil:set_timeout(QUIET_TIMEOUT, QUIET_TIMEOUT)
+  else
+    socketutil:set_timeout(RELEASE_BLOCK_TIMEOUT, RELEASE_TOTAL_TIMEOUT)
+  end
 
   local ok, res, code = pcall(http.request, {
     url = include_beta and RELEASE_LIST_API or RELEASE_API,
@@ -104,13 +114,16 @@ function Github:latestRelease(include_beta)
   socketutil:reset_timeout()
 
   if not ok or type(code) ~= "number" then
-    return nil
+    return nil, "network"
+  end
+  if code == 403 or code == 429 then
+    return nil, "limited"
   end
 
   if code == 200 or code == 304 then
     local decoded_ok, data = pcall(json.decode, table.concat(responseBody), json.decode.simple)
     if not decoded_ok or type(data) ~= "table" or (data[1] == nil and data.tag_name == nil) then
-      return nil
+      return nil, "answer"
     end
     -- /releases/latest is one release (never a pre-release or draft). With beta
     -- updates on the answer is a list, newest first by date: take the highest
@@ -128,7 +141,7 @@ function Github:latestRelease(include_beta)
     end
     local tag = release.tag_name
     if type(tag) ~= "string" then
-      return nil
+      return nil, "answer"
     end
 
     local zip_url
@@ -149,6 +162,7 @@ function Github:latestRelease(include_beta)
       zip_url = type(zip_url) == "string" and zip_url or nil,
     }
   end
+  return nil, "answer"
 end
 
 -- The version of the newest release if it is newer than the installed one.
@@ -164,10 +178,10 @@ end
 -- appear immediately and fill in the version comparison if the answer arrives.
 -- See the timeout note above for what the blocking version cost.
 --
-function Github:latestReleaseAsync(callback, include_beta)
+function Github:latestReleaseAsync(callback, include_beta, quiet)
   UIManager:nextTick(function()
-    local ok, release = pcall(Github.latestRelease, Github, include_beta)
-    callback(ok and release or nil)
+    local ok, release, why = pcall(Github.latestRelease, Github, include_beta, quiet)
+    if ok and release then callback(release) else callback(nil, ok and why or "answer") end
   end)
 end
 
