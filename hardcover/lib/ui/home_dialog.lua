@@ -65,6 +65,11 @@ HomeDialog.MAX_CARDS = 3
 function HomeDialog:init()
   self.closed = false
   self.key_events.CloseHome = { { "Back" } }
+  -- PROTOTYPE (modular Home): a variant chosen by a dev setting; nil = today's Home
+  if rawget(_G, "G_reader_settings") and G_reader_settings:readSetting("hardcover_prototype_home_variant") then
+    local def = require("hardcover/lib/ui/home_modular_prototype").current()
+    self.prototype_variant = def and def.key
+  end
   -- the covers outlive a rebuild: Home rebuilds as its data arrives, and a picture
   -- already decoded is reused rather than decoded again
   self.covers = CoverCells:new {
@@ -157,7 +162,7 @@ function HomeDialog:buildCard(card, width, viewport)
 end
 
 -- One shelf tile: the count big, the name beside it. Tapping opens the shelf.
-function HomeDialog:buildTile(row, w, h, viewport)
+function HomeDialog:buildTile(row, w, h, viewport, proto_body)
   local line = HorizontalGroup:new { align = "center" }
   local count = Home.countText(row.count)
   if count ~= "" then
@@ -179,7 +184,9 @@ function HomeDialog:buildTile(row, w, h, viewport)
         self.select_cb(row)
       end
     end,
-    Theme.box(w, h, line, { radius = 10 }),
+    -- PROTOTYPE: a variant may draw the tile its own way (an unboxed line)
+    proto_body and LeftContainer:new { dimen = Geom:new { w = w, h = h }, proto_body }
+      or Theme.box(w, h, line, { radius = 10 }),
   }
   -- what the tile shows, so a rebuild can tell which tiles changed (and so which
   -- part of the panel needs redrawing)
@@ -217,6 +224,9 @@ end
 -- (a function returning the visible rectangle of the scroll area, or nil when the
 -- page is not scrolling) clips every tap range to what is on screen.
 function HomeDialog:buildColumn(width, viewport)
+  if self.prototype_variant then
+    return require("hardcover/lib/ui/home_modular_prototype").buildColumn(self, width, viewport)
+  end
   -- The search field: a rounded outline that reads as an input, and opens the
   -- search box when tapped. The words are centred in it by a container of the
   -- field's own size (a frame given a height does not centre its text).
@@ -371,6 +381,7 @@ function HomeDialog:build()
     show_parent = self,
   }
   local room = screen_h - title_bar:getSize().h
+  self.proto_room = room -- PROTOTYPE
 
   -- First at full width. If that is taller than the screen, again narrower (to
   -- leave the scroll bar its gutter) inside a scrolling container, with every tap
@@ -415,6 +426,9 @@ function HomeDialog:build()
   }
   self.dimen = Geom:new { x = 0, y = 0, w = screen_w, h = screen_h }
   self[1] = self.frame
+  if self.prototype_variant then -- PROTOTYPE: the variant switcher over the page
+    self[1] = require("hardcover/lib/ui/home_modular_prototype").wrap(self, self.frame)
+  end
 
   self.covers:finish()
 end
@@ -472,7 +486,7 @@ function HomeDialog:rebuild()
   self.pending_before = before
   self:restoreScroll(offset)
 
-  if not before or was_scrolling or self.scroll then
+  if not before or was_scrolling or self.scroll or self.prototype_variant then
     UIManager:setDirty(self, "ui")
     return
   end
