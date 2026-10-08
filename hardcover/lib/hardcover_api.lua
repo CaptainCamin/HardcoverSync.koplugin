@@ -1217,6 +1217,8 @@ function HardcoverApi:getLists()
           books_count
           ranked
           privacy_setting_id
+          updated_at
+          list_books_aggregate { aggregate { count } }
           list_books(order_by: [{ position: asc }, { id: asc }], limit: 3) {
             book { cached_image }
           }
@@ -1227,6 +1229,8 @@ function HardcoverApi:getLists()
             name
             books_count
             ranked
+            updated_at
+            list_books_aggregate { aggregate { count } }
             user { username }
             list_books(order_by: [{ position: asc }, { id: asc }], limit: 3) {
               book { cached_image }
@@ -1245,15 +1249,17 @@ function HardcoverApi:getLists()
 end
 
 --
--- How many lists there are to open (yours plus the ones you follow), for the
--- home screen's tile. One small request.
+-- How many lists there are to open (yours plus the ones you follow), for the home
+-- screen's tile, and each one's fingerprint (see Lists.marks), so Home can tell whether
+-- the saved lists are still right without fetching them. One small request (about 100
+-- bytes a list). Returns count, marks; or nil and the error.
 --
 function HardcoverApi:getListCount()
   local query = [[
     query {
       me {
-        lists_aggregate { aggregate { count } }
-        followed_lists { list_id }
+        lists { id updated_at list_books_aggregate { aggregate { count } } }
+        followed_lists { list { id updated_at list_books_aggregate { aggregate { count } } } }
       }
     }
   ]]
@@ -1263,17 +1269,34 @@ function HardcoverApi:getListCount()
   if type(me) ~= "table" then
     return nil, err or { completed = false }
   end
-  local mine = tonumber(_t.dig(me, "lists_aggregate", "aggregate", "count")) or 0
-  local followed = type(me.followed_lists) == "table" and #me.followed_lists or 0
-  return mine + followed
+  local marks = Lists.marks(me)
+  return #marks, marks
+end
+
+-- The list_books rows out of an answer read through `me` (see getListBooks), or nil and
+-- the error. A list that is gone (unfollowed, deleted) is an empty page, not an error.
+local function listBookRows(results, err, source)
+  local me = results and results.me
+  if type(me) == "table" and me[1] ~= nil then me = me[1] end
+  if type(me) ~= "table" then
+    return nil, err or { completed = false }
+  end
+  local rows
+  if source == "followed" then
+    rows = _t.dig(me, "followed_lists", 1, "list", "list_books")
+  else
+    rows = _t.dig(me, "lists", 1, "list_books")
+  end
+  return type(rows) == "table" and rows or {}
 end
 
 --
 -- One page of a list's books, in the list's own order, as shelf entries (with
 -- `rank` on a ranked list). `source` says which part of `me` the list is read
--- through: "mine" or "followed". Returns entries, nil, has_more.
+-- through: "mine" or "followed". `background` for a download nobody is waiting on
+-- (a tap must not cancel it). Returns entries, nil, has_more.
 --
-function HardcoverApi:getListBooks(list_id, source, ranked, offset, limit)
+function HardcoverApi:getListBooks(list_id, source, ranked, offset, limit, background)
   offset = offset or 0
   limit = limit or 100
 
@@ -1325,29 +1348,64 @@ function HardcoverApi:getListBooks(list_id, source, ranked, offset, limit)
     ]]
   end
 
-  local results, err = self:query(query, { listId = list_id, offset = offset, limit = limit })
-  local me = results and results.me
-  if type(me) == "table" and me[1] ~= nil then me = me[1] end
-  if type(me) ~= "table" then
-    return nil, err or { completed = false }
-  end
-
-  local rows
-  if source == "followed" then
-    rows = _t.dig(me, "followed_lists", 1, "list", "list_books")
-  else
-    rows = _t.dig(me, "lists", 1, "list_books")
-  end
-  if type(rows) ~= "table" then
-    -- the list is gone (unfollowed, deleted): an empty page, not an error
-    rows = {}
-  end
+  local results, err = self:query(query, { listId = list_id, offset = offset, limit = limit }, background)
+  local rows, failure = listBookRows(results, err, source)
+  if not rows then return nil, failure end
 
   local entries = {}
   for i, list_book in ipairs(rows) do
     entries[i] = Lists.entry(list_book, ranked)
   end
   return entries, nil, #rows >= limit
+end
+
+--
+-- One page of which books a list holds, and nothing about the books: { list_book_id,
+-- position, book_id, date_added } rows in the list's order. What a list that changed
+-- re-downloads, when the device already has most of its books (about 60 bytes a book,
+-- against 1.3 KB with the book). Never cancelled by a tap: nobody is waiting on it.
+-- Returns rows, nil, has_more.
+--
+function HardcoverApi:getListMembers(list_id, source, offset, limit)
+  offset = offset or 0
+  limit = limit or 100
+
+  local list_books = [[
+    list_books(order_by: [{ position: asc }, { id: asc }], offset: $offset, limit: $limit) {
+      id position date_added book_id
+    }
+  ]]
+  local query
+  if source == "followed" then
+    query = [[
+      query ($listId: Int!, $offset: Int!, $limit: Int!) {
+        me { followed_lists(where: { list_id: { _eq: $listId } }) { list { ]] .. list_books .. [[ } } }
+      }
+    ]]
+  else
+    query = [[
+      query ($listId: Int!, $offset: Int!, $limit: Int!) {
+        me { lists(where: { id: { _eq: $listId } }) { ]] .. list_books .. [[ } }
+      }
+    ]]
+  end
+
+  local results, err = self:query(query, { listId = list_id, offset = offset, limit = limit }, true)
+  local rows, failure = listBookRows(results, err, source)
+  if not rows then return nil, failure end
+
+  local members = {}
+  for _, list_book in ipairs(rows) do
+    if type(list_book) == "table" and tonumber(list_book.book_id) then
+      members[#members + 1] = {
+        list_book_id = tonumber(list_book.id),
+        position = tonumber(list_book.position),
+        book_id = tonumber(list_book.book_id),
+        date_added = list_book.date_added,
+      }
+    end
+  end
+  return members, nil, #rows >= limit
 end
 
 --
