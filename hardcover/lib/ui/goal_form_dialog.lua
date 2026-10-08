@@ -19,7 +19,6 @@ local InputContainer = require("ui/widget/container/inputcontainer")
 local InputDialog = require("ui/widget/inputdialog")
 local LeftContainer = require("ui/widget/container/leftcontainer")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
-local TextBoxWidget = require("ui/widget/textboxwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
@@ -85,34 +84,31 @@ function GoalFormDialog:rows()
 end
 
 function GoalFormDialog:buildRow(row, width, viewport)
+  -- a plain row, not a box: what it is (small, grey) over what it says, a chevron at the end
+  -- (it opens an editor or a picker), and a hairline under it (see buildContent)
   local h = Screen:scaleBySize(70)
-  local inner = width - 2 * Theme.line.firm
-  local pad = Theme.space.m
-  local chevron = text(CHEVRON, "title", { bold = true })
-  local value_w = inner - 2 * pad - chevron:getSize().w - Theme.space.s
+  local chevron = Theme.chevron()
+  local value_w = width - chevron:getSize().w - Theme.space.m
   local info = VerticalGroup:new {
     align = "left",
     text(row.label, "small", { grey = true, width = value_w }),
-    text(row.value, "body", { bold = true, width = value_w }),
+    text(row.value, "body", { width = value_w }),
   }
   local content = HorizontalGroup:new {
     align = "center",
-    Theme.hspan(pad),
     info,
-    Theme.hspan(math.max(0, value_w - info:getSize().w + Theme.space.s)),
+    Theme.hspan(math.max(0, width - info:getSize().w - chevron:getSize().w)),
     chevron,
   }
   local box = FrameContainer:new {
-    bordersize = Theme.line.firm,
-    radius = Screen:scaleBySize(10),
+    bordersize = 0,
     padding = 0,
     margin = 0,
     width = width,
     height = h,
-    color = Theme.BLACK,
     background = Theme.WHITE,
     LeftContainer:new {
-      dimen = Geom:new { w = inner, h = h - 2 * Theme.line.firm },
+      dimen = Geom:new { w = width, h = h },
       content,
     },
   }
@@ -132,20 +128,18 @@ function GoalFormDialog:buildContent(width, viewport)
   table.insert(c, Theme.span("m"))
 
   if self.message then
-    table.insert(c, FrameContainer:new {
-      bordersize = Theme.line.firm, color = Theme.BLACK, radius = Theme.px(8),
-      padding = Theme.space.s, margin = 0, background = Blitbuffer.COLOR_WHITE,
-      TextBoxWidget:new { text = self.message, face = Theme.face("small"), bold = true,
-        width = width - 2 * Theme.space.s - 2 * Theme.line.firm },
-    })
+    -- static information: a note, not a bordered box
+    table.insert(c, Theme.note(self.message, width))
     table.insert(c, Theme.span("m"))
   end
 
+  -- the rows are a list: a hairline above the first and under each
+  table.insert(c, Theme.rule(width, false))
   for _i, row in ipairs(self:rows()) do
     table.insert(c, self:buildRow(row, width, viewport))
-    table.insert(c, Theme.span("s"))
+    table.insert(c, Theme.rule(width, false))
   end
-  table.insert(c, Theme.span("m"))
+  table.insert(c, Theme.span("l"))
 
   local half = math.floor((width - Theme.space.m) / 2)
   self.save_button = Theme.button(self.busy and _("Saving\226\128\166") or _("Save"), half, {

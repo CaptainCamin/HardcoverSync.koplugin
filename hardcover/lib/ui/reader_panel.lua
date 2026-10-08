@@ -8,9 +8,20 @@
 -- now instead of what was true when it opened.
 --
 -- model() returns:
---   { title, linked (bool), pills = { { text, filled }, ... }, line (string or nil),
---     track = { checked, toggle } or nil,
---     actions = { { text, enabled, primary, run }, ... } }
+--   { title, on_title (function) or nil   -- tapping the title opens the book's details; it
+--       carries a chevron when set,
+--     linked (bool), info (plain text, e.g. "Not linked to Hardcover") or nil,
+--     status = { text, run, enabled } or nil   -- a pill you tap to change the status
+--     track = { checked, toggle } or nil       -- a pill: tracking on/off
+--     progress = { fraction, line, run, enabled } or nil   -- the bar and the line under
+--                it; tapping them runs `run` (set the page)
+--     blurb (string) or nil,
+--     actions = { { text, enabled, primary, wide, icon, narrow, run }, ... } }
+--
+-- Only things you can tap have a border: the status and tracking pills, the progress
+-- (it sets the page), and the buttons. An action with an `icon` is a tile (icon and
+-- label in one pill, a run of them sharing a row; `narrow` is icon only); the rest
+-- are pill buttons.
 --
 -- Tapping above the sheet, or the Back key, closes it.
 
@@ -49,31 +60,19 @@ function ReaderPanel:init()
   self:render()
 end
 
--- the tick box of the "track progress" row
-local function tickBox(checked)
-  local size = Screen:scaleBySize(26)
-  local mark = checked and TextWidget:new { text = CHECK, face = Theme.face("body"), bold = true, fgcolor = Theme.BLACK }
-    or Theme.hspan(1)
-  return Theme.box(size, size, mark, { radius = 4 })
-end
-
-function ReaderPanel:buildTrackRow(track, width)
-  local h = Theme.TOUCH_MIN + Theme.space.s
-  local inner = width - 2 * Theme.line.firm
-  local label = TextWidget:new {
-    text = _("Update Hardcover as I read"),
-    face = Theme.face("body"),
-    bold = true,
-    max_width = inner - tickBox(true):getSize().w - 3 * Theme.space.m,
-    fgcolor = Theme.BLACK,
-  }
-  local box = Theme.box(width, h, HorizontalGroup:new {
+-- an icon beside its label (or alone when `narrow`), in a pill w wide
+function ReaderPanel:buildTile(action, w)
+  local enabled = action.enabled ~= false
+  local icon = Theme.icon(action.icon, Theme.px(26))
+  local face_inner = w - 2 * Theme.line.firm - Theme.space.s - icon:getSize().w - Theme.space.xs
+  local content = action.narrow and icon or HorizontalGroup:new {
     align = "center",
-    label,
-    Theme.hspan(math.max(0, inner - label:getSize().w - tickBox(true):getSize().w - 2 * Theme.space.m)),
-    tickBox(track.checked),
-  }, { radius = 8 })
-  return TapRow:new { callback = function() track.toggle(); self:render() end, box }
+    icon,
+    Theme.hspan("xs"),
+    Theme.text(action.text, "small", { bold = true, grey = not enabled, width = face_inner }),
+  }
+  local box = Theme.box(w, Theme.px(56), content, { round = true })
+  return TapRow:new { callback = enabled and action.run or nil, box }
 end
 
 function ReaderPanel:render()
@@ -83,69 +82,136 @@ function ReaderPanel:render()
   local width = screen_w - 2 * M
 
   local content = VerticalGroup:new { align = "left" }
-  table.insert(content, Theme.span("m"))
+  table.insert(content, Theme.span("s"))
 
   -- the book
-  table.insert(content, TextWidget:new {
-    text = model.title,
-    face = Theme.face("display"),
-    bold = true,
-    max_width = width,
-    fgcolor = Theme.BLACK,
-  })
-
-  if #model.pills > 0 then
-    table.insert(content, Theme.span("s"))
-    local row = HorizontalGroup:new { align = "center" }
-    for i, pill in ipairs(model.pills) do
-      if i > 1 then table.insert(row, Theme.hspan("s")) end
-      table.insert(row, Theme.pill(pill.text, { filled = pill.filled, max_width = width }))
-    end
-    table.insert(content, row)
-  end
-
-  if model.line then
-    table.insert(content, Theme.span("s"))
+  local title_face, title_bold = Theme.serif("display")
+  if model.on_title then
+    -- a heading you can tap: the chevron right after it is the only cue, so it must always
+    -- fit (a long title is cut short instead)
+    local chevron = Theme.chevron(Theme.px(30))
+    local title = TextWidget:new {
+      text = model.title,
+      face = title_face,
+      bold = title_bold,
+      max_width = width - chevron:getSize().w - Theme.space.s,
+      fgcolor = Theme.BLACK,
+    }
+    local line = HorizontalGroup:new { align = "center", title, Theme.hspan("s"), chevron }
+    table.insert(content, Theme.touchable(line, line:getSize().w, model.on_title))
+  else
     table.insert(content, TextWidget:new {
-      text = model.line,
-      face = Theme.face("body"),
+      text = model.title,
+      face = title_face,
+      bold = title_bold,
       max_width = width,
-      fgcolor = Theme.DARK_GREY,
+      fgcolor = Theme.BLACK,
     })
   end
 
+  -- the status pill at the left and the tracking pill at the right, so the row spans
+  -- the page like the buttons below it. Both are tappable, so both have a border.
+  table.insert(content, Theme.span("m"))
+  local left, right
+  if model.info then
+    left = Theme.label(model.info, { grey = true, size = "body" })
+  elseif model.status then
+    local st = model.status
+    left = Theme.tapPill(st.text, { chevron = true, max_width = width / 2 }, st.enabled ~= false and st.run or nil)
+  end
   if model.track then
+    local tr = model.track
+    right = Theme.tapPill(tr.checked and _("Tracking on") or _("Tracking off"), { filled = tr.checked, max_width = width / 2 },
+      function() tr.toggle(); self:render() end)
+  end
+  local chips = HorizontalGroup:new { align = "center" }
+  if left then table.insert(chips, left) end
+  if right then
+    local used = (left and left:getSize().w or 0) + right:getSize().w
+    table.insert(chips, Theme.hspan(math.max(Theme.space.s, width - used)))
+    table.insert(chips, right)
+  end
+  table.insert(content, chips)
+
+  -- where you are in the book: the bar and its line are one tap target (set the page)
+  if model.progress then
+    local pr = model.progress
     table.insert(content, Theme.span("m"))
-    table.insert(content, self:buildTrackRow(model.track, width))
+    local block = VerticalGroup:new {
+      align = "left",
+      Theme.progress { width = width, height = Theme.px(14), percentage = pr.fraction },
+      Theme.span("m"),
+      -- a chevron at the end says the line opens something (the page picker)
+      pr.enabled ~= false and HorizontalGroup:new {
+        align = "center",
+        Theme.text(pr.line, "body", { width = width - Theme.px(24) - Theme.space.s }),
+        Theme.hspan(Theme.space.s),
+        Theme.chevron(),
+      } or Theme.text(pr.line, "body", { width = width }),
+    }
+    table.insert(content, TapRow:new { callback = pr.enabled ~= false and pr.run or nil, block })
   end
 
-  -- the actions, two to a row
-  table.insert(content, Theme.span("m"))
-  table.insert(content, Theme.rule(width, true))
-  table.insert(content, Theme.span("m"))
+  if model.blurb then
+    table.insert(content, Theme.span("m"))
+    table.insert(content, TextWidget:new {
+      text = model.blurb, face = Theme.face("body"), max_width = width, fgcolor = Theme.DARK_GREY,
+    })
+  end
+
+  -- the actions: tiles share a row, the rest are pill buttons up to three to a row
+  table.insert(content, Theme.span("l"))
   local gap = Theme.space.m
-  local half = math.floor((width - gap) / 2)
+  local function button(action, w)
+    return Theme.button(action.text, w, {
+      filled = action.primary,
+      enabled = action.enabled ~= false,
+      callback = action.run,
+      size = "small",
+      h = Theme.px(50),
+    })
+  end
   local i = 1
   while i <= #model.actions do
     local a, b = model.actions[i], model.actions[i + 1]
-    local function button(action, w)
-      return Theme.button(action.text, w, {
-        filled = action.primary,
-        enabled = action.enabled ~= false,
-        callback = action.run,
-        size = "body",
-      })
-    end
-    if a.wide or not b or b.wide then
-      table.insert(content, button(a, a.wide and width or half))
+    if a.icon then
+      local tiles = {}
+      while model.actions[i] and model.actions[i].icon do
+        tiles[#tiles + 1] = model.actions[i]
+        i = i + 1
+      end
+      local narrow_w = Theme.px(72)
+      local wide_n, used = 0, 0
+      for _, t in ipairs(tiles) do
+        if t.narrow then used = used + narrow_w else wide_n = wide_n + 1 end
+      end
+      local tw = math.floor((width - (#tiles - 1) * gap - used) / math.max(1, wide_n))
+      local row = HorizontalGroup:new {}
+      for n, t in ipairs(tiles) do
+        if n > 1 then table.insert(row, Theme.hspan(gap)) end
+        table.insert(row, self:buildTile(t, t.narrow and narrow_w or tw))
+      end
+      table.insert(content, row)
+    elseif a.wide then
+      table.insert(content, button(a, width))
       i = i + 1
     else
-      table.insert(content, HorizontalGroup:new { button(a, half), Theme.hspan(gap), button(b, half) })
-      i = i + 2
+      local group = {}
+      while model.actions[i] and not model.actions[i].icon and not model.actions[i].wide and #group < 3 do
+        group[#group + 1] = model.actions[i]
+        i = i + 1
+      end
+      local bw = math.floor((width - (#group - 1) * gap) / #group)
+      local row = HorizontalGroup:new {}
+      for n, act in ipairs(group) do
+        if n > 1 then table.insert(row, Theme.hspan(gap)) end
+        table.insert(row, button(act, bw))
+      end
+      table.insert(content, row)
     end
     table.insert(content, Theme.span("s"))
   end
-  table.insert(content, Theme.span("m"))
+  table.insert(content, Theme.span("s"))
 
   local sheet = FrameContainer:new {
     background = Blitbuffer.COLOR_WHITE,
@@ -165,12 +231,32 @@ function ReaderPanel:render()
     sheet,
   }
   local old = self.sheet_rect
+  local old_top = self.sheet_top
   self.sheet_top = screen_h - sheet:getSize().h
+  -- the page behind the sheet is hatched, once: all of it when the panel opens, and
+  -- the strip the sheet uncovers when it gets shorter
+  if not old_top then
+    self.scrim = { x = 0, y = 0, w = screen_w, h = self.sheet_top }
+  elseif self.sheet_top > old_top then
+    self.scrim = { x = 0, y = old_top, w = screen_w, h = self.sheet_top - old_top }
+  end
   self.sheet_rect = { x = 0, y = self.sheet_top, w = screen_w, h = sheet:getSize().h }
   -- only the sheet is drawn over the page, so only the sheet's rows of the panel
   -- need redrawing (and, when it changes height, where it used to be): not the
   -- whole book page behind it
-  UIManager:setDirty(self, "ui", self:rect(Refresh.union(old, self.sheet_rect)))
+  local dirty = Refresh.union(old, self.sheet_rect)
+  if self.scrim then dirty = Refresh.union(dirty, self.scrim) end
+  UIManager:setDirty(self, "ui", self:rect(dirty))
+end
+
+-- the sheet, then the hatching over the page it leaves visible (see render)
+function ReaderPanel:paintTo(bb, x, y)
+  InputContainer.paintTo(self, bb, x, y)
+  local s = self.scrim
+  if s then
+    Theme.hatchRect(bb, x + s.x, y + s.y, s.w, s.h)
+    self.scrim = nil
+  end
 end
 
 -- a Geom for a {x, y, w, h}
@@ -187,9 +273,8 @@ end
 
 -- leaving the panel must repaint the page under it
 function ReaderPanel:onCloseWidget()
-  -- the page under the sheet is already in the framebuffer (close() repaints it);
-  -- the panel only needs to redraw where the sheet was
-  UIManager:setDirty(nil, "ui", self.sheet_rect and self:rect(self.sheet_rect) or nil)
+  -- the page under was hatched, so all of it needs repainting without the hatching
+  UIManager:setDirty(nil, "ui", self.dimen)
 end
 
 function ReaderPanel:onClosePanel()

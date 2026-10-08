@@ -177,9 +177,7 @@ function HardcoverMenu:showReaderPanel()
     local pages_item = findItem(status_items, "Update page")
     local note_item = findItem(status_items, "Add a note")
     local rating_item = findItem(status_items, "Update rating") or findItem(status_items, "Set rating")
-    local settings_item = findItem(view, "Settings")
     local link_item = findItem(view, "Linked book") or findItem(view, "Link book")
-    local edition_item = findItem(view, "Change edition")
     -- just the statuses (and Remove); page, note and rating have buttons of their own
     local status_item = findItem(view, "Update status") and {
       text = _("Update status"),
@@ -190,22 +188,15 @@ function HardcoverMenu:showReaderPanel()
       end,
     }
 
-    local pills = {}
-    if not linked then
-      pills[1] = { text = _("Not linked to Hardcover") }
-    elseif status.status_id and STATUS_LABELS[status.status_id] then
-      pills[1] = { text = _(STATUS_LABELS[status.status_id]), filled = true }
-    end
-
-    local bits = {}
     local reads = status.user_book_reads
     local read = reads and reads[#reads]
     local pages = self.settings:pages()
-    if linked and pages then
-      bits[#bits + 1] = T(_("Page %1 of %2"), read and read.progress_pages or 0, pages)
-    end
-    if status.rating then
-      bits[#bits + 1] = T(_("Rated %1"), tostring(status.rating))
+
+    -- the book's own screen: opened by tapping the title (which carries a chevron)
+    local function open_details()
+      self:withWifiThen(function()
+        self.dialog_manager:showBookDetail(self.settings:getLinkedBookId(), self.settings:getLinkedEditionId())
+      end, true)
     end
 
     local actions = {}
@@ -216,44 +207,43 @@ function HardcoverMenu:showReaderPanel()
     end
 
     if linked then
-      add(_("Status"), status_item)
-      add(_("Set page"), pages_item)
-      add(_("Rating"), rating_item)
-      add(_("Add a note"), note_item)
-      actions[#actions + 1] = {
-        text = _("Details"), enabled = self.enabled,
-        run = function()
-          self:withWifiThen(function()
-            self.dialog_manager:showBookDetail(self.settings:getLinkedBookId(), self.settings:getLinkedEditionId())
-          end, true)
-        end,
-      }
-      actions[#actions + 1] = {
-        text = _("Reviews"), enabled = self.enabled,
-        run = function()
-          self:withWifiThen(function()
-            self.dialog_manager:showReviews(self.settings:getLinkedBookId())
-          end, true)
-        end,
-      }
-      add(_("Change edition"), edition_item)
-      add(_("Settings"), settings_item)
+      add(_("Rate"), rating_item, { icon = "star" })
+      add(_("Note"), note_item, { icon = "edit" })
     else
       add(_("Link this book"), link_item, { primary = true, wide = true })
-      add(_("Settings"), settings_item, { wide = true })
     end
-    -- everything the reader's tracking menu holds (unlink, remove, sync now...)
+    -- everything the reader's tracking menu holds (unlink, change edition, sync now,
+    -- settings...)
     add(_("More"), {
       enabled_func = function() return true end,
       text = _("Hardcover"),
       sub_item_table_func = function() return self:getSubMenuItems(true) end,
-    }, { wide = true })
+    }, linked and { icon = "more", narrow = true } or { wide = true })
+
+    local status_label = linked and status.status_id and STATUS_LABELS[status.status_id]
+    local progress_line = {}
+    local fraction
+    if linked and pages and pages > 0 then
+      local done = read and read.progress_pages or 0
+      fraction = math.min(1, done / pages)
+      progress_line[1] = T(_("Page %1 of %2"), done, pages)
+      progress_line[2] = T(_("%1%"), math.floor(fraction * 100 + 0.5))
+    end
+    if status.rating then progress_line[#progress_line + 1] = T(_("Rated %1"), tostring(status.rating)) end
 
     return {
       title = title,
+      on_title = linked and self.enabled and open_details or nil,
       linked = linked,
-      pills = pills,
-      line = #bits > 0 and table.concat(bits, "  \194\183  ") or nil,
+      info = not linked and _("Not linked to Hardcover") or nil,
+      status = status_label and { text = _(status_label), run = function() run(status_item) end, enabled = enabled(status_item) } or nil,
+      progress = fraction and {
+        fraction = fraction,
+        line = table.concat(progress_line, "  \194\183  "),
+        run = function() run(pages_item) end,
+        enabled = enabled(pages_item),
+      } or nil,
+      blurb = not linked and _("Link it to Hardcover to track your progress, status and notes.") or nil,
       track = linked and {
         checked = self.settings:syncEnabled(),
         toggle = function() self.settings:setSync(not self.settings:syncEnabled()) end,
@@ -299,6 +289,7 @@ end
 function HardcoverMenu:getSubMenuItems(book_view)
   local menu_items = {
     book_view and {
+      opens = true, -- opens a screen, a dialog or a picker: its row gets a chevron
       text_func = function()
         if self.settings:bookLinked() then
           -- need to show link information somehow. Maybe store title
@@ -341,6 +332,7 @@ function HardcoverMenu:getSubMenuItems(book_view)
       end,
     },
     book_view and {
+      opens = true, -- opens a screen, a dialog or a picker: its row gets a chevron
       text_func = function()
         local edition_format = self.settings:getLinkedEditionFormat()
         local title = "Change edition"
@@ -407,6 +399,7 @@ function HardcoverMenu:getSubMenuItems(book_view)
       separator = true
     },
     book_view and {
+      opens = true, -- opens a screen, a dialog or a picker: its row gets a chevron
       text = _("Book details"),
       enabled_func = function()
         return self.enabled and self.settings:bookLinked()
@@ -560,6 +553,7 @@ end
 -- used to be the first menu screen.
 function HardcoverMenu:getAboutMenuItem()
   return {
+    opens = true, -- opens a screen, a dialog or a picker: its row gets a chevron
     text = _("About"),
     callback = function()
       local version = (VERSION.text or table.concat(VERSION, "."))
@@ -640,6 +634,7 @@ end
 -- Every change waiting to be sent, each with a way to cancel just that one.
 function HardcoverMenu:getPendingChangesMenuItem()
   return {
+    opens = true, -- opens a screen, a dialog or a picker: its row gets a chevron
     text_func = function()
       return T(_("Pending changes (%1)"), self:pendingTotal())
     end,
@@ -675,6 +670,7 @@ end
 
 function HardcoverMenu:getSyncConflictsMenuItem()
   return {
+    opens = true, -- opens a screen, a dialog or a picker: its row gets a chevron
     text_func = function()
       return SyncConflicts.menuText(self.sync_queue:conflictCount())
     end,
@@ -764,6 +760,7 @@ function HardcoverMenu:getAccountMenuItem()
 
       if self.auth:needsReauth() then
         table.insert(items, {
+          opens = true, -- opens a screen, a dialog or a picker: its row gets a chevron
           text = _("Sign in to Hardcover"),
           enabled_func = function()
             return self.enabled
@@ -778,6 +775,7 @@ function HardcoverMenu:getAccountMenuItem()
         })
       else
         table.insert(items, {
+          opens = true, -- opens a screen, a dialog or a picker: its row gets a chevron
           text = _("Sign in again"),
           enabled_func = function()
             return self.enabled
@@ -1088,6 +1086,7 @@ function HardcoverMenu:getStatusSubMenuItems()
       separator = true
     },
     {
+      opens = true, -- opens a screen, a dialog or a picker: its row gets a chevron
       text_func = function()
         local reads = self.state.book_status.user_book_reads
         local current_page = reads and reads[#reads] and reads[#reads].progress_pages or 0
@@ -1157,6 +1156,7 @@ function HardcoverMenu:getStatusSubMenuItems()
       keep_menu_open = true
     },
     {
+      opens = true, -- opens a screen, a dialog or a picker: its row gets a chevron
       text = _("Add a note"),
       enabled_func = function()
         return self.enabled and self.state.book_status.id ~= nil
@@ -1179,6 +1179,7 @@ function HardcoverMenu:getStatusSubMenuItems()
       keep_menu_open = true
     },
     {
+      opens = true, -- opens a screen, a dialog or a picker: its row gets a chevron
       text_func = function()
         local text
         if self.state.book_status.rating then
@@ -1248,6 +1249,7 @@ function HardcoverMenu:getTrackingSubMenuItems()
       end
     },
     {
+      opens = true, -- opens a screen, a dialog or a picker: its row gets a chevron
       text_func = function()
         return "Every " .. self.settings:trackFrequency() .. " minutes"
       end,
@@ -1284,6 +1286,7 @@ function HardcoverMenu:getTrackingSubMenuItems()
       end
     },
     {
+      opens = true, -- opens a screen, a dialog or a picker: its row gets a chevron
       text_func = function()
         return "Every " .. self.settings:trackPercentageInterval() .. " percent completed"
       end,

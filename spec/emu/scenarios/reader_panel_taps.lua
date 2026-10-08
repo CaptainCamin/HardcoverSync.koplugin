@@ -60,7 +60,12 @@ return {
     menu.withWifiThen = function(_, action) action(false) end
 
     local function tapText(text)
-      local node = emu:expectText(text)
+      -- the exact label first: "Page" is also the start of "Page 142 of 387"
+      local node
+      for _, n in ipairs(emu:screenNodes()) do
+        if n.text == text then node = n; break end
+      end
+      node = node or emu:expectText(text)
       emu:tapExpecting(node.x + math.floor(node.w / 2), node.y + math.floor(node.h / 2))
     end
     local function panel_is_top() return emu:top() and emu:top().name == "hardcover_reader_panel" end
@@ -72,12 +77,12 @@ return {
     assert(calls.fetched_with_panel_up == true, "the record was fetched before the panel was shown")
 
     -- the tick
-    tapText("Update Hardcover as I read")
+    tapText("Tracking on")
     assert(calls.sync == false, "the tick did not turn tracking off")
     assert(panel_is_top())
 
     -- Status: a list of the statuses opens over the panel; Back returns to it
-    tapText("Status")
+    tapText("Currently Reading")
     emu:expectText("Want To Read")
     emu:expectText("Currently Reading")
     emu:expectText("Remove")
@@ -88,29 +93,32 @@ return {
     assert(panel_is_top(), "Back from the status list did not return to the panel")
 
     -- Status > Want To Read asks for confirmation (maybeConfirm is the menu's own path)
-    tapText("Status")
+    tapText("Currently Reading")
     tapText("Want To Read")
     assert(calls.confirm and calls.confirm:find("Want To Read"), "choosing a status did not ask to confirm")
     emu:press("Back")
     assert(panel_is_top(), "Back after choosing a status did not return to the panel")
 
     -- the rest
-    tapText("Add a note")
+    tapText("Note")
     assert(calls.note, "Add a note did not open the note form")
 
-    tapText("Details")
-    assert(calls.details == 328491, "Details did not open the book")
-    tapText("Reviews")
-    assert(calls.reviews == 328491, "Reviews did not open the book's reviews")
+    -- the title (with its chevron) opens the book's details
+    tapText("The Dispossessed")
+    assert(calls.details == 328491, "tapping the title did not open the book")
 
     -- More: the reader's full tracking menu (unlink, remove, sync...) as a list over the panel
-    tapText("More")
+    -- More is an icon only, at the end of the Rate / Note row
+    do
+      local note = emu:expectText("Note")
+      emu:tapExpecting(1200 - 20 - 36, note.y + math.floor(note.h / 2))
+    end
     emu:expectText("Linked book")
     emu:shot("reader_panel_more")
     emu:press("Back")
     assert(panel_is_top(), "Back from More did not return to the panel")
 
-    tapText("Set page")
+    tapText("Page 142 of 387")
     emu:shot("reader_panel_set_page")
     emu:closeAll()
     -- closeAll also removed the panel; reopen for the dismissal check

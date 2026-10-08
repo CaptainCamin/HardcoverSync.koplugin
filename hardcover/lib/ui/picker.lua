@@ -32,7 +32,7 @@ function Picker.new(opts)
   return ButtonDialog:new {
     title = opts.title,
     title_align = "center",
-    title_face = Theme.face("title"),
+    title_face = (Theme.serif("title")),
     use_info_style = false, -- a bold title
     width_factor = 0.85,
     buttons = buttons,

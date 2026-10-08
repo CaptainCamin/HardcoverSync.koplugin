@@ -106,16 +106,18 @@ end
 
 -- A book you are reading: cover, title, author, progress. Every card is the same
 -- size, so the section reads as a tidy list however many books there are.
-function HomeDialog:buildCard(card, width, viewport)
+function HomeDialog:buildCard(card, width, viewport, first)
   local cw = Screen:scaleBySize(72)
   local ch = math.floor(cw * 1.5)
-  local text_w = width - cw - Theme.line.hair * 2 - Theme.space.l
+  -- the chevron at the end says the row opens the book
+  local chevron = Theme.chevron()
+  local text_w = width - cw - Theme.line.hair * 2 - Theme.space.l - chevron:getSize().w - Theme.space.m
   local info = VerticalGroup:new { align = "left" }
-  local title_face = Theme.face("title")
+  local title_face, title_bold = Theme.serif("title")
   table.insert(info, TextBoxWidget:new {
     text = card.title,
     face = title_face,
-    bold = true,
+    bold = title_bold,
     width = text_w,
     height = 2 * title_face.size * 1.4,
     height_adjust = true,
@@ -145,10 +147,13 @@ function HomeDialog:buildCard(card, width, viewport)
     self:coverCell(card, cw, ch),
     Theme.hspan("l"),
     CenterContainer:new { dimen = Geom:new { w = text_w, h = ch }, info },
+    Theme.hspan("m"),
+    chevron,
   }
   return VerticalGroup:new {
     align = "left",
-    Theme.rule(width, false),
+    -- the heading above already ends in a firm rule: a hairline right under it doubles it
+    first and Theme.span(0) or Theme.rule(width, false),
     Theme.span("s"),
     self:tappable(row, card.book_id, viewport),
     Theme.span("s"),
@@ -160,7 +165,7 @@ function HomeDialog:buildTile(row, w, h, viewport)
   local line = HorizontalGroup:new { align = "center" }
   local count = Home.countText(row.count)
   if count ~= "" then
-    table.insert(line, text(count, "display", { bold = true, width = w }))
+    table.insert(line, text(count, "display", { serif = true, width = w }))
     table.insert(line, Theme.hspan("m"))
   end
   table.insert(line, text(row.title, "small", { width = w - Theme.space.l }))
@@ -178,7 +183,7 @@ function HomeDialog:buildTile(row, w, h, viewport)
         self.select_cb(row)
       end
     end,
-    Theme.box(w, h, line, { radius = 10 }),
+    Theme.box(w, h, line, { round = true }),
   }
   -- what the tile shows, so a rebuild can tell which tiles changed (and so which
   -- part of the panel needs redrawing)
@@ -237,7 +242,7 @@ function HomeDialog:buildColumn(width, viewport)
         Theme.hspan("s"),
         text(_("Search books on Hardcover"), "body", { grey = true, width = width - 4 * Theme.space.m }),
       },
-    }, { radius = 26 }),
+    }, { round = true }),
   }
   self.search_button = field
 
@@ -304,7 +309,7 @@ function HomeDialog:buildColumn(width, viewport)
     table.insert(right, text(count, "small", { grey = true }))
     table.insert(right, Theme.hspan("s"))
   end
-  table.insert(right, text("\226\128\186", "title", { bold = true }))
+  table.insert(right, Theme.chevron())
   local header = TapRow:new {
     viewport = viewport,
     callback = function()
@@ -330,7 +335,7 @@ function HomeDialog:buildColumn(width, viewport)
   -- screen cannot hold them with everything else
   if #cards > 0 then
     for i = 1, math.min(#cards, HomeDialog.MAX_CARDS) do
-      table.insert(column, self:buildCard(cards[i], width, viewport))
+      table.insert(column, self:buildCard(cards[i], width, viewport, i == 1))
     end
     table.insert(column, Theme.span("m"))
   end

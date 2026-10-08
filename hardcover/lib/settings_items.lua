@@ -47,6 +47,12 @@ function SettingsItems.rows(items, open, refresh)
         checkable = (item.checked_func ~= nil or item.checked ~= nil) or nil,
         checked = resolve(item, "checked") and true or false,
         submenu = (item.sub_item_table ~= nil or item.sub_item_table_func ~= nil) or nil,
+        -- a row that is not a submenu but still opens a screen, a dialog or a picker
+        opens = item.opens or nil,
+        -- one choice of several (the current status): a radio mark, not a switch
+        radio = item.radio or nil,
+        -- a bundled icon at the row's end (what tapping it does: "close" cancels a pending change)
+        icon = item.icon or nil,
         tile = item.tile,
         separator = item.separator,
       }

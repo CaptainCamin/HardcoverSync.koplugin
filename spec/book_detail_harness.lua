@@ -206,7 +206,10 @@ print("\n== the header ==")
 
 check("the title is bold and wraps", function()
   local d = BookDetailDialog:new { detail = detail({ title = string.rep("Long ", 40) }) }
-  assert(d.title_text.kind == "TextBox" and d.title_text.bold == true)
+  -- the title is set in the serif display face; bold is asked for only when that face
+  -- is not already a real bold (Theme.serif says which)
+  local _, serif_bold = Theme.serif("display")
+  assert(d.title_text.kind == "TextBox" and d.title_text.bold == serif_bold)
   local cover_w = math.floor(d.content_width * 0.34)
   assert(d.title_text.width == d.content_width - cover_w - 2 * Theme.line.hair - Theme.space.l,
     "title width " .. tostring(d.title_text.width))
@@ -302,13 +305,19 @@ end)
 
 print("\n== text that must fit ==")
 
+-- the words of a pill: its first child, or (a pill with a chevron) the first child of its row
+local function pillWords(pill)
+  local first = pill[1]
+  return first.text and first or first[1]
+end
+
 check("single-line text is limited with max_width, the field TextWidget reads", function()
   local d = BookDetailDialog:new { detail = detail({ title = "T", rating = 4, users_count = 10 }) }
   -- the pills' words are limited to the text column, so a long series name is cut
-  assert(d.status_text[1].max_width and d.status_text[1].max_width < d.content_width,
-    "status max_width " .. tostring(d.status_text[1].max_width))
+  assert(pillWords(d.status_text).max_width and pillWords(d.status_text).max_width < d.content_width,
+    "status max_width " .. tostring(pillWords(d.status_text).max_width))
   local long = BookDetailDialog:new { detail = detail({ title = "T", book_series = { { position = 1, series = { name = string.rep("Series ", 30) } } } }) }
-  assert(long.series_text[1].max_width and long.series_text[1].max_width < long.content_width, "a long series name is not limited")
+  assert(pillWords(long.series_text).max_width and pillWords(long.series_text).max_width < long.content_width, "a long series name is not limited")
   local loading = BookDetailDialog:new { loading = true }
   assert(loading.loading_text.max_width == loading.width - 2 * Theme.margin, "loading text is not limited")
 end)
@@ -861,12 +870,12 @@ check("setStatus updates the status line and label, and keeps the cover", functi
   d.cover_bb = picture
   d:setStatus(1, 55)
   assert(d.shelf_button.text == "Shelf: Want to Read", d.shelf_button.text)
-  assert(d.status_text and d.status_text[1].text == "Want to Read", "status pill missing")
+  assert(d.status_text and pillWords(d.status_text).text == "Want to Read", "status pill missing")
   assert(d.detail.user_book_id == 55 and d.detail.status_id == 1)
   assert(d.cover_bb == picture, "the cover was thrown away")
   assert(#loader.batches == fetches, "the cover was fetched again")
   d:setStatus(3, 55)
-  assert(d.status_text[1].text == "Read" and d.shelf_button.text == "Shelf: Read")
+  assert(pillWords(d.status_text).text == "Read" and d.shelf_button.text == "Shelf: Read")
 end)
 
 check("setStatus(nil) after a removal clears status, rating and the record", function()

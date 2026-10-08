@@ -45,11 +45,7 @@ function GoalDialog:buildContent(width, viewport)
   table.insert(c, Theme.span("m"))
 
   if self.note then
-    table.insert(c, FrameContainer:new {
-      bordersize = Theme.line.hair, color = Theme.DARK_GREY, radius = Theme.px(8),
-      padding = Theme.space.s, margin = 0, background = Blitbuffer.COLOR_WHITE,
-      TextBoxWidget:new { text = self.note, face = Theme.face("small"), width = width - 2 * Theme.space.s - 2 * Theme.line.hair },
-    })
+    table.insert(c, Theme.note(self.note, width))
     table.insert(c, Theme.span("m"))
   end
 
@@ -57,17 +53,17 @@ function GoalDialog:buildContent(width, viewport)
   table.insert(c, Theme.span("s"))
   table.insert(c, GoalWidgets.figure(p))
   table.insert(c, Theme.span("s"))
-  table.insert(c, Theme.pill(_(p.status), { filled = true, size = "body" }))
+  table.insert(c, Theme.label(_(p.status), { icon = "check", size = "body" }))
   table.insert(c, Theme.span("l"))
 
   if not p.upcoming then
     table.insert(c, Theme.sectionHeader(_("You, and where you should be"), width))
     table.insert(c, Theme.span("m"))
-    table.insert(c, text(_("You"), "small", { bold = true }))
+    table.insert(c, text(_("You"), "small"))
     table.insert(c, Theme.progress { width = width, height = Screen:scaleBySize(20), percentage = p.fraction })
     if not p.over then
       table.insert(c, Theme.span("m"))
-      table.insert(c, text(_("Pace for today"), "small", { bold = true }))
+      table.insert(c, text(_("Pace for today"), "small"))
       table.insert(c, Theme.progress { width = width, height = Screen:scaleBySize(20), percentage = p.pace_fraction })
     end
     table.insert(c, Theme.span("l"))
@@ -77,7 +73,7 @@ function GoalDialog:buildContent(width, viewport)
     table.insert(c, Theme.sectionHeader(_("To finish"), width))
     table.insert(c, Theme.span("m"))
     local left = math.ceil(p.target - p.progress)
-    table.insert(c, text(string.format(_("%d %s left in %d days"), left, p.unit, p.days_left), "title", { bold = true, width = width }))
+    table.insert(c, text(string.format(_("%d %s left in %d days"), left, p.unit, p.days_left), "title", { serif = true, width = width }))
     table.insert(c, text(_(p.per_week_text), "body", { grey = true, width = width }))
     table.insert(c, Theme.span("l"))
   elseif p.done then

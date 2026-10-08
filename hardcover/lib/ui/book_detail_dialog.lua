@@ -159,10 +159,13 @@ function BookDetailDialog:init()
   -- TextWidget is one line and reads max_width, not width; anything that may be
   -- long (a title, an author list) is a TextBoxWidget, which wraps to width.
   local function wrapped(text, size, bold, grey)
+    -- the book's title is a title: serif like every other heading
+    local face, serif_bold = Theme.face(size), bold
+    if size == "display" then face, serif_bold = Theme.serif("display") end
     return TextBoxWidget:new {
       text = text,
-      face = Theme.face(size),
-      bold = bold,
+      face = face,
+      bold = serif_bold,
       width = text_width,
       alignment = "left",
       fgcolor = grey and Theme.DARK_GREY or Theme.BLACK,
@@ -219,18 +222,18 @@ function BookDetailDialog:init()
     self.facts_text = nil
   end
 
-  -- the series and where the book is on your shelves: pills, the current status
-  -- filled; each opens the search for that series / the shelf for that status
+  -- the series and where the book is on your shelves: pills (the shelf button below is the
+  -- one filled control); each opens the search for that series / the shelf for that status
   self.series_text = nil
   self.status_text = nil
   if summary.series then
-    self.series_text = Theme.pill(summary.series, { max_width = text_width - 2 * Theme.space.m })
+    self.series_text = Theme.pill(summary.series, { chevron = true, max_width = text_width - 2 * Theme.space.m - Theme.px(16) - Theme.space.xs })
     addTo(column, Theme.span("s"))
     addTo(column, tappable("series_tap", self.series_text, self.on_series, summary.series_title))
   end
   local status_id = (self.detail or {}).status_id
   if status_id then
-    self.status_text = Theme.pill(Shelf.statusLabel(status_id), { filled = true, max_width = text_width - 2 * Theme.space.m })
+    self.status_text = Theme.pill(Shelf.statusLabel(status_id), { chevron = true, max_width = text_width - 2 * Theme.space.m - Theme.px(16) - Theme.space.xs })
     addTo(column, tappable("status_tap", self.status_text, self.on_status, status_id))
   end
 
@@ -342,11 +345,12 @@ function BookDetailDialog:init()
     })
   end
 
-  -- The action bar: Shelf (filled, the main one), then Lists, Reviews and On device, then
+  -- The action bar: Shelf (a picker that shows the current shelf, so it carries a chevron),
+  -- then Lists, Reviews and On device, then
   -- Z-library when that plugin is there, sharing the width equally. They scroll with the
   -- page, so each tap is cut to the visible area (see viewport.lua) or one
   -- scrolled away could catch a tap meant for what is over it.
-  local labels = { { "shelf_button", Shelf.shelfButtonText((self.detail or {}).status_id), "on_shelf", true } }
+  local labels = { { "shelf_button", Shelf.shelfButtonText((self.detail or {}).status_id), "on_shelf", false, true } }
   self.shelf_button, self.lists_button, self.reviews_button, self.zlibrary_button = nil, nil, nil, nil
   self.find_button = nil
   if self.on_lists then
@@ -371,7 +375,7 @@ function BookDetailDialog:init()
   local shelf_w = equal
   if n > 1 then
     local words = TextWidget:new { text = labels[1][2], face = Theme.face("small"), bold = true }
-    local need = words:getSize().w + 2 * Theme.space.l
+    local need = words:getSize().w + 2 * Theme.space.l + Theme.px(18) + Theme.space.xs
     words:free()
     shelf_w = math.min(math.max(equal, need), math.floor(width / 2))
   end
@@ -381,9 +385,10 @@ function BookDetailDialog:init()
   end
   local action_bar = HorizontalGroup:new {}
   for i, spec in ipairs(labels) do
-    local field, text, handler, primary = spec[1], spec[2], spec[3], spec[4]
+    local field, text, handler, primary, picker = spec[1], spec[2], spec[3], spec[4], spec[5]
     local button = Theme.button(text, widths[i], {
       filled = primary,
+      chevron = picker,
       viewport = viewport,
       callback = function()
         local fn = self[handler]

@@ -189,12 +189,13 @@ return {
 
     -- every row is a boxed row inside the page margins, tall enough to hit
     local Theme = require("hardcover/lib/ui/theme")
-    local ticks = function()
-      local n = 0
-      for _, node in ipairs(emu:screenNodes()) do
-        if node.text == "\226\156\147" then n = n + 1 end
+    -- an option is a switch now (drawn, not text), so read its state off the screen's own
+    -- record of what each row shows ("label|on|dimmed")
+    local switch_state = function(label)
+      local top = emu:top()
+      for _, t in ipairs(top and top.taps or {}) do
+        if t.tap.text == label then return t.shows end
       end
-      return n
     end
     local screen_w = require("device").screen:getWidth()
     for _, node in ipairs(emu:screenNodes()) do
@@ -202,12 +203,13 @@ return {
         assert(node.x >= Theme.margin and node.x + node.w <= screen_w - Theme.margin, node.text .. " is outside the margins")
       end
     end
-    local ticks_before = ticks()
+    local switch_before = switch_state("Automatically link by ISBN")
+    assert(switch_before, "the option's row is not on the settings screen")
 
     local before = settings:readSetting(SETTING.LINK_BY_ISBN) == true
     local option = emu:expectText("Automatically link by ISBN")
     emu:tapExpecting(option.x + 5, option.y + 5)
-    assert(ticks() ~= ticks_before, "the tick box did not change when its option was tapped")
+    assert(switch_state("Automatically link by ISBN") ~= switch_before, "the switch did not change when its option was tapped")
     assert((settings:readSetting(SETTING.LINK_BY_ISBN) == true) ~= before,
       "tapping an option did not change the setting")
 

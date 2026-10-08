@@ -83,11 +83,11 @@ function ListsDialog:buildRow(row, width, viewport)
     end
   end
 
-  local chevron = text(CHEVRON, "display", { bold = true })
+  local chevron = Theme.chevron()
   local text_w = width - strip_w - Theme.space.l - chevron:getSize().w - Theme.space.m
   local info = VerticalGroup:new {
     align = "left",
-    text(row.name, "title", { bold = true, width = text_w }),
+    text(row.name, "title", { serif = true, width = text_w }),
     Theme.span("xs"),
     text(Lists.subtitle(row), "small", { grey = true, width = text_w }),
   }

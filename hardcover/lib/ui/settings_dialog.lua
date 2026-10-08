@@ -3,10 +3,12 @@
 -- The settings live in the reader / file browser menu; the home screen (which can
 -- be launched from another plugin) needs a way in too. This shows the same item
 -- tables as a page in the family's style: two tiles at the top (Sync and the
--- Account, when the menu has them), then each option as a boxed row with a tick
--- box at its right (a "›" for a submenu, nothing for a plain action, the row
--- dimmed when it is disabled) and a first "Back" row inside a submenu. Back (or
--- the close icon) leaves the screen; the Back row goes up one level.
+-- Account, when the menu has them), then the options as a list of plain rows with a hairline
+-- between them, and at each row's end what tapping it does: a switch for an option that is on
+-- or off, a radio mark for the chosen one of several, a chevron for a submenu or anything
+-- that opens a screen or a picker, nothing for a plain action (which is bold), the row grey
+-- when it is unavailable. A first "Back" row inside a submenu goes up one level; Back (or the
+-- close icon) leaves the screen.
 --
 -- Not a Menu: rows are laid out whole and the page scrolls only when it is
 -- taller than the screen, in which case every tappable row is clipped to what
@@ -33,8 +35,6 @@ local Viewport = require("hardcover/lib/ui/viewport")
 
 local Screen = Device.screen
 
-local CHECK = "\226\156\147" -- check mark
-local CHEVRON = "\226\128\186" -- single right angle quote
 local BACK_ARROW = "\226\128\185" -- single left angle quote
 
 local SettingsScreen = InputContainer:extend {
@@ -52,50 +52,57 @@ end
 
 local text = Theme.text
 
--- the tick box at the right of an option: ticked or empty
-local function tickBox(checked)
-  local size = Screen:scaleBySize(24)
-  return Theme.box(size, size, checked and text(CHECK, "body", { bold = true }) or Theme.hspan(1), { radius = 4 })
-end
-
--- A boxed row: its words at the left, `right` (a widget) at the end.
+-- One row of the list: its words at the left, and at the end the cue for what tapping does: a
+-- switch (an option that is on or off), a radio mark (the chosen one of several), a chevron
+-- (it opens a level, a screen or a picker) or an icon. A row has no box of its own: the
+-- hairline under it and that cue are what make it a row you can tap. An action (nothing at
+-- the end) is in bold, and an unavailable row is grey with nothing to tap at its end.
 function SettingsScreen:buildRow(row, width, viewport)
   local h = Screen:scaleBySize(50)
-  local inner = width - 2 * Theme.line.firm
-  local pad = Theme.space.m
   local right
   if row.back then
     right = nil
+  elseif row.checkable and row.radio then
+    right = Theme.radio(row.checked, not row.dim)
   elseif row.checkable then
-    right = tickBox(row.checked)
-  elseif row.submenu then
-    right = text(CHEVRON, "title", { bold = true })
+    right = Theme.switch(row.checked, not row.dim)
+  elseif row.icon then
+    right = Theme.icon(row.icon, Theme.px(22))
+  elseif (row.submenu or row.opens) and not row.dim then
+    right = Theme.chevron()
   end
-  local right_w = right and (right:getSize().w + pad) or 0
+  local right_w = right and (right:getSize().w + Theme.space.m) or 0
+  -- the Back row leads with an arrow icon, not a typed one
+  local lead = row.back and Theme.icon("back", Theme.px(22)) or nil
+  local lead_w = lead and (lead:getSize().w + Theme.space.s) or 0
+  local is_action = not right and not row.back and not row.dim
   -- a menu label that ends in its value's colon ("Track progress settings: ")
   -- reads as a dangling colon here
-  local label = text((row.text:gsub("[:%s]+$", "")), "body", {
-    bold = not row.dim,
+  local shown = row.back and _("Back") or (row.text:gsub("[:%s]+$", ""))
+  local label = text(shown, "body", {
+    bold = is_action,
     grey = row.dim,
-    width = inner - 2 * pad - right_w,
+    width = width - right_w - lead_w,
   })
-  local content = HorizontalGroup:new { align = "center", Theme.hspan(pad), label }
+  local content = HorizontalGroup:new { align = "center" }
+  if lead then
+    table.insert(content, lead)
+    table.insert(content, Theme.hspan("s"))
+  end
+  table.insert(content, label)
   if right then
-    local gap = math.max(0, inner - 2 * pad - label:getSize().w - right:getSize().w)
-    table.insert(content, Theme.hspan(gap))
+    table.insert(content, Theme.hspan(math.max(0, width - lead_w - label:getSize().w - right:getSize().w)))
     table.insert(content, right)
   end
   local box = FrameContainer:new {
-    bordersize = Theme.line.firm,
-    radius = Screen:scaleBySize(10),
+    bordersize = 0,
     padding = 0,
     margin = 0,
     width = width,
     height = h,
-    color = row.dim and Theme.DARK_GREY or Theme.BLACK,
     background = Theme.WHITE,
     LeftContainer:new {
-      dimen = Geom:new { w = inner, h = h - 2 * Theme.line.firm },
+      dimen = Geom:new { w = width, h = h },
       content,
     },
   }
@@ -125,8 +132,8 @@ function SettingsScreen:buildTile(row, width, height, viewport)
     text(row.tile, "small", { grey = true, width = text_w }),
     TextBoxWidget:new {
       text = value,
-      face = Theme.face("title"),
-      bold = true,
+      face = (Theme.serif("title")),
+      bold = select(2, Theme.serif("title")),
       width = text_w,
       fgcolor = row.dim and Theme.DARK_GREY or Theme.BLACK,
     },
@@ -134,13 +141,13 @@ function SettingsScreen:buildTile(row, width, height, viewport)
   local h = height or (content:getSize().h + 2 * Theme.space.m)
   local box = FrameContainer:new {
     bordersize = Theme.line.firm,
-    radius = Screen:scaleBySize(10),
+    radius = Theme.controlRadius(width, h),
     padding = 0,
     margin = 0,
     width = width,
     height = h,
     color = row.dim and Theme.DARK_GREY or Theme.BLACK,
-    background = Theme.WHITE,
+    background = row.dim and Theme.WASH or Theme.WHITE,
     LeftContainer:new {
       dimen = Geom:new { w = inner, h = h - 2 * Theme.line.firm },
       HorizontalGroup:new { Theme.hspan("m"), content },
@@ -163,7 +170,6 @@ end
 -- The page's content for `rows`, laid out in `width`.
 function SettingsScreen:buildContent(rows, width, viewport)
   local content = VerticalGroup:new { align = "left" }
-  local gap = Theme.space.s + Theme.space.xs
 
   -- the tiles, side by side
   local tiles = {}
@@ -185,13 +191,18 @@ function SettingsScreen:buildContent(rows, width, viewport)
     table.insert(content, line)
     table.insert(content, Theme.span("m"))
     table.insert(content, Theme.sectionHeader(_("Options"), width))
-    table.insert(content, Theme.span("m"))
+  else
+    -- no heading to draw the list's top edge: a firm rule does
+    table.insert(content, Theme.rule(width, true))
   end
 
+  -- the rows are plain, a hairline under each (the heading's or the firm rule is the top);
+  -- a group of rows ends with a little more room
   for _, row in ipairs(rows) do
     if not row.tile then
       table.insert(content, self:buildRow(row, width, viewport))
-      table.insert(content, Theme.span(row.separator and "m" or gap))
+      table.insert(content, Theme.rule(width, false))
+      if row.separator then table.insert(content, Theme.span("m")) end
     end
   end
   table.insert(content, Theme.span("l"))

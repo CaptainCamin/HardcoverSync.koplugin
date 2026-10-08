@@ -53,19 +53,21 @@ function GoalsDialog:pace(goal)
 end
 
 -- a past goal: its name and where it ended
-function GoalsDialog:pastRow(goal, width, viewport)
+function GoalsDialog:pastRow(goal, width, viewport, first)
   local p = self:pace(goal)
-  local right = text(string.format("%d / %d", p.progress, p.target), "title", { bold = true })
-  local name = text(goal.name, "body", { bold = true, width = width - right:getSize().w - Theme.space.l })
-  local gap = math.max(0, width - name:getSize().w - right:getSize().w)
+  local right = text(string.format("%d / %d", p.progress, p.target), "title", { serif = true })
+  local chevron = Theme.chevron()
+  local end_w = right:getSize().w + Theme.space.s + chevron:getSize().w
+  local name = text(goal.name, "body", { serif = true, width = width - end_w - Theme.space.l })
+  local gap = math.max(0, width - name:getSize().w - end_w)
   local body = VerticalGroup:new {
     align = "left",
-    HorizontalGroup:new { align = "center", name, Theme.hspan(gap), right },
+    HorizontalGroup:new { align = "center", name, Theme.hspan(gap), right, Theme.hspan("s"), chevron },
     text(p.done and _("Reached") or _(p.status), "small", { grey = true }),
   }
   return VerticalGroup:new {
     align = "left",
-    Theme.rule(width, false),
+    first and Theme.span(0) or Theme.rule(width, false),
     Theme.span("s"),
     TapRow:new {
       callback = function() if self.open_cb then self.open_cb(goal) end end,
@@ -81,11 +83,7 @@ function GoalsDialog:buildContent(width, viewport)
   table.insert(content, Theme.span("m"))
 
   if self.note then
-    table.insert(content, FrameContainer:new {
-      bordersize = Theme.line.hair, color = Theme.DARK_GREY, radius = Theme.px(8),
-      padding = Theme.space.s, margin = 0, background = Blitbuffer.COLOR_WHITE,
-      TextBoxWidget:new { text = self.note, face = Theme.face("small"), width = width - 2 * Theme.space.s - 2 * Theme.line.hair },
-    })
+    table.insert(content, Theme.note(self.note, width))
     table.insert(content, Theme.span("m"))
   end
 
@@ -106,17 +104,17 @@ function GoalsDialog:buildContent(width, viewport)
   if #split.current > 0 then
     table.insert(content, Theme.sectionHeader(_("Current"), width, text(tostring(#split.current), "small", { grey = true })))
     table.insert(content, Theme.span("s"))
-    for _i, goal in ipairs(split.current) do
+    for i, goal in ipairs(split.current) do
       table.insert(content, GoalWidgets.card(goal, self:pace(goal), width, viewport,
-        function() if self.open_cb then self.open_cb(goal) end end))
+        function() if self.open_cb then self.open_cb(goal) end end, i == 1))
     end
     table.insert(content, Theme.span("m"))
   end
   if #split.past > 0 then
     table.insert(content, Theme.sectionHeader(_("Past goals"), width, text(tostring(#split.past), "small", { grey = true })))
     table.insert(content, Theme.span("s"))
-    for _i, goal in ipairs(split.past) do
-      table.insert(content, self:pastRow(goal, width, viewport))
+    for i, goal in ipairs(split.past) do
+      table.insert(content, self:pastRow(goal, width, viewport, i == 1))
     end
     table.insert(content, Theme.span("l"))
   end

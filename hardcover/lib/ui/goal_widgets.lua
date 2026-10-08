@@ -36,18 +36,18 @@ end
 function GoalWidgets.figure(p)
   local row = HorizontalGroup:new {
     align = "bottom",
-    text(string.format("%d", p.progress), "display", { bold = true }),
+    text(string.format("%d", p.progress), "display", { serif = true }),
     Theme.hspan("s"),
     text(string.format(_("/ %d %s"), p.target, p.unit), "body", { grey = true }),
   }
   if p.extra and p.extra > 0 then
     table.insert(row, Theme.hspan("m"))
-    table.insert(row, Theme.pill(string.format(_("+%d finished offline"), p.extra), { size = "small" }))
+    table.insert(row, Theme.label(string.format(_("+%d finished offline"), p.extra), { grey = true }))
   end
   if p.pending then
     -- a change made here that Hardcover has not got yet
     table.insert(row, Theme.hspan("m"))
-    table.insert(row, Theme.pill(p.held and _("Not sent") or _("Waiting to sync"), { size = "small" }))
+    table.insert(row, Theme.label(p.held and _("Not sent") or _("Waiting to sync"), { icon = "offline", grey = true }))
   end
   return row
 end
@@ -64,22 +64,31 @@ end
 -- One goal as a card: name, figure, bar, status line, what finishing takes. Tappable
 -- when `on_tap` is given (it opens the goal).
 --
-function GoalWidgets.card(goal, p, width, viewport, on_tap)
+function GoalWidgets.card(goal, p, width, viewport, on_tap, first)
   local body = VerticalGroup:new { align = "left" }
-  table.insert(body, text(goal.name, "title", { bold = true, width = width }))
+  if on_tap then
+    -- a row that opens the goal: its chevron at the end of the name
+    local chevron = Theme.chevron()
+    local name = text(goal.name, "title", { serif = true, width = width - chevron:getSize().w - Theme.space.s })
+    local gap = math.max(0, width - name:getSize().w - chevron:getSize().w)
+    table.insert(body, HorizontalGroup:new { align = "center", name, Theme.hspan(gap), chevron })
+  else
+    table.insert(body, text(goal.name, "title", { serif = true, width = width }))
+  end
   table.insert(body, Theme.span("xs"))
   table.insert(body, GoalWidgets.figure(p))
   table.insert(body, Theme.span("s"))
   table.insert(body, GoalWidgets.bar(width, Screen:scaleBySize(16), p))
   table.insert(body, Theme.span("s"))
-  table.insert(body, text(GoalWidgets.statusLine(p), "small", { bold = true, width = width }))
+  table.insert(body, text(GoalWidgets.statusLine(p), "small", { width = width }))
   if p.per_week_text then
     table.insert(body, text(_(p.per_week_text), "small", { grey = true, width = width }))
   end
 
   local tappable = on_tap and TapRow:new { callback = on_tap, viewport = viewport, body } or body
   local out = VerticalGroup:new { align = "left" }
-  table.insert(out, Theme.rule(width, false))
+  -- the heading above ends in a firm rule: a hairline right under it would double it
+  if not first then table.insert(out, Theme.rule(width, false)) end
   table.insert(out, Theme.span("m"))
   table.insert(out, tappable)
   table.insert(out, Theme.span("m"))
@@ -93,7 +102,7 @@ end
 --
 function GoalWidgets.homeCard(goal, p, width, viewport, on_goal, on_all)
   local out = VerticalGroup:new { align = "left" }
-  local more = text("\226\128\186", "title", { bold = true })
+  local more = Theme.chevron()
   table.insert(out, TapRow:new {
     callback = on_all,
     viewport = viewport,
@@ -102,11 +111,16 @@ function GoalWidgets.homeCard(goal, p, width, viewport, on_goal, on_all)
   table.insert(out, Theme.span("s"))
 
   local body = VerticalGroup:new { align = "left" }
-  table.insert(body, text(goal.name, "body", { bold = true, width = width }))
+  do
+    local chevron = Theme.chevron()
+    local name = text(goal.name, "body", { serif = true, width = width - chevron:getSize().w - Theme.space.s })
+    local gap = math.max(0, width - name:getSize().w - chevron:getSize().w)
+    table.insert(body, HorizontalGroup:new { align = "center", name, Theme.hspan(gap), chevron })
+  end
   table.insert(body, Theme.span("xs"))
   local line = HorizontalGroup:new {
     align = "bottom",
-    text(string.format("%d", p.progress), "display", { bold = true }),
+    text(string.format("%d", p.progress), "display", { serif = true }),
     Theme.hspan("s"),
     text(string.format(_("/ %d %s  \194\183  %s"), p.target, p.unit, _(p.status)), "body", { width = width }),
   }
@@ -131,7 +145,7 @@ end
 --
 function GoalWidgets.homeEmpty(width, viewport, on_all)
   local out = VerticalGroup:new { align = "left" }
-  local more = text("\226\128\186", "title", { bold = true })
+  local more = Theme.chevron()
   table.insert(out, TapRow:new {
     callback = on_all,
     viewport = viewport,

@@ -1,24 +1,33 @@
 -- The plugin's visual language, in one place.
 --
--- Designed for e-ink, so the rules are these:
+-- Designed for e-ink, so the rules are these. Every visual signal has ONE meaning:
 --
---   * Contrast over decoration. Text is black; secondary text is a dark grey
---     (never lighter than DARK_GREY: mid greys wash out on the panel and
---     ghost). No gradients, shadows or tints.
---   * Hierarchy comes from size and weight, not colour. Three type sizes carry
---     a screen: a title, body text, and small labels.
---   * Structure comes from white space and thin rules, not boxes around
---     everything. A border is kept for things you tap, so a bordered thing
---     reads as a button.
+--   * BORDER: you can tap it. A control (a button, a tile, a row) has a 2px black border
+--     and one corner radius, Theme.controlRadius; a chip (Theme.pill) is a full pill.
+--     Anything that is only information has no border and square corners. A list is the
+--     exception: its rows are not boxed (a hairline separates them), and the cue at a row's
+--     end (Theme.switch, Theme.radio, Theme.chevron or an icon) says what tapping does; a row
+--     with no cue is an action and its label is bold. A cover's 1px frame is the edge of a
+--     picture, not a border.
+--   * FILL: black with white text = active now: on, selected, or the one main action (at
+--     most one per group). Grey fill with a grey border and grey text = unavailable (a
+--     disabled control, Theme.button). Nothing else is grey-filled but the empty track of a
+--     progress bar, which is not a control. Static information has no fill at all.
+--   * CHEVRON: this opens another screen, list or picker (Theme.chevron). It goes on a row,
+--     a chip or a heading; a button or tile does not carry one, its border already says tap.
+--   * HATCH: the page behind a popup is unavailable (Theme.hatchRect). Never a fill.
+--   * FONT: serif = the name of a thing (a title, a heading, a big figure: Theme.serif);
+--     bold sans = the label on a control; regular sans = everything else, dark grey when it
+--     is quieter. Hierarchy comes from size and weight, not colour.
+--   * SHADOW: none. A popup is in front because the page behind it is hatched.
+--   * Text is only ever black or DARK_GREY (never lighter: mid greys wash out and ghost on
+--     the panel), on white or on WASH.
+--   * Structure comes from white space and thin rules, not boxes around everything.
 --   * One spacing rhythm. Everything is a multiple of Theme.space.s so rows
 --     line up from screen to screen.
 --   * Big touch targets (at least TOUCH_MIN tall) and few of them.
 --   * Redraw as little as possible: nothing animates, and a screen changes
 --     its own contents in place rather than being rebuilt.
---
---   * Serif for titles, sans for the rest (Theme.serif). Pill-shaped buttons.
---     Solid black progress bars (Theme.progress). Where a grey is wanted, hatch
---     (Theme.hatch) rather than use a mid grey: grey ghosts, hatching stays crisp.
 --
 -- All sizes go through Screen:scaleBySize, so the same numbers read right at
 -- 167 dpi and at 300.
@@ -55,6 +64,38 @@ Theme.BLACK = Blitbuffer.COLOR_BLACK
 -- 0x55: KOReader's own COLOR_DARK_GRAY is 0x88, which washes out on the panel
 Theme.DARK_GREY = Blitbuffer.COLOR_GRAY_5 or Blitbuffer.COLOR_DARK_GRAY
 Theme.WHITE = Blitbuffer.COLOR_WHITE
+
+--
+-- Shape. A CONTROL (anything you can tap: a button, a tile, a row, the search field) has a
+-- border and ONE corner radius, Theme.controlRadius; a CHIP you can tap (Theme.pill) is a
+-- full pill; everything else (covers, bars, rules) is square with no border. No other radius
+-- is used anywhere.
+--
+function Theme.controlRadius(w, h)
+  return math.min(px(12), math.floor(math.min(w, h) / 2))
+end
+
+--
+-- The tonal scale: the only shades the plugin uses. Lightest to darkest:
+--   white   the page, and every control that is available
+--   wash    the fill of a control that is unavailable (and nothing else)
+--   mid     the empty track of a progress bar
+--   ink2    quieter text and the border of an unavailable control (DARK_GREY)
+--   black   text, borders, and the fill of what is active
+-- Text goes on white or wash only.
+--
+-- (the spec harnesses stand in for Blitbuffer without Color8)
+local function grey(v) return Blitbuffer.Color8 and Blitbuffer.Color8(v) or v end
+
+Theme.tone = {
+  white = Blitbuffer.COLOR_WHITE,
+  wash = grey(0xDD),
+  mid = grey(0xCC),
+  ink2 = Theme.DARK_GREY,
+  black = Blitbuffer.COLOR_BLACK,
+}
+Theme.WASH = Theme.tone.wash
+Theme.MID = Theme.tone.mid
 
 -- spacing scale (scaled units: the same multiples everywhere)
 Theme.space = {
@@ -103,51 +144,48 @@ function Theme.serif(size_name)
 end
 
 --
--- Hatching: a grey that stays crisp on e-ink (diagonal black lines at 40% opacity), the
--- same call Zen UI uses. Paint into a blitbuffer directly...
+-- Hatching: diagonal black lines at 25% opacity, crisp on e-ink where a grey would ghost.
+-- Used only to push what is behind a popup back: paint it over the page the popup
+-- covers, once (the lines add up if painted twice over the same pixels).
 --
 function Theme.hatchRect(bb, x, y, w, h)
   if w > 0 and h > 0 and bb.hatchRect then
-    bb:hatchRect(x, y, w, h, math.max(1, px(2)), Blitbuffer.COLOR_BLACK, 0.4)
+    bb:hatchRect(x, y, w, h, math.max(1, px(2)), Blitbuffer.COLOR_BLACK, 0.25)
   end
 end
 
 --
--- ...or as a widget of a given size, to sit in a layout (a disabled control's fill, a
--- placeholder behind a missing cover).
---
-function Theme.hatch(w, h)
-  local Widget = require("ui/widget/widget")
-  local widget = Widget:new { dimen = Geom:new { w = w, h = h } }
-  function widget:paintTo(bb, x, y)
-    self.dimen.x, self.dimen.y = x, y
-    Theme.hatchRect(bb, x, y, self.dimen.w, self.dimen.h)
-  end
-  return widget
-end
-
---
--- A progress bar: a pill outline with a solid black fill. KOReader's default fill is a
--- mid grey (0x88), which washes out on the panel. opts: width, height, percentage,
--- ticks, last (as ProgressWidget).
+-- A progress bar: no outline, a solid black fill over a light grey track, square at both
+-- ends. It is information, so it never looks like a control; when it is tappable (it sets
+-- the page) the line under it carries a chevron. A tick (opts.ticks, as ProgressWidget)
+-- is a black notch drawn taller than the bar. opts: width, height, percentage, ticks, last.
 --
 function Theme.progress(opts)
   local ProgressWidget = require("ui/widget/progresswidget")
-  local h = opts.height
-  return ProgressWidget:new {
+  local bar = ProgressWidget:new {
     width = opts.width,
-    height = h,
+    height = opts.height,
     percentage = opts.percentage,
     ticks = opts.ticks,
     last = opts.last,
-    fillcolor = Theme.BLACK,
-    bordercolor = Theme.BLACK,
-    bgcolor = Theme.WHITE,
-    bordersize = Theme.line.firm,
-    radius = type(h) == "number" and math.floor(h / 2) or px(8),
-    margin_h = Theme.line.firm,
-    margin_v = Theme.line.firm,
+    bordersize = 0,
+    margin_h = 0,
+    margin_v = 0,
   }
+  function bar:paintTo(bb, x, y)
+    local w, h = self.width, self.height
+    self.dimen = Geom:new { x = x, y = y, w = w, h = h }
+    local done = math.floor(w * math.max(0, math.min(1, self.percentage or 0)))
+    bb:paintRect(x, y, w, h, Theme.MID)
+    if done > 0 then bb:paintRect(x, y, done, h, Theme.BLACK) end
+    if self.ticks and self.last and self.last > 0 then
+      local notch = math.max(2, px(3))
+      for _, t in ipairs(self.ticks) do
+        bb:paintRect(x + math.floor(w * t / self.last) - math.floor(notch / 2), y - px(3), notch, h + px(6), Theme.BLACK)
+      end
+    end
+  end
+  return bar
 end
 
 --
@@ -174,15 +212,27 @@ function Theme.icon(name_or_path, size, opts)
 end
 
 --
+-- The mark that says "this opens something": a chevron at the end of a tappable row or
+-- heading. Always this icon, never a typed "›".
+--
+function Theme.chevron(size)
+  return Theme.icon("chevron-right", size or px(24))
+end
+
+--
 -- One line of text in the family's type: `size` a Theme.type name (default "body"), opts
--- { bold, grey, width } (width is the most it may take; longer text is cut with an ellipsis).
+-- { bold, serif, grey, width } (width is the most it may take; longer text is cut with an
+-- ellipsis). `serif` is for the name of a thing (a title, a heading, a figure) and is already
+-- bold; `bold` (sans) is for the label on a control.
 --
 function Theme.text(str, size, opts)
   opts = opts or {}
+  local face, bold = Theme.face(size or "body"), opts.bold
+  if opts.serif then face, bold = Theme.serif(size or "body") end
   return TextWidget:new {
     text = tostring(str),
-    face = Theme.face(size or "body"),
-    bold = opts.bold,
+    face = face,
+    bold = bold,
     max_width = opts.width,
     fgcolor = opts.grey and Theme.DARK_GREY or Theme.BLACK,
   }
@@ -262,13 +312,32 @@ function Theme.stat(value, label, width)
 end
 
 --
--- A small rounded label with a border: a status ("Currently Reading"), a
--- series ("Hainish Cycle #4"). Informational, so it is not a button: pass
--- `filled` for the selected/active look (black with white text).
+-- A small tappable pill: the status you can change, a series that opens its search. It
+-- has a border, so it is only for things that can be tapped; wrap it in a TapRow (or
+-- Theme.touchable). `chevron` marks one that opens a list or picker; `filled` is the
+-- selected/active look (black with white text).
 --
 function Theme.pill(text, opts)
   opts = opts or {}
   local filled = opts.filled
+  local fg = filled and Theme.WHITE or Theme.BLACK
+  local face = Theme.face(opts.size or "small")
+  local word = TextWidget:new {
+    text = text,
+    face = face,
+    bold = true,
+    max_width = opts.max_width,
+    fgcolor = fg,
+  }
+  local content = word
+  if opts.chevron then
+    content = HorizontalGroup:new {
+      align = "center",
+      word,
+      HorizontalSpan:new { width = Theme.space.xs },
+      Theme.icon("chevron-right", px(16)),
+    }
+  end
   return FrameContainer:new {
     bordersize = Theme.line.firm,
     color = Theme.BLACK,
@@ -278,14 +347,96 @@ function Theme.pill(text, opts)
     padding_left = Theme.space.m,
     padding_right = Theme.space.m,
     margin = 0,
-    TextWidget:new {
-      text = text,
-      face = Theme.face(opts.size or "small"),
-      bold = true,
-      max_width = opts.max_width,
-      fgcolor = filled and Theme.WHITE or Theme.BLACK,
-    },
+    content,
   }
+end
+
+--
+-- A pill you can tap, with a tap area of at least TOUCH_MIN tall (the pill itself stays
+-- small). Returns a TapRow exactly as wide as the pill.
+--
+function Theme.tapPill(text, opts, callback, viewport)
+  local pill = Theme.pill(text, opts)
+  return Theme.touchable(pill, pill:getSize().w, callback, viewport)
+end
+
+--
+-- A fact, as plain text: no border, no rounded ends, so it cannot be mistaken for
+-- something to tap. Regular weight (bold is for the label on a control); `icon` (a bundled
+-- icon name) goes before it; `grey` for the quieter look. opts: icon, grey, size (default
+-- "small"), max_width.
+--
+function Theme.label(text, opts)
+  opts = opts or {}
+  local text_widget = TextWidget:new {
+    text = text,
+    face = Theme.face(opts.size or "small"),
+    max_width = opts.max_width,
+    fgcolor = opts.grey and Theme.DARK_GREY or Theme.BLACK,
+  }
+  if not opts.icon then return text_widget end
+  return HorizontalGroup:new {
+    align = "center",
+    Theme.icon(opts.icon, Theme.px(18)),
+    HorizontalSpan:new { width = Theme.space.xs },
+    text_widget,
+  }
+end
+
+--
+-- A note on a screen (offline, out of date, nothing here yet): static information, so no
+-- fill and no border; its words sit between two hairline rules.
+--
+function Theme.note(str, width)
+  local TextBoxWidget = require("ui/widget/textboxwidget")
+  return VerticalGroup:new {
+    align = "left",
+    Theme.rule(width, false),
+    Theme.span("s"),
+    TextBoxWidget:new { text = str, face = Theme.face("small"), width = width },
+    Theme.span("s"),
+    Theme.rule(width, false),
+  }
+end
+
+--
+-- A switch, for an option that is on or off: a small pill, black with the knob at the right
+-- when on (active), white with a border and the knob at the left when off. `enabled` false
+-- draws it in dark grey (the option is unavailable).
+--
+function Theme.switch(on, enabled)
+  local Widget = require("ui/widget/widget")
+  local w, h = px(52), px(30)
+  local ink = (enabled == false) and Theme.DARK_GREY or Theme.BLACK
+  local switch = Widget:new { dimen = Geom:new { w = w, h = h } }
+  function switch:paintTo(bb, x, y)
+    self.dimen.x, self.dimen.y = x, y
+    local r, bs = math.floor(h / 2), Theme.line.firm
+    bb:paintRoundedRect(x, y, w, h, ink, r)
+    if not on then bb:paintRoundedRect(x + bs, y + bs, w - 2 * bs, h - 2 * bs, Theme.WHITE, r - bs) end
+    local knob = r - bs - px(3)
+    bb:paintCircle(on and (x + w - r) or (x + r), y + r, knob, on and Theme.WHITE or ink)
+  end
+  return switch
+end
+
+--
+-- A radio mark, for one choice of several (the current status): a ring, with a solid centre
+-- on the chosen one. A switch is for an option that stands alone; this is for a group where
+-- only one is on. `enabled` false draws it in dark grey.
+--
+function Theme.radio(selected, enabled)
+  local Widget = require("ui/widget/widget")
+  local d = px(24)
+  local ink = (enabled == false) and Theme.DARK_GREY or Theme.BLACK
+  local radio = Widget:new { dimen = Geom:new { w = d, h = d } }
+  function radio:paintTo(bb, x, y)
+    self.dimen.x, self.dimen.y = x, y
+    local r, bs = math.floor(d / 2), Theme.line.firm
+    bb:paintCircle(x + r, y + r, r, ink, bs)
+    if selected then bb:paintCircle(x + r, y + r, r - bs - px(3), ink) end
+  end
+  return radio
 end
 
 --
@@ -295,21 +446,22 @@ end
 -- border to its parent, so a row of "w-wide" frames overflows the margin by
 -- the borders and padding. Putting the child in a CenterContainer whose size is
 -- the inside of the box makes the reported size the same as the painted one.
--- opts: filled (black with white text), border (px, default firm), radius
--- (scaled units).
+-- opts: filled (black with white text), border (px, default firm), round (a control: the
+-- shared corner radius), chip (a full pill), wash (grey fill), color (border colour,
+-- default black). With neither round nor chip it is square.
 --
 function Theme.box(w, h, child, opts)
   opts = opts or {}
   local bs = opts.border or Theme.line.firm
   return FrameContainer:new {
     bordersize = bs,
-    radius = opts.round and math.floor(math.min(w, h) / 2) or (opts.radius and px(opts.radius) or nil),
+    radius = (opts.chip and math.floor(math.min(w, h) / 2)) or (opts.round and Theme.controlRadius(w, h)) or nil,
     padding = 0,
     margin = 0,
     width = w,
     height = h,
-    color = Theme.BLACK,
-    background = opts.filled and Theme.BLACK or Theme.WHITE,
+    color = opts.color or Theme.BLACK,
+    background = opts.filled and Theme.BLACK or (opts.wash and Theme.WASH or Theme.WHITE),
     CenterContainer:new {
       dimen = Geom:new { w = w - 2 * bs, h = h - 2 * bs },
       child,
@@ -341,23 +493,31 @@ Theme.BUTTON_H = px(54)
 --
 -- The family's button: a bordered, rounded box with bold text, tappable over
 -- exactly what it draws. `filled` is the primary action (black, white text).
--- opts: filled, h, size (type name), radius (default: a full pill), callback, viewport (see
--- viewport.lua: for buttons inside a scroll area), enabled (false = dark grey
--- text, no tap), name.
+-- opts: filled, chevron, h, size (type name), callback, viewport (see viewport.lua: for buttons
+-- inside a scroll area), enabled (false = grey fill, grey border and text, no tap), name.
 --
 function Theme.button(text, w, opts)
   opts = opts or {}
   local TapRow = require("hardcover/lib/ui/tap_row")
   local enabled = opts.enabled ~= false
+  -- an unavailable button is grey, never black: black means active
+  local filled = opts.filled and enabled
+  -- a chevron says "opens a picker" (a button showing its current value); it is black, so it
+  -- only goes on an available, unfilled button
+  local chevron = (opts.chevron and enabled and not filled) and Theme.icon("chevron-right", px(18)) or nil
   local label = TextWidget:new {
     text = text,
     face = Theme.face(opts.size or "small"),
     bold = true,
-    max_width = w - 2 * Theme.line.firm - Theme.space.s,
-    fgcolor = (opts.filled and Theme.WHITE) or (enabled and Theme.BLACK or Theme.DARK_GREY),
+    max_width = w - 2 * Theme.line.firm - Theme.space.s - (chevron and (chevron:getSize().w + Theme.space.xs) or 0),
+    fgcolor = (filled and Theme.WHITE) or (enabled and Theme.BLACK or Theme.DARK_GREY),
   }
-  local box = Theme.box(w, opts.h or Theme.BUTTON_H, label,
-    { filled = opts.filled, radius = opts.radius, round = opts.radius == nil })
+  local content = label
+  if chevron then
+    content = HorizontalGroup:new { align = "center", label, Theme.hspan("xs"), chevron }
+  end
+  local box = Theme.box(w, opts.h or Theme.BUTTON_H, content,
+    { filled = filled, round = true, wash = not enabled, color = (not enabled) and Theme.DARK_GREY or nil })
   local tap = TapRow:new {
     callback = enabled and opts.callback or nil,
     viewport = opts.viewport,
@@ -375,7 +535,9 @@ end
 -- (the first section heading of the page draws the firm rule).
 --
 function Theme.titleBar(opts)
+  local face = Theme.serif("title")
   return TitleBar:new {
+    title_face = face,
     width = opts.width or Screen:getWidth(),
     fullscreen = true,
     align = "center",

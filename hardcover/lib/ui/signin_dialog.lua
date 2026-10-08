@@ -40,20 +40,21 @@ local SignInDialog = WidgetContainer:extend {
   cancelled = false,
 }
 
--- A numbered step: the number in a black square, then what to do (and, under
--- it, the detail).
+-- A numbered step: the number (a plain serif numeral: it is information, so no fill and no
+-- border), then what to do (and, under it, the detail).
 local function step(number, title, detail, width)
   local size = Screen:scaleBySize(26)
+  local title_face, title_bold = Theme.serif("title")
   local square = Theme.box(size + Theme.space.m, size + Theme.space.m, TextWidget:new {
     text = tostring(number),
-    face = Theme.face("title"),
-    bold = true,
-    fgcolor = Theme.WHITE,
-  }, { filled = true, border = 0 })
+    face = title_face,
+    bold = title_bold,
+    fgcolor = Theme.BLACK,
+  }, { border = 0 })
   local text_w = width - size - Theme.space.m - Theme.space.l
   local column = VerticalGroup:new {
     align = "left",
-    TextBoxWidget:new { text = title, face = Theme.face("title"), bold = true, width = text_w },
+    TextBoxWidget:new { text = title, face = title_face, bold = title_bold, width = text_w },
   }
   if detail then
     table.insert(column, Theme.span("xs"))

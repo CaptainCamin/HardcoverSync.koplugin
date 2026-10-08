@@ -46,9 +46,8 @@ return {
     emu:expectText("The Dispossessed")
     emu:expectText("Currently Reading")
     emu:expectText("Page 142 of 387")
-    emu:expectText("Update Hardcover as I read")
-    emu:expectText("Set page")
-    emu:expectText("Reviews")
+    emu:expectText("Tracking on")
+    emu:expectText("Rate")
     emu:shot("reader_panel")
     emu:closeAll()
 

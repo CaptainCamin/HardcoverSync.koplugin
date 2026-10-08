@@ -223,7 +223,7 @@ function ChartWidgets.bars(opts)
   local labels, tips = {}, {}
   for i, row in ipairs(rows) do
     labels[i] = text(row.label or "", "small", { width = label_w - px(8) })
-    tips[i] = text(row.text or Charts.number(row.value), "small", { bold = true })
+    tips[i] = text(row.text or Charts.number(row.value), "small")
   end
 
   return Canvas:new {
@@ -282,7 +282,7 @@ function ChartWidgets.donut(opts)
     end
   end
 
-  local hole_top = opts.center and opts.center.top and text(opts.center.top, "display", { bold = true })
+  local hole_top = opts.center and opts.center.top and text(opts.center.top, "display", { serif = true })
   local hole_bottom = opts.center and opts.center.bottom and text(opts.center.bottom, "small", { grey = true })
 
   local donut = Canvas:new {
@@ -308,7 +308,7 @@ function ChartWidgets.donut(opts)
   local swatch = px(16)
   local names, shares = {}, {}
   for i, s in ipairs(slices) do
-    shares[i] = text(string.format("%d%%", s.percent), "small", { bold = true })
+    shares[i] = text(string.format("%d%%", s.percent), "small")
     names[i] = text(s.label or "", "small", { width = legend_w - swatch - shares[i]:getSize().w - px(24) })
   end
   local legend = Canvas:new {
@@ -361,11 +361,16 @@ function ChartWidgets.kpis(opts)
       if j > i then table.insert(row, Theme.hspan(gap)) end
       local tile = tiles[j]
       local inner = w - 2 * Theme.line.firm - Theme.space.m
-      table.insert(row, Theme.box(w, h, VerticalGroup:new {
-        align = "center",
-        text(tile.value, "display", { bold = true, width = inner }),
-        text(tile.label, "small", { grey = true, width = inner }),
-      }, { radius = 10 }))
+      -- static information: no fill and no border, a hairline over it to set it off
+      table.insert(row, VerticalGroup:new {
+        align = "left",
+        Theme.rule(w, false),
+        Theme.box(w, h, VerticalGroup:new {
+          align = "center",
+          text(tile.value, "display", { serif = true, width = inner }),
+          text(tile.label, "small", { grey = true, width = inner }),
+        }, { border = 0 }),
+      })
     end
     table.insert(group, row)
     if i + per_row <= #tiles then table.insert(group, Theme.span("m")) end
@@ -374,7 +379,7 @@ function ChartWidgets.kpis(opts)
 end
 
 --
--- Labels as small pills, flowing onto as many lines as the width needs.
+-- Labels as plain bold text, flowing onto as many lines as the width needs.
 --
 function ChartWidgets.pills(opts)
   local width = opts.width
@@ -382,7 +387,7 @@ function ChartWidgets.pills(opts)
   local group = VerticalGroup:new { align = "left" }
   local row, used = nil, 0
   for _, label in ipairs(opts.labels or {}) do
-    local pill = Theme.pill(label, { size = "small", max_width = width - Theme.space.l * 2 })
+    local pill = Theme.label(label, { max_width = width - Theme.space.l * 2 })
     local w = pill:getSize().w
     if not row or used + gap + w > width then
       if row then table.insert(group, Theme.span("xs")) end

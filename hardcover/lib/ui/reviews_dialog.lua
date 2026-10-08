@@ -131,9 +131,9 @@ function ReviewsDialog:buildCard(item, width)
   local date = review.date and text(review.date, "small", { grey = true }) or nil
   local date_w = date and (date:getSize().w + Theme.space.m) or 0
   local stars = review.rating_value and text(
-    "\226\152\133 " .. (review.rating:gsub("%*$", "")), "body", { bold = true }) or nil
+    "\226\152\133 " .. (review.rating:gsub("%*$", "")), "body") or nil
   local stars_w = stars and (stars:getSize().w + Theme.space.m) or 0
-  local name = text(review.reviewer, "title", { bold = true, width = width - date_w - stars_w })
+  local name = text(review.reviewer, "title", { serif = true, width = width - date_w - stars_w })
   local head = HorizontalGroup:new { align = "center", name }
   if stars then
     table.insert(head, Theme.hspan("m"))
@@ -164,7 +164,7 @@ function ReviewsDialog:buildCard(item, width)
   table.insert(card, Theme.span("s"))
 
   -- the foot: likes, and Read more when there is more to read
-  local likes = text(review.likes or " ", "small", { bold = true })
+  local likes = text(review.likes or " ", "small")
   local more
   if review.truncated and not hidden then
     more = Theme.button(_(Reviews.READ_MORE), Screen:scaleBySize(110), {
@@ -207,7 +207,7 @@ function ReviewsDialog:buildSummary(width)
     table.insert(group, Theme.span("m"))
   end
   if summary.rating then
-    local figure = text(string.format("%.1f", summary.rating), "display", { bold = true })
+    local figure = text(string.format("%.1f", summary.rating), "display", { serif = true })
     local label = summary.count
       and string.format(_("%d ratings"), summary.count) or _("rating")
     local beside = VerticalGroup:new {
@@ -315,7 +315,7 @@ function ReviewsDialog:showPage(n)
   self.next_button = has_next and Theme.button(_("Next"), button_w, {
     callback = function() self:showPage(self.page + 1); UIManager:setDirty(self, "ui") end,
   }) or nil
-  local label = text(string.format(_("Page %d of %d"), self.page, #self.pages), "small", { bold = true })
+  local label = text(string.format(_("Page %d of %d"), self.page, #self.pages), "small")
   local middle_w = width - 2 * button_w
   table.insert(pager, slot(self.prev_button))
   table.insert(pager, CenterContainer:new {

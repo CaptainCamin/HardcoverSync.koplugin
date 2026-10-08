@@ -66,7 +66,7 @@ end
 
 -- one line: a label on the left, the figure on the right
 local function fact(label, value, width)
-  local right = text(value, "body", { bold = true })
+  local right = text(value, "body", { serif = true })
   local left = text(label, "body", { width = width - right:getSize().w - Theme.space.l })
   return HorizontalGroup:new { align = "center", left, Theme.hspan(math.max(0, width - left:getSize().w - right:getSize().w)), right }
 end
@@ -74,7 +74,7 @@ end
 function StatsDialog:periodButton(width, viewport)
   local label = self.year and tostring(self.year) or _("All time")
   return Theme.button(string.format(_("Period: %s"), label), width, {
-    size = "body", viewport = viewport, callback = function() self:choosePeriod() end,
+    size = "body", chevron = true, viewport = viewport, callback = function() self:choosePeriod() end,
   })
 end
 
@@ -103,11 +103,7 @@ function StatsDialog:buildContent(width, viewport)
   table.insert(content, Theme.span("m"))
 
   if self.note then
-    table.insert(content, FrameContainer:new {
-      bordersize = Theme.line.hair, color = Theme.DARK_GREY, radius = Theme.px(8),
-      padding = Theme.space.s, margin = 0, background = Blitbuffer.COLOR_WHITE,
-      TextBoxWidget:new { text = self.note, face = Theme.face("small"), width = width - 2 * Theme.space.s - 2 * Theme.line.hair },
-    })
+    table.insert(content, Theme.note(self.note, width))
     table.insert(content, Theme.span("m"))
   end
 

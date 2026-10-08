@@ -29,6 +29,7 @@ function PendingChangesDialog.show(opts)
     for _i, row in ipairs(rows) do
       items[#items + 1] = {
         text = PendingChanges.line(row),
+        icon = "close", -- tapping it cancels this change
         callback = function()
           UIManager:show(ConfirmBox:new {
             text = T(_("Cancel this change?\n\n%1\n\nHardcover keeps what it has now."), row.text),
