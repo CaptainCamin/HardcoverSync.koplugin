@@ -9,8 +9,8 @@
 --   B  Dashboard  a fixed, non-scrolling grid of summary tiles, one per module
 --   C  Tabs       a tab strip of module names; one module fills the page
 --
--- Turned on by the KOReader setting `hardcover_prototype_home_variant` ("A", "B"
--- or "C"). Unset (the default) means today's Home, untouched. Run it with
+-- Turned on from Home's settings ("Prototype: Home layout"), which writes the
+-- KOReader setting `hardcover_prototype_home_variant` ("A", "B" or "C"). Unset (the default) means today's Home, untouched. Run it with
 -- spec/emu/prototype_modular_home.sh.
 
 local Blitbuffer = require("ffi/blitbuffer")
@@ -84,6 +84,57 @@ function P.step(dialog, delta)
   for n, def in ipairs(P.VARIANTS) do if def.key == cur.key then i = n end end
   i = (i - 1 + delta) % #P.VARIANTS + 1
   P.select(dialog, P.VARIANTS[i].key)
+end
+
+-- The open Home screen, if any (to redraw it after the layout changes).
+local function openHome()
+  local UIManager = require("ui/uimanager")
+  for _, w in ipairs(UIManager._window_stack or {}) do
+    if w.widget and w.widget.name == "hardcover_home_dialog" then return w.widget end
+  end
+end
+
+-- "Prototype: Home layout" in Home's settings: A / B / C / Off. The Home underneath
+-- is rebuilt straight away, so closing Settings shows the new layout.
+function P.menuItem()
+  local function choose(key)
+    if key then
+      G_reader_settings:saveSetting(P.SETTING, key)
+    else
+      G_reader_settings:delSetting(P.SETTING)
+    end
+    local home = openHome()
+    if home then
+      home.prototype_variant = key
+      home:rebuild()
+    end
+  end
+  local function current()
+    local def = P.current()
+    return def and def.key
+  end
+  local sub = {
+    {
+      text = "Off (today's Home)",
+      checked_func = function() return current() == nil end,
+      callback = function(menu) choose(nil); if menu and menu.updateItems then menu:updateItems() end end,
+    },
+  }
+  for _, def in ipairs(P.VARIANTS) do
+    sub[#sub + 1] = {
+      text = def.key .. " \194\183 " .. def.name,
+      checked_func = function() return current() == def.key end,
+      callback = function(menu) choose(def.key); if menu and menu.updateItems then menu:updateItems() end end,
+    }
+  end
+  return {
+    text_func = function()
+      local def = P.current()
+      return "Prototype: Home layout" .. (def and (" (" .. def.key .. " \194\183 " .. def.name .. ")") or "")
+    end,
+    separator = true,
+    sub_item_table = sub,
+  }
 end
 
 -- -------------------------------------------------------------------------

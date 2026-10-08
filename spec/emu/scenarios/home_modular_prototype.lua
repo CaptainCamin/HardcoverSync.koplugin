@@ -116,7 +116,36 @@ return {
     emu:tapExpecting(center(d.proto_next))
     assert(d.prototype_variant == "A", "the switcher did not wrap")
 
-    G_reader_settings:delSetting(P.SETTING)
+    --[[ Picking a layout from Home's settings, with real taps ]]
+    manager.settings_items = function()
+      return require("hardcover/lib/ui/hardcover_menu"):new({
+        settings = settings,
+        auth = { usingOAuth = function() return true end, needsReauth = function() return false end,
+                 statusText = function() return "Signed in" end },
+        enabled = true,
+        sync_queue = { pendingCount = function() return 0 end, hasPending = function() return false end },
+      }):getHomeSettingsItems()
+    end
+    local function tapText(needle)
+      local node = emu:expectText(needle)
+      emu:tapExpecting(node.x + 5, node.y + 5)
+    end
+    emu:screenNodes() -- paint the rebuilt page, so its buttons know where they are
+    emu:tapExpecting(center(d.title_bar.left_button))
+    tapText("Prototype: Home layout (A")
+    emu:shot("home_proto_menu")
+    tapText("B \194\183 Dashboard")
+    assert(G_reader_settings:readSetting(P.SETTING) == "B", "choosing B did not save it")
+    assert(d.prototype_variant == "B", "Home underneath was not switched to B")
+    tapText("Off (today's Home)")
+    assert(G_reader_settings:readSetting(P.SETTING) == nil, "Off did not clear the setting")
+    assert(d.prototype_variant == nil, "Home underneath is still a prototype")
+    emu:closeAll()
+
+    manager:showHome()
+    emu:pump()
+    assert(manager.home_dialog.prototype_variant == nil, "Off did not bring back today's Home")
+    emu:expectText("Library")
     emu:closeAll()
   end,
 }

@@ -838,6 +838,8 @@ function HardcoverMenu:getHomeSettingsItems(opts)
     account.separator = true
     items[#items + 1] = account
   end
+  -- PROTOTYPE (modular Home): pick a Home layout from the device
+  items[#items + 1] = require("hardcover/lib/ui/home_modular_prototype").menuItem()
   for _, item in ipairs(self:getSettingsSubMenuItems()) do
     items[#items + 1] = item
   end
