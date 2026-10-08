@@ -61,16 +61,21 @@ function ListStore:putIndex(user_id, lists)
   }
 
   local before = self:index(user_id)
+  local dropped = false
   if before then
     local still = {}
     for _, row in ipairs(fresh.mine) do still[tostring(row.id)] = true end
     for _, row in ipairs(fresh.following) do still[tostring(row.id)] = true end
     for _, group in ipairs({ before.mine, before.following }) do
       for _, row in ipairs(group) do
-        if not still[tostring(row.id)] then self.db:dropOwned(listKey(user_id, row.id)) end
+        if not still[tostring(row.id)] then
+          self.db:dropOwned(listKey(user_id, row.id))
+          dropped = true
+        end
       end
     end
   end
+  if dropped then self.books:evict() end
 
   local text = encode(fresh)
   return text and self.db:putBlob(indexKey(user_id), text) or false
@@ -156,7 +161,10 @@ local function save(self, user_id, row, members, ids, complete)
     members = members,
   })
   if not text then return false end
-  return self.db:putOwned(listKey(user_id, row.id), ids, text)
+  local ok = self.db:putOwned(listKey(user_id, row.id), ids, text)
+  -- a book the list no longer holds may now be held by nothing
+  self.books:evict()
+  return ok
 end
 
 --

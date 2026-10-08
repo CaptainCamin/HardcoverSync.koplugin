@@ -238,8 +238,14 @@ check("a list that left the index is forgotten, and its books can go", function(
   lists:putEntries(1, listRow(11), { entry(2) }, true)
   lists:putIndex(1, { mine = { listRow(11) }, following = {} })
   assert(lists:contents(1, 10) == nil, "the deleted list is still saved")
-  books:evict()
-  assert(db:count("books") == 1 and books:rows({ 2 })[2], "the wrong books went")
+  assert(db:count("books") == 1 and books:rows({ 2 })[2], "the deleted list's book stayed, or the wrong one went")
+end)
+
+check("a book a list no longer holds goes when the list is saved again", function()
+  local _, lists, db = stores()
+  lists:putEntries(1, listRow(10), { entry(1), entry(2) }, true)
+  lists:putMembers(1, listRow(10), { { list_book_id = 5, position = 0, book_id = 2 } }, true)
+  assert(db:count("books") == 1 and db.books[2], "the dropped book stayed")
 end)
 
 check("eviction keeps books a list holds, and books opened recently", function()
