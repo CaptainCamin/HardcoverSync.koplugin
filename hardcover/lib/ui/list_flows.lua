@@ -100,7 +100,7 @@ function Flows:refreshLists(on_done)
   queue:add({
     key = "index",
     work = function()
-      local lists, err = Api:getLists()
+      local lists, err = ShelfLoader.patient(function() return Api:getLists() end, Background.sleep)
       if not lists then return { failure = err } end
       if store then
         store:putIndex(user_id, lists)

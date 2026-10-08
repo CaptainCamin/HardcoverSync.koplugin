@@ -128,7 +128,21 @@ function ListsSync.download(opts)
 
   local ids = {}
   for i, m in ipairs(result.entries) do ids[i] = m.book_id end
-  local missing = books:missing(ids)
+  local fetched = ListsSync.fetchMissing(opts, ids)
+  if fetched ~= true then return fetched end
+
+  lists:putMembers(opts.user_id, row, result.entries, true)
+  return { complete = true, entries = lists:entries(opts.user_id, row) or {} }
+end
+
+--
+-- Fetch and save the books among `ids` the device does not have whole, BOOKS_PER_REQUEST
+-- at a time, waiting if Hardcover says to slow down. `opts` as for download (api, books,
+-- alive, sleep, network). Returns true when all are saved, nil when stopped, or a
+-- download result saying why not.
+--
+function ListsSync.fetchMissing(opts, ids)
+  local missing = opts.books:missing(ids)
   for start = 1, #missing, ListsSync.BOOKS_PER_REQUEST do
     if not opts.alive() then return nil end
     if opts.network and not opts.network.connected() then
@@ -138,16 +152,14 @@ function ListsSync.download(opts)
     for i = start, math.min(start + ListsSync.BOOKS_PER_REQUEST - 1, #missing) do
       chunk[#chunk + 1] = missing[i]
     end
-    local fetched, err = api:getBooksByIds(chunk)
+    local fetched, err = ShelfLoader.patient(function() return opts.api:getBooksByIds(chunk) end, opts.sleep)
     if not opts.alive() then return nil end
     if not fetched then
       return { complete = false, entries = {}, failure = err }
     end
-    books:saveRows(fetched)
+    opts.books:saveRows(fetched)
   end
-
-  lists:putMembers(opts.user_id, row, result.entries, true)
-  return { complete = true, entries = lists:entries(opts.user_id, row) or {} }
+  return true
 end
 
 -- ------------------------------------------------------------------ the queue
