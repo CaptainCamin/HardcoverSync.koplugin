@@ -372,9 +372,14 @@ function M.seed_cover(url, variant)
   local bytes = file:read("*a")
   file:close()
 
-  local cache = require("hardcover/lib/ui/image_loader"):getCache()
+  local loader = require("hardcover/lib/ui/image_loader")
+  local cache = loader:getCache()
   assert(cache, "the cover cache could not be opened (no ffi/sha2 or lfs?)")
-  assert(cache:put(url, bytes), "could not write the cover into the cache")
+  -- under every address the loader asks for it by: the cover as uploaded, and the
+  -- image service's small and large sizes for this screen (see covers.lua)
+  for _, key in ipairs({ url, loader:fetchUrl(url, "small"), loader:fetchUrl(url, "large") }) do
+    assert(cache:put(key, bytes), "could not write the cover into the cache")
+  end
 end
 
 M.books_by_id = {}

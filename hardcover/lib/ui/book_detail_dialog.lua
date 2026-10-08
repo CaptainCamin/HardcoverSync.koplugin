@@ -585,7 +585,7 @@ function BookDetailDialog:loadCover(cover, width, height)
     if not bb then return end
 
     self:placeCover(bb, width, height)
-  end)
+  end, { size = "large" })
   self.cover_halt = halt
 end
 
