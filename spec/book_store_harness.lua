@@ -172,6 +172,48 @@ check("a JSON null read back is nil, not a placeholder", function()
   assert(row.title == "T" and row.pages == nil)
 end)
 
+local function settledBook(extra)
+  local b = { book_id = 1, title = "T", description = "A synopsis", cached_image = { url = "u" }, pages = 300,
+              first_release_date = "2001-02-03", release_year = 2001 }
+  for k, v in pairs(extra or {}) do b[k] = v end
+  return b
+end
+
+check("a book that is out, with a synopsis, a cover and a length, is done changing", function()
+  local today = "2026-10-08"
+  assert(BookStore.isSettled(settledBook(), today))
+  assert(not BookStore.isSettled(settledBook({ description = "" }), today), "no synopsis")
+  assert(not BookStore.isSettled(settledBook({ cached_image = false }), today), "no cover")
+  assert(not BookStore.isSettled(settledBook({ pages = false }), today), "no length")
+  assert(BookStore.isSettled(settledBook({ pages = false, audio_seconds = 3600 }), today), "an audiobook has a length")
+  assert(not BookStore.isSettled(settledBook({ first_release_date = "2027-03-01" }), today), "not out yet")
+  assert(BookStore.isSettled(settledBook({ first_release_date = false, release_year = 2020 }), today))
+  assert(not BookStore.isSettled(settledBook({ first_release_date = false, release_year = 2027 }), today))
+end)
+
+check("a settled book's details are shown again without asking; one still changing only for a week", function()
+  local books = stores()
+  clock = 100000
+  books:saveDetail(1, nil, { book = settledBook() })
+  books:saveDetail(2, nil, { book = settledBook({ book_id = 2, first_release_date = "2099-01-01", release_year = 2099 }) })
+  assert(books:settledDetail(1) and books:settledDetail(2), "fresh details were not trusted")
+  clock = clock + BookStore.RECHECK_AFTER + 1
+  assert(books:settledDetail(1), "a settled book was asked for again")
+  assert(books:settledDetail(2) == nil, "an unreleased book was trusted after a week")
+  -- a book only a list knows has no details to show yet
+  books:saveRows({ entry(3) })
+  assert(books:settledDetail(3) == nil)
+end)
+
+check("a series is kept with when it was saved, per account", function()
+  local books = stores()
+  clock = 7000
+  books:putSeries(1, 55, { id = 55, name = "Earthsea", books = { { book_id = 1, title = "A Wizard" } } })
+  local series, saved_at = books:series(1, 55)
+  assert(series.name == "Earthsea" and series.books[1].title == "A Wizard" and saved_at == 7000)
+  assert(books:series(2, 55) == nil)
+end)
+
 print("\n== your lists ==")
 
 check("the index comes back as saved, with when it was checked", function()
