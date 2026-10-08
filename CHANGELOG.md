@@ -4,14 +4,21 @@
 
 ### Added
 
-- **Lists work offline.** Your lists and the ones you follow are kept on the device, every one of them, without you opening each: Home checks them each time it opens and downloads whatever changed. The lists screen and each list open at once from the device, offline too, with a note saying when they are from. A book on any of your lists opens offline with its whole synopsis (shelves still keep only the first 600 characters), and a book you opened online opens offline with everything its details showed.
-- A list's menu (top left) has **Refresh**, to download the list and its books again if something looks out of date.
+- **A library on your device, starting with your lists.** Until now most screens downloaded everything again each time they opened, even when nothing had changed, and lists did not work offline at all. The plugin now keeps your data on the device and asks Hardcover only what changed. Lists are first; shelves and covers follow in the next betas.
+- **Every list is kept on the device**, yours and the ones you follow, whether or not you have opened it. Home checks them each time it opens, in the request it already makes for the "More lists" tile, and downloads only the lists that changed.
+- **Lists work offline.** The lists screen, each list and every book on them open at once from the device, offline too, with a note saying when they are from. A book on any list opens offline with its whole synopsis (shelves still keep only the first 600 characters), and a book you opened online opens offline with everything its details showed.
+- A list's menu (top left) has **Refresh**, to download the list and its books again if anything looks out of date.
 
 ### Changed
 
-- Lists are downloaded far less. Hardcover is asked only whether a list changed, in the request Home already makes for the "More lists" tile, and a list that has not changed opens with no request at all. One that changed downloads which books it holds and only the books the device does not have yet, instead of the whole list again: a book added to a 25-book list costs about 3 KB instead of 32 KB. A book that is on several lists is kept once.
+- **A list that has not changed costs nothing to open**: no request at all. One that changed downloads only which books it holds and the books the device does not have yet, instead of the whole list again. A book added to a 25-book list costs about 3 KB instead of 32 KB. Each book is kept once, however many lists it is on.
+- Measured on a real account with 9 lists and 61 books:
+  - the first Home open saves every list in the background (91 KB);
+  - each later check with nothing changed is one request of about 1 KB;
+  - everything opens offline with no request;
+  - the whole library takes 160 KB on the device.
 - The book count under a list is now counted rather than taken from the number Hardcover stores, which can be off by one.
-- Lists and their books are kept in a small database (`hardcoversync_library.sqlite3` in KOReader's settings folder). Signing out clears it.
+- Lists and their books are kept in a small database (`hardcoversync_library.sqlite3` in KOReader's settings folder), using the SQLite that KOReader already includes. Signing out clears it.
 
 ## 1.6.3
 
