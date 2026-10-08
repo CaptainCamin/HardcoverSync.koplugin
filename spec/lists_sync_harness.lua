@@ -263,93 +263,126 @@ end)
 
 print("\n== one queue ==")
 
--- A queue whose background block is run by hand, one step at a time, like KOReader
--- resuming a coroutine when a request comes back.
-local function steppedQueue(alive)
-  local blocks = {}
+-- A queue whose background block runs at once, as Background.run does inside a block that
+-- is already running. "While a request is out" is played by a job that, mid-way, does
+-- what a screen would do meanwhile: ask for more. (Pausing inside the job, as a real
+-- request does, needs a coroutine to yield through pcall: KOReader's LuaJIT allows it, and
+-- every API call already relies on it (see async() in hardcover_api.lua), but the stock
+-- Lua 5.1 the CI runs does not. That case is checked below on LuaJIT only.)
+local function inlineQueue(alive)
+  local runners = 0
   local queue = ListsSync.newQueue {
-    run = function(fn) blocks[#blocks + 1] = coroutine.create(fn) end,
+    run = function(fn) runners = runners + 1; fn() end,
     alive = alive,
   }
-  local function step()
-    for _, co in ipairs(blocks) do
-      if coroutine.status(co) == "suspended" then
-        local ok, err = coroutine.resume(co)
-        assert(ok, err)
-      end
-    end
-  end
-  return queue, step, blocks
+  return queue, function() return runners end
 end
 
 check("jobs run one after another, never two at once", function()
-  local queue, step, blocks = steppedQueue()
+  local queue, runners = inlineQueue()
   local in_flight, most, order = 0, 0, {}
-  local function job(key)
+  local function job(key, meanwhile)
     return { key = key, work = function()
       in_flight = in_flight + 1
       most = math.max(most, in_flight)
-      coroutine.yield() -- the request is out
+      if meanwhile then meanwhile() end
       in_flight = in_flight - 1
       order[#order + 1] = key
       return key
     end }
   end
-  queue:add(job("a")); queue:start()
-  queue:add(job("b")); queue:start()
-  queue:add(job("c")); queue:start()
-  assert(#blocks == 1, "a second runner was started")
-  for _ = 1, 6 do step() end
+  queue:add(job("a", function()
+    queue:add(job("b")); queue:start()
+    queue:add(job("c")); queue:start()
+  end))
+  queue:start()
+  assert(runners() == 1, "a second runner was started")
   assert(most == 1 and table.concat(order) == "abc", "most at once: " .. most .. ", order " .. table.concat(order))
 end)
 
 check("a job already queued or running is not queued twice; whoever waits for it hears once", function()
-  local queue, step = steppedQueue()
-  local runs, heard = 0, {}
-  local job = { key = "list:1", work = function() runs = runs + 1; coroutine.yield(); return "done" end }
+  local queue = inlineQueue()
+  local runs, heard, again = 0, {}, nil
+  local job
+  job = { key = "list:1", work = function()
+    runs = runs + 1
+    queue:wait("list:1", function(res) heard[#heard + 1] = res end)
+    again = queue:add(job)
+    return "done"
+  end }
   queue:wait("list:1", function(res) heard[#heard + 1] = res end)
   assert(queue:add(job)); queue:start()
-  step() -- running now
-  queue:wait("list:1", function(res) heard[#heard + 1] = res end)
-  assert(not queue:add(job), "a running job was queued again")
-  for _ = 1, 3 do step() end
+  assert(again == false, "a running job was queued again")
   assert(runs == 1 and #heard == 2 and heard[1] == "done" and heard[2] == "done")
 end)
 
 check("a screen waiting on a list moves it to the front", function()
-  local queue, step = steppedQueue()
+  local queue = inlineQueue()
   local order = {}
-  local function job(key) return { key = key, work = function() coroutine.yield(); order[#order + 1] = key end } end
-  queue:add(job("first")); queue:start()
-  step()
-  queue:add(job("a")); queue:add(job("b")); queue:add(job("c"))
-  queue:add(job("c"), true)
-  for _ = 1, 10 do step() end
+  local function job(key, meanwhile)
+    return { key = key, work = function()
+      if meanwhile then meanwhile() end
+      order[#order + 1] = key
+    end }
+  end
+  queue:add(job("first", function()
+    queue:add(job("a")); queue:add(job("b")); queue:add(job("c"))
+    queue:add(job("c"), true)
+  end))
+  queue:start()
   assert(table.concat(order, " ") == "first c a b", table.concat(order, " "))
 end)
 
 check("a job that raises does not stop the queue", function()
-  local queue, step = steppedQueue()
+  local queue = inlineQueue()
   local heard
   queue:wait("bad", function(res) heard = res == nil and "nothing" or res end)
   queue:add({ key = "bad", work = function() error("boom") end })
   local ran = false
   queue:add({ key = "good", work = function() ran = true end })
   queue:start()
-  for _ = 1, 3 do step() end
   assert(ran and heard == "nothing" and not queue.running)
 end)
 
 check("closing stops the queue between jobs, and whoever waits is told nothing will come", function()
   local open = true
-  local queue, step = steppedQueue(function() return open end)
+  local queue = inlineQueue(function() return open end)
   local heard = {}
-  queue:add({ key = "a", work = function() coroutine.yield(); open = false; return "a" end })
+  queue:add({ key = "a", work = function() open = false; return "a" end })
   queue:add({ key = "b", work = function() error("must not run") end })
   queue:wait("b", function(res) heard[#heard + 1] = res == nil end)
   queue:start()
-  for _ = 1, 4 do step() end
   assert(heard[1] == true and #queue.jobs == 0 and not queue.running)
 end)
+
+-- On LuaJIT (what KOReader runs): jobs that really pause while their request is out.
+if jit then
+  check("LuaJIT: jobs that pause for their request still run one at a time, in order", function()
+    local blocks = {}
+    local queue = ListsSync.newQueue { run = function(fn) blocks[#blocks + 1] = coroutine.create(fn) end }
+    local function step()
+      for _, co in ipairs(blocks) do
+        if coroutine.status(co) == "suspended" then assert(coroutine.resume(co)) end
+      end
+    end
+    local in_flight, most, order = 0, 0, {}
+    local function job(key)
+      return { key = key, work = function()
+        in_flight = in_flight + 1
+        most = math.max(most, in_flight)
+        coroutine.yield() -- the request is out
+        in_flight = in_flight - 1
+        order[#order + 1] = key
+      end }
+    end
+    queue:add(job("a")); queue:start()
+    step()
+    queue:add(job("b")); queue:start()
+    queue:add(job("c")); queue:start()
+    for _ = 1, 6 do step() end
+    assert(#blocks == 1 and most == 1 and table.concat(order) == "abc",
+      "runners " .. #blocks .. ", most " .. most .. ", order " .. table.concat(order))
+  end)
+end
 
 r.finish()
