@@ -155,13 +155,15 @@ end
 -- (IconWidget given a `file` skips KOReader's own icon lookup, so any SVG or PNG works.)
 -- Name an icon KOReader already ships (e.g. "home") through IconWidget directly instead.
 --
-local plugin_root = (debug.getinfo(1, "S").source or ""):match("^@(.*)/hardcover/lib/ui/theme%.lua$")
+-- the folder this file was loaded from, up to and including its trailing slash ("" when
+-- loaded relative to the working directory)
+local plugin_root = (debug.getinfo(1, "S").source or ""):match("^@(.-)hardcover/lib/ui/theme%.lua$") or ""
 function Theme.icon(name_or_path, size, opts)
   opts = opts or {}
   local IconWidget = require("ui/widget/iconwidget")
   local file = name_or_path
   if not file:find("/", 1, true) then
-    file = (plugin_root or ".") .. "/icons/" .. file .. ".svg"
+    file = plugin_root .. "icons/" .. file .. ".svg"
   end
   return IconWidget:new {
     file = file,

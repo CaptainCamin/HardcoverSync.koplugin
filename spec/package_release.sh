@@ -89,7 +89,7 @@ mkdir -p "$STAGE/$PLUGIN_DIR"
 # Only what ships. The config example must be included: it is the template a
 # user copies to create their own config, and without it they have no way to
 # learn the key names.
-for item in _meta.lua main.lua hardcover hardcover_version.lua \
+for item in _meta.lua main.lua hardcover icons hardcover_version.lua \
             hardcover_config.example.lua LICENSE README.md CHANGELOG.md; do
   if [ -e "$ROOT/$item" ]; then
     cp -R "$ROOT/$item" "$STAGE/$PLUGIN_DIR/"
@@ -265,6 +265,14 @@ if [ -n "$missing" ]; then
   exit 1
 fi
 echo "  every internal require resolves"
+
+# Icons are loaded by file path, so a zip without them fails silently on the device
+# (KOReader draws its "icon not found" glyph). Every one in the tree must be in the zip.
+if ! diff -r "$ROOT/icons" "$EXTRACTED/icons" >/dev/null 2>&1; then
+  echo "ERROR: icons/ is missing from the archive or differs from the working tree."
+  exit 1
+fi
+echo "  icons ship ($(ls "$EXTRACTED/icons" | wc -l | tr -d ' ') files)"
 
 if [ -f "$EXTRACTED/hardcover_config.example.lua" ]; then
   echo "  config example ships, so a user has a template"
