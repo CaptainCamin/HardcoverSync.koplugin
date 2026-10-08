@@ -189,6 +189,7 @@ local function fakeClass(path, kind)
     o.setRows = function() end
     o.setReading = function() end
     o.rebuildSoon = function() end
+    o.rebuild = function(self) self.rebuilt = (self.rebuilt or 0) + 1 end
     o.free = function() end
     shown[kind] = o
     return o
@@ -396,6 +397,20 @@ check("a manager with no stores still opens a list from the network", function()
   m.book_store, m.list_store = nil, nil
   m:showList(listOf(11))
   assert(named("getListBooks") == 1 and #shown.shelf.entries == 2 and #retries == 0)
+end)
+
+check("a book put on a list from its details is in the list next time, however soon", function()
+  local m = primed()
+  -- what the details screen's tick box does once Hardcover has said yes
+  server.lists[11].books = { 3, 4, 9 }
+  server.lists[11].updated_at = T2
+  m:refreshListsScreen(11, 3)
+  clock = clock + 30 -- well inside the five minutes Home's check is trusted for
+  m:showLists()
+  assert(named("getLists") == 1, "the lists were trusted after a change made here")
+  assert(named("getListMembers") == 1, "the changed list was not downloaded again")
+  m:showList(rowNamed(m, "Owned"))
+  assert(#shown.shelf.entries == 3 and shown.shelf.entries[3].book_id == 9)
 end)
 
 print("\n== a book from a saved list ==")

@@ -318,6 +318,8 @@ end
 
 -- The lists screen, when it is open underneath, shows the new size of a list.
 function Flows:refreshListsScreen(list_id, count)
+  -- the saved copy of the list is out of date now: the next look downloads it again
+  if self.list_store then self.list_store:markStale(User:getId(), list_id) end
   local screen = self:screens():open("lists")
   if not screen then return end
   local changed = false

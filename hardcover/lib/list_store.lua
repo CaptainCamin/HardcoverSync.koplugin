@@ -91,6 +91,28 @@ function ListStore:markChecked(user_id)
   return text and self.db:putBlob(indexKey(user_id), text) or false
 end
 
+--
+-- A change made on this device (a book put on the list or taken off it, from a book's
+-- details): the saved copy of the list no longer matches Hardcover, and the index's count
+-- and covers may not either. Both are marked so the next look asks Hardcover again,
+-- however recently it was asked, and the list downloads its membership (one request).
+--
+function ListStore:markStale(user_id, list_id)
+  local saved = self:contents(user_id, list_id)
+  if saved then
+    saved.fingerprint = nil
+    local text = encode(saved)
+    if text then self.db:putBlob(listKey(user_id, list_id), text) end
+  end
+  local index = self:index(user_id)
+  if index then
+    index.checked_at = nil
+    local text = encode(index)
+    if text then self.db:putBlob(indexKey(user_id), text) end
+  end
+  return true
+end
+
 -- Every list in the index, yours first.
 function ListStore.allRows(index)
   local out = {}
