@@ -75,7 +75,8 @@ end
 --
 -- Download list `row` and save it. Call from inside Background.run. `opts`:
 --   api        getListBooks, getListMembers, getBooksByIds
---   lists      the list store; books: the book store
+--   lists      the list store; books: the book store (both nil: nothing is saved, the
+--              list is just downloaded, as before lists were kept)
 --   user_id, row
 --   alive      function() -> false to stop (the plugin is closing)
 --   sleep, network   as for ShelfLoader.load
@@ -87,7 +88,7 @@ end
 --
 function ListsSync.download(opts)
   local api, lists, books, row = opts.api, opts.lists, opts.books, opts.row
-  local saved = not opts.force and lists:contents(opts.user_id, row.id) or nil
+  local saved = not opts.force and lists and lists:contents(opts.user_id, row.id) or nil
 
   if not saved then
     local result = ShelfLoader.load {
@@ -102,12 +103,14 @@ function ListsSync.download(opts)
     }
     if not result then return nil end
     -- a partial list is saved (and marked so), unless it would replace a whole one
-    local had = opts.force and lists:contents(opts.user_id, row.id)
-    if result.complete or (#result.entries > 0 and not (had and had.complete)) then
-      lists:putEntries(opts.user_id, row, result.entries, result.complete)
-    end
-    if result.complete then
-      result.entries = lists:entries(opts.user_id, row) or result.entries
+    if lists then
+      local had = opts.force and lists:contents(opts.user_id, row.id)
+      if result.complete or (#result.entries > 0 and not (had and had.complete)) then
+        lists:putEntries(opts.user_id, row, result.entries, result.complete)
+      end
+      if result.complete then
+        result.entries = lists:entries(opts.user_id, row) or result.entries
+      end
     end
     return result
   end

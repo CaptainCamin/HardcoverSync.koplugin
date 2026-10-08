@@ -255,6 +255,12 @@ check("stopped (the plugin is closing): nothing is saved and nil comes back", fu
   assert(result == nil and lists:contents(1, 7) == nil)
 end)
 
+check("with no store at all the list is still downloaded, just not kept", function()
+  local api = fakeApi { book_pages = { { { book(1), book(2) }, false } } }
+  local result = download(api, nil, nil, listRow(7))
+  assert(result.complete and #result.entries == 2 and result.entries[1].title == "Book 1")
+end)
+
 print("\n== one queue ==")
 
 -- A queue whose background block is run by hand, one step at a time, like KOReader

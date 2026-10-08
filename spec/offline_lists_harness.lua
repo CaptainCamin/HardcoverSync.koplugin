@@ -391,6 +391,13 @@ check("Refresh downloads the list and its books again, in full", function()
   assert(named("getListBooks") == 1 and shown.shelf.updates >= 2)
 end)
 
+check("a manager with no stores still opens a list from the network", function()
+  local m = newManager()
+  m.book_store, m.list_store = nil, nil
+  m:showList(listOf(11))
+  assert(named("getListBooks") == 1 and #shown.shelf.entries == 2 and #retries == 0)
+end)
+
 print("\n== a book from a saved list ==")
 
 check("offline, a book on a saved list opens with its synopsis", function()

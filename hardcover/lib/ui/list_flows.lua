@@ -51,11 +51,8 @@ end
 --
 function Flows:downloadList(row, opts)
   opts = opts or {}
-  local store = self.list_store
-  if not (store and self.book_store) then
-    if opts.on_done then opts.on_done(nil) end
-    return
-  end
+  -- without the stores (a test's manager) the list is still downloaded, just not kept
+  local store = self.book_store and self.list_store or nil
   local user_id = User:getId()
   local queue = self:listsQueue()
   local key = "list:" .. tostring(row.id) .. (opts.force and ":refresh" or "")
