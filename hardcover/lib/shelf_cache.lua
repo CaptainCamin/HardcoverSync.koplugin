@@ -392,6 +392,24 @@ function ShelfCache:invalidate(user_id, status_ids)
   return ok
 end
 
+-- The shelves of one user, after they were carried over to the shelf store (see
+-- ShelfStore:convert): the file then holds goals and Stats, and is small again.
+function ShelfCache:dropShelves(user_id)
+  local store = self:_store()
+  local shelves = store and store:readSetting("shelves")
+  if not shelves then return true end
+  local prefix = tostring(user_id or 0) .. ":"
+  local dropped = false
+  for key in pairs(shelves) do
+    if key:sub(1, #prefix) == prefix then
+      shelves[key] = nil
+      dropped = true
+    end
+  end
+  if not dropped then return true end
+  return (pcall(store.flush, store))
+end
+
 -- Everything, for sign out: the cache holds a user's library.
 function ShelfCache:clear()
   local store = self:_store()

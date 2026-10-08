@@ -14,29 +14,45 @@
 -- not retried on every call.
 --
 -- Tables:
---   books    one row per book: what a list or shelf row shows (JSON)
---   details  a book's details screen as last fetched, per edition (0 = no edition)
---   blobs    small keyed records: a user's list index, one list's books
---   refs     which saved list holds which book, so books no list holds can go
+--   books        one row per book: what a list or shelf row shows (JSON); `partial` when
+--                its synopsis was cut short (carried over from the old shelf file), so
+--                the book counts as not saved until it is fetched whole
+--   details      a book's details screen as last fetched, per edition (0 = no edition)
+--   blobs        small keyed records: a user's list index, one list's books, a shelf's
+--                fingerprint, a series
+--   refs         which saved list holds which book, so books no list holds can go
+--   shelf_books  your shelves: one row per book in your library, with its shelf (status),
+--                your rating, when it was added and its place in the shelf's order
 
 local SqliteStore = {}
 SqliteStore.__index = SqliteStore
 
--- Bumped when the tables change; open() brings an older file up to date.
-SqliteStore.SCHEMA_VERSION = 1
+-- What each version of the file adds, run in order from the file's own version
+-- (PRAGMA user_version) up. Never change a step once it has shipped: a file made by an
+-- earlier beta has run it already. Add a new step instead.
+local MIGRATIONS = {
+  -- 1.7.0-beta.1: books, details, lists
+  {
+    "CREATE TABLE IF NOT EXISTS books (book_id INTEGER PRIMARY KEY, row TEXT NOT NULL, saved_at INTEGER)",
+    "CREATE TABLE IF NOT EXISTS details (book_id INTEGER NOT NULL, edition_id INTEGER NOT NULL, data TEXT NOT NULL, opened_at INTEGER, PRIMARY KEY (book_id, edition_id))",
+    "CREATE TABLE IF NOT EXISTS blobs (key TEXT PRIMARY KEY, data TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS refs (owner TEXT NOT NULL, book_id INTEGER NOT NULL)",
+    "CREATE INDEX IF NOT EXISTS refs_owner ON refs (owner)",
+    "CREATE INDEX IF NOT EXISTS refs_book ON refs (book_id)",
+    "CREATE INDEX IF NOT EXISTS details_opened ON details (opened_at)",
+  },
+  -- 1.7.0-beta.2: shelves, and books whose synopsis is not whole yet
+  {
+    "ALTER TABLE books ADD COLUMN partial INTEGER NOT NULL DEFAULT 0",
+    "CREATE TABLE IF NOT EXISTS shelf_books (user_id INTEGER NOT NULL, status_id INTEGER NOT NULL, user_book_id INTEGER, book_id INTEGER NOT NULL, rating REAL, date_added TEXT, position INTEGER NOT NULL, PRIMARY KEY (user_id, book_id))",
+    "CREATE INDEX IF NOT EXISTS shelf_books_shelf ON shelf_books (user_id, status_id, position)",
+  },
+}
+
+SqliteStore.SCHEMA_VERSION = #MIGRATIONS
 
 -- SQLite (before 3.32) allows 999 bound values in one statement.
 local CHUNK = 400
-
-local SCHEMA = {
-  "CREATE TABLE IF NOT EXISTS books (book_id INTEGER PRIMARY KEY, row TEXT NOT NULL, saved_at INTEGER)",
-  "CREATE TABLE IF NOT EXISTS details (book_id INTEGER NOT NULL, edition_id INTEGER NOT NULL, data TEXT NOT NULL, opened_at INTEGER, PRIMARY KEY (book_id, edition_id))",
-  "CREATE TABLE IF NOT EXISTS blobs (key TEXT PRIMARY KEY, data TEXT NOT NULL)",
-  "CREATE TABLE IF NOT EXISTS refs (owner TEXT NOT NULL, book_id INTEGER NOT NULL)",
-  "CREATE INDEX IF NOT EXISTS refs_owner ON refs (owner)",
-  "CREATE INDEX IF NOT EXISTS refs_book ON refs (book_id)",
-  "CREATE INDEX IF NOT EXISTS details_opened ON details (opened_at)",
-}
 
 function SqliteStore:new(o)
   return setmetatable(o or {}, self)
@@ -58,10 +74,20 @@ function SqliteStore:_open()
   else
     conn:exec("PRAGMA journal_mode=TRUNCATE;")
   end
+  -- bring the file up to date, one version at a time, each all or nothing
   local version = tonumber(conn:rowexec("PRAGMA user_version;")) or 0
-  if version < SqliteStore.SCHEMA_VERSION then
-    for _, statement in ipairs(SCHEMA) do conn:exec(statement) end
-    conn:exec(string.format("PRAGMA user_version=%d;", SqliteStore.SCHEMA_VERSION))
+  for v = version + 1, #MIGRATIONS do
+    conn:exec("BEGIN;")
+    local ok, err = pcall(function()
+      for _, statement in ipairs(MIGRATIONS[v]) do conn:exec(statement) end
+      conn:exec(string.format("PRAGMA user_version=%d;", v))
+    end)
+    if not ok then
+      pcall(conn.exec, conn, "ROLLBACK;")
+      pcall(conn.close, conn)
+      error(err)
+    end
+    conn:exec("COMMIT;")
   end
   return conn
 end
@@ -121,16 +147,18 @@ local function chunks(ids)
 end
 
 -- Every row of a statement, each as { values... } with integers made Lua numbers
--- (lua-ljsqlite3 hands them back as 64-bit cdata).
+-- (lua-ljsqlite3 hands them back as 64-bit cdata). A NULL is nil, so a row can have
+-- holes: the columns are counted from the statement, not from the row.
 local function rows(conn, sql, ...)
   local stmt = conn:prepare(sql)
   local out = {}
   local ok, err = pcall(function(...)
     stmt:bind(...)
+    local n = stmt:_ncol()
     local row = stmt:step()
     while row do
       local copy = {}
-      for i = 1, #row do
+      for i = 1, n do
         local v = row[i]
         copy[i] = type(v) == "cdata" and tonumber(v) or v
       end
@@ -165,13 +193,14 @@ function SqliteStore:getRows(ids)
   end) or {}
 end
 
--- `books` is { { book_id = n, row = json }, ... }: saved, replacing what was there.
+-- `books` is { { book_id = n, row = json, partial = bool }, ... }: saved, replacing what
+-- was there.
 function SqliteStore:putRows(books, now)
   return self:_write(function(conn)
-    local stmt = conn:prepare("INSERT OR REPLACE INTO books (book_id, row, saved_at) VALUES (?, ?, ?)")
+    local stmt = conn:prepare("INSERT OR REPLACE INTO books (book_id, row, saved_at, partial) VALUES (?, ?, ?, ?)")
     local ok, err = pcall(function()
       for _, b in ipairs(books) do
-        stmt:reset():bind(b.book_id, b.row, now):step()
+        stmt:reset():bind(b.book_id, b.row, now, b.partial and 1 or 0):step()
       end
     end)
     stmt:close()
@@ -179,13 +208,13 @@ function SqliteStore:putRows(books, now)
   end)
 end
 
--- The ids among `ids` that have a saved row.
+-- The ids among `ids` that have a whole saved row (not a partial one).
 function SqliteStore:knownIds(ids)
   return self:_try(function(conn)
     local out = {}
     for _, chunk in ipairs(chunks(ids)) do
-      local found = rows(conn, "SELECT book_id FROM books WHERE book_id IN (" .. placeholders(#chunk) .. ")",
-        unpack(chunk))
+      local found = rows(conn, "SELECT book_id FROM books WHERE partial = 0 AND book_id IN ("
+        .. placeholders(#chunk) .. ")", unpack(chunk))
       for _, r in ipairs(found) do out[r[1]] = true end
     end
     return out
@@ -207,6 +236,13 @@ function SqliteStore:anyDetail(book_id)
   return self:_try(function(conn)
     local found = rows(conn, "SELECT data FROM details WHERE book_id = ? ORDER BY opened_at DESC LIMIT 1", book_id)
     return found[1] and found[1][1] or nil
+  end)
+end
+
+-- The book was opened again (from what is saved): it counts as recently opened.
+function SqliteStore:touchDetail(book_id, edition_id, now)
+  return self:_write(function(conn)
+    run(conn, "UPDATE details SET opened_at = ? WHERE book_id = ? AND edition_id = ?", now, book_id, edition_id or 0)
   end)
 end
 
@@ -266,20 +302,95 @@ function SqliteStore:dropOwned(key)
   end)
 end
 
--- Keep the `keep_opened` most recently opened details, and the books some list holds
--- or that still have details; delete the rest.
+-- ------------------------------------------------------------------ shelves
+
+-- Replace what shelf `status_id` holds with `members` ({ user_book_id, book_id, rating,
+-- date_added } in the shelf's order), and its record with `blob` under `key`, in one
+-- transaction. A book that was on another shelf moves (a book is on one shelf at most).
+function SqliteStore:putMembers(user_id, status_id, members, key, blob)
+  return self:_write(function(conn)
+    run(conn, "DELETE FROM shelf_books WHERE user_id = ? AND status_id = ?", user_id, status_id)
+    local stmt = conn:prepare("INSERT OR REPLACE INTO shelf_books (user_id, status_id, user_book_id, book_id, rating, date_added, position) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    local ok, err = pcall(function()
+      for i, m in ipairs(members) do
+        stmt:reset():bind(user_id, status_id, m.user_book_id, m.book_id, m.rating, m.date_added, i):step()
+      end
+    end)
+    stmt:close()
+    if not ok then error(err) end
+    if key and blob then
+      run(conn, "INSERT OR REPLACE INTO blobs (key, data) VALUES (?, ?)", key, blob)
+    end
+  end)
+end
+
+local function member(r)
+  return { status_id = r[1], user_book_id = r[2], book_id = r[3], rating = r[4], date_added = r[5], position = r[6] }
+end
+local MEMBER_COLUMNS = "status_id, user_book_id, book_id, rating, date_added, position"
+
+-- What shelf `status_id` holds, in its order.
+function SqliteStore:getMembers(user_id, status_id)
+  return self:_try(function(conn)
+    local out = {}
+    for i, r in ipairs(rows(conn, "SELECT " .. MEMBER_COLUMNS
+        .. " FROM shelf_books WHERE user_id = ? AND status_id = ? ORDER BY position", user_id, status_id)) do
+      out[i] = member(r)
+    end
+    return out
+  end) or {}
+end
+
+-- The shelf row of one book, or nil when it is not in the library.
+function SqliteStore:getMember(user_id, book_id)
+  return self:_try(function(conn)
+    local found = rows(conn, "SELECT " .. MEMBER_COLUMNS .. " FROM shelf_books WHERE user_id = ? AND book_id = ?",
+      user_id, book_id)
+    return found[1] and member(found[1]) or nil
+  end)
+end
+
+-- Put one book on shelf `m.status_id`, or change its row there (a status, rating or id
+-- that changed on this device). A book new to the shelf goes first, as Hardcover orders
+-- a shelf newest first.
+function SqliteStore:putMember(user_id, m)
+  return self:_write(function(conn)
+    local found = rows(conn, "SELECT status_id, position FROM shelf_books WHERE user_id = ? AND book_id = ?",
+      user_id, m.book_id)
+    local position
+    if found[1] and found[1][1] == m.status_id then
+      position = found[1][2]
+    else
+      local top = rows(conn, "SELECT MIN(position) FROM shelf_books WHERE user_id = ? AND status_id = ?",
+        user_id, m.status_id)
+      position = ((top[1] and top[1][1]) or 1) - 1
+    end
+    run(conn, "INSERT OR REPLACE INTO shelf_books (user_id, status_id, user_book_id, book_id, rating, date_added, position) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      user_id, m.status_id, m.user_book_id, m.book_id, m.rating, m.date_added, position)
+  end)
+end
+
+-- The book left the library.
+function SqliteStore:deleteMember(user_id, book_id)
+  return self:_write(function(conn)
+    run(conn, "DELETE FROM shelf_books WHERE user_id = ? AND book_id = ?", user_id, book_id)
+  end)
+end
+
+-- Keep the `keep_opened` most recently opened details, and the books some list or shelf
+-- holds or that still have details; delete the rest.
 function SqliteStore:evict(keep_opened)
   return self:_write(function(conn)
     run(conn, "DELETE FROM details WHERE rowid NOT IN (SELECT rowid FROM details ORDER BY opened_at DESC LIMIT ?)",
       keep_opened)
-    conn:exec("DELETE FROM books WHERE book_id NOT IN (SELECT book_id FROM refs) AND book_id NOT IN (SELECT book_id FROM details);")
+    conn:exec("DELETE FROM books WHERE book_id NOT IN (SELECT book_id FROM refs) AND book_id NOT IN (SELECT book_id FROM details) AND book_id NOT IN (SELECT book_id FROM shelf_books);")
   end)
 end
 
 -- Everything, for sign out.
 function SqliteStore:clear()
   return self:_write(function(conn)
-    conn:exec("DELETE FROM books; DELETE FROM details; DELETE FROM blobs; DELETE FROM refs;")
+    conn:exec("DELETE FROM books; DELETE FROM details; DELETE FROM blobs; DELETE FROM refs; DELETE FROM shelf_books;")
   end)
 end
 
