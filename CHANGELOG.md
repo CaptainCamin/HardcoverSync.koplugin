@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Unreleased (1.7.0 betas)
 
 ### Added
 
