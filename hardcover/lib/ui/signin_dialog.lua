@@ -19,7 +19,6 @@ local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local InfoMessage = require("ui/widget/infomessage")
-local ProgressWidget = require("ui/widget/progresswidget")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
@@ -104,7 +103,7 @@ function SignInDialog:init()
   -- the wait: how far through the code's life we are (it only moves when the
   -- poll finds a visible step; nothing animates), what is happening, and how
   -- long the code lasts
-  self.wait_bar = ProgressWidget:new {
+  self.wait_bar = Theme.progress {
     width = width,
     height = Screen:scaleBySize(14),
     percentage = 0,

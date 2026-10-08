@@ -19,7 +19,6 @@ local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local IconWidget = require("ui/widget/iconwidget")
 local InputContainer = require("ui/widget/container/inputcontainer")
-local ProgressWidget = require("ui/widget/progresswidget")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local UIManager = require("ui/uimanager")
@@ -81,7 +80,7 @@ function HomeDialog:coverCell(card, w, h)
 end
 
 local function progressBar(width, height, fraction)
-  return ProgressWidget:new {
+  return Theme.progress {
     width = width,
     height = height,
     percentage = fraction,
