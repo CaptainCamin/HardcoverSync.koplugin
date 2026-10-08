@@ -195,6 +195,36 @@ function BookStore:settledDetail(book_id, edition_id)
   return detail
 end
 
+--
+-- The community numbers Hardcover gave for the book just now (rating, ratings_count,
+-- users_count, users_read_count), laid over its saved details and row, for next time.
+-- When the details were fetched does not change: these numbers say nothing about whether
+-- the rest is current.
+--
+function BookStore:updateNumbers(book_id, numbers)
+  book_id = tonumber(book_id)
+  if not (book_id and type(numbers) == "table") then return false end
+  local fields = { "rating", "ratings_count", "users_count", "users_read_count" }
+  local text = self.db:getDetail(book_id, 0)
+  local book = Codec.decode(text)
+  if book then
+    for _, f in ipairs(fields) do
+      if numbers[f] ~= nil then book[f] = numbers[f] end
+    end
+    local updated = Codec.encode(book)
+    if updated and updated ~= text then self.db:putDetail(book_id, 0, updated, self.now()) end
+  end
+  local row = self:rows({ book_id })[book_id]
+  -- (a row whose synopsis is still cut short is left to be fetched whole)
+  if row and not BookStore.isCut(row.description) then
+    if numbers.rating ~= nil then row.community_rating = numbers.rating end
+    if numbers.ratings_count ~= nil then row.ratings_count = numbers.ratings_count end
+    if numbers.users_count ~= nil then row.users_count = numbers.users_count end
+    self:saveRows({ row })
+  end
+  return true
+end
+
 -- Your saved copy of a series (Api:getSeriesBooks's answer) and when it was saved, or nil.
 function BookStore:series(user_id, series_id)
   local saved = Codec.decode(self.db:getBlob("series:" .. tostring(user_id or 0) .. ":" .. tostring(series_id)))
