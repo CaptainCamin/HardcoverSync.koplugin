@@ -277,6 +277,11 @@ default. Sorting works on the loaded list, so it needs no connection.
 
 Lists you have opened are saved on the device, so they also open with no connection, showing the saved copy.
 
+**Your Hardcover lists.** `More lists` on the home screen opens your lists and the ones you follow; choose one to see
+its books (a ranked list is numbered). Every list is kept on the device, whether or not you have opened it: Home checks
+them each time it opens and downloads only what changed, so they all open with no connection, and a book on one of them
+opens with its whole synopsis. `Refresh` in a list's menu (upper left) downloads it again.
+
 ## Settings
 
 ### Automatic linking
