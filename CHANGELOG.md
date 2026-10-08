@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Lists work offline.** Your lists and the ones you follow are kept on the device, every one of them, without you opening each: Home checks them each time it opens and downloads whatever changed. The lists screen and each list open at once from the device, offline too, with a note saying when they are from. A book on any of your lists opens offline with its whole synopsis (shelves still keep only the first 600 characters), and a book you opened online opens offline with everything its details showed.
+- A list's menu (top left) has **Refresh**, to download the list and its books again if something looks out of date.
+
+### Changed
+
+- Lists are downloaded far less. Hardcover is asked only whether a list changed, in the request Home already makes for the "More lists" tile, and a list that has not changed opens with no request at all. One that changed downloads which books it holds and only the books the device does not have yet, instead of the whole list again: a book added to a 25-book list costs about 3 KB instead of 32 KB. A book that is on several lists is kept once.
+- The book count under a list is now counted rather than taken from the number Hardcover stores, which can be off by one.
+- Lists and their books are kept in a small database (`hardcoversync_library.sqlite3` in KOReader's settings folder). Signing out clears it.
+
 ## 1.6.3
 
 ### Fixed
