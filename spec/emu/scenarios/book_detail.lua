@@ -110,7 +110,8 @@ return {
     for _, node in ipairs(emu:screenNodes()) do
       if not node.relative and node.x and node.y then
         checked = checked + 1
-        assert(node.y + node.h <= H + 1, string.format(
+        -- (a row that starts below the screen is further down a page that scrolls)
+        assert(node.y >= H or node.y + node.h <= H + 1, string.format(
           "text %q runs past the bottom edge (%d+%d > %d)", node.text, node.y, node.h, H))
         assert(node.x >= 0, string.format(
           "text %q drawn at negative x (%d)", node.text, node.x))
@@ -230,6 +231,13 @@ return {
     emu:shot("book_detail_status_shelf")
     back_on_details("status shelf")
     Api.findBooks = find_books
+
+    -- what other readers say: the tags
+    typical.scroll:scrollToRatio(0, 0.4)
+    emu:pump()
+    emu:expectText("Moods")
+    emu:expectText("Reflective")
+    emu:shot("book_detail_community")
 
     -- the strip is below the first screenful now: scroll to it (taps are only
     -- answered where the page is showing)

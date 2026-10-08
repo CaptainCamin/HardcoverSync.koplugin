@@ -1,19 +1,16 @@
 local config = require("hardcover/lib/config")
 local logger = require("logger")
-local http = require("socket.http")
-local ltn12 = require("ltn12")
 local json = require("json")
 local _t = require("hardcover/lib/table_util")
 local T = require("ffi/util").template
-local Trapper = require("ui/trapper")
 local Network = require("hardcover/lib/network")
-local UIManager = require("ui/uimanager")
-local socketutil = require("socketutil")
 
 local Book = require("hardcover/lib/book")
 local Goals = require("hardcover/lib/goals")
 local Lists = require("hardcover/lib/lists")
 local Recommendations = require("hardcover/lib/recommendations")
+local Vibes = require("hardcover/lib/vibes")
+local Stats = require("hardcover/lib/stats")
 local Shelf = require("hardcover/lib/shelf")
 local VERSION = require("hardcover_version")
 
@@ -25,6 +22,18 @@ local user_agent = T("hardcoversync.koplugin/%1 (https://github.com/CaptainCamin
 local HardcoverApi = {
   enabled = true
 }
+
+-- How a request is run and sent. These are KOReader's (runtime.lua forks it and hands the
+-- answer back on the UI's tick; transport.lua does the HTTP), found when first needed so
+-- that this file does not tie the layer to the UI, and a test can set
+-- `HardcoverApi.runtime` / `HardcoverApi.transport` to plain-Lua fakes.
+local function runtime()
+  return HardcoverApi.runtime or require("hardcover/lib/runtime")
+end
+
+local function transport()
+  return HardcoverApi.transport or require("hardcover/lib/transport")
+end
 
 --
 -- Resolve the Bearer token for one request.
@@ -115,10 +124,15 @@ fragment UserBookParts on user_books {
   }
 }]]
 
+-- ------------------------------------------------------------------------------
+-- Requests
+-- ------------------------------------------------------------------------------
+
 function HardcoverApi:me()
   local result = self:query([[{
     me {
       id
+      username
       account_privacy_setting_id
     }
   }]])
@@ -147,9 +161,9 @@ function HardcoverApi:query(query, parameters, background)
   -- chain, forcing a fresh sign in.
   local headers = request_headers()
 
-  completed, content = Trapper:dismissableRunInSubprocess(function()
+  completed, content = runtime().subprocess(function()
     return self:_query(query, parameters, headers)
-  end, background and {} or true, true)
+  end, background)
 
   if completed and content then
     local code, response = string.match(content, "^([^:]*):(.*)")
@@ -189,48 +203,17 @@ function HardcoverApi:query(query, parameters, background)
   end
 end
 
+-- Runs in the subprocess: send the request, return "<code>:<body>" (see transport.lua).
 function HardcoverApi:_query(query, parameters, headers)
-  local requestBody = {
+  return transport().post(api_url, headers or request_headers(), {
     query = query,
-    variables = parameters
-  }
-
-  local maxtime = 12
-  local timeout = 6
-
-  local sink = {}
-  socketutil:set_timeout(timeout, maxtime or 30)
-  local request = {
-    url = api_url,
-    method = "POST",
-    headers = headers or request_headers(),
-    source = ltn12.source.string(json.encode(requestBody)),
-    sink = socketutil.table_sink(sink),
-  }
-
-  local _, code, _headers, _status = http.request(request)
-  socketutil:reset_timeout()
-
-  local content = table.concat(sink) -- empty or content accumulated till now
-  --logger.warn(requestBody)
-  if code == socketutil.TIMEOUT_CODE or
-    code == socketutil.SSL_HANDSHAKE_CODE or
-    code == socketutil.SINK_TIMEOUT_CODE
-  then
-    logger.warn("request interrupted:", code)
-    return code .. ':'
-  end
-
-  if type(code) == "string" then
-    logger.dbg("Request error", code)
-  end
-
-  if type(code) == "number" and (code < 200 or code > 299) then
-    logger.dbg("Request error", code, content)
-  end
-
-  return code .. ':' .. content
+    variables = parameters,
+  })
 end
+
+-- ------------------------------------------------------------------------------
+-- Looking books up: the catalogue, one book's details, a series
+-- ------------------------------------------------------------------------------
 
 function HardcoverApi:hydrateBooks(ids, user_id)
   if #ids == 0 then
@@ -560,6 +543,258 @@ function HardcoverApi:findDefaultEdition(book_id, user_id)
 end
 
 --
+-- Full detail for one book, including description and community rating.
+-- `edition_id` is optional; when given, edition level fields are included.
+--
+-- What the details screen shows of a book, the same whether the book is asked for by itself or
+-- through a linked edition (the edition's own fields are laid over these afterwards). One list,
+-- so a field added for the screen cannot reach only one of the two requests.
+local BOOK_DETAIL_FIELDS = [[
+  book_id: id
+  title
+  subtitle
+  cached_image
+  release_year
+  pages
+  users_count
+  users_read_count
+  rating
+  ratings_count
+  ratings_distribution
+  cached_tags
+  first_release_date: release_date
+  reviews_count
+  lists_count
+  editions_count
+  default_audio_edition { audio_seconds }
+  description
+  contributions {
+    contribution
+    author {
+      name
+    }
+  }
+  book_series {
+    position
+    series {
+      id
+      name
+    }
+  }
+  user_books(where: { user_id: { _eq: $userId }}) {
+    id
+    status_id
+    rating
+  }
+]]
+
+function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
+  local query
+
+  if edition_id then
+    query = [[
+      query ($editionId: Int!, $userId: Int!) {
+        editions(where: { id: { _eq: $editionId } }) {
+          id
+          edition_format
+          reading_format_id
+          pages
+          audio_seconds
+          isbn_13
+          isbn_10
+          release_date
+          publisher {
+            name
+          }
+          language {
+            code2
+            language
+          }
+          book {
+            ]] .. BOOK_DETAIL_FIELDS .. [[
+          }
+        }
+      }
+    ]]
+  else
+    query = [[
+      query ($bookId: Int!, $userId: Int!) {
+        books(where: { id: { _eq: $bookId } }) {
+          ]] .. BOOK_DETAIL_FIELDS .. [[
+        }
+      }
+    ]]
+  end
+
+  -- The edition query filters on the edition, so that is the id it needs. It
+  -- used to be sent the book id, so a linked edition either matched nothing
+  -- ("no response", retried forever) or a different book's edition.
+  local variables = { userId = user_id }
+  if edition_id then
+    variables.editionId = edition_id
+  else
+    variables.bookId = book_id
+  end
+
+  local results = self:query(query, variables)
+  if not results then
+    return nil
+  end
+
+  local row
+  if edition_id then
+    local edition = _t.dig(results, "editions", 1)
+    if not edition then
+      return nil
+    end
+
+    -- edition fields are more precise than the book level equivalents, so
+    -- overlay them onto the book before handing it to the display layer
+    row = edition.book or {}
+    row.edition_id = edition.id
+    row.edition_format = edition.edition_format
+    row.reading_format_id = edition.reading_format_id
+    row.publisher = edition.publisher
+    row.language = edition.language
+    row.isbn_13 = edition.isbn_13
+    row.isbn_10 = edition.isbn_10
+    row.release_date = edition.release_date
+
+    if edition.pages then
+      row.pages = edition.pages
+    end
+    if edition.audio_seconds then
+      row.audio_seconds = edition.audio_seconds
+    end
+  else
+    row = _t.dig(results, "books", 1)
+  end
+
+  if not row then
+    return nil
+  end
+
+  local user_book = _t.dig(row, "user_books", 1)
+
+  return {
+    book = row,
+    user_book_id = user_book and user_book.id,
+    status_id = user_book and user_book.status_id,
+    user_rating = user_book and user_book.rating,
+  }
+end
+
+--
+-- The books in a series, in order, with the reader's own status on each.
+--
+-- Follows Hardcover's own recipe for a clean list (see their guide "Getting All
+-- Books in a Series"): leave out merged duplicates (those with a canonical
+-- book), partial editions and compilations, and take the most popular book at
+-- each position. Returns
+--   { id, name, is_completed, books = { { book_id, title, position,
+--     release_year, cover, status_id, rating }, ... } }
+-- or nil (and the error) when the request fails.
+--
+function HardcoverApi:getSeriesBooks(series_id, user_id)
+  if not series_id then return nil end
+
+  local query = [[
+    query ($seriesId: Int!, $userId: Int!) {
+      series_by_pk(id: $seriesId) {
+        id
+        name
+        is_completed
+        book_series(
+          where: {
+            compilation: { _eq: false }
+            book: { canonical_id: { _is_null: true }, is_partial_book: { _eq: false } }
+          }
+          distinct_on: position
+          order_by: [{ position: asc }, { book: { users_count: desc } }]
+        ) {
+          position
+          book {
+            book_id: id
+            title
+            release_year
+            cached_image
+            user_books(where: { user_id: { _eq: $userId } }) {
+              status_id
+              rating
+            }
+          }
+        }
+      }
+    }
+  ]]
+
+  local results, err = self:query(query, { seriesId = series_id, userId = user_id }, true)
+  local series = results and results.series_by_pk
+  if not series then
+    return nil, err
+  end
+
+  local books = {}
+  for _, entry in ipairs(series.book_series or {}) do
+    local book = entry.book
+    if book and book.book_id then
+      local mine = _t.dig(book, "user_books", 1)
+      books[#books + 1] = {
+        book_id = book.book_id,
+        title = book.title,
+        position = entry.position,
+        release_year = book.release_year,
+        cover = Shelf.coverOf(book),
+        status_id = mine and mine.status_id,
+        rating = mine and mine.rating,
+      }
+    end
+  end
+
+  return {
+    id = series.id,
+    name = series.name,
+    is_completed = series.is_completed,
+    books = books,
+  }
+end
+
+--
+-- The books for `ids`, as shelf entries in the order of `ids` (the API returns them in
+-- any order, and leaves out ones it does not know). One request. nil and the error when
+-- it fails.
+--
+function HardcoverApi:getBooksByIds(ids)
+  if #ids == 0 then return {} end
+  local result, err = self:query([[
+    query ($ids: [Int!]) {
+      books(where: { id: { _in: $ids } }) {
+        book_id: id
+        title
+        release_year
+        pages
+        users_count
+        users_read_count
+        rating
+        ratings_count
+        description
+        contributions { author { name } }
+        cached_image
+        book_series { position series { name } }
+      }
+    }
+  ]], { ids = ids }, true)
+  if result == nil or type(result.books) ~= "table" then
+    return nil, err or { completed = false }
+  end
+  return Recommendations.entries(ids, result.books)
+end
+
+-- ------------------------------------------------------------------------------
+-- Your library: shelves, reading progress, status, rating, journal, stats
+-- ------------------------------------------------------------------------------
+
+--
 -- One page of a user's shelf. `status_id` may be nil for the whole library.
 -- Returns a list of normalized entries plus has_more, which the dialog uses
 -- to decide whether to offer a "load more" action.
@@ -642,6 +877,329 @@ function HardcoverApi:getShelf(user_id, status_id, offset, limit)
 end
 
 --
+-- How many books are on each of the given shelves, as { [status_id] = count }.
+--
+-- One aggregate per shelf, all in a single request. Each aliased aggregate counts
+-- as a top-level query against the rate limit, and a request may hold at most
+-- five, so that is the most shelves asked for at once.
+--
+function HardcoverApi:getShelfCounts(user_id, status_ids)
+  if not status_ids or #status_ids == 0 or #status_ids > 5 then
+    return nil
+  end
+
+  local parts = {}
+  for _, id in ipairs(status_ids) do
+    parts[#parts + 1] = string.format(
+      "s%d: user_books_aggregate(where: { user_id: { _eq: $userId }, status_id: { _eq: %d } }) { aggregate { count } }",
+      id, id)
+  end
+
+  local query = "query ($userId: Int!) {\n  " .. table.concat(parts, "\n  ") .. "\n}"
+
+  local results, err = self:query(query, { userId = user_id }, true)
+  if not results then
+    return nil, err
+  end
+
+  local counts = {}
+  for _, id in ipairs(status_ids) do
+    local count = tonumber(_t.dig(results, "s" .. id, "aggregate", "count"))
+    if count then
+      counts[id] = count
+    end
+  end
+  return counts
+end
+
+--
+-- What you are reading now, for the home screen: the most recently updated
+-- books on the Currently Reading shelf, each with the progress of its latest
+-- read. Entries are the shelf's own shape (Shelf.normalizeEntry) plus
+-- `progress_pages` and `edition_pages`.
+--
+function HardcoverApi:getCurrentlyReading(user_id, limit)
+  limit = limit or 5
+
+  local query = [[
+    query ($userId: Int!, $statusId: Int!, $limit: Int!) {
+      user_books(
+        where: { user_id: { _eq: $userId }, status_id: { _eq: $statusId } }
+        order_by: { updated_at: desc }
+        limit: $limit
+      ) {
+        id
+        status_id
+        book {
+          book_id: id
+          title
+          pages
+          cached_image
+          contributions {
+            author {
+              name
+            }
+          }
+        }
+        user_book_reads(order_by: { id: desc }, limit: 1) {
+          progress_pages
+          edition {
+            pages
+          }
+        }
+      }
+    }
+  ]]
+
+  local results, err = self:query(query, {
+    userId = user_id,
+    statusId = 2,
+    limit = limit,
+  }, true)
+  if not results or not results.user_books then
+    return nil, err or { completed = false }
+  end
+
+  return _t.map(results.user_books, function(user_book)
+    local entry = Shelf.normalizeEntry(user_book)
+    local read = _t.dig(user_book, "user_book_reads", 1)
+    if read then
+      entry.progress_pages = read.progress_pages
+      entry.edition_pages = _t.dig(read, "edition", "pages")
+    end
+    return entry
+  end)
+end
+
+function HardcoverApi:createRead(user_book_id, edition_id, page, started_at)
+  local query = [[
+    mutation InsertUserBookRead($id: Int!, $pages: Int, $editionId: Int, $startedAt: date) {
+      insert_user_book_read(user_book_id: $id, user_book_read: {
+        progress_pages: $pages,
+        edition_id: $editionId,
+        started_at: $startedAt,
+      }) {
+        error
+        user_book_read {
+          id
+          started_at
+          finished_at
+          edition_id
+          progress_pages
+          user_book {
+            id
+            book_id
+            status_id
+            edition_id
+            privacy_setting_id
+            rating
+          }
+        }
+      }
+    }
+  ]]
+
+  local result = self:query(query, { id = user_book_id, pages = page, editionId = edition_id, startedAt = started_at })
+  if result and result.insert_user_book_read then
+    local user_book_read = result.insert_user_book_read.user_book_read
+    return self:normalizeUserBookRead(user_book_read)
+  end
+end
+
+function HardcoverApi:updatePage(user_read_id, edition_id, page, started_at)
+  local query = [[
+    mutation UpdateBookProgress($id: Int!, $pages: Int, $editionId: Int, $startedAt: date) {
+      update_user_book_read(id: $id, object: {
+        progress_pages: $pages,
+        edition_id: $editionId,
+        started_at: $startedAt,
+      }) {
+        error
+        user_book_read {
+          id
+          started_at
+          finished_at
+          edition_id
+          progress_pages
+          user_book {
+            id
+            book_id
+            status_id
+            edition_id
+            privacy_setting_id
+            rating
+          }
+        }
+      }
+    }
+  ]]
+
+  local result = self:query(query, { id = user_read_id, pages = page, editionId = edition_id, startedAt = started_at })
+  if result and result.update_user_book_read then
+    return self:normalizeUserBookRead(result.update_user_book_read.user_book_read)
+  end
+end
+
+function HardcoverApi:updateUserBook(book_id, status_id, privacy_setting_id, edition_id)
+  if not privacy_setting_id then
+    local me = self:me()
+    privacy_setting_id = me.account_privacy_setting_id or 1
+  end
+
+  local query = [[
+    mutation ($object: UserBookCreateInput!) {
+      insert_user_book(object: $object) {
+        error
+        user_book {
+          ...UserBookParts
+        }
+      }
+    }
+  ]] .. user_book_fragment
+
+  local update_args = {
+    book_id = book_id,
+    privacy_setting_id = privacy_setting_id,
+    status_id = status_id,
+    edition_id = edition_id
+  }
+
+  local result, err = self:query(query, { object = update_args })
+  if result and result.insert_user_book then
+    local inserted = result.insert_user_book
+    if inserted.user_book then
+      return inserted.user_book
+    end
+    return nil, inserted.error
+  end
+  return nil, err
+end
+
+-- Take a book out of the library altogether (its status, rating and reads go
+-- with it). Returns { id = user_book_id } on success.
+function HardcoverApi:removeUserBook(user_book_id)
+  local query = [[
+    mutation ($id: Int!) {
+      delete_user_book(id: $id) {
+        id
+      }
+    }
+  ]]
+
+  local result, err = self:query(query, { id = user_book_id })
+  if result and result.delete_user_book then
+    return result.delete_user_book
+  end
+  return nil, err
+end
+
+function HardcoverApi:updateRating(user_book_id, rating)
+  local query = [[
+    mutation ($id: Int!, $rating: numeric) {
+      update_user_book(id: $id, object: { rating: $rating }) {
+        error
+        user_book {
+          ...UserBookParts
+        }
+      }
+    }
+  ]] .. user_book_fragment
+
+  if rating == 0 or rating == nil then
+    rating = json.util.null
+  end
+
+  local result = self:query(query, { id = user_book_id, rating = rating })
+  if result and result.update_user_book then
+    return result.update_user_book.user_book
+  end
+end
+
+function HardcoverApi:removeRead(user_book_id)
+  local query = [[
+    mutation($id: Int!) {
+      delete_user_book(id: $id) {
+        id
+      }
+    }
+  ]]
+  local result = self:query(query, { id = user_book_id })
+  if result then
+    return result.delete_user_book
+  end
+end
+
+function HardcoverApi:createJournalEntry(object)
+  local query = [[
+    mutation InsertReadingJournalEntry($object: ReadingJournalCreateType!) {
+      insert_reading_journal(object: $object) {
+        reading_journal {
+          id
+        }
+      }
+    }
+  ]]
+
+  local result = self:query(query, { object = object })
+  if result then
+    return result.insert_reading_journal.reading_journal
+  end
+end
+
+--
+-- The books you have finished, for Stats: lean rows (no covers, no descriptions) in pages of
+-- STATS_PAGE, in a fixed order so the pages do not overlap, plus your genre counts. Returns
+-- { rows = Stats rows, genres = Stats.genres, complete = bool } (complete false when the
+-- library is longer than STATS_MAX_PAGES pages), or nil and the error.
+--
+local STATS_PAGE = 500
+local STATS_MAX_PAGES = 8
+
+function HardcoverApi:getStats(user_id)
+  local raw, genres = {}, nil
+  local complete = false
+  for page = 0, STATS_MAX_PAGES - 1 do
+    local result, err = self:query([[
+      query ($userId: Int!, $offset: Int!, $limit: Int!) {
+        ]] .. (page == 0 and "me { cached_genres }" or "") .. [[
+        user_books(
+          where: { user_id: { _eq: $userId }, status_id: { _eq: 3 } }
+          order_by: [{ id: asc }]
+          offset: $offset
+          limit: $limit
+        ) {
+          id
+          rating
+          last_read_date
+          user_book_reads(order_by: [{ finished_at: desc_nulls_last }], limit: 1) {
+            finished_at
+            finished_at_precision
+          }
+          book { title pages audio_seconds contributions { author { name } } }
+        }
+      }
+    ]], { userId = user_id, offset = page * STATS_PAGE, limit = STATS_PAGE }, true)
+    if result == nil or type(result.user_books) ~= "table" then
+      return nil, err or { completed = false }
+    end
+    if page == 0 then
+      local me = type(result.me) == "table" and result.me[1] or nil
+      genres = Stats.genres(type(me) == "table" and me.cached_genres or nil)
+    end
+    for _, row in ipairs(result.user_books) do raw[#raw + 1] = row end
+    if #result.user_books < STATS_PAGE then
+      complete = true
+      break
+    end
+  end
+  return { rows = Stats.normalizeAll(raw), genres = genres or {}, complete = complete }
+end
+
+-- ------------------------------------------------------------------------------
+-- Lists
+-- ------------------------------------------------------------------------------
+
+--
 -- Your lists and the lists you follow, each with the covers of its first books.
 --
 -- Everything goes through `me`, which the plugin's existing scopes allow;
@@ -699,7 +1257,7 @@ function HardcoverApi:getListCount()
       }
     }
   ]]
-  local results, err = self:query(query, {})
+  local results, err = self:query(query, {}, true) -- a tap while Home is scrolled must not cancel it
   local me = results and results.me
   if type(me) == "table" and me[1] ~= nil then me = me[1] end
   if type(me) ~= "table" then
@@ -793,6 +1351,96 @@ function HardcoverApi:getListBooks(list_id, source, ranked, offset, limit)
 end
 
 --
+-- Which of your own lists a book is on: every list of yours (id, name, size, ranked)
+-- and, for each, the list_books row that is this book if it is there (its id is what
+-- removing needs). The lists you follow cannot be added to, so they are not asked
+-- for. Works with the scopes every sign-in has. Returns rows (see
+-- Lists.membership), or nil and the error.
+--
+function HardcoverApi:getBookLists(book_id)
+  local query = [[
+    query ($bookId: Int!) {
+      me {
+        lists(order_by: [{ updated_at: desc }, { id: desc }]) {
+          id
+          name
+          books_count
+          ranked
+          privacy_setting_id
+          list_books(where: { book_id: { _eq: $bookId } }) {
+            id
+          }
+        }
+      }
+    }
+  ]]
+
+  local results, err = self:query(query, { bookId = book_id })
+  local me = results and results.me
+  if type(me) == "table" and me[1] ~= nil then me = me[1] end
+  if type(me) ~= "table" then
+    return nil, err or { completed = false }
+  end
+  return Lists.membership(me)
+end
+
+--
+-- Put a book on one of your lists (needs the write:lists scope, see Lists.WRITE_SCOPE).
+-- `position` is where in the list; the caller passes the end (Lists.insertObject).
+-- Returns { id = the new list_books row's id (nil if the answer did not carry
+-- one) }, or nil and the error: Hardcover's own text when it refused, the request's
+-- error table otherwise.
+--
+-- Written by analogy with insert_user_book (a payload with `error` and an id); the
+-- answer is read loosely so a slightly different payload still counts as done.
+--
+function HardcoverApi:addToList(book_id, list_id, position)
+  -- ListBookIdType is { id, list_book }: unlike insert_user_book it has no `error`
+  -- field (asking for one fails the whole request on validation; checked against the
+  -- API's schema). A refusal comes back as a GraphQL error instead.
+  local query = [[
+    mutation ($object: ListBookInput!) {
+      insert_list_book(object: $object) {
+        id
+        list_book { id }
+      }
+    }
+  ]]
+
+  local result, err = self:query(query, { object = Lists.insertObject(book_id, list_id, position) })
+  local inserted = result and result.insert_list_book
+  if type(inserted) == "table" then
+    if type(inserted.error) == "string" and inserted.error ~= "" then
+      return nil, inserted.error
+    end
+    return { id = Lists.listBookId(inserted) }
+  end
+  return nil, err or { completed = false }
+end
+
+-- Take a book off a list, by the id of its list_books row. Returns { id } or nil
+-- and the error.
+function HardcoverApi:removeFromList(list_book_id)
+  local query = [[
+    mutation ($id: Int!) {
+      delete_list_book(id: $id) {
+        id
+      }
+    }
+  ]]
+
+  local result, err = self:query(query, { id = list_book_id })
+  if result and type(result.delete_list_book) == "table" then
+    return result.delete_list_book
+  end
+  return nil, err or { completed = false }
+end
+
+-- ------------------------------------------------------------------------------
+-- Reading goals
+-- ------------------------------------------------------------------------------
+
+--
 -- Your reading goals, as a list (see Goals.normalize: archived ones are left out).
 -- Everything about pace is worked out on the device from this and the date.
 --
@@ -819,7 +1467,7 @@ function HardcoverApi:getGoals()
     }
   ]]
 
-  local results, err = self:query(query, {})
+  local results, err = self:query(query, {}, true)
   local me = results and results.me
   if type(me) == "table" and me[1] ~= nil then me = me[1] end
   if type(me) ~= "table" or type(me.goals) ~= "table" then
@@ -1013,100 +1661,9 @@ function HardcoverApi:archiveGoal(goal)
   return true
 end
 
---
--- How many books are on each of the given shelves, as { [status_id] = count }.
---
--- One aggregate per shelf, all in a single request. Each aliased aggregate counts
--- as a top-level query against the rate limit, and a request may hold at most
--- five, so that is the most shelves asked for at once.
---
-function HardcoverApi:getShelfCounts(user_id, status_ids)
-  if not status_ids or #status_ids == 0 or #status_ids > 5 then
-    return nil
-  end
-
-  local parts = {}
-  for _, id in ipairs(status_ids) do
-    parts[#parts + 1] = string.format(
-      "s%d: user_books_aggregate(where: { user_id: { _eq: $userId }, status_id: { _eq: %d } }) { aggregate { count } }",
-      id, id)
-  end
-
-  local query = "query ($userId: Int!) {\n  " .. table.concat(parts, "\n  ") .. "\n}"
-
-  local results, err = self:query(query, { userId = user_id })
-  if not results then
-    return nil, err
-  end
-
-  local counts = {}
-  for _, id in ipairs(status_ids) do
-    local count = tonumber(_t.dig(results, "s" .. id, "aggregate", "count"))
-    if count then
-      counts[id] = count
-    end
-  end
-  return counts
-end
-
---
--- What you are reading now, for the home screen: the most recently updated
--- books on the Currently Reading shelf, each with the progress of its latest
--- read. Entries are the shelf's own shape (Shelf.normalizeEntry) plus
--- `progress_pages` and `edition_pages`.
---
-function HardcoverApi:getCurrentlyReading(user_id, limit)
-  limit = limit or 5
-
-  local query = [[
-    query ($userId: Int!, $statusId: Int!, $limit: Int!) {
-      user_books(
-        where: { user_id: { _eq: $userId }, status_id: { _eq: $statusId } }
-        order_by: { updated_at: desc }
-        limit: $limit
-      ) {
-        id
-        status_id
-        book {
-          book_id: id
-          title
-          pages
-          cached_image
-          contributions {
-            author {
-              name
-            }
-          }
-        }
-        user_book_reads(order_by: { id: desc }, limit: 1) {
-          progress_pages
-          edition {
-            pages
-          }
-        }
-      }
-    }
-  ]]
-
-  local results, err = self:query(query, {
-    userId = user_id,
-    statusId = 2,
-    limit = limit,
-  })
-  if not results or not results.user_books then
-    return nil, err or { completed = false }
-  end
-
-  return _t.map(results.user_books, function(user_book)
-    local entry = Shelf.normalizeEntry(user_book)
-    local read = _t.dig(user_book, "user_book_reads", 1)
-    if read then
-      entry.progress_pages = read.progress_pages
-      entry.edition_pages = _t.dig(read, "edition", "pages")
-    end
-    return entry
-  end)
-end
+-- ------------------------------------------------------------------------------
+-- What other readers and Hardcover say: reviews, similar books, for you, vibes
+-- ------------------------------------------------------------------------------
 
 --
 -- One page of other readers' reviews of a book, most liked first.
@@ -1173,520 +1730,138 @@ function HardcoverApi:getSimilarBooks(book_id, limit)
   local ids = Recommendations.ids(type(book) == "table" and book.cached_similar_book_ids, limit)
   if #ids == 0 then return {} end
 
+  return self:getBooksByIds(ids)
+end
+
+--
+-- "For you": books suggested from the ones you rated 4 or more, computed here from
+-- Hardcover's similar-books rankings (see Recommendations.score). Three requests: your
+-- best-rated books with their rankings, which of the best-scoring candidates you already
+-- have, then the books for the ones left. Each entry carries `reason`, the title of the book it came from. Returns
+-- entries (empty, with the note "no_ratings", when nothing is rated 4 or more yet), or
+-- nil and the error.
+--
+function HardcoverApi:getForYou(limit)
+  limit = limit or Recommendations.LIMIT
+  local first, err = self:query([[
+    query {
+      me {
+        seeds: user_books(where: { rating: { _gte: 4 } }, order_by: { updated_at: desc }, limit: 15) {
+          rating
+          book { id title cached_similar_book_ids }
+        }
+      }
+    }
+  ]], nil, true)
+  local me = first and first.me
+  if type(me) == "table" and me[1] ~= nil then me = me[1] end
+  if type(me) ~= "table" then return nil, err or { completed = false } end
+
+  local seeds = type(me.seeds) == "table" and me.seeds or {}
+  if #seeds == 0 then return {}, nil, "no_ratings" end
+
+  -- A pool well past what is shown, then the ones already in your library are dropped. The
+  -- library is not fetched whole (a long one would be cut short by the API's row limit and
+  -- let owned books through): only these few ids are asked about.
+  local pool = Recommendations.score(seeds, {}, limit * 4)
+  local pool_ids = {}
+  for _, pick in ipairs(pool) do pool_ids[#pool_ids + 1] = pick.id end
+
   local second, err2 = self:query([[
     query ($ids: [Int!]) {
-      books(where: { id: { _in: $ids } }) {
-        book_id: id
+      me { owned: user_books(where: { book_id: { _in: $ids } }) { book_id } }
+    }
+  ]], { ids = pool_ids }, true)
+  local owner = second and second.me
+  if type(owner) == "table" and owner[1] ~= nil then owner = owner[1] end
+  if type(owner) ~= "table" then return nil, err2 or { completed = false } end
+  local owned = {}
+  for _, row in ipairs(type(owner.owned) == "table" and owner.owned or {}) do owned[tonumber(row.book_id)] = true end
+
+  local ids, reasons = {}, {}
+  for _, pick in ipairs(pool) do
+    if not owned[pick.id] and #ids < limit then
+      ids[#ids + 1] = pick.id
+      reasons[pick.id] = pick.reason
+    end
+  end
+
+  local entries, err3 = self:getBooksByIds(ids)
+  if entries == nil then return nil, err3 end
+  for _, entry in ipairs(entries) do
+    entry.reason = reasons[entry.book_id] -- the title of the book it was suggested for
+  end
+  return entries
+end
+
+--
+-- Your vibes (Vibes.normalize's rows), with the covers of each one's first books for the
+-- index. Two requests: the vibes of yours (Hardcover's own for your account included),
+-- then the covers. Needs the read:vibes permission: without it the answer is a refusal
+-- (see Vibes.isScopeError). Returns vibes, cover_urls (vibe id -> urls), or nil and the error.
+--
+function HardcoverApi:getVibes(user_id)
+  local first, err = self:query([[
+    query ($userId: Int!) {
+      vibes(where: { user_id: { _eq: $userId } }, order_by: [{ id: asc }]) {
+        id
         title
-        release_year
-        pages
-        users_count
-        users_read_count
-        rating
-        ratings_count
         description
-        contributions { author { name } }
-        cached_image
-        book_series { position series { name } }
+        vibe_type
+        privacy_setting_id
+        books_generated_at
+        cached_book_ids
       }
     }
-  ]], { ids = ids }, true)
-  if second == nil or type(second.books) ~= "table" then
-    return nil, err2 or { completed = false }
-  end
-  return Recommendations.entries(ids, second.books)
-end
-
---
--- Full detail for one book, including description and community rating.
--- `edition_id` is optional; when given, edition level fields are included.
---
-function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
-  local query
-
-  if edition_id then
-    query = [[
-      query ($editionId: Int!, $userId: Int!) {
-        editions(where: { id: { _eq: $editionId } }) {
-          id
-          edition_format
-          reading_format_id
-          pages
-          isbn_13
-          isbn_10
-          release_date
-          publisher {
-            name
-          }
-          language {
-            code2
-            language
-          }
-          book {
-            book_id: id
-            title
-            subtitle
-            cached_image
-            release_year
-            pages
-            users_count
-            users_read_count
-            rating
-            ratings_count
-            description
-            contributions {
-              author {
-                name
-              }
-            }
-            book_series {
-              position
-              series {
-                id
-                name
-              }
-            }
-            user_books(where: { user_id: { _eq: $userId }}) {
-              id
-              status_id
-              rating
-            }
-          }
-        }
-      }
-    ]]
-  else
-    query = [[
-      query ($bookId: Int!, $userId: Int!) {
-        books(where: { id: { _eq: $bookId } }) {
-          book_id: id
-          title
-          subtitle
-          release_year
-          pages
-          users_count
-          users_read_count
-          rating
-          ratings_count
-          description
-          contributions {
-            author {
-              name
-            }
-          }
-          cached_image
-          book_series {
-            position
-            series {
-              id
-              name
-            }
-          }
-          user_books(where: { user_id: { _eq: $userId }}) {
-            id
-            status_id
-            rating
-          }
-        }
-      }
-    ]]
-  end
-
-  -- The edition query filters on the edition, so that is the id it needs. It
-  -- used to be sent the book id, so a linked edition either matched nothing
-  -- ("no response", retried forever) or a different book's edition.
-  local variables = { userId = user_id }
-  if edition_id then
-    variables.editionId = edition_id
-  else
-    variables.bookId = book_id
-  end
-
-  local results = self:query(query, variables)
-  if not results then
-    return nil
-  end
-
-  local row
-  if edition_id then
-    local edition = _t.dig(results, "editions", 1)
-    if not edition then
-      return nil
-    end
-
-    -- edition fields are more precise than the book level equivalents, so
-    -- overlay them onto the book before handing it to the display layer
-    row = edition.book or {}
-    row.edition_id = edition.id
-    row.edition_format = edition.edition_format
-    row.reading_format_id = edition.reading_format_id
-    row.publisher = edition.publisher
-    row.language = edition.language
-    row.isbn_13 = edition.isbn_13
-    row.isbn_10 = edition.isbn_10
-    row.release_date = edition.release_date
-
-    if edition.pages then
-      row.pages = edition.pages
-    end
-  else
-    row = _t.dig(results, "books", 1)
-  end
-
-  if not row then
-    return nil
-  end
-
-  local user_book = _t.dig(row, "user_books", 1)
-
-  return {
-    book = row,
-    user_book_id = user_book and user_book.id,
-    status_id = user_book and user_book.status_id,
-    user_rating = user_book and user_book.rating,
-  }
-end
-
---
--- The books in a series, in order, with the reader's own status on each.
---
--- Follows Hardcover's own recipe for a clean list (see their guide "Getting All
--- Books in a Series"): leave out merged duplicates (those with a canonical
--- book), partial editions and compilations, and take the most popular book at
--- each position. Returns
---   { id, name, is_completed, books = { { book_id, title, position,
---     release_year, cover, status_id, rating }, ... } }
--- or nil (and the error) when the request fails.
---
-function HardcoverApi:getSeriesBooks(series_id, user_id)
-  if not series_id then return nil end
-
-  local query = [[
-    query ($seriesId: Int!, $userId: Int!) {
-      series_by_pk(id: $seriesId) {
-        id
-        name
-        is_completed
-        book_series(
-          where: {
-            compilation: { _eq: false }
-            book: { canonical_id: { _is_null: true }, is_partial_book: { _eq: false } }
-          }
-          distinct_on: position
-          order_by: [{ position: asc }, { book: { users_count: desc } }]
-        ) {
-          position
-          book {
-            book_id: id
-            title
-            release_year
-            cached_image
-            user_books(where: { user_id: { _eq: $userId } }) {
-              status_id
-              rating
-            }
-          }
-        }
-      }
-    }
-  ]]
-
-  local results, err = self:query(query, { seriesId = series_id, userId = user_id }, true)
-  local series = results and results.series_by_pk
-  if not series then
-    return nil, err
-  end
-
-  local books = {}
-  for _, entry in ipairs(series.book_series or {}) do
-    local book = entry.book
-    if book and book.book_id then
-      local mine = _t.dig(book, "user_books", 1)
-      books[#books + 1] = {
-        book_id = book.book_id,
-        title = book.title,
-        position = entry.position,
-        release_year = book.release_year,
-        cover = Shelf.coverOf(book),
-        status_id = mine and mine.status_id,
-        rating = mine and mine.rating,
-      }
-    end
-  end
-
-  return {
-    id = series.id,
-    name = series.name,
-    is_completed = series.is_completed,
-    books = books,
-  }
-end
-
-function HardcoverApi:createRead(user_book_id, edition_id, page, started_at)
-  local query = [[
-    mutation InsertUserBookRead($id: Int!, $pages: Int, $editionId: Int, $startedAt: date) {
-      insert_user_book_read(user_book_id: $id, user_book_read: {
-        progress_pages: $pages,
-        edition_id: $editionId,
-        started_at: $startedAt,
-      }) {
-        error
-        user_book_read {
-          id
-          started_at
-          finished_at
-          edition_id
-          progress_pages
-          user_book {
-            id
-            book_id
-            status_id
-            edition_id
-            privacy_setting_id
-            rating
-          }
-        }
-      }
-    }
-  ]]
-
-  local result = self:query(query, { id = user_book_id, pages = page, editionId = edition_id, startedAt = started_at })
-  if result and result.insert_user_book_read then
-    local user_book_read = result.insert_user_book_read.user_book_read
-    return self:normalizeUserBookRead(user_book_read)
-  end
-end
-
-function HardcoverApi:updatePage(user_read_id, edition_id, page, started_at)
-  local query = [[
-    mutation UpdateBookProgress($id: Int!, $pages: Int, $editionId: Int, $startedAt: date) {
-      update_user_book_read(id: $id, object: {
-        progress_pages: $pages,
-        edition_id: $editionId,
-        started_at: $startedAt,
-      }) {
-        error
-        user_book_read {
-          id
-          started_at
-          finished_at
-          edition_id
-          progress_pages
-          user_book {
-            id
-            book_id
-            status_id
-            edition_id
-            privacy_setting_id
-            rating
-          }
-        }
-      }
-    }
-  ]]
-
-  local result = self:query(query, { id = user_read_id, pages = page, editionId = edition_id, startedAt = started_at })
-  if result and result.update_user_book_read then
-    return self:normalizeUserBookRead(result.update_user_book_read.user_book_read)
-  end
-end
-
-function HardcoverApi:updateUserBook(book_id, status_id, privacy_setting_id, edition_id)
-  if not privacy_setting_id then
-    local me = self:me()
-    privacy_setting_id = me.account_privacy_setting_id or 1
-  end
-
-  local query = [[
-    mutation ($object: UserBookCreateInput!) {
-      insert_user_book(object: $object) {
-        error
-        user_book {
-          ...UserBookParts
-        }
-      }
-    }
-  ]] .. user_book_fragment
-
-  local update_args = {
-    book_id = book_id,
-    privacy_setting_id = privacy_setting_id,
-    status_id = status_id,
-    edition_id = edition_id
-  }
-
-  local result, err = self:query(query, { object = update_args })
-  if result and result.insert_user_book then
-    local inserted = result.insert_user_book
-    if inserted.user_book then
-      return inserted.user_book
-    end
-    return nil, inserted.error
-  end
-  return nil, err
-end
-
--- Take a book out of the library altogether (its status, rating and reads go
--- with it). Returns { id = user_book_id } on success.
-function HardcoverApi:removeUserBook(user_book_id)
-  local query = [[
-    mutation ($id: Int!) {
-      delete_user_book(id: $id) {
-        id
-      }
-    }
-  ]]
-
-  local result, err = self:query(query, { id = user_book_id })
-  if result and result.delete_user_book then
-    return result.delete_user_book
-  end
-  return nil, err
-end
-
---
--- Which of your own lists a book is on: every list of yours (id, name, size, ranked)
--- and, for each, the list_books row that is this book if it is there (its id is what
--- removing needs). The lists you follow cannot be added to, so they are not asked
--- for. Works with the scopes every sign-in has. Returns rows (see
--- Lists.membership), or nil and the error.
---
-function HardcoverApi:getBookLists(book_id)
-  local query = [[
-    query ($bookId: Int!) {
-      me {
-        lists(order_by: [{ updated_at: desc }, { id: desc }]) {
-          id
-          name
-          books_count
-          ranked
-          privacy_setting_id
-          list_books(where: { book_id: { _eq: $bookId } }) {
-            id
-          }
-        }
-      }
-    }
-  ]]
-
-  local results, err = self:query(query, { bookId = book_id })
-  local me = results and results.me
-  if type(me) == "table" and me[1] ~= nil then me = me[1] end
-  if type(me) ~= "table" then
+  ]], { userId = user_id }, true)
+  if first == nil or type(first.vibes) ~= "table" then
     return nil, err or { completed = false }
   end
-  return Lists.membership(me)
-end
 
---
--- Put a book on one of your lists (needs the write:lists scope, see Lists.WRITE_SCOPE).
--- `position` is where in the list; the caller passes the end (Lists.insertObject).
--- Returns { id = the new list_books row's id (nil if the answer did not carry
--- one) }, or nil and the error: Hardcover's own text when it refused, the request's
--- error table otherwise.
---
--- Written by analogy with insert_user_book (a payload with `error` and an id); the
--- answer is read loosely so a slightly different payload still counts as done.
---
-function HardcoverApi:addToList(book_id, list_id, position)
-  -- ListBookIdType is { id, list_book }: unlike insert_user_book it has no `error`
-  -- field (asking for one fails the whole request on validation; checked against the
-  -- API's schema). A refusal comes back as a GraphQL error instead.
-  local query = [[
-    mutation ($object: ListBookInput!) {
-      insert_list_book(object: $object) {
-        id
-        list_book { id }
-      }
-    }
-  ]]
-
-  local result, err = self:query(query, { object = Lists.insertObject(book_id, list_id, position) })
-  local inserted = result and result.insert_list_book
-  if type(inserted) == "table" then
-    if type(inserted.error) == "string" and inserted.error ~= "" then
-      return nil, inserted.error
+  local vibes = Vibes.normalize(first.vibes)
+  local wanted, owner = {}, {}
+  for _, vibe in ipairs(vibes) do
+    for i = 1, math.min(Vibes.COVERS, #vibe.ids) do
+      wanted[#wanted + 1] = vibe.ids[i]
+      owner[vibe.ids[i]] = owner[vibe.ids[i]] or {}
+      table.insert(owner[vibe.ids[i]], vibe.id)
     end
-    return { id = Lists.listBookId(inserted) }
   end
-  return nil, err or { completed = false }
+
+  -- the covers are a nicety: a failure here still gives the index (with empty boxes)
+  local covers = {}
+  if #wanted > 0 then
+    local second = self:query([[
+      query ($ids: [Int!]) {
+        books(where: { id: { _in: $ids } }) { book_id: id cached_image }
+      }
+    ]], { ids = wanted }, true)
+    local by_id = {}
+    for _, book in ipairs(second and type(second.books) == "table" and second.books or {}) do
+      local cover = Shelf.coverOf(book)
+      if cover then by_id[tonumber(book.book_id)] = cover.url end
+    end
+    for _, vibe in ipairs(vibes) do
+      local urls = {}
+      for i = 1, math.min(Vibes.COVERS, #vibe.ids) do
+        local url = by_id[vibe.ids[i]]
+        if url then urls[#urls + 1] = url end
+      end
+      covers[vibe.id] = urls
+    end
+  end
+  return vibes, covers
 end
 
--- Take a book off a list, by the id of its list_books row. Returns { id } or nil
--- and the error.
-function HardcoverApi:removeFromList(list_book_id)
-  local query = [[
-    mutation ($id: Int!) {
-      delete_list_book(id: $id) {
-        id
-      }
-    }
-  ]]
-
-  local result, err = self:query(query, { id = list_book_id })
-  if result and type(result.delete_list_book) == "table" then
-    return result.delete_list_book
-  end
-  return nil, err or { completed = false }
-end
-
-function HardcoverApi:updateRating(user_book_id, rating)
-  local query = [[
-    mutation ($id: Int!, $rating: numeric) {
-      update_user_book(id: $id, object: { rating: $rating }) {
-        error
-        user_book {
-          ...UserBookParts
-        }
-      }
-    }
-  ]] .. user_book_fragment
-
-  if rating == 0 or rating == nil then
-    rating = json.util.null
-  end
-
-  local result = self:query(query, { id = user_book_id, rating = rating })
-  if result and result.update_user_book then
-    return result.update_user_book.user_book
-  end
-end
-
-function HardcoverApi:removeRead(user_book_id)
-  local query = [[
-    mutation($id: Int!) {
-      delete_user_book(id: $id) {
-        id
-      }
-    }
-  ]]
-  local result = self:query(query, { id = user_book_id })
-  if result then
-    return result.delete_user_book
-  end
-end
-
-function HardcoverApi:createJournalEntry(object)
-  local query = [[
-    mutation InsertReadingJournalEntry($object: ReadingJournalCreateType!) {
-      insert_reading_journal(object: $object) {
-        reading_journal {
-          id
-        }
-      }
-    }
-  ]]
-
-  local result = self:query(query, { object = object })
-  if result then
-    return result.insert_reading_journal.reading_journal
-  end
+-- One page of a vibe's books, in the vibe's ranking, as shelf entries (one request).
+function HardcoverApi:getVibeBooks(vibe, offset, limit)
+  return self:getBooksByIds(Vibes.page(vibe, offset, limit))
 end
 
 --
 -- Async wrappers.
 --
--- Each one runs the call inside Trapper:wrap. That is what makes the request
+-- Each one runs the call inside a wrap (Trapper:wrap, through runtime.lua). That is what makes the request
 -- non-blocking: inside a wrapped coroutine, query() forks a subprocess and
 -- yields back to KOReader's event loop, so the screen the caller just showed
 -- (a "Loading..." message, an empty dialog) actually gets painted while the
@@ -1696,7 +1871,7 @@ end
 -- reply arrives -- which is what these did when they merely called the
 -- blocking function and delayed the callback.
 --
--- Every callback is invoked through UIManager:nextTick, so a caller may touch
+-- Every callback is invoked on the next UI tick (UIManager:nextTick), so a caller may touch
 -- widgets directly. Callers must still check UIManager:isWidgetShown before
 -- writing to a dialog: the user can close it while the request is in flight,
 -- and updating a freed widget crashes.
@@ -1711,7 +1886,7 @@ end
 local function deliver(callback, ...)
   local args = { ... }
   local n = select("#", ...)
-  UIManager:nextTick(function()
+  runtime().next_tick(function()
     callback(unpack(args, 1, n))
   end)
 end
@@ -1719,7 +1894,7 @@ end
 local function async(callback, fn, ...)
   local args = { ... }
   local n = select("#", ...)
-  Trapper:wrap(function()
+  runtime().wrap(function()
     local results = { pcall(fn, unpack(args, 1, n)) }
     if not results[1] then
       logger.warn("hardcover api: async call raised", results[2])
@@ -1730,76 +1905,44 @@ local function async(callback, fn, ...)
   end)
 end
 
-function HardcoverApi:saveGoalAsync(id, input, callback)
-  async(callback, self.saveGoal, self, id, input)
-end
+--
+-- One wrapper per blocking call below: `name .. "Async"` takes the same arguments as
+-- `name` plus a callback as the last one, and calls it with whatever `name` returned.
+-- `name` is looked up when the wrapper is called, so a replaced method (a test, a
+-- spec's stub) is the one that runs.
+--
+local ASYNC_METHODS = {
+  "saveGoal",
+  "archiveGoal",
+  "getGoals",
+  "getLists",
+  "getBookLists",
+  "addToList",
+  "removeFromList",
+  "getListCount",
+  "getShelf",
+  "getStats",
+  "getBooksByIds",
+  "getVibes",
+  "getForYou",
+  "me",
+  "getSimilarBooks",
+  "getBookDetail",
+  "getReviews",
+  "updateUserBook",
+  "removeUserBook",
+  "findBooks",
+  "findEditions",
+  "findDefaultEdition",
+  "findBookByIdentifiers",
+}
 
-function HardcoverApi:archiveGoalAsync(goal, callback)
-  async(callback, self.archiveGoal, self, goal)
-end
-
-function HardcoverApi:getGoalsAsync(callback)
-  async(callback, self.getGoals, self)
-end
-
-function HardcoverApi:getListsAsync(callback)
-  async(callback, self.getLists, self)
-end
-
-function HardcoverApi:getBookListsAsync(book_id, callback)
-  async(callback, self.getBookLists, self, book_id)
-end
-
-function HardcoverApi:addToListAsync(book_id, list_id, position, callback)
-  async(callback, self.addToList, self, book_id, list_id, position)
-end
-
-function HardcoverApi:removeFromListAsync(list_book_id, callback)
-  async(callback, self.removeFromList, self, list_book_id)
-end
-
-function HardcoverApi:getListCountAsync(callback)
-  async(callback, self.getListCount, self)
-end
-
-function HardcoverApi:getShelfAsync(user_id, status_id, offset, limit, callback)
-  async(callback, self.getShelf, self, user_id, status_id, offset, limit)
-end
-
-function HardcoverApi:getSimilarBooksAsync(book_id, callback)
-  async(callback, self.getSimilarBooks, self, book_id)
-end
-
-function HardcoverApi:getBookDetailAsync(book_id, user_id, edition_id, callback)
-  async(callback, self.getBookDetail, self, book_id, user_id, edition_id)
-end
-
-function HardcoverApi:getReviewsAsync(book_id, limit, offset, callback)
-  async(callback, self.getReviews, self, book_id, limit, offset)
-end
-
-function HardcoverApi:updateUserBookAsync(book_id, status_id, privacy_setting_id, edition_id, callback)
-  async(callback, self.updateUserBook, self, book_id, status_id, privacy_setting_id, edition_id)
-end
-
-function HardcoverApi:removeUserBookAsync(user_book_id, callback)
-  async(callback, self.removeUserBook, self, user_book_id)
-end
-
-function HardcoverApi:findBooksAsync(title, author, user_id, callback)
-  async(callback, self.findBooks, self, title, author, user_id)
-end
-
-function HardcoverApi:findEditionsAsync(book_id, user_id, callback)
-  async(callback, self.findEditions, self, book_id, user_id)
-end
-
-function HardcoverApi:findDefaultEditionAsync(book_id, user_id, callback)
-  async(callback, self.findDefaultEdition, self, book_id, user_id)
-end
-
-function HardcoverApi:findBookByIdentifiersAsync(identifiers, user_id, callback)
-  async(callback, self.findBookByIdentifiers, self, identifiers, user_id)
+for _, name in ipairs(ASYNC_METHODS) do
+  HardcoverApi[name .. "Async"] = function(self, ...)
+    local n = select("#", ...)
+    local callback = select(n, ...)
+    async(callback, self[name], self, unpack({ ... }, 1, n - 1))
+  end
 end
 
 return HardcoverApi

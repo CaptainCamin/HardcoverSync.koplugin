@@ -20,7 +20,7 @@ local Goals = require("hardcover/lib/goals")
 local Theme = require("hardcover/lib/ui/theme")
 
 local Screen = Device.screen
-local text = GoalWidgets.text
+local text = Theme.text
 
 local GoalDialog = InputContainer:extend {
   name = "hardcover_goal",

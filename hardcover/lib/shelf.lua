@@ -528,6 +528,50 @@ local function addRow(rows, label, value)
   table.insert(rows, { label = label, value = value })
 end
 
+-- "1997-06-26" -> "26 Jun 1997"; a bare year stays a year; nil for anything else
+local MONTHS = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" }
+local function dateText(value)
+  if type(value) ~= "string" then return nil end
+  local y, m, d = value:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)")
+  if not y then return value:match("^(%d%d%d%d)$") end
+  m = MONTHS[tonumber(m)]
+  if not m then return y end
+  return string.format("%d %s %s", tonumber(d), m, y)
+end
+
+-- 31288 -> "8h 41m"; under an hour "41m"; nil for nothing
+local function durationText(seconds)
+  seconds = tonumber(seconds)
+  if not seconds or seconds < 60 then return nil end
+  local minutes = math.floor(seconds / 60 + 0.5)
+  if minutes < 60 then return minutes .. "m" end
+  return string.format("%dh %dm", math.floor(minutes / 60), minutes % 60)
+end
+
+-- Who else worked on it, one row per role: "Illustrator", "Translator", "Narrator"...
+-- (the authors are in the header; a contribution with no role is an author).
+local function creditRows(rows, book)
+  local roles, order = {}, {}
+  for _, c in ipairs(type(book.contributions) == "table" and book.contributions or {}) do
+    local role = type(c) == "table" and type(c.contribution) == "string" and c.contribution or nil
+    local name = type(c) == "table" and type(c.author) == "table" and c.author.name or nil
+    if role and role ~= "" and role ~= "Author" and type(name) == "string" and name ~= "" then
+      if not roles[role] then roles[role] = {}; order[#order + 1] = role end
+      table.insert(roles[role], name)
+    end
+  end
+  for _, role in ipairs(order) do
+    table.insert(rows, { label = role, value = table.concat(roles[role], ", ") })
+  end
+end
+
+local function countText(n, one, many)
+  n = tonumber(n)
+  if not n or n <= 0 then return nil end
+  local text = tostring(math.floor(n)):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+  return text .. " " .. (n == 1 and one or many)
+end
+
 --
 -- Label/value rows describing a book, in display order. Edition level fields
 -- (publisher, format, ISBN, edition release date) win over the book level
@@ -545,6 +589,7 @@ function Shelf.detailRows(book)
   addRow(rows, "Format", book.edition_format or formatFallback(book))
   addRow(rows, "Publisher", _t.dig(book, "publisher", "name"))
   addRow(rows, "Pages", book.pages)
+  addRow(rows, "Audiobook", durationText(book.audio_seconds or _t.dig(book, "default_audio_edition", "audio_seconds")))
 
   local language = book.language
   if type(language) == "table" then
@@ -564,7 +609,14 @@ function Shelf.detailRows(book)
   end
   addRow(rows, "Published", published)
 
+  -- the edition's own day, and the book's first appearance when that is another day
+  local edition_day = type(book.release_date) == "string" and dateText(book.release_date) or nil
+  local first_day = dateText(book.first_release_date)
+  addRow(rows, "Edition released", edition_day and #edition_day > 4 and edition_day or nil)
+  if first_day and first_day ~= edition_day then addRow(rows, "First published", first_day) end
+
   addRow(rows, "ISBN", book.isbn_13 or book.isbn_10)
+  creditRows(rows, book)
 
   -- 0 means nobody has rated it: "0.0 (0 ratings)" is noise, not a rating
   local rating = book.rating
@@ -577,7 +629,10 @@ function Shelf.detailRows(book)
   end
 
   addRow(rows, "Readers", book.users_count)
-  addRow(rows, "Reads", book.users_read_count)
+  addRow(rows, "Reads", countText(book.users_read_count, "read", "reads") and tostring(book.users_read_count):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", ""))
+  addRow(rows, "Written reviews", countText(book.reviews_count, "review", "reviews"))
+  addRow(rows, "On lists", countText(book.lists_count, "list", "lists"))
+  addRow(rows, "Editions", countText(book.editions_count, "edition", "editions"))
 
   addRow(rows, "Description", book.description)
 

@@ -21,7 +21,6 @@ local InputContainer = require("ui/widget/container/inputcontainer")
 local LeftContainer = require("ui/widget/container/leftcontainer")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
 local TextBoxWidget = require("ui/widget/textboxwidget")
-local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
@@ -51,16 +50,7 @@ function SettingsScreen:init()
   self:render()
 end
 
-local function text(str, size, opts)
-  opts = opts or {}
-  return TextWidget:new {
-    text = str,
-    face = Theme.face(size),
-    bold = opts.bold,
-    max_width = opts.width,
-    fgcolor = opts.grey and Theme.DARK_GREY or Theme.BLACK,
-  }
-end
+local text = Theme.text
 
 -- the tick box at the right of an option: ticked or empty
 local function tickBox(checked)

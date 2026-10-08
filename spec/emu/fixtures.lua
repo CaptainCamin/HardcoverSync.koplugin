@@ -46,13 +46,27 @@ local function book_row(id, title, year, pages, opts)
     users_read_count = opts.users_read_count or (500 + id * 11),
     rating = opts.rating or 4.2,
     ratings_count = opts.ratings_count or 120,
+    first_release_date = opts.first_release_date or (year .. "-03-14"),
+    reviews_count = opts.reviews_count or 37,
+    lists_count = opts.lists_count or 412,
+    editions_count = opts.editions_count or 58,
+    ratings_distribution = opts.ratings_distribution or {
+      { rating = 1.0, count = 4 }, { rating = 2.0, count = 6 }, { rating = 2.5, count = 8 }, { rating = 3.0, count = 14 },
+      { rating = 3.5, count = 22 }, { rating = 4.0, count = 31 }, { rating = 4.5, count = 17 }, { rating = 5.0, count = 18 },
+    },
+    cached_tags = opts.cached_tags or {
+      Genre = { { tag = "Science fiction", count = 40 }, { tag = "Fiction", count = 22 }, { tag = "Classics", count = 9 } },
+      Mood = { { tag = "reflective", count = 31 }, { tag = "mysterious", count = 24 }, { tag = "challenging", count = 12 }, { tag = "slow-paced", count = 8 } },
+      ["Content Warning"] = { { tag = "Death", count = 6 }, { tag = "Violence", count = 4 } },
+    },
     description = opts.description or
       "A lone envoy arrives on a frozen world to bring its people into a league " ..
       "of planets, and finds that nothing about the place, its politics, its " ..
       "weather or its customs, is what he was told to expect. Long enough to wrap " ..
       "across several lines, so wrapping and page-count behaviour are visible.",
     contributions = opts.contributions or {
-      { author = { name = opts.author or "Ursula K. Le Guin" } },
+      { contribution = "Author", author = { name = opts.author or "Ursula K. Le Guin" } },
+      { contribution = "Illustrator", author = { name = "Jane Illustrator" } },
     },
     -- Not `opts.no_image and nil or {...}`: `a and nil or b` is always b, because
     -- nil is falsy, so every "no cover" book here used to have a cover and the
@@ -134,6 +148,41 @@ Generated rather than hand-written because nobody reads row 40 of a fixture;
 what matters is only that there are enough distinct rows to overflow a page at
 the emulated resolution.
 ]]
+-- A deterministic library for Stats: finish dates through 2023..2025 (busier in the winter),
+-- ratings that lean to 4, a few audiobooks, undated imports and one year-only finish.
+function M.default_stats_raw()
+  local authors = { "Brandon Sanderson", "Ursula K. Le Guin", "Becky Chambers", "N. K. Jemisin", "Terry Pratchett",
+    "Andy Weir", "Ann Leckie", "Octavia E. Butler", "Martha Wells", "Someone With A Rather Long Name Indeed" }
+  local weights = { 5, 4, 3, 2, 2, 1, 1, 1, 1, 1 }
+  local pool = {}
+  for i, w in ipairs(weights) do for _ = 1, w do pool[#pool + 1] = authors[i] end end
+  local rated = { 3, 3.5, 4, 4, 4, 4.5, 4.5, 5, 2.5, 4, 3.5, 4 }
+  local rows = {}
+  for i = 1, 96 do
+    local year = 2023 + (i % 3)
+    local month = ((i * 5) % 12) + 1
+    local date = string.format("%d-%02d-%02d", year, month, (i % 27) + 1)
+    local read = { finished_at = date, finished_at_precision = 1 }
+    if i == 7 then read.finished_at_precision = 3 end
+    local audio = (i % 17 == 0) and (9 + i % 8) * 3600 or nil
+    rows[#rows + 1] = {
+      id = i, rating = (i % 9 ~= 0) and rated[(i % #rated) + 1] or nil,
+      last_read_date = date, user_book_reads = (i % 11 == 0) and {} or { read },
+      book = { title = "Fixture Book " .. i, pages = (not audio) and (140 + (i * 37) % 520) or nil, audio_seconds = audio,
+        contributions = { { author = { name = pool[(i * 7) % #pool + 1] } } } },
+    }
+  end
+  for i = 1, 9 do -- imports with no dates
+    rows[#rows + 1] = { id = 200 + i, rating = 4, user_book_reads = {}, book = { title = "Imported " .. i, pages = 300 } }
+  end
+  return rows
+end
+
+function M.default_stats_genres()
+  return { { tag = "Fantasy", count = 41 }, { tag = "Science fiction", count = 33 }, { tag = "Adventure", count = 18 },
+    { tag = "Young Adult", count = 12 }, { tag = "Fiction", count = 9 }, { tag = "Horror", count = 4 }, { tag = "Classics", count = 3 } }
+end
+
 M.shelf_books = {}
 do
   local titles = {
@@ -493,6 +542,68 @@ function M.install(opts)
     return require("hardcover/lib/lists").normalize(deepcopy(opts.lists_me or M.lists_me))
   end
 
+  -- "For you": M.for_you_ids index the fixture books; M.for_you_note "no_ratings" gives an
+  -- empty list; M.for_you_fail fails
+  Api.getForYou = function(_)
+    record("getForYou")
+    if M.for_you_fail then return nil, { completed = false } end
+    if M.for_you_note == "no_ratings" then return {}, nil, "no_ratings" end
+    local entries = {}
+    for n, i in ipairs(M.for_you_ids or {}) do
+      local b = M.shelf_books[i]
+      if b then
+        local e = require("hardcover/lib/shelf").normalizeEntry({ book = b })
+        e.user_book_id = nil
+        e.reason = (M.for_you_reasons or {})[n] or "Wool"
+        entries[#entries + 1] = e
+      end
+    end
+    return entries
+  end
+
+  -- Vibes: M.vibes_rows (the API's `vibes` rows, ids index the fixture books); M.vibes_fail fails;
+  -- M.vibes_scope_error answers like a token without read:vibes
+  Api.getVibes = function(_, user_id)
+    record("getVibes")
+    if M.vibes_scope_error then return nil, { status = 403, errors = { { message = "Missing scopes: read:vibes" } } } end
+    if M.vibes_fail then return nil, { completed = false } end
+    local Vibes = require("hardcover/lib/vibes")
+    local vibes = Vibes.normalize(deepcopy(M.vibes_rows or {}))
+    local covers = {}
+    for _, vibe in ipairs(vibes) do
+      covers[vibe.id] = {}
+      for i = 1, math.min(3, #vibe.ids) do
+        local b = M.shelf_books[vibe.ids[i]]
+        local image = b and b.cached_image
+        if image and image.url then covers[vibe.id][#covers[vibe.id] + 1] = image.url end
+      end
+    end
+    return vibes, covers
+  end
+  -- Stats: M.stats_raw (the API's finished `user_books` rows; default a three-year library
+  -- with half-star ratings, an audiobook, undated imports and a year-only finish);
+  -- M.stats_genres; M.stats_fail fails
+  Api.getStats = function(_, user_id)
+    record("getStats")
+    if M.stats_fail then return nil, { completed = false } end
+    local Stats = require("hardcover/lib/stats")
+    return { rows = Stats.normalizeAll(M.stats_raw or M.default_stats_raw()),
+      genres = Stats.genres(M.stats_genres or M.default_stats_genres()), complete = true }
+  end
+  Api.getBooksByIds = function(_, ids)
+    record("getBooksByIds")
+    local entries = {}
+    for _, i in ipairs(ids) do
+      local b = M.shelf_books[i]
+      if b then
+        local e = require("hardcover/lib/shelf").normalizeEntry({ book = b })
+        e.user_book_id = nil
+        entries[#entries + 1] = e
+      end
+    end
+    return entries
+  end
+
   Api.getListCount = function(_)
     record("getListCount")
     local me = (opts.lists_me or M.lists_me)[1]
@@ -659,7 +770,7 @@ function M.install(opts)
     return Api.findBooks(nil, title, author, userId)
   end
 
-  Api.me = function() return { id = M.USER_ID, account_privacy_setting_id = 1 } end
+  Api.me = function() return { id = M.USER_ID, username = M.USERNAME or "fixture_reader", account_privacy_setting_id = 1 } end
 
   -- Mutations: record and echo back something shaped like the real response,
   -- so a scenario can verify a write path without a network.

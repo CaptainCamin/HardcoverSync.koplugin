@@ -1,5 +1,63 @@
 # Changelog
 
+## 1.6.3
+
+### Fixed
+
+- "Check for updates" could say "Couldn't reach GitHub" while online: the whole check was given 5 seconds, too little for the list of releases (over 50 KB, asked for when beta updates are on) on a slow e-reader connection. It now waits up to 30 seconds, asks for fewer releases, and says what happened when it fails: no answer, GitHub refusing requests from this address for a while (its limit is 60 an hour per address), or an answer that is not a release list. The daily check that runs by itself when Home opens still waits only 5 seconds, and when it fails it tries again in a few hours instead of at every Home screen (a refused address stays refused for a while, and each try was a wait on screen).
+- A rating set offline could be sent twice when two syncs overlapped (a second sync started while the first was waiting on the connection). A sync that is already running is now waited for.
+- Goal changes made offline could stop syncing until KOReader was restarted if one sync ended in an error. The sync is now always released.
+- Going to sleep, or losing the connection, did not cancel the book-linking retry that runs while a book is open, so it could fire later against a book that was no longer being tracked. It is now cancelled.
+
+### Changed
+
+- Under the hood, most of what Home, the shelves, Goals, Lists, Vibes, the book details and the request code decide is now in small separate pieces with tests of their own, and the screens only show the result. **Nothing should look or behave differently**; if a screen does, that is a bug worth reporting.
+
+## 1.6.2
+
+### Fixed
+
+- Home's goal card said "No current goal" when the goals had not been saved yet (after signing in again, say): the request for them is the last of four Home makes, and touching the screen while they ran (to scroll down to the card) cancelled it. Those four requests are no longer cancelled by a touch, and a refused goals request is tried once more after a moment.
+- Wifi that the plugin switched on for a sync or a screen was switched off the moment the work started, which could cut its requests off. It is now switched off 15 seconds later, and not at all if more work asks for wifi in the meantime. (Not yet tried on a device.)
+- Choosing an option in the journal entry dialog (privacy, edition) redrew the whole screen; it now redraws the dialog.
+
+## 1.6.1
+
+### Added
+
+- More in a book's **Details**: the edition's release day and when the book was first published, an audiobook's length ("8h 41m"), everyone else who worked on it by role (illustrator, translator, narrator...), and how many written reviews, lists and editions it has. Reads now has thousands separators.
+
+### Fixed
+
+- Genres, moods, content warnings and the ratings breakdown (1.6.0) were missing for a book opened without a chosen edition: only the request used when an edition is linked asked for them. Both requests now do, and a test checks it.
+
+### Changed
+
+- The ratings breakdown (how many readers gave each rating, with the average marked) moved from the book's details to the top of the **Reviews** screen, under the rating figure. The details keep the genres, moods and content warnings.
+
+## 1.6.0
+
+### Added
+
+- **What readers say, on a book's details**: below About, the breakdown of the ratings the book has had (a histogram from 0.5 to 5 stars with the average marked) and its genres, moods and content warnings as labels, most-used first (tags that many readers marked as spoilers are left out). It comes with the details, so there is no extra loading.
+- **Stats**: a tile on Home that opens your reading as a page of charts. The headline numbers (books, pages, average rating), then books per year (or per month for one year), a histogram of how you rate with your average marked, a genre donut with its legend, your most read authors, a breakdown of book lengths with the longest and shortest, and listening time for audiobooks. A **Period** button picks all time or any one year. Books with no finish date (imports) are counted in all time and say so under the chart instead of being guessed into a year; a finish known only to the month or year is never placed on a made-up day. The charts are drawn for e-ink: black and a few well-separated greys, no colour needed. Your finished books are saved on the device, so it opens at once and works offline with a note saying when the copy is from.
+
+## 1.5.0
+
+### Added
+
+- **For you**: a tile on Home that opens books suggested from the ones you rated 4 or more stars. Worked out on the device from Hardcover's own "readers also liked" lists for your favourites (a book high on several of them scores best, one you rated 4.5 or more counts double, and anything already in your library is left out), with the reason under each ("Because you liked ..."). It needs no new permission. The last picks are kept for offline, with the date they are from. Settings > "Show 'For you' on Home" turns the tile off.
+
+- **Vibes**: a tile on Home that opens Hardcover's own recommendation lists for your account: Top Picks, Recommendations and the "Based on ..." ones Hardcover makes for you, then any vibes you made yourself, each with its first covers. Tap one for its books in Hardcover's ranking, 20 at a time. It asks for a new permission (read:vibes): **sign out and back in once** (Settings > Account) to see them; until then the screen says so. It needs a connection.
+- **Pending changes** (the Hardcover menu, and Settings on Home): every change still waiting to be sent, one row each, with what it is ("Dune: page 120", "Kindred: mark as Read", "Solaris: rating 4.5", "New goal ..."), and why when one is stuck. Tap a row to cancel just that change (Hardcover keeps what it has); "Send them now" sends the rest. Before, the only choices were send everything or discard everything.
+
+- The account tile in Settings says who is signed in: "Signed in as <username>" instead of "Signed in to Hardcover". The name is kept on the device, so it is shown offline too (an account signed in before this learns it the next time Home opens online).
+
+### Fixed
+
+- The book's panel in the reader (Hardcover button) opens at once. It used to ask Hardcover for the book's record first and show nothing until the answer came, which on a slow connection was seconds of a frozen screen. It now opens from what the device already knows and refreshes in the background, redrawing only if the answer changed something.
+- A "Similar to" strip filling in no longer redraws the whole details screen: the loading placeholder is swapped for the books in place, redrawing just the strip.
+
 ## 1.4.1
 
 ### Added

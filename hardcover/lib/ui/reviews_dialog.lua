@@ -18,8 +18,8 @@
 -- The dialog fetches nothing itself. `fetch_page(offset, limit, callback)` is
 -- supplied by DialogManager, which owns the offline check and the retry. An
 -- optional `summary` ({ title, rating, count }, from Reviews.summary) heads the
--- first page: the book and how it is rated. The API has no breakdown by star,
--- so there is no histogram, only the figure and the star glyphs.
+-- first page: the book and how it is rated: the figure, the star glyphs and, when the
+-- book has the tallies, how many readers gave each rating (a histogram).
 --
 -- Row text and what each tap does come from hardcover/lib/reviews.lua.
 
@@ -34,7 +34,6 @@ local InputContainer = require("ui/widget/container/inputcontainer")
 local TopContainer = require("ui/widget/container/topcontainer")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextViewer = require("ui/widget/textviewer")
-local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
@@ -47,7 +46,7 @@ local Screen = Device.screen
 local ReviewsDialog = InputContainer:extend {
   name = "hardcover_reviews_dialog",
   title = _("Reviews"),
-  summary = nil,       -- { title, rating, count }: the book, shown above page one
+  summary = nil,       -- { title, rating, count, distribution }: the book, shown above page one
   hint = nil,          -- a small grey note under the summary
   reviews = nil,       -- normalised (Reviews.normalize), in display order
   message = nil,       -- a single non-interactive message: loading, empty
@@ -113,16 +112,7 @@ end
 
 ------------------------------------------------------------------ the cards
 
-local function text(str, size, opts)
-  opts = opts or {}
-  return TextWidget:new {
-    text = str,
-    face = Theme.face(size),
-    bold = opts.bold,
-    max_width = opts.width,
-    fgcolor = opts.grey and Theme.DARK_GREY or Theme.BLACK,
-  }
-end
+local text = Theme.text
 
 local function rowOf(left, right, width)
   local gap = math.max(0, width - left:getSize().w - right:getSize().w)
@@ -226,6 +216,17 @@ function ReviewsDialog:buildSummary(width)
       text(label, "small", { grey = true, width = width }),
     }
     table.insert(group, HorizontalGroup:new { align = "center", figure, Theme.hspan("l"), beside })
+    table.insert(group, Theme.span("m"))
+  end
+  -- how the ratings are spread, with the average marked
+  local dist = summary.distribution
+  if dist then
+    local ChartWidgets = require("hardcover/lib/ui/chart_widgets")
+    table.insert(group, ChartWidgets.columns {
+      width = width, height = Theme.px(150), values = dist.counts,
+      labels = { "0.5", "1", "1.5", "2", "2.5", "3", "3.5", "4", "4.5", "5" },
+      marker = { at = dist.average * 2, text = string.format(_("avg %.1f"), dist.average) },
+    })
     table.insert(group, Theme.span("m"))
   end
   -- a note about the screen itself (reviewers' names are hidden until the

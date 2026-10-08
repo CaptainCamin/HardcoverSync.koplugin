@@ -22,7 +22,6 @@ local InputContainer = require("ui/widget/container/inputcontainer")
 local ProgressWidget = require("ui/widget/progresswidget")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
 local TextBoxWidget = require("ui/widget/textboxwidget")
-local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local LeftContainer = require("ui/widget/container/leftcontainer")
@@ -50,6 +49,9 @@ local HomeDialog = InputContainer:extend {
   settings_cb = nil,
   search_cb = nil,
   lists_cb = nil,    -- the "More lists" tile appears when this is set
+  vibes_cb = nil,    -- the "Vibes" tile (Hardcover's own recommendation lists) appears when this is set
+  stats_cb = nil,    -- the "Stats" tile (your reading as charts) appears when this is set
+  for_you_cb = nil,  -- the "For you" tile (books suggested from your ratings) appears when this is set
   goals = nil,       -- Goals.normalize rows (saved or fresh); the goal card shows the chosen one
   finished_offline = 0, -- books finished here and not yet counted by Hardcover
   goal_cb = nil,     -- called with the goal when its card is tapped
@@ -88,16 +90,7 @@ local function progressBar(width, height, fraction)
   }
 end
 
-local function text(str, size, opts)
-  opts = opts or {}
-  return TextWidget:new {
-    text = str,
-    face = Theme.face(size),
-    bold = opts.bold,
-    max_width = opts.width,
-    fgcolor = opts.grey and Theme.DARK_GREY or Theme.BLACK,
-  }
-end
+local text = Theme.text
 
 -- The wrapper that makes a card tappable (and only over what it draws)
 function HomeDialog:tappable(widget, book_id, viewport)
@@ -176,6 +169,12 @@ function HomeDialog:buildTile(row, w, h, viewport)
     callback = function()
       if row.lists then
         if self.lists_cb then self.lists_cb() end
+      elseif row.for_you then
+        if self.for_you_cb then self.for_you_cb() end
+      elseif row.vibes then
+        if self.vibes_cb then self.vibes_cb() end
+      elseif row.stats then
+        if self.stats_cb then self.stats_cb() end
       elseif self.select_cb then
         self.select_cb(row)
       end
@@ -184,7 +183,7 @@ function HomeDialog:buildTile(row, w, h, viewport)
   }
   -- what the tile shows, so a rebuild can tell which tiles changed (and so which
   -- part of the panel needs redrawing)
-  self.tiles[#self.tiles + 1] = { key = row.lists and "lists" or tostring(row.status_id or row.title),
+  self.tiles[#self.tiles + 1] = { key = row.lists and "lists" or (row.for_you and "for_you") or (row.vibes and "vibes") or (row.stats and "stats") or tostring(row.status_id or row.title),
     shows = (row.title or "") .. "|" .. Home.countText(row.count), tile = tile }
   return tile
 end
@@ -258,6 +257,15 @@ function HomeDialog:buildColumn(width, viewport)
   end
   if self.lists_cb then
     rows[#rows + 1] = { lists = true, title = _("More lists"), count = self.list_count }
+  end
+  if self.for_you_cb then
+    rows[#rows + 1] = { for_you = true, title = _("For you") }
+  end
+  if self.vibes_cb then
+    rows[#rows + 1] = { vibes = true, title = _("Vibes") }
+  end
+  if self.stats_cb then
+    rows[#rows + 1] = { stats = true, title = _("Stats") }
   end
   for i = 1, #rows, 2 do
     local pair = HorizontalGroup:new { self:buildTile(rows[i], tile_w, tile_h, viewport) }

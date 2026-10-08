@@ -381,6 +381,41 @@ check("the detail rows leave out what the header already says", function()
   end
 end)
 
+check("the detail rows add the dates, audiobook length, credits and counts when the book has them", function()
+  local rows = {}
+  for _, row in ipairs(Shelf.extraRows({
+    release_date = "2014-09-01", first_release_date = "1997-06-26", audio_seconds = 31288,
+    contributions = { { contribution = "Author", author = { name = "A" } }, { contribution = "Illustrator", author = { name = "I" } },
+      { contribution = "Illustrator", author = { name = "J" } }, { author = { name = "B" } } },
+    reviews_count = 1, lists_count = 5076, editions_count = 539,
+  })) do rows[row.label] = row.value end
+  assert(rows["Edition released"] == "1 Sep 2014", tostring(rows["Edition released"]))
+  assert(rows["First published"] == "26 Jun 1997", tostring(rows["First published"]))
+  assert(rows.Audiobook == "8h 41m", tostring(rows.Audiobook))
+  assert(rows.Illustrator == "I, J" and rows.Author == nil, "credits")
+  assert(rows["Written reviews"] == "1 review" and rows["On lists"] == "5,076 lists" and rows.Editions == "539 editions",
+    tostring(rows["Written reviews"]) .. " / " .. tostring(rows["On lists"]) .. " / " .. tostring(rows.Editions))
+  -- nothing known adds nothing, and a year-only date is not a "released" day
+  assert(#Shelf.extraRows({ release_date = "2014", first_release_date = "2014" }) == 0)
+  assert(Shelf.extraRows({ audio_seconds = 20 })[1] == nil, "a few seconds is not a length")
+end)
+
+check("both detail queries (the book's and a linked edition's) ask for every field the details show", function()
+  local sent = {}
+  local Api = require("hardcover/lib/hardcover_api")
+  Api.enabled = true
+  Api.query = function(_, q) sent[#sent + 1] = q return nil end
+  Api:getBookDetail(1, 2)
+  Api:getBookDetail(1, 2, 3)
+  assert(#sent == 2, "queries sent: " .. #sent)
+  for i, q in ipairs(sent) do
+    for _, field in ipairs({ "ratings_distribution", "cached_tags", "first_release_date: release_date", "reviews_count",
+      "lists_count", "editions_count", "default_audio_edition", "contribution\n" }) do
+      assert(q:find(field, 1, true), "query " .. i .. " does not ask for " .. field)
+    end
+  end
+end)
+
 print("\n== leaving the screen ==")
 
 check("every key the dialog binds has a handler", function()

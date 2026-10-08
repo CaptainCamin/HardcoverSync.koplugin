@@ -86,6 +86,21 @@ function Theme.face(size_name)
   return Font:getFace("cfont", Theme.type[size_name] or size_name)
 end
 
+--
+-- One line of text in the family's type: `size` a Theme.type name (default "body"), opts
+-- { bold, grey, width } (width is the most it may take; longer text is cut with an ellipsis).
+--
+function Theme.text(str, size, opts)
+  opts = opts or {}
+  return TextWidget:new {
+    text = tostring(str),
+    face = Theme.face(size or "body"),
+    bold = opts.bold,
+    max_width = opts.width,
+    fgcolor = opts.grey and Theme.DARK_GREY or Theme.BLACK,
+  }
+end
+
 function Theme.span(name)
   return VerticalSpan:new { width = Theme.space[name] or name }
 end

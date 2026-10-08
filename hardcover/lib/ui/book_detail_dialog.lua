@@ -418,6 +418,13 @@ function BookDetailDialog:init()
     add(self.description_text)
   end
 
+  -- what other readers say: how they rated it, and what they tagged it with
+  local community = self:communitySections(width)
+  if community then
+    add(Theme.span("l"))
+    add(community)
+  end
+
   -- Strips of covers, paged with arrows; tapping one opens that book. Below About, so
   -- the book itself comes first: "More in this series", then "Similar to <title>".
   self.carousel, self.similar_carousel = nil, nil
@@ -441,6 +448,7 @@ function BookDetailDialog:init()
       end,
     }
   end
+  self.build_strip = strip -- setSimilar swaps the "Similar to" strip in place with it
   if self.series_card then
     self.carousel = strip(self.series_card, self.on_open_book)
     add(Theme.span("l"))
@@ -524,6 +532,33 @@ function BookDetailDialog:init()
   else
     self:loadCover(summary.cover, cover_width, cover_height)
   end
+end
+
+--
+-- "Readers say": the book's genres, moods and content warnings as pills (the breakdown of
+-- its ratings is on the reviews screen). nil when Hardcover has none.
+--
+function BookDetailDialog:communitySections(width)
+  local book = self.detail and self.detail.book
+  if not book then return nil end
+  local Community = require("hardcover/lib/community")
+  local ChartWidgets = require("hardcover/lib/ui/chart_widgets")
+
+  local group = VerticalGroup:new { align = "left" }
+  local tags = Community.tags(book)
+  for _i, spec in ipairs({
+    { tags.genres, _("Genres") }, { tags.moods, _("Moods") }, { tags.warnings, _("Content warnings") },
+  }) do
+    if #spec[1] > 0 then
+      if #group > 0 then table.insert(group, Theme.span("l")) end
+      table.insert(group, Theme.sectionHeader(spec[2], width))
+      table.insert(group, Theme.span("s"))
+      local labels = {}
+      for i, t in ipairs(spec[1]) do labels[i] = t.tag end
+      table.insert(group, ChartWidgets.pills { width = width, labels = labels })
+    end
+  end
+  return #group > 0 and group or nil
 end
 
 --
@@ -617,8 +652,38 @@ end
 -- when a cover is tapped. Like the series, it arrives after the screen is up.
 --
 function BookDetailDialog:setSimilar(card, on_open)
+  local old = self.similar_carousel
   self.similar_card = card
   self.on_open_similar = on_open
+
+  -- The books arriving where the loading placeholder is: the same size, so swap the strip
+  -- in place and redraw just its box, not the whole panel.
+  if old and card and not card.loading and old.card.loading and self.content_group then
+    for i, child in ipairs(self.content_group) do
+      if child == old.widget then
+        local strip = self.build_strip(card, on_open)
+        self.content_group[i] = strip.widget
+        -- the strip's rectangle: its covers' box (the only part with a position) and the
+        -- heading above it, which is the rest of the strip's height
+        local holder = old.holder.dimen
+        local where = holder and holder.x and {
+          x = holder.x, y = holder.y - (old.widget:getSize().h - holder.h), w = holder.w, h = old.widget:getSize().h,
+        }
+        old:release()
+        self.similar_carousel = strip
+        -- its arrows join the focus rows, after the series' and before Close
+        if strip.paged and self.layout then
+          table.insert(self.layout, #self.layout, { strip.prev, strip.next })
+        end
+        -- the strip's own box (same place, same size), clipped to what the page shows; never
+        -- the whole panel (a strip not yet painted has no position, and gets none)
+        if where then
+          Refresh.box(self, function() return where end, function() return self.scroll and self.scroll.dimen end)
+        end
+        return
+      end
+    end
+  end
 
   local offset = self.scroll and self.scroll.getScrolledOffset and self.scroll:getScrolledOffset()
   self:rebuild()

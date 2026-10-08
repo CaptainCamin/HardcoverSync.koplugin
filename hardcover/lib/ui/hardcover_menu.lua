@@ -262,8 +262,26 @@ function HardcoverMenu:showReaderPanel()
     }
   end
 
-  if self.settings:bookLinked() then self.cache:cacheUserBook() end
+  -- The panel opens at once, from what the device already knows (the saved copy with
+  -- the offline queue over it). The book's record is fetched after, in the background:
+  -- it used to be fetched first, with the screen frozen for as long as Hardcover took
+  -- to answer, and the panel only appeared after that.
   panel = require("hardcover/lib/ui/reader_panel").show { model = model }
+  if self.settings:bookLinked() then
+    local function signature()
+      local status = self.state.book_status or {}
+      local reads = status.user_book_reads
+      local read = reads and reads[#reads]
+      return table.concat({ tostring(status.status_id), tostring(status.rating),
+        tostring(read and read.progress_pages) }, "|")
+    end
+    local before = signature()
+    Background.run(function()
+      self.cache:cacheUserBook()
+      -- redraw only when the answer changed what the panel shows
+      if panel and UIManager:isWidgetShown(panel) and signature() ~= before then panel:render() end
+    end)
+  end
   return panel
 end
 
@@ -405,6 +423,7 @@ function HardcoverMenu:getSubMenuItems(book_view)
       separator = true
     },
     self:getSyncMenuItem(),
+    self:pendingTotal() > 0 and self:getPendingChangesMenuItem(),
     self:conflictCount() > 0 and self:getSyncConflictsMenuItem(),
     -- OAuth sign-in/out. Only offered when hardcover_config.lua supplies a
     -- client_id; with a static API key there is nothing to sign in to.
@@ -491,10 +510,16 @@ function HardcoverMenu:getUpdateMenuItems()
       callback = function()
         local checking = InfoMessage:new { text = _("Checking for updates…"), timeout = 10 }
         UIManager:show(checking)
-        Github:latestReleaseAsync(function(release)
+        Github:latestReleaseAsync(function(release, why)
           UIManager:close(checking)
           if not release then
-            UIManager:show(InfoMessage:new { text = _("Couldn't reach GitHub. Try again when you're online.") })
+            local message = _("Couldn't reach GitHub. Try again when you're online.")
+            if why == "limited" then
+              message = _("GitHub is limiting requests from this connection for now. Try again in a while.")
+            elseif why == "answer" then
+              message = _("GitHub answered, but not with a release list. Try again in a while.")
+            end
+            UIManager:show(InfoMessage:new { text = message })
             return
           end
           Updater.remember(self.settings, release)
@@ -605,10 +630,47 @@ end
 -- everything waiting to be sent: progress and status changes, and goal changes
 function HardcoverMenu:pendingTotal()
   return self.sync_queue:pendingCount() + (self.goal_queue and self.goal_queue:count() or 0)
+    + (self.rating_queue and self.rating_queue:count() or 0)
 end
 
 function HardcoverMenu:conflictCount()
   return self.sync_queue and self.sync_queue.conflictCount and self.sync_queue:conflictCount() or 0
+end
+
+-- Every change waiting to be sent, each with a way to cancel just that one.
+function HardcoverMenu:getPendingChangesMenuItem()
+  return {
+    text_func = function()
+      return T(_("Pending changes (%1)"), self:pendingTotal())
+    end,
+    enabled_func = function()
+      return self:pendingTotal() > 0
+    end,
+    callback = function(menu_instance)
+      -- loaded here, not at the top: the screen pulls in the settings page and its widgets
+      require("hardcover/lib/ui/pending_changes_dialog").show {
+        queues = { sync_queue = self.sync_queue, goal_queue = self.goal_queue, rating_queue = self.rating_queue },
+        on_cancel = function(row) self:pendingCancelled(row) end,
+        on_send = function()
+          self:withWifiThen(function() self.on_flush_sync_queue() end, true)
+        end,
+      }
+      if menu_instance and menu_instance.updateItems then menu_instance:updateItems() end
+    end,
+    keep_menu_open = true,
+  }
+end
+
+-- A waiting change was cancelled: the screens that showed it as if it had happened go back
+-- to what Hardcover has (goals right away; the open book's record is read again).
+function HardcoverMenu:pendingCancelled(row)
+  if row.kind == "goal" and self.dialog_manager and self.dialog_manager.applyGoals then
+    self.dialog_manager:applyGoals(self.dialog_manager:savedGoals())
+  end
+  if (row.kind == "page" or row.kind == "status" or row.kind == "rating")
+      and self.cache and self.settings:bookLinked() and self.ui and self.ui.document then
+    Background.run(function() self.cache:cacheUserBook() end)
+  end
 end
 
 function HardcoverMenu:getSyncConflictsMenuItem()
@@ -693,7 +755,9 @@ end
 function HardcoverMenu:getAccountMenuItem()
   return {
     text_func = function()
-      return T(_("Account: %1"), self.auth:statusText())
+      -- who is signed in, by name; found out once if this account was signed in before it was kept
+      User:refreshName()
+      return T(_("Account: %1"), self.auth:statusText(User:getName()))
     end,
     sub_item_table_func = function()
       local items = {}
@@ -762,6 +826,9 @@ function HardcoverMenu:getHomeSettingsItems(opts)
   local items = {}
   if opts.sync ~= false then
     items[1] = self:getSyncMenuItem()
+    if self:pendingTotal() > 0 then
+      items[#items + 1] = self:getPendingChangesMenuItem()
+    end
     if self:conflictCount() > 0 then
       items[#items + 1] = self:getSyncConflictsMenuItem()
     end
@@ -904,7 +971,8 @@ function HardcoverMenu:saveRating(value, menu_instance, quiet)
       self.state.book_status = result
       menu_instance:updateItems()
     elseif self.rating_queue and self.state.book_status.id then
-      self.rating_queue:queue(self.state.book_status.id, value)
+      self.rating_queue:queue(self.state.book_status.id, value,
+        self.settings and self.settings.getLinkedTitle and self.settings:getLinkedTitle() or nil)
       self.state.book_status.rating = value > 0 and value or nil
       menu_instance:updateItems()
       if not quiet then
@@ -1246,6 +1314,17 @@ end
 
 function HardcoverMenu:getSettingsSubMenuItems()
   return {
+    {
+      text = _("Show \"For you\" on Home"),
+      checked_func = function()
+        return self.settings:readSetting(SETTING.SHOW_FOR_YOU) ~= false
+      end,
+      callback = function()
+        self.settings:updateSetting(SETTING.SHOW_FOR_YOU,
+          self.settings:readSetting(SETTING.SHOW_FOR_YOU) == false)
+      end,
+      keep_menu_open = true,
+    },
     {
       text = "Automatically link by ISBN",
       checked_func = function()
