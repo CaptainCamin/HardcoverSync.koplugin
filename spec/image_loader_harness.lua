@@ -132,10 +132,15 @@ local function drain()
   end
 end
 
+local pinned_dir = dir .. "_pinned"
+os.execute("mkdir -p '" .. pinned_dir .. "'")
 local function reset()
-  os.execute("rm -f '" .. dir .. "'/*")
+  os.execute("rm -f '" .. dir .. "'/* '" .. pinned_dir .. "'/*")
   mtimes = {}; ticks = {}; scheduled = {}; fetched = {}; fail_urls = {}
   ImageLoader.cache = new_cache()
+  ImageLoader.pinned = ImageCache:new { dir = pinned_dir, lfs = fake_lfs, hash = hash, max_bytes = false,
+    make_dir = function() return true end }
+  ImageLoader.screen = { w = 1200, h = 1600 }
 end
 
 check("every url is delivered once, in order", function()
@@ -217,5 +222,126 @@ check("works with no cache at all", function()
   expect(n == 2)
 end)
 
-os.execute("rm -rf '" .. dir .. "'")
+print("\n== covers at the size they are drawn ==")
+
+local Covers = dofile(PLUGIN .. "/hardcover/lib/covers.lua")
+local COVER = "https://assets.hardcover.app/edition/32409522/5562a0b7-5a80-4b2e-b8a2-cc8f4780b904.png"
+
+check("a cover on Hardcover's assets is asked for from the image service, as hardcover.app asks", function()
+  local url = Covers.url(COVER, "small", 1200, 1600)
+  expect(url == "https://production-img.hardcover.app/enlarge?height=360&type=jpeg&url="
+    .. "https%3A%2F%2Fassets.hardcover.app%2Fedition%2F32409522%2F5562a0b7-5a80-4b2e-b8a2-cc8f4780b904.png&width=240", url)
+  expect(Covers.original(url) == COVER, "the original does not come back out")
+end)
+
+check("sizes follow the screen, in steps, large for the details", function()
+  local w, h = Covers.size("small", 1072, 1448)
+  expect(w == 240 and h == 360, w .. "x" .. h)
+  local lw = Covers.size("large", 1264, 1680)
+  expect(lw == 480, "large " .. lw)
+  expect(Covers.size("small", 1448, 1072) == w, "turning the device changed the size")
+  expect(Covers.size("small", 0, 0) > 0, "an unknown screen gave no size")
+end)
+
+check("a cover elsewhere, or not a URL, is left as it is", function()
+  expect(Covers.url("https://example.com/c.jpg", "small", 1200, 1600) == "https://example.com/c.jpg")
+  expect(Covers.url(nil, "small", 1, 1) == nil)
+  expect(Covers.original("https://example.com/c.jpg") == nil)
+end)
+
+check("the loader downloads the small cover and hands it over under the cover's own address", function()
+  reset()
+  local got = {}
+  ImageLoader:loadImages({ COVER }, function(url, content) got[#got + 1] = { url, content } end)
+  drain()
+  local small = Covers.url(COVER, "small", 1200, 1600)
+  expect(#fetched == 1 and fetched[1] == small, "fetched " .. tostring(fetched[1]))
+  expect(#got == 1 and got[1][1] == COVER and got[1][2] == "IMG:" .. small)
+  expect(ImageLoader.cache:get(small), "the small cover was not kept")
+end)
+
+check("the details screen gets the large cover", function()
+  reset()
+  ImageLoader:loadImages({ COVER }, function() end, { size = "large" })
+  drain()
+  expect(fetched[1] == Covers.url(COVER, "large", 1200, 1600))
+end)
+
+check("the image service failing once is tried again; failing twice, the cover as uploaded", function()
+  reset()
+  local small = Covers.url(COVER, "small", 1200, 1600)
+  fail_urls[small] = true
+  local got
+  ImageLoader:loadImages({ COVER }, function(_, content) got = content end)
+  drain()
+  expect(#fetched == 3 and fetched[1] == small and fetched[2] == small and fetched[3] == COVER,
+    table.concat(fetched, " | "))
+  expect(got == "IMG:" .. COVER and ImageLoader.cache:get(COVER), "the original was not used and kept")
+end)
+
+check("a download cancelled by a tap is not tried again", function()
+  reset()
+  local trapper = package.loaded["ui/trapper"]
+  local real = trapper.dismissableRunInSubprocess
+  trapper.dismissableRunInSubprocess = function(_, fn) fetched[#fetched + 1] = "cancelled"; return false end
+  local got = false
+  ImageLoader:loadImages({ COVER }, function() got = true end)
+  drain()
+  trapper.dismissableRunInSubprocess = real
+  expect(#fetched == 1 and not got, "tried " .. #fetched .. " times")
+end)
+
+check("a cover downloaded for offline is used first, and never downloaded again", function()
+  reset()
+  ImageLoader.pinned:put(Covers.url(COVER, "small", 1200, 1600), "PINNED")
+  local got
+  ImageLoader:loadImages({ COVER }, function(_, content) got = content end)
+  drain()
+  expect(#fetched == 0 and got == "PINNED")
+end)
+
+check("offline, the large cover falls back to the small one, then to a full-size one saved before", function()
+  reset()
+  local original = ImageLoader.isOnline
+  ImageLoader.isOnline = function() return false end
+  ImageLoader.cache:put(Covers.url(COVER, "small", 1200, 1600), "SMALL")
+  local got
+  ImageLoader:loadImages({ COVER }, function(_, content) got = content end, { size = "large" })
+  drain()
+  expect(got == "SMALL", tostring(got))
+  reset()
+  ImageLoader.isOnline = function() return false end
+  ImageLoader.cache:put(COVER, "FULL SIZE FROM BEFORE")
+  ImageLoader:loadImages({ COVER }, function(_, content) got = content end)
+  drain()
+  ImageLoader.isOnline = original
+  expect(got == "FULL SIZE FROM BEFORE" and #fetched == 0)
+end)
+
+check("the cache keeps to its space, dropping what was used longest ago", function()
+  os.execute("rm -f '" .. dir .. "'/*")
+  mtimes = {}
+  local sizes = {}
+  local lfs = setmetatable({ attributes = function(path, what)
+    if what == "size" then return sizes[path] end
+    return fake_lfs.attributes(path, what)
+  end }, { __index = fake_lfs })
+  local c = ImageCache:new { dir = dir, lfs = lfs, hash = hash, max_bytes = 250, make_dir = function() return true end }
+  for i, name in ipairs({ "a", "b", "c" }) do
+    c:put("http://x/" .. name, string.rep(name, 100))
+    sizes[c:path("http://x/" .. name)] = 100
+    mtimes[c:path("http://x/" .. name)] = i
+  end
+  c:prune()
+  expect(c:get("http://x/a") == nil, "over the space, the oldest stayed")
+  expect(c:has("http://x/b") and c:has("http://x/c"), "a newer cover went")
+end)
+
+check("a cache with no limit keeps everything", function()
+  local c = ImageCache:new { dir = dir, lfs = fake_lfs, hash = hash, max_bytes = false }
+  c:prune() -- does nothing, raises nothing
+  expect(c.max_bytes == false)
+end)
+
+os.execute("rm -rf '" .. dir .. "' '" .. pinned_dir .. "'")
 r.finish()

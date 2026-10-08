@@ -11,11 +11,15 @@
 local ImageCache = {}
 ImageCache.__index = ImageCache
 
-local DEFAULT_MAX_FILES = 300
+-- How much space covers that were only seen may take. At the size they are now fetched
+-- (covers.lua: 20-40 KB each) that is well over a thousand covers; the full-size covers
+-- earlier versions saved (up to 3 MB each) are the first to go when it is full.
+-- `max_bytes = false` keeps everything (the covers downloaded for offline).
+ImageCache.DEFAULT_MAX_BYTES = 30 * 1024 * 1024
 
 function ImageCache:new(o)
   o = o or {}
-  o.max_files = o.max_files or DEFAULT_MAX_FILES
+  if o.max_bytes == nil and o.max_files == nil then o.max_bytes = ImageCache.DEFAULT_MAX_BYTES end
   o.writes_since_prune = 0
   return setmetatable(o, self)
 end
@@ -26,6 +30,16 @@ function ImageCache:path(url)
     return nil
   end
   return self.dir .. "/" .. self.hash(url) .. ".img"
+end
+
+-- Is the cover saved? (No read, no touch: for counting what is missing.)
+function ImageCache:has(url)
+  local path = self:path(url)
+  if not path then return false end
+  local file = io.open(path, "rb")
+  if not file then return false end
+  file:close()
+  return true
 end
 
 function ImageCache:get(url)
@@ -78,27 +92,36 @@ function ImageCache:put(url, content)
   return true
 end
 
--- Delete the least recently used files beyond max_files.
+-- Delete the least recently used files beyond max_files, or beyond max_bytes in all.
 function ImageCache:prune()
+  if not (self.max_files or self.max_bytes) then return end
   if not (self.lfs and self.lfs.dir and self.dir) then return end
 
-  local entries = {}
+  local entries, total = {}, 0
   local ok = pcall(function()
     for name in self.lfs.dir(self.dir) do
       if name:match("%.img$") then
         local path = self.dir .. "/" .. name
         local mtime = self.lfs.attributes(path, "modification")
         if mtime then
-          table.insert(entries, { path = path, mtime = mtime })
+          local size = tonumber(self.lfs.attributes(path, "size")) or 0
+          total = total + size
+          table.insert(entries, { path = path, mtime = mtime, size = size })
         end
       end
     end
   end)
-  if not ok or #entries <= self.max_files then return end
+  if not ok then return end
 
   table.sort(entries, function(a, b) return a.mtime < b.mtime end)
-  for i = 1, #entries - self.max_files do
-    os.remove(entries[i].path)
+  local count = #entries
+  for _, entry in ipairs(entries) do
+    local over_count = self.max_files and count > self.max_files
+    local over_bytes = self.max_bytes and total > self.max_bytes
+    if not (over_count or over_bytes) then break end
+    os.remove(entry.path)
+    count = count - 1
+    total = total - entry.size
   end
 end
 
