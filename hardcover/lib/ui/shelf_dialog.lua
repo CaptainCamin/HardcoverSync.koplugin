@@ -41,6 +41,9 @@ local ShelfDialog = InputContainer:extend {
   sortable = false,
   sort_key = nil,
   on_sort_change = nil,
+  -- more things the screen can do, { { text, callback }, ... } (a list's Refresh): with
+  -- these the left icon opens a menu, as it does on a shelf
+  actions = nil,
 }
 
 function ShelfDialog:createListItem(entry)
@@ -129,15 +132,21 @@ function ShelfDialog:init()
   self[1] = self.container
 end
 
--- The title-bar icon and what it does: the sort button on a shelf, otherwise the
--- reload icon that appears when a load was interrupted.
+-- The screen has a menu: a shelf (its orders) or a screen with actions (a list's
+-- Refresh). Without one, the left icon is the reload icon of an interrupted load.
+function ShelfDialog:hasMenu()
+  return self.sortable or (type(self.actions) == "table" and #self.actions > 0)
+end
+
+-- The title-bar icon and what it does: the menu, otherwise the reload icon that
+-- appears when a load was interrupted.
 function ShelfDialog:leftIcon()
-  if self.sortable then return "appbar.menu" end
+  if self:hasMenu() then return "appbar.menu" end
   return self.has_more and "cre.render.reload" or nil
 end
 
 function ShelfDialog:leftAction()
-  if self.sortable then
+  if self:hasMenu() then
     return function() self:showSortMenu() end
   end
   return self.has_more and function() self:loadMore() end or nil
@@ -224,11 +233,17 @@ function ShelfDialog:updatePager()
 end
 
 --
--- The sort menu: every order, the current one ticked; and, when a load was
--- interrupted, a way to carry on (the reload icon is the sort button on a shelf).
+-- The menu: when a load was interrupted, a way to carry on (the reload icon is the menu
+-- button here); the screen's actions; and on a shelf every order, the current one
+-- ticked.
 --
 function ShelfDialog:showSortMenu()
   if self.sort_menu then
+    UIManager:close(self.sort_menu)
+    self.sort_menu = nil
+  end
+
+  local function closeMenu()
     UIManager:close(self.sort_menu)
     self.sort_menu = nil
   end
@@ -239,27 +254,37 @@ function ShelfDialog:showSortMenu()
       text = _("Load the rest of the list"),
       bold = true,
       callback = function()
-        UIManager:close(self.sort_menu)
-        self.sort_menu = nil
+        closeMenu()
         self:loadMore()
       end,
     }
   end
 
-  local current = self.sort_key or ShelfSort.DEFAULT
-  for _, option in ipairs(ShelfSort.OPTIONS) do
+  for _, action in ipairs(type(self.actions) == "table" and self.actions or {}) do
     rows[#rows + 1] = {
-      text = (option.key == current and "\226\156\147 " or "") .. option.label,
-      current = option.key == current,
+      text = action.text,
       callback = function()
-        UIManager:close(self.sort_menu)
-        self.sort_menu = nil
-        self:setSort(option.key)
+        closeMenu()
+        action.callback()
       end,
     }
   end
 
-  self.sort_menu = Picker.new { title = _("Sort by"), rows = rows }
+  if self.sortable then
+    local current = self.sort_key or ShelfSort.DEFAULT
+    for _, option in ipairs(ShelfSort.OPTIONS) do
+      rows[#rows + 1] = {
+        text = (option.key == current and "\226\156\147 " or "") .. option.label,
+        current = option.key == current,
+        callback = function()
+          closeMenu()
+          self:setSort(option.key)
+        end,
+      }
+    end
+  end
+
+  self.sort_menu = Picker.new { title = self.sortable and _("Sort by") or self.title, rows = rows }
   UIManager:show(self.sort_menu)
 end
 

@@ -63,26 +63,36 @@ function Flows:showBookDetail(book_id, edition_id)
   UIManager:show(dialog)
 
   local user_id = User:getId()
-  -- Looked up only when it is needed (offline, or the fetch failed): it reads the
-  -- whole saved-shelves file, which is megabytes for a big library.
+  -- What is saved about the book, shown when the network cannot supply it: its details
+  -- as last fetched, or its row from a saved list (book_store.lua), with your status and
+  -- rating from the saved shelf it is on; else just the shelf's row. Looked up only when
+  -- it is needed (offline, or the fetch failed): the shelf lookup reads the whole
+  -- saved-shelves file, which is megabytes for a big library.
   local looked_up, found
-  local function saved_entry()
+  local function saved_detail()
     if not looked_up then
       looked_up = true
-      found = self.shelf_cache and self.shelf_cache:findEntry(user_id, book_id)
+      local entry = self.shelf_cache and self.shelf_cache:findEntry(user_id, book_id)
+      local stored = self.book_store and self.book_store:detail(book_id, edition_id)
+      if stored then
+        stored.user_book_id = entry and entry.user_book_id
+        stored.status_id = entry and entry.status_id
+        stored.user_rating = entry and entry.user_rating
+        found = stored
+      elseif entry then
+        found = Shelf.detailFromEntry(entry)
+      end
     end
     return found
   end
 
-  -- What a shelf row already knows, shown when the network cannot supply the
-  -- full record. Book level only: edition fields are not on a shelf row.
   local function showSaved()
-    dialog:setDetail(self:withPendingRating(Shelf.detailFromEntry(saved_entry())))
+    dialog:setDetail(self:withPendingRating(saved_detail()))
     StatusDialogs.info(_("Offline: showing saved details"))
   end
 
   if not Network.connected() then
-    if saved_entry() then
+    if saved_detail() then
       showSaved()
     else
       StatusDialogs.retry(_("no internet connection"), _("Loading book details"),
@@ -102,7 +112,7 @@ function Flows:showBookDetail(book_id, edition_id)
     if not UIManager:isWidgetShown(dialog) then return end
 
     if not detail then
-      if saved_entry() then
+      if saved_detail() then
         showSaved()
         return
       end
@@ -115,6 +125,9 @@ function Flows:showBookDetail(book_id, edition_id)
         function() UIManager:close(dialog) end)
       return
     end
+
+    -- kept, so the book opens offline with all of this next time
+    if self.book_store then self.book_store:saveDetail(book_id, edition_id, detail) end
 
     -- the "Similar to" strip is there at once, empty and saying it is loading, so it is
     -- no surprise when the books arrive (and the page does not jump when they do)

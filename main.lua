@@ -24,14 +24,17 @@ local Api = require("hardcover/lib/hardcover_api")
 local Auth = require("hardcover/lib/auth")
 local AutoWifi = require("hardcover/lib/auto_wifi")
 local Background = require("hardcover/lib/background")
+local BookStore = require("hardcover/lib/book_store")
 local Cache = require("hardcover/lib/cache")
 local Config = require("hardcover/lib/config")
 local debounce = require("hardcover/lib/debounce")
 local Hardcover = require("hardcover/lib/hardcover")
 local HardcoverSettings = require("hardcover/lib/hardcover_settings")
+local ListStore = require("hardcover/lib/list_store")
 local PageMapper = require("hardcover/lib/page_mapper")
 local Scheduler = require("hardcover/lib/scheduler")
 local ShelfCache = require("hardcover/lib/shelf_cache")
+local SqliteStore = require("hardcover/lib/sqlite_store")
 local SyncQueue = require("hardcover/lib/sync_queue")
 local GoalQueue = require("hardcover/lib/goal_queue")
 local RatingQueue = require("hardcover/lib/rating_queue")
@@ -141,6 +144,14 @@ function HardcoverApp:init()
     open = function(path) return LuaSettings:open(path) end,
   }
 
+  -- Your lists and every book on them, kept once each (see book_store.lua). Also opened
+  -- on first use; closed with this plugin (onCloseWidget).
+  self.library_db = SqliteStore:new {
+    path = ("%s/%s"):format(DataStorage:getSettingsDir(), "hardcoversync_library.sqlite3"),
+  }
+  self.book_store = BookStore:new { db = self.library_db }
+  self.list_store = ListStore:new { db = self.library_db, books = self.book_store }
+
   self.sync_queue = SyncQueue:new {
     settings = LuaSettings:open(("%s/%s"):format(DataStorage:getSettingsDir(), "hardcoversync_queue.lua"))
   }
@@ -188,6 +199,8 @@ function HardcoverApp:init()
     page_mapper = self.page_mapper,
     settings = self.settings,
     shelf_cache = self.shelf_cache,
+    book_store = self.book_store,
+    list_store = self.list_store,
     -- books finished offline, for the reading goal's number
     sync_queue = self.sync_queue,
     -- goals made or changed offline, and the way to send them
@@ -232,6 +245,7 @@ function HardcoverApp:init()
     on_sign_out = function()
       -- the cache holds this account's library, so it goes with the sign in
       self.shelf_cache:clear()
+      self.book_store:clear()
       self.auth:signOut()
     end,
   }
@@ -605,6 +619,14 @@ function HardcoverApp:onDocumentClose()
   self.state.book_status = {}
   self.state.book_status_fetched = false
   self.state.page_map = nil
+end
+
+-- KOReader is closing the screen this plugin belongs to (switching between the file
+-- browser and a book, or quitting): stop the list downloads and let the database go. The
+-- next screen's plugin opens it again when it needs it.
+function HardcoverApp:onCloseWidget()
+  if self.dialog_manager then self.dialog_manager.closed = true end
+  if self.library_db then self.library_db:close() end
 end
 
 function HardcoverApp:onSuspend()
