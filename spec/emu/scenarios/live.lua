@@ -20,58 +20,16 @@ the request log records only the operation name, status and size.
 local fixtures = require("fixtures")
 local UIManager = require("ui/uimanager")
 
-local function read_token(path)
-  local f = assert(io.open(path, "r"), "cannot read " .. path)
-  local body = f:read("*a")
-  f:close()
-  return assert(body:match('"access_token"%s*:%s*"([^"]+)"'), "no access_token in " .. path)
-end
-
 return {
   name = "live",
 
   run = function(emu)
-    local token_file = os.getenv("KO_LIVE_TOKEN_FILE")
-    if not token_file or token_file == "" then
+    local live = require("live_api").install()
+    if not live then
       print("  live: KO_LIVE_TOKEN_FILE not set; skipping")
       return
     end
-    local out = os.getenv("KO_LIVE_OUT") or "/tmp"
-    local token = read_token(token_file)
-
     local Api = require("hardcover/lib/hardcover_api")
-    local json = require("json")
-    local log = assert(io.open(out .. "/live_requests.log", "w"))
-
-    -- A synchronous request to the real API. curl reads its headers from a file
-    -- (mode 0600) so the token is never on a command line.
-    local headers_path = out .. "/live_headers.txt"
-    local hf = assert(io.open(headers_path, "w"))
-    os.execute("chmod 600 '" .. headers_path .. "'")
-    hf:write("Authorization: Bearer " .. token .. "\ncontent-type: application/json\n")
-    hf:close()
-    local body_path = out .. "/live_body.json"
-
-    function Api:query(query, parameters)
-      local bf = assert(io.open(body_path, "w"))
-      bf:write(json.encode({ query = query, variables = parameters }))
-      bf:close()
-      local p = io.popen("curl -s -m 30 -w '\\n%{http_code}' -X POST https://api.hardcover.app/v1/graphql "
-        .. "-H @" .. headers_path .. " --data-binary @" .. body_path)
-      local raw = p:read("*a")
-      p:close()
-      local content, code = raw:match("^(.*)\n(%d+)$")
-      local op = query:match("(%a+)%s*%(") or query:match("{%s*(%a+)") or "?"
-      log:write(string.format("%s %s %d bytes\n", code or "?", op, #(content or "")))
-      if os.getenv("KO_LIVE_DEBUG") then log:write(content or "", "\n") end
-      log:flush()
-      if not content then return nil, { completed = false } end
-      local ok, data = pcall(json.decode, content, json.decode.simple) -- nulls become nil, as in the plugin
-      if not ok or type(data) ~= "table" then return nil, { status = tonumber(code) } end
-      if data.data then return data.data end
-      return nil, { errors = data.errors or { data.error }, status = tonumber(code) }
-    end
-    Api.enabled = true
 
     local settings = fixtures.real_settings(emu)
     require("hardcover/lib/user").settings = settings
@@ -191,8 +149,6 @@ return {
     emu:shot("live_search_results")
     emu:closeAll()
 
-    log:close()
-    os.remove(headers_path)
-    os.remove(body_path)
+    live.close()
   end,
 }

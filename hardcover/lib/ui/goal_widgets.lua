@@ -4,7 +4,6 @@
 
 local Device = require("device")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
-local ProgressWidget = require("ui/widget/progresswidget")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
 
@@ -22,7 +21,7 @@ local text = Theme.text
 -- over, or not started (no "should be" to point at).
 function GoalWidgets.bar(width, height, p, no_tick)
   local tick = not (no_tick or p.over or p.done or p.upcoming)
-  return ProgressWidget:new {
+  return Theme.progress {
     width = width,
     height = height,
     percentage = p.fraction,

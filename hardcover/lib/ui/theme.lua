@@ -16,6 +16,10 @@
 --   * Redraw as little as possible: nothing animates, and a screen changes
 --     its own contents in place rather than being rebuilt.
 --
+--   * Serif for titles, sans for the rest (Theme.serif). Pill-shaped buttons.
+--     Solid black progress bars (Theme.progress). Where a grey is wanted, hatch
+--     (Theme.hatch) rather than use a mid grey: grey ghosts, hatching stays crisp.
+--
 -- All sizes go through Screen:scaleBySize, so the same numbers read right at
 -- 167 dpi and at 300.
 
@@ -87,6 +91,89 @@ function Theme.face(size_name)
 end
 
 --
+-- The serif face for titles and headings (KOReader ships Noto Serif, so it needs no
+-- bundling). Falls back to the UI face where it is not installed. The file is a real
+-- bold, so do not also ask the widget for bold.
+--
+function Theme.serif(size_name)
+  local size = Theme.type[size_name] or size_name
+  local ok, face = pcall(Font.getFace, Font, "NotoSerif-Bold.ttf", size)
+  if ok and face then return face, false end
+  return Theme.face(size_name), true
+end
+
+--
+-- Hatching: a grey that stays crisp on e-ink (diagonal black lines at 40% opacity), the
+-- same call Zen UI uses. Paint into a blitbuffer directly...
+--
+function Theme.hatchRect(bb, x, y, w, h)
+  if w > 0 and h > 0 and bb.hatchRect then
+    bb:hatchRect(x, y, w, h, math.max(1, px(2)), Blitbuffer.COLOR_BLACK, 0.4)
+  end
+end
+
+--
+-- ...or as a widget of a given size, to sit in a layout (a disabled control's fill, a
+-- placeholder behind a missing cover).
+--
+function Theme.hatch(w, h)
+  local Widget = require("ui/widget/widget")
+  local widget = Widget:new { dimen = Geom:new { w = w, h = h } }
+  function widget:paintTo(bb, x, y)
+    self.dimen.x, self.dimen.y = x, y
+    Theme.hatchRect(bb, x, y, self.dimen.w, self.dimen.h)
+  end
+  return widget
+end
+
+--
+-- A progress bar: a pill outline with a solid black fill. KOReader's default fill is a
+-- mid grey (0x88), which washes out on the panel. opts: width, height, percentage,
+-- ticks, last (as ProgressWidget).
+--
+function Theme.progress(opts)
+  local ProgressWidget = require("ui/widget/progresswidget")
+  local h = opts.height
+  return ProgressWidget:new {
+    width = opts.width,
+    height = h,
+    percentage = opts.percentage,
+    ticks = opts.ticks,
+    last = opts.last,
+    fillcolor = Theme.BLACK,
+    bordercolor = Theme.BLACK,
+    bgcolor = Theme.WHITE,
+    bordersize = Theme.line.firm,
+    radius = type(h) == "number" and math.floor(h / 2) or px(8),
+    margin_h = Theme.line.firm,
+    margin_v = Theme.line.firm,
+  }
+end
+
+--
+-- An icon bundled with the plugin: pass a name for `<plugin>/icons/<name>.svg`, or a path.
+-- (IconWidget given a `file` skips KOReader's own icon lookup, so any SVG or PNG works.)
+-- Name an icon KOReader already ships (e.g. "home") through IconWidget directly instead.
+--
+-- the folder this file was loaded from, up to and including its trailing slash ("" when
+-- loaded relative to the working directory)
+local plugin_root = (debug.getinfo(1, "S").source or ""):match("^@(.-)hardcover/lib/ui/theme%.lua$") or ""
+function Theme.icon(name_or_path, size, opts)
+  opts = opts or {}
+  local IconWidget = require("ui/widget/iconwidget")
+  local file = name_or_path
+  if not file:find("/", 1, true) then
+    file = plugin_root .. "icons/" .. file .. ".svg"
+  end
+  return IconWidget:new {
+    file = file,
+    width = size or Theme.TOUCH_MIN,
+    height = size or Theme.TOUCH_MIN,
+    alpha = opts.alpha ~= false,
+  }
+end
+
+--
 -- One line of text in the family's type: `size` a Theme.type name (default "body"), opts
 -- { bold, grey, width } (width is the most it may take; longer text is cut with an ellipsis).
 --
@@ -129,10 +216,11 @@ function Theme.sectionHeader(text, width, right)
   -- a long heading is cut short (with an ellipsis) rather than pushing what is at the
   -- end of the line past the edge
   local room = right and math.max(0, width - right:getSize().w - Theme.space.m) or width
+  local face, bold = Theme.serif("title")
   local title = TextWidget:new {
     text = text,
-    face = Theme.face("title"),
-    bold = true,
+    face = face,
+    bold = bold,
     max_width = room,
     fgcolor = Theme.BLACK,
   }
@@ -159,8 +247,8 @@ function Theme.stat(value, label, width)
     align = "center",
     TextWidget:new {
       text = tostring(value),
-      face = Theme.face("display"),
-      bold = true,
+      face = (Theme.serif("display")),
+      bold = select(2, Theme.serif("display")),
       max_width = width,
       fgcolor = Theme.BLACK,
     },
@@ -215,7 +303,7 @@ function Theme.box(w, h, child, opts)
   local bs = opts.border or Theme.line.firm
   return FrameContainer:new {
     bordersize = bs,
-    radius = opts.radius and px(opts.radius) or nil,
+    radius = opts.round and math.floor(math.min(w, h) / 2) or (opts.radius and px(opts.radius) or nil),
     padding = 0,
     margin = 0,
     width = w,
@@ -253,7 +341,7 @@ Theme.BUTTON_H = px(54)
 --
 -- The family's button: a bordered, rounded box with bold text, tappable over
 -- exactly what it draws. `filled` is the primary action (black, white text).
--- opts: filled, h, size (type name), radius, callback, viewport (see
+-- opts: filled, h, size (type name), radius (default: a full pill), callback, viewport (see
 -- viewport.lua: for buttons inside a scroll area), enabled (false = dark grey
 -- text, no tap), name.
 --
@@ -269,7 +357,7 @@ function Theme.button(text, w, opts)
     fgcolor = (opts.filled and Theme.WHITE) or (enabled and Theme.BLACK or Theme.DARK_GREY),
   }
   local box = Theme.box(w, opts.h or Theme.BUTTON_H, label,
-    { filled = opts.filled, radius = opts.radius or 8 })
+    { filled = opts.filled, radius = opts.radius, round = opts.radius == nil })
   local tap = TapRow:new {
     callback = enabled and opts.callback or nil,
     viewport = opts.viewport,
