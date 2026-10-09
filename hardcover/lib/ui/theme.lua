@@ -541,6 +541,8 @@ end
 -- this screen, the one beneath shows again); the root screen has its own icon there
 -- instead (`left_icon` / `left_callback`, Home's settings).
 -- The X always quits the plugin, from any screen (see quit.lua).
+-- A second icon at the right (`right_icon` / `right_callback`, book details' reload) sits just
+-- left of the X; the X's tap area then ends where that icon's begins, so a tap on it can never quit.
 --
 function Theme.titleBar(opts)
   local Quit = require("hardcover/lib/ui/quit")
@@ -549,18 +551,77 @@ function Theme.titleBar(opts)
   if opts.back_callback then
     left_icon, left_callback = "back.top", opts.back_callback
   end
-  return TitleBar:new {
+  local quit = function() Quit.run() end
+  if not opts.right_icon then
+    return TitleBar:new {
+      title_face = face,
+      width = opts.width or Screen:getWidth(),
+      fullscreen = true,
+      align = "center",
+      title = opts.title,
+      left_icon = left_icon,
+      left_icon_tap_callback = left_callback,
+      with_bottom_line = false,
+      close_callback = quit,
+      show_parent = opts.show_parent,
+    }
+  end
+
+  -- two icons at the right: TitleBar keeps room for one, so the bar is built without its own
+  -- X and both buttons are added here, each at least TOUCH_MIN wide, side by side
+  local IconButton = require("ui/widget/iconbutton")
+  local Size = require("ui/size")
+  local width = opts.width or Screen:getWidth()
+  local icon_size = px(((G_defaults and G_defaults:readSetting("DGENERIC_ICON_SIZE")) or 40) * 0.6)
+  local pad = px(11) -- TitleBar's button_padding
+  local slot = math.max(Theme.TOUCH_MIN, icon_size + 2 * pad)
+  -- the title keeps clear of both icons; TitleBar mirrors the left icon's room on the right
+  local left_room = left_icon and (icon_size + pad) or 0
+  local bar = TitleBar:new {
     title_face = face,
-    width = opts.width or Screen:getWidth(),
+    width = width,
     fullscreen = true,
     align = "center",
     title = opts.title,
     left_icon = left_icon,
     left_icon_tap_callback = left_callback,
     with_bottom_line = false,
-    close_callback = function() Quit.run() end,
+    title_h_padding = math.max(Size.padding.large, 2 * slot + Size.padding.large - left_room),
+    button_padding = pad,
     show_parent = opts.show_parent,
   }
+  local close = IconButton:new {
+    icon = "close",
+    width = icon_size,
+    height = icon_size,
+    padding = pad,
+    padding_left = slot - icon_size - pad,
+    padding_bottom = icon_size,
+    overlap_align = "right",
+    callback = quit,
+    allow_flash = false, -- the X closes its window: no flash after the quit, as TitleBar's own X
+    show_parent = opts.show_parent,
+  }
+  local side = math.floor((slot - icon_size) / 2)
+  local other = IconButton:new {
+    icon = opts.right_icon,
+    width = icon_size,
+    height = icon_size,
+    padding = pad,
+    padding_left = side,
+    padding_right = slot - icon_size - side,
+    padding_bottom = icon_size,
+    overlap_offset = { width - 2 * slot, 0 },
+    callback = opts.right_callback,
+    show_parent = opts.show_parent,
+  }
+  table.insert(bar, other)
+  table.insert(bar, close)
+  -- the same fields TitleBar's own X has, so callers and tests find the X where they always did
+  bar.right_button = close
+  bar.has_right_icon = true
+  bar.extra_right_button = other
+  return bar
 end
 
 return Theme
