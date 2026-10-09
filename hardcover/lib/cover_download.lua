@@ -18,8 +18,9 @@ CoverDownload.AVERAGE_BYTES = 30 * 1024
 
 --
 -- What to do for `urls` (covers as uploaded). `key_of(url)` is the address the cover is
--- kept under (the small size); `has_pinned(key)` and `has_seen(key)` say whether it is
--- already downloaded for offline, or on the device from being seen. Returns
+-- kept under (the small size); `has_pinned(key, url)` and `has_seen(key)` say whether it
+-- is already downloaded for offline (under either address: a cover the image service
+-- could not make is kept as uploaded), or on the device from being seen. Returns
 -- { fetch = { { url, key } }, copy = { { url, key } }, done = n already kept, total }.
 --
 function CoverDownload.plan(urls, key_of, has_pinned, has_seen)
@@ -28,7 +29,7 @@ function CoverDownload.plan(urls, key_of, has_pinned, has_seen)
     local key = key_of(url)
     if key then
       plan.total = plan.total + 1
-      if has_pinned(key) then
+      if has_pinned(key, url) then
         plan.done = plan.done + 1
       elseif has_seen(key) then
         plan.copy[#plan.copy + 1] = { url = url, key = key }

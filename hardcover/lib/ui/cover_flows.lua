@@ -34,7 +34,7 @@ function Flows:coverPlan()
   local urls = self.book_store and self.book_store:libraryCovers(User:getId()) or {}
   return CoverDownload.plan(urls,
     function(url) return images:fetchUrl(url, "small") end,
-    function(key) return pinned ~= nil and pinned:has(key) end,
+    function(key, url) return pinned ~= nil and (pinned:has(key) or pinned:has(url)) end,
     function(key) return seen ~= nil and seen:has(key) end)
 end
 

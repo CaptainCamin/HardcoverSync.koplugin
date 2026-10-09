@@ -116,6 +116,12 @@ check("covers kept for offline are skipped, ones seen are copied, the rest downl
   assert(CoverDownload.missing(plan) == 2)
 end)
 
+check("a cover kept as uploaded (the image service could not make it) counts as kept", function()
+  local plan = CoverDownload.plan({ "a" }, function(u) return "k" .. u end,
+    function(k, u) return u == "a" end, function() return false end)
+  assert(plan.done == 1 and CoverDownload.missing(plan) == 0, "it would be downloaded on every run")
+end)
+
 check("the estimate is about 30 KB a download, said plainly", function()
   local plan = { fetch = {}, copy = {} }
   for i = 1, 800 do plan.fetch[i] = {} end
