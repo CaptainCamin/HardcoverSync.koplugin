@@ -50,10 +50,10 @@ function CoverDownload.estimate(plan)
   return #plan.fetch * CoverDownload.AVERAGE_BYTES
 end
 
--- "22 MB", "less than 1 MB"
+-- "22 MB", "under 1 MB"
 function CoverDownload.size(bytes)
   local mb = bytes / (1024 * 1024)
-  if mb < 1 then return "less than 1 MB" end
+  if mb < 1 then return "under 1 MB" end
   return string.format("%d MB", math.floor(mb + 0.5))
 end
 

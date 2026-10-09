@@ -164,8 +164,11 @@ function Flows:downloadCoversForOffline()
 
   local ConfirmBox = require("ui/widget/confirmbox")
   UIManager:show(ConfirmBox:new {
-    text = T(_("Keep %1 covers for offline (about %2)?\n\nYou can stop at any time; running it again carries on where it stopped."),
-      self._covers_missing, CoverDownload.size(CoverDownload.estimate(plan))),
+    text = #plan.fetch == 0
+      and T(_("Keep %1 covers for offline? They are all on this device already, so nothing needs downloading."),
+        self._covers_missing)
+      or T(_("Keep %1 covers for offline? About %2 to download.\n\nYou can stop at any time; running it again carries on where it stopped."),
+        self._covers_missing, CoverDownload.size(CoverDownload.estimate(plan))),
     ok_text = _("Download"),
     ok_callback = function()
       if self.wifi and self.wifi.withWifi then
