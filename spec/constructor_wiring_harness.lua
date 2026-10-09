@@ -62,9 +62,14 @@ end
 
 local main_src = strip(read("main.lua"))
 
+-- `path` may be a list: a class whose methods live in several files (DialogManager's
+-- flows are copied onto it from their own files).
 local function check_class(label, path, ctor, opts)
   opts = opts or {}
-  local src = strip(read(path))
+  local paths = type(path) == "table" and path or { path }
+  local parts = {}
+  for i, p in ipairs(paths) do parts[i] = strip(read(p)) end
+  local src = table.concat(parts, "\n")
   local methods, assigned, reads = {}, {}, {}
   for name in src:gmatch("function%s+[%w_]+[:%.]([%w_]+)%s*%(") do methods[name] = true end
   for name in src:gmatch("self%.([%w_]+)%s*=[^=]") do assigned[name] = true end
@@ -87,7 +92,16 @@ end
 
 print("\n== constructor wiring ==")
 check_class("HardcoverMenu", "hardcover/lib/ui/hardcover_menu.lua", "HardcoverMenu")
-check_class("DialogManager", "hardcover/lib/ui/dialog_manager.lua", "DialogManager")
+check_class("DialogManager", {
+  "hardcover/lib/ui/dialog_manager.lua",
+  "hardcover/lib/ui/book_flows.lua",
+  "hardcover/lib/ui/list_flows.lua",
+  "hardcover/lib/ui/shelf_flows.lua",
+  "hardcover/lib/ui/cover_flows.lua",
+}, "DialogManager", {
+  -- set by main.lua when KOReader closes the plugin's screen (onCloseWidget)
+  ignore = { closed = true },
+})
 check_class("Hardcover", "hardcover/lib/hardcover.lua", "Hardcover")
 check_class("Cache", "hardcover/lib/cache.lua", "Cache")
 

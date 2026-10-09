@@ -796,10 +796,11 @@ end
 
 --
 -- One page of a user's shelf. `status_id` may be nil for the whole library.
+-- `background` for a download nobody is waiting on (a tap must not cancel it).
 -- Returns a list of normalized entries plus has_more, which the dialog uses
 -- to decide whether to offer a "load more" action.
 --
-function HardcoverApi:getShelf(user_id, status_id, offset, limit)
+function HardcoverApi:getShelf(user_id, status_id, offset, limit, background)
   offset = offset or 0
   limit = limit or 20
 
@@ -861,7 +862,7 @@ function HardcoverApi:getShelf(user_id, status_id, offset, limit)
     statusId = status_id,
     offset = offset,
     limit = limit,
-  })
+  }, background)
   if not results or not results.user_books then
     return nil, err or { completed = false }
   end
@@ -877,7 +878,10 @@ function HardcoverApi:getShelf(user_id, status_id, offset, limit)
 end
 
 --
--- How many books are on each of the given shelves, as { [status_id] = count }.
+-- How many books are on each of the given shelves, as { [status_id] = count }, and each
+-- shelf's fingerprint (Shelf.fingerprint: the count, the latest change, the total of
+-- your ratings), as { [status_id] = fingerprint }: what says whether a saved shelf is
+-- still right, in the request Home already makes.
 --
 -- One aggregate per shelf, all in a single request. Each aliased aggregate counts
 -- as a top-level query against the rate limit, and a request may hold at most
@@ -891,7 +895,8 @@ function HardcoverApi:getShelfCounts(user_id, status_ids)
   local parts = {}
   for _, id in ipairs(status_ids) do
     parts[#parts + 1] = string.format(
-      "s%d: user_books_aggregate(where: { user_id: { _eq: $userId }, status_id: { _eq: %d } }) { aggregate { count } }",
+      "s%d: user_books_aggregate(where: { user_id: { _eq: $userId }, status_id: { _eq: %d } }) "
+        .. "{ aggregate { count max { updated_at } sum { rating } } }",
       id, id)
   end
 
@@ -902,14 +907,54 @@ function HardcoverApi:getShelfCounts(user_id, status_ids)
     return nil, err
   end
 
-  local counts = {}
+  local counts, prints = {}, {}
   for _, id in ipairs(status_ids) do
-    local count = tonumber(_t.dig(results, "s" .. id, "aggregate", "count"))
+    local aggregate = _t.dig(results, "s" .. id, "aggregate")
+    local count = tonumber(type(aggregate) == "table" and aggregate.count or nil)
     if count then
       counts[id] = count
+      prints[id] = Shelf.fingerprint(aggregate)
     end
   end
-  return counts
+  return counts, nil, prints
+end
+
+--
+-- One page of which books are on a shelf, and nothing about the books: { user_book_id,
+-- book_id, status_id, rating, date_added } rows, in the shelf's order (newest first, as
+-- getShelf). What a shelf that changed re-downloads when the device has most of its
+-- books: about 70 bytes a book (the 611-book Read shelf is 43 KB in one request, against
+-- 840 KB in seven with the books). Never cancelled by a tap. Returns rows, nil, has_more.
+--
+function HardcoverApi:getShelfMembers(user_id, status_id, offset, limit)
+  offset = offset or 0
+  limit = limit or 500
+  local results, err = self:query([[
+    query ($userId: Int!, $statusId: Int!, $offset: Int!, $limit: Int!) {
+      user_books(
+        where: { user_id: { _eq: $userId }, status_id: { _eq: $statusId } }
+        order_by: [{ date_added: desc }, { id: desc }]
+        offset: $offset
+        limit: $limit
+      ) { id status_id rating date_added book_id }
+    }
+  ]], { userId = user_id, statusId = status_id, offset = offset, limit = limit }, true)
+  if not results or type(results.user_books) ~= "table" then
+    return nil, err or { completed = false }
+  end
+  local members = {}
+  for _, row in ipairs(results.user_books) do
+    if type(row) == "table" and tonumber(row.book_id) then
+      members[#members + 1] = {
+        user_book_id = tonumber(row.id),
+        book_id = tonumber(row.book_id),
+        status_id = tonumber(row.status_id),
+        rating = tonumber(row.rating),
+        date_added = row.date_added,
+      }
+    end
+  end
+  return members, nil, #results.user_books >= limit
 end
 
 --
@@ -1217,6 +1262,8 @@ function HardcoverApi:getLists()
           books_count
           ranked
           privacy_setting_id
+          updated_at
+          list_books_aggregate { aggregate { count } }
           list_books(order_by: [{ position: asc }, { id: asc }], limit: 3) {
             book { cached_image }
           }
@@ -1227,6 +1274,8 @@ function HardcoverApi:getLists()
             name
             books_count
             ranked
+            updated_at
+            list_books_aggregate { aggregate { count } }
             user { username }
             list_books(order_by: [{ position: asc }, { id: asc }], limit: 3) {
               book { cached_image }
@@ -1245,15 +1294,17 @@ function HardcoverApi:getLists()
 end
 
 --
--- How many lists there are to open (yours plus the ones you follow), for the
--- home screen's tile. One small request.
+-- How many lists there are to open (yours plus the ones you follow), for the home
+-- screen's tile, and each one's fingerprint (see Lists.marks), so Home can tell whether
+-- the saved lists are still right without fetching them. One small request (about 100
+-- bytes a list). Returns count, marks; or nil and the error.
 --
 function HardcoverApi:getListCount()
   local query = [[
     query {
       me {
-        lists_aggregate { aggregate { count } }
-        followed_lists { list_id }
+        lists { id updated_at list_books_aggregate { aggregate { count } } }
+        followed_lists { list { id updated_at list_books_aggregate { aggregate { count } } } }
       }
     }
   ]]
@@ -1263,17 +1314,34 @@ function HardcoverApi:getListCount()
   if type(me) ~= "table" then
     return nil, err or { completed = false }
   end
-  local mine = tonumber(_t.dig(me, "lists_aggregate", "aggregate", "count")) or 0
-  local followed = type(me.followed_lists) == "table" and #me.followed_lists or 0
-  return mine + followed
+  local marks = Lists.marks(me)
+  return #marks, marks
+end
+
+-- The list_books rows out of an answer read through `me` (see getListBooks), or nil and
+-- the error. A list that is gone (unfollowed, deleted) is an empty page, not an error.
+local function listBookRows(results, err, source)
+  local me = results and results.me
+  if type(me) == "table" and me[1] ~= nil then me = me[1] end
+  if type(me) ~= "table" then
+    return nil, err or { completed = false }
+  end
+  local rows
+  if source == "followed" then
+    rows = _t.dig(me, "followed_lists", 1, "list", "list_books")
+  else
+    rows = _t.dig(me, "lists", 1, "list_books")
+  end
+  return type(rows) == "table" and rows or {}
 end
 
 --
 -- One page of a list's books, in the list's own order, as shelf entries (with
 -- `rank` on a ranked list). `source` says which part of `me` the list is read
--- through: "mine" or "followed". Returns entries, nil, has_more.
+-- through: "mine" or "followed". `background` for a download nobody is waiting on
+-- (a tap must not cancel it). Returns entries, nil, has_more.
 --
-function HardcoverApi:getListBooks(list_id, source, ranked, offset, limit)
+function HardcoverApi:getListBooks(list_id, source, ranked, offset, limit, background)
   offset = offset or 0
   limit = limit or 100
 
@@ -1325,29 +1393,64 @@ function HardcoverApi:getListBooks(list_id, source, ranked, offset, limit)
     ]]
   end
 
-  local results, err = self:query(query, { listId = list_id, offset = offset, limit = limit })
-  local me = results and results.me
-  if type(me) == "table" and me[1] ~= nil then me = me[1] end
-  if type(me) ~= "table" then
-    return nil, err or { completed = false }
-  end
-
-  local rows
-  if source == "followed" then
-    rows = _t.dig(me, "followed_lists", 1, "list", "list_books")
-  else
-    rows = _t.dig(me, "lists", 1, "list_books")
-  end
-  if type(rows) ~= "table" then
-    -- the list is gone (unfollowed, deleted): an empty page, not an error
-    rows = {}
-  end
+  local results, err = self:query(query, { listId = list_id, offset = offset, limit = limit }, background)
+  local rows, failure = listBookRows(results, err, source)
+  if not rows then return nil, failure end
 
   local entries = {}
   for i, list_book in ipairs(rows) do
     entries[i] = Lists.entry(list_book, ranked)
   end
   return entries, nil, #rows >= limit
+end
+
+--
+-- One page of which books a list holds, and nothing about the books: { list_book_id,
+-- position, book_id, date_added } rows in the list's order. What a list that changed
+-- re-downloads, when the device already has most of its books (about 60 bytes a book,
+-- against 1.3 KB with the book). Never cancelled by a tap: nobody is waiting on it.
+-- Returns rows, nil, has_more.
+--
+function HardcoverApi:getListMembers(list_id, source, offset, limit)
+  offset = offset or 0
+  limit = limit or 100
+
+  local list_books = [[
+    list_books(order_by: [{ position: asc }, { id: asc }], offset: $offset, limit: $limit) {
+      id position date_added book_id
+    }
+  ]]
+  local query
+  if source == "followed" then
+    query = [[
+      query ($listId: Int!, $offset: Int!, $limit: Int!) {
+        me { followed_lists(where: { list_id: { _eq: $listId } }) { list { ]] .. list_books .. [[ } } }
+      }
+    ]]
+  else
+    query = [[
+      query ($listId: Int!, $offset: Int!, $limit: Int!) {
+        me { lists(where: { id: { _eq: $listId } }) { ]] .. list_books .. [[ } }
+      }
+    ]]
+  end
+
+  local results, err = self:query(query, { listId = list_id, offset = offset, limit = limit }, true)
+  local rows, failure = listBookRows(results, err, source)
+  if not rows then return nil, failure end
+
+  local members = {}
+  for _, list_book in ipairs(rows) do
+    if type(list_book) == "table" and tonumber(list_book.book_id) then
+      members[#members + 1] = {
+        list_book_id = tonumber(list_book.id),
+        position = tonumber(list_book.position),
+        book_id = tonumber(list_book.book_id),
+        date_added = list_book.date_added,
+      }
+    end
+  end
+  return members, nil, #rows >= limit
 end
 
 --
@@ -1715,22 +1818,56 @@ end
 -- the permissions the plugin already has. Returns entries, or nil, err. A book with
 -- no ranking yet gives an empty list, not an error.
 --
-function HardcoverApi:getSimilarBooks(book_id, limit)
-  local first, err = self:query([[
-    query ($bookId: Int!) {
-      books_by_pk(id: $bookId) { cached_similar_book_ids }
-    }
-  ]], { bookId = book_id }, true)
+--
+-- With `user_id`, the first request also brings what the details screen shows that
+-- changes: the community numbers, and your status and rating on the book. A third
+-- return value carries them, { rating, ratings_count, users_count, users_read_count,
+-- user_book = { id, status_id, rating } or false (not in your library) }, so a book
+-- whose details were shown from the device is brought up to date without asking for
+-- the book again.
+--
+function HardcoverApi:getSimilarBooks(book_id, limit, user_id)
+  local first, err
+  if user_id then
+    first, err = self:query([[
+      query ($bookId: Int!, $userId: Int!) {
+        books_by_pk(id: $bookId) {
+          cached_similar_book_ids
+          rating ratings_count users_count users_read_count
+          user_books(where: { user_id: { _eq: $userId } }) { id status_id rating }
+        }
+      }
+    ]], { bookId = book_id, userId = user_id }, true)
+  else
+    first, err = self:query([[
+      query ($bookId: Int!) {
+        books_by_pk(id: $bookId) { cached_similar_book_ids }
+      }
+    ]], { bookId = book_id }, true)
+  end
   local book = first and first.books_by_pk
   if type(book) == "table" and book[1] ~= nil then book = book[1] end
   if first == nil or (type(book) ~= "table" and first.books_by_pk ~= nil) then
     return nil, err or { completed = false }
   end
 
-  local ids = Recommendations.ids(type(book) == "table" and book.cached_similar_book_ids, limit)
-  if #ids == 0 then return {} end
+  local about
+  if user_id and type(book) == "table" then
+    local mine = _t.dig(book, "user_books", 1)
+    about = {
+      rating = book.rating,
+      ratings_count = book.ratings_count,
+      users_count = book.users_count,
+      users_read_count = book.users_read_count,
+      user_book = type(mine) == "table" and { id = mine.id, status_id = mine.status_id, rating = mine.rating } or false,
+    }
+  end
 
-  return self:getBooksByIds(ids)
+  local ids = Recommendations.ids(type(book) == "table" and book.cached_similar_book_ids, limit)
+  if #ids == 0 then return {}, nil, about end
+
+  local entries, books_err = self:getBooksByIds(ids)
+  return entries, books_err, about
 end
 
 --
@@ -1921,6 +2058,7 @@ local ASYNC_METHODS = {
   "removeFromList",
   "getListCount",
   "getShelf",
+  "getShelfCounts",
   "getStats",
   "getBooksByIds",
   "getVibes",

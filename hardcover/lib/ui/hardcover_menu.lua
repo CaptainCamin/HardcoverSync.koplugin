@@ -839,6 +839,14 @@ function HardcoverMenu:getHomeSettingsItems(opts)
   for _, item in ipairs(self:getSettingsSubMenuItems()) do
     items[#items + 1] = item
   end
+  -- every cover on your shelves and lists, kept on the device (see cover_flows.lua)
+  if self.dialog_manager and self.dialog_manager.downloadCoversForOffline then
+    items[#items + 1] = {
+      text_func = function() return self.dialog_manager:coversMenuText() end,
+      keep_menu_open = true,
+      callback = function() self.dialog_manager:downloadCoversForOffline() end,
+    }
+  end
   for _, item in ipairs(self:getUpdateMenuItems()) do
     items[#items + 1] = item
   end

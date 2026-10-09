@@ -140,8 +140,8 @@ end
 -- a loader that records what it is asked for and hands the image over on demand
 local function fakeLoader()
   local loader = { urls = {}, halted = false, batches = {} }
-  function loader:loadImages(urls, callback)
-    self.batches[#self.batches + 1] = { urls = urls, callback = callback }
+  function loader:loadImages(urls, callback, opts)
+    self.batches[#self.batches + 1] = { urls = urls, callback = callback, opts = opts }
     for _, url in ipairs(urls) do self.urls[#self.urls + 1] = url end
     self.deliver = callback
     return {}, function() self.halted = true end
@@ -261,12 +261,31 @@ check("the cover is requested by its url", function()
   assert(#loader.urls == 1 and loader.urls[1] == "http://img/cover.jpg", table.concat(loader.urls, ","))
 end)
 
+check("the cover is asked for at the size of its box: large, at exactly that box", function()
+  local loader = fakeLoader()
+  local d = BookDetailDialog:new { detail = detail(FULL), image_loader = loader }
+  local bw, bh = BookDetailDialog.coverBox(1000)
+  local box = d.cover_cell[1].dimen
+  assert(box.w == bw and box.h == bh, "the box " .. box.w .. "x" .. box.h .. " is not coverBox's " .. bw .. "x" .. bh)
+  local opts = loader.batches[1].opts
+  assert(opts and opts.size == "large", "not asked for the large size")
+  assert(opts.box and opts.box.w == bw and opts.box.h == bh, "the request is not for the box it is drawn in")
+end)
+
+check("coverBox is the one size the header and the request both use, and it is 2:3", function()
+  local bw, bh = BookDetailDialog.coverBox(1000)
+  assert(bh == math.floor(bw * 1.5), bw .. "x" .. bh)
+  local cw = BookDetailDialog.coverBox(600)
+  assert(cw < bw, "a narrower screen gave a box that is not narrower")
+end)
+
 check("when the picture arrives it goes into the box", function()
   local loader = fakeLoader()
   local d = BookDetailDialog:new { detail = detail(FULL), image_loader = loader }
   _G.FAKE_BB = { free = function() end }
   loader.deliver("http://img/cover.jpg", "IMAGEBYTES")
   assert(d.cover_bb == _G.FAKE_BB, "the picture was not kept")
+  assert(d.dithered == true, "a page with a picture is not dithered")
   local filled = d.cover_cell[1]
   assert(filled.kind == "Center" and filled[1].kind == "Image", "the box was not filled")
   assert(filled[1].scale_factor == 0, "the picture is not fitted to the box")
@@ -601,6 +620,32 @@ check("covers are fetched for the page on screen, and a stale answer is dropped"
   _G.FAKE_BB = _G.FAKE_BB or {}
   stale_deliver("http://img/1.jpg", "bytes")
   assert(old_box.bb == nil, "a cover for the page that was turned away drew into a freed box")
+end)
+
+check("a series cover that arrives makes the page dithered; turning a page with no picture does not", function()
+  local function strip_dialog()
+    local loader = fakeLoader()
+    local d = BookDetailDialog:new { detail = detail(FULL), image_loader = loader }
+    local series = seriesOf(30)
+    for i, b in ipairs(series.books) do b.cover = { url = "http://img/" .. i .. ".jpg" } end
+    d:setSeries(Shelf.seriesCard(series, 101), function() end)
+    return d, loader
+  end
+
+  -- the page is turned before any cover arrives: placeholders only, nothing dithered
+  local turned = strip_dialog()
+  turned.carousel:turn(1)
+  assert(turned.dithered == nil, "turning a page with no picture dithered the page")
+
+  -- a cover arriving on the strip: its box is refreshed dithered, and so is the page
+  local d, loader = strip_dialog()
+  local deliver
+  for _, batch in ipairs(loader.batches) do
+    if #batch.urls > 1 then deliver = batch.callback end
+  end
+  assert(deliver, "the carousel asked for no covers")
+  deliver("http://img/2.jpg", "bytes")
+  assert(d.dithered == true, "a cover on the strip did not dither the page")
 end)
 
 check("clearing the card removes it", function()

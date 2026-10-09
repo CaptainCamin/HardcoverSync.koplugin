@@ -34,6 +34,21 @@ local Theme = require("hardcover/lib/ui/theme")
 
 local Screen = Device.screen
 
+--[[--
+The width the page's content may use, on a screen `screen_w` wide.
+
+ScrollableContainer treats any content wider than its viewport as scrolling
+sideways and draws a horizontal scrollbar -- and once the page also scrolls
+vertically, its vertical scrollbar takes 3 * scroll_bar_width off that
+viewport. Content as wide as the page is therefore always "too wide" by that
+gutter. Everything on the page is laid out in this width, which leaves it free;
+the left margin is added by an inset around the whole column.
+]]
+local function contentWidth(screen_w)
+  local gutter = 3 * (ScrollableContainer.scroll_bar_width or Screen:scaleBySize(6))
+  return screen_w - 2 * Theme.margin - gutter
+end
+
 local BookDetailDialog = FocusManager:extend {
   name = "hardcover_book_detail",
   title = _("Book details"),
@@ -60,6 +75,17 @@ local BookDetailDialog = FocusManager:extend {
   width = nil,
   height = nil,
 }
+
+--
+-- The picture box of a book's cover, on a screen `screen_w` wide: width and height.
+-- This is the one place its size is worked out. The header draws the box at this size,
+-- and loadCover asks the image service for a picture of exactly this size, so the two
+-- cannot drift apart. A plain function (no dialog), so the emulator fixtures can use it.
+--
+function BookDetailDialog.coverBox(screen_w)
+  local cover_width = math.floor(contentWidth(screen_w) * 0.34)
+  return cover_width, math.floor(cover_width * 1.5)
+end
 
 function BookDetailDialog:init()
   local screen_w, screen_h = Screen:getWidth(), Screen:getHeight()
@@ -129,18 +155,8 @@ function BookDetailDialog:init()
   local summary = Shelf.detailSummary(self.detail)
   local book = (self.detail or {}).book or {}
 
-  --[[--
-  The width the content may use.
-
-  ScrollableContainer treats any content wider than its viewport as scrolling
-  sideways and draws a horizontal scrollbar -- and once the page also scrolls
-  vertically, its vertical scrollbar takes 3 * scroll_bar_width off that
-  viewport. Content as wide as the page is therefore always "too wide" by that
-  gutter. Everything below is laid out in `width`, which leaves it free; the
-  left margin is added by an inset around the whole column.
-  ]]
-  local gutter = 3 * (ScrollableContainer.scroll_bar_width or Screen:scaleBySize(6))
-  local width = screen_w - 2 * M - gutter
+  -- everything below is laid out in this width (see contentWidth above)
+  local width = contentWidth(screen_w)
   self.content_width = width
 
   --[[--
@@ -153,8 +169,7 @@ function BookDetailDialog:init()
   -- The cover box is always there, so every book's header looks the same: the
   -- picture when there is one, and a generic book icon while it loads, if it
   -- never does (offline, a failed fetch), or when the book has no cover at all.
-  local cover_width = math.floor(width * 0.34)
-  local cover_height = math.floor(cover_width * 1.5)
+  local cover_width, cover_height = BookDetailDialog.coverBox(screen_w)
   local cover_gap = Theme.space.l
   -- the frame around the cover adds its border on both sides of the picture box
   local cover_border = Theme.line.hair
@@ -447,10 +462,12 @@ function BookDetailDialog:init()
         if on_open then on_open(book_id) end
       end,
       image_loader = self.image_loader or require("hardcover/lib/ui/image_loader"),
-      -- a cover or a turned page redraws its own box, not the panel
-      on_change = function(get_dimen)
+      -- a cover or a turned page redraws its own box, not the panel. A cover is a
+      -- picture, so its box is drawn dithered, and so is the page from then on.
+      on_change = function(get_dimen, picture)
+        if picture then self.dithered = true end
         if get_dimen then
-          Refresh.box(self, get_dimen, viewport)
+          Refresh.box(self, get_dimen, viewport, nil, picture)
         else
           UIManager:setDirty(self, "ui")
         end
@@ -582,6 +599,7 @@ function BookDetailDialog:loadCover(cover, width, height)
   if not (cover and self.cover_cell) then return end
 
   local loader = self.image_loader or require("hardcover/lib/ui/image_loader")
+  -- the box is the size the cover is drawn at, so the picture comes back that size
   local _, halt = loader:loadImages({ cover.url }, function(_, content)
     if self.closed or not self.cover_cell then return end
 
@@ -590,12 +608,14 @@ function BookDetailDialog:loadCover(cover, width, height)
     if not bb then return end
 
     self:placeCover(bb, width, height)
-  end)
+  end, { size = "large", box = { w = width, h = height } })
   self.cover_halt = halt
 end
 
 function BookDetailDialog:placeCover(bb, width, height)
   self.cover_bb = bb
+  -- a picture on this screen: its repaints are dithered from now on (see refresh.lua)
+  self.dithered = true
   -- scale_factor 0 fits the picture inside the box keeping its proportions;
   -- image_disposable is off because this dialog owns (and frees) the buffer
   self.cover_cell[1] = CenterContainer:new {
@@ -608,9 +628,9 @@ function BookDetailDialog:placeCover(bb, width, height)
       scale_factor = 0,
     },
   }
-  -- only the cover's box changed
+  -- only the cover's box changed, and it is a picture: drawn dithered
   local cell = self.cover_cell
-  Refresh.box(self, function() return cell.dimen end, function() return self.scroll and self.scroll.dimen end)
+  Refresh.box(self, function() return cell.dimen end, function() return self.scroll and self.scroll.dimen end, nil, true)
 end
 
 -- Stop fetching and give back the pictures' memory (the cover, and the

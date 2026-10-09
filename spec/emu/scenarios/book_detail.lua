@@ -65,12 +65,39 @@ return {
     -- The long-title book, so truncation and wrapping are under load.
     local book_id = 106
 
+    -- Watch the cover request the details make: it must ask for the size the cover
+    -- is drawn at (see book_detail_dialog.lua's coverBox), not a rounded one.
+    local loader = require("hardcover/lib/ui/image_loader")
+    local real_loadImages = loader.loadImages
+    local asked = {}
+    loader.loadImages = function(self, urls, callback, opts)
+      asked[#asked + 1] = { url = urls[1], opts = opts }
+      return real_loadImages(self, urls, callback, opts)
+    end
     local _, dialog = build_detail(emu, { book_id = book_id })
+    loader.loadImages = real_loadImages
     emu:expectText("Extremely Long Title")
 
     -- The cover was in the cache, so the loader delivered it into its box.
     emu:pump()
     assert(dialog.cover_bb, "the cover never arrived in its box")
+
+    -- The picture is in the box (not the placeholder icon), and the page is dithered
+    -- from then on, so the grey of the photo does not band on the e-ink panel.
+    assert(dialog.cover_cell[1][1].image == dialog.cover_bb,
+      "the cover box still shows the placeholder icon")
+    assert(dialog.dithered == true, "the details page is not dithered once its cover is in")
+
+    local box_w, box_h = require("hardcover/lib/ui/book_detail_dialog").coverBox(
+      require("device").screen:getWidth())
+    local request
+    for _, a in ipairs(asked) do
+      if a.url == fixtures.cover_url(book_id) then request = a end
+    end
+    assert(request and request.opts and request.opts.size == "large",
+      "the details did not ask for the cover at the details size")
+    assert(request.opts.box and request.opts.box.w == box_w and request.opts.box.h == box_h,
+      "the details asked for the cover at a size other than the box it is drawn in")
 
     --[[--
     No text may appear twice on screen.

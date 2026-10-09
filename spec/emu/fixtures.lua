@@ -372,9 +372,18 @@ function M.seed_cover(url, variant)
   local bytes = file:read("*a")
   file:close()
 
-  local cache = require("hardcover/lib/ui/image_loader"):getCache()
+  local loader = require("hardcover/lib/ui/image_loader")
+  local cache = loader:getCache()
   assert(cache, "the cover cache could not be opened (no ffi/sha2 or lfs?)")
-  assert(cache:put(url, bytes), "could not write the cover into the cache")
+  -- under every address the loader asks for it by: the cover as uploaded, the image
+  -- service's small and large sizes for this screen, and the large one at a book's
+  -- details box, the exact size its cover is drawn at (see covers.lua)
+  local BookDetailDialog = require("hardcover/lib/ui/book_detail_dialog")
+  local box_w, box_h = BookDetailDialog.coverBox(require("device").screen:getWidth())
+  local details = loader:fetchUrl(url, "large", { w = box_w, h = box_h })
+  for _, key in ipairs({ url, loader:fetchUrl(url, "small"), loader:fetchUrl(url, "large"), details }) do
+    assert(cache:put(key, bytes), "could not write the cover into the cache")
+  end
 end
 
 M.books_by_id = {}
@@ -590,11 +599,16 @@ function M.install(opts)
     return { rows = Stats.normalizeAll(M.stats_raw or M.default_stats_raw()),
       genres = Stats.genres(M.stats_genres or M.default_stats_genres()), complete = true }
   end
+  -- ids index the fixture books (vibes), or are their book ids (a list that changed asks
+  -- for the books it gained); the fixture's book ids start above 100, so the two never meet
   Api.getBooksByIds = function(_, ids)
     record("getBooksByIds")
+    calls[#calls].args = { ids = deepcopy(ids) }
+    local by_id = {}
+    for _, b in ipairs(M.shelf_books) do by_id[b.book_id] = b end
     local entries = {}
     for _, i in ipairs(ids) do
-      local b = M.shelf_books[i]
+      local b = M.shelf_books[i] or by_id[i]
       if b then
         local e = require("hardcover/lib/shelf").normalizeEntry({ book = b })
         e.user_book_id = nil
@@ -606,8 +620,23 @@ function M.install(opts)
 
   Api.getListCount = function(_)
     record("getListCount")
-    local me = (opts.lists_me or M.lists_me)[1]
-    return #me.lists + #me.followed_lists
+    local marks = require("hardcover/lib/lists").marks(deepcopy(opts.lists_me or M.lists_me))
+    return #marks, marks
+  end
+
+  -- which books a list holds, as the list screens' later downloads ask for it: the same
+  -- first N fixture books getListBooks gives
+  Api.getListMembers = function(_, list_id, source, offset, limit)
+    record("getListMembers")
+    calls[#calls].args = { list_id = list_id, source = source, offset = offset }
+    local total = M.list_sizes[list_id] or 0
+    offset, limit = offset or 0, limit or 100
+    local members = {}
+    for i = offset + 1, math.min(offset + limit, total) do
+      members[#members + 1] = { list_book_id = 50000 + i, position = i - 1, book_id = M.shelf_books[i].book_id,
+        date_added = "2026-01-01" }
+    end
+    return members, nil, total > offset + limit
   end
 
   Api.getListBooks = function(_, list_id, source, ranked, offset, limit)

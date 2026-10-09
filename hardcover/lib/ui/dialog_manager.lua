@@ -21,6 +21,7 @@ local Vibes = require("hardcover/lib/vibes")
 local ScreenLoad = require("hardcover/lib/screen_load")
 local ScreenRegistry = require("hardcover/lib/screen_registry")
 local ShelfLoader = require("hardcover/lib/shelf_loader")
+local ShelvesSync = require("hardcover/lib/shelves_sync")
 local User = require("hardcover/lib/user")
 
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
@@ -45,6 +46,12 @@ end
 -- The book details screen's flows (open, shelf, rating, lists, series, similar) and the
 -- reviews screen live in their own file; they are methods of this class all the same.
 require("hardcover/lib/ui/book_flows").install(DialogManager)
+-- So do the lists screens, and keeping the lists saved on the device.
+require("hardcover/lib/ui/list_flows").install(DialogManager)
+-- And the shelves, and keeping them saved.
+require("hardcover/lib/ui/shelf_flows").install(DialogManager)
+-- And Settings > Download covers for offline.
+require("hardcover/lib/ui/cover_flows").install(DialogManager)
 
 -- The open screens by kind (see screen_registry.lua). Built on first use so a manager
 -- made without it, or by a test, still works.
@@ -519,7 +526,7 @@ function DialogManager:showHome()
     local queue = self.sync_queue
     if not (queue and queue.applyToReading) then return entries end
     return queue:applyToReading(entries, function(book_id)
-      return cache and cache:findEntry(user_id, book_id)
+      return self:findShelfEntry(user_id, book_id)
     end)
   end
 
@@ -575,6 +582,7 @@ function DialogManager:showHome()
   User:refreshName()
 
   -- One request after another, each independent of the other's outcome.
+  local list_marks, shelf_prints
   Background.run(function()
     HomeLoader.refresh {
       api = Api,
@@ -589,10 +597,14 @@ function DialogManager:showHome()
       on_counts = function(counts)
         dialog:setRows(Home.rows(counts), true)
       end,
+      on_prints = function(prints)
+        shelf_prints = prints
+      end,
       on_reading = function(shown)
         dialog:setReading(shown, true)
       end,
-      on_list_count = function(list_count)
+      on_list_count = function(list_count, marks)
+        list_marks = marks
         if dialog.list_count ~= list_count then
           dialog.list_count = list_count
           dialog:rebuildSoon()
@@ -604,147 +616,21 @@ function DialogManager:showHome()
         dialog:rebuildSoon()
       end,
     }
+    -- then the lists and the shelves: anything that changed is downloaded now, after
+    -- Home's own requests, so it is all there the next time the device is offline
+    if list_marks and Network.connected() then
+      self:checkLists(list_marks)
+    end
+    if shelf_prints and Network.connected() then
+      self:checkShelves(shelf_prints)
+    end
   end)
 end
 
 -- The shelf loader owns the paging rules; list screens page by the same size.
 local SHELF_PAGE_SIZE = ShelfLoader.PAGE_SIZE
 
-function DialogManager:showShelf(status_id, title)
-  local user_id = User:getId()
-  local cache = self.shelf_cache
-
-  self:screens():discard("shelf")
-
-  -- The whole list as it was last loaded, if it ever was. Shown at once, so the
-  -- shelf is there before (or without) the network; the load below then
-  -- refreshes it.
-  local cached = cache and cache:get(user_id, status_id)
-
-  -- the order you last chose for this shelf (the order of each shelf is
-  -- remembered separately)
-  local sort_choices = self.settings:readSetting(SETTING.SHELF_SORT)
-  local sort_key = type(sort_choices) == "table" and sort_choices[tostring(status_id)] or nil
-
-  local dialog = require("hardcover/lib/ui/shelf_dialog"):new {
-    compatibility_mode = self.settings:compatibilityMode(),
-    title = title,
-    status_id = status_id,
-    sortable = true,
-    sort_key = sort_key,
-    on_sort_change = function(key)
-      local saved = self.settings:readSetting(SETTING.SHELF_SORT)
-      saved = type(saved) == "table" and saved or {}
-      saved[tostring(status_id)] = key
-      self.settings:updateSetting(SETTING.SHELF_SORT, saved)
-    end,
-    -- Empty until the load lands. Passing a nil here would reach the API as a
-    -- nil offset and silently refetch page one forever.
-    entries = {},
-    has_more = false,
-    offset = 0,
-    page_size = SHELF_PAGE_SIZE,
-    -- Only used by the reload icon, which is shown when a load was interrupted
-    -- and the shelf is not complete: it carries on from where the list stops.
-    fetch_page = function(offset, limit, callback)
-      if not Network.connected() then
-        callback(nil, _("not available offline"))
-        return
-      end
-      Api:getShelfAsync(user_id, status_id, offset, limit, callback)
-    end,
-    select_entry_cb = function(entry)
-      self:showBookDetail(entry.book_id)
-    end,
-  }
-  self:screens():track("shelf", dialog)
-
-  UIManager:show(dialog)
-
-  if cached and #cached.entries > 0 then
-    dialog.offset = #cached.entries
-    dialog:setEntries(cached.entries, not cached.complete)
-  end
-
-  -- Offline there is nothing to wait for: say what is being shown and stop.
-  if not Network.connected() then
-    if cached then
-      StatusDialogs.info(string.format(_("Offline: showing your list as it was on %s"),
-        os.date("%Y-%m-%d", cached.saved_at or os.time())))
-    else
-      StatusDialogs.retry(_("no internet connection"), _("Loading your shelf"),
-        function() self:showShelf(status_id, title) end,
-        function() end)
-    end
-    return
-  end
-
-  -- With a saved list already on screen the refresh is quiet; without one the
-  -- reader is waiting on it, so say so.
-  local loading = not cached and StatusDialogs.loading(_("Loading your shelf…")) or nil
-
-  local function stopLoading()
-    if loading then
-      StatusDialogs.close(loading)
-      loading = nil
-    end
-  end
-
-  -- Load the whole shelf, a page at a time, in the background. Rows appear as
-  -- they arrive when there is nothing saved to show; with a saved list on
-  -- screen the fresh one replaces it once it is complete, so the list never
-  -- shrinks to its first page while it refreshes.
-  Background.run(function()
-    local result = ShelfLoader.load {
-      fetch = function(offset, limit) return Api:getShelf(user_id, status_id, offset, limit) end,
-      network = Network,
-      dedupe = true,
-      alive = function() return UIManager:isWidgetShown(dialog) end,
-      sleep = Background.sleep,
-      on_page = function(fresh)
-        stopLoading()
-        if not cached then
-          dialog.offset = #fresh
-          dialog:setEntries(fresh, true, true)
-        end
-      end,
-    }
-
-    stopLoading()
-    -- closed while loading: nothing left to update
-    if not result then return end
-
-    local plan = ShelfLoader.plan(result, cached ~= nil)
-    local fresh = result.entries
-
-    if plan == "replace" then
-      if cache then
-        cache:put(user_id, status_id, fresh, true)
-      end
-      if #fresh == 0 then
-        dialog:setEmptyState(_("No books on this shelf yet"))
-      else
-        dialog.offset = #fresh
-        dialog:setEntries(fresh, false, true)
-      end
-    elseif plan == "partial" then
-      -- Keep what arrived. The reload icon stays so the reader can carry on.
-      if cache then
-        cache:put(user_id, status_id, fresh, false)
-      end
-    elseif plan == "retry" then
-      -- Nothing arrived and nothing was saved: offer the retry rather than an
-      -- error the reader can only dismiss and start again.
-      StatusDialogs.retry(result.failure, _("Loading your shelf"),
-        function()
-          self:showShelf(status_id, title)
-        end,
-        function() end)
-    end
-    -- "keep": a saved list is still right there, and failing to refresh it is not
-    -- worth interrupting for
-  end)
-end
+-- (the shelf screen is in ui/shelf_flows.lua)
 
 --
 -- Reading goals. Shown at once from the saved copy (or a loading line), refreshed
@@ -840,6 +726,9 @@ end
 -- Your reading as charts. The saved copy shows at once (or a loading line the first time),
 -- and a fresh load replaces it when the connection allows. A change of shelf marks the
 -- saved copy stale, so it is refreshed here even when it is recent.
+-- Saved stats are reloaded at least this often, whatever the Read shelf says.
+local STATS_FRESH_FOR = 7 * 24 * 3600
+
 function DialogManager:showStats()
   local user_id = User:getId()
   local cache = self.shelf_cache
@@ -864,19 +753,45 @@ function DialogManager:showStats()
   UIManager:show(dialog)
   if not online then return end
 
-  Api:getStatsAsync(user_id, function(stats, err)
+  -- The saved stats are still right while the Read shelf has not changed (its
+  -- fingerprint), no change made here marked them stale, and they are under a week old
+  -- (a finish date edited on the website moves nothing else).
+  local FINISHED = HARDCOVER.STATUS.FINISHED
+  local function unchanged(fingerprint)
+    local age = saved and saved.saved_at and (os.time() - saved.saved_at)
+    return saved ~= nil and not saved.stale and saved.fingerprint ~= nil and fingerprint == saved.fingerprint
+      and age ~= nil and age >= 0 and age < STATS_FRESH_FOR
+  end
+
+  local function load(fingerprint)
+    Api:getStatsAsync(user_id, function(stats, err)
+      if not UIManager:isWidgetShown(dialog) then return end
+      local outcome = ScreenLoad.finish(stats, saved)
+      if outcome == "fresh" then
+        if cache then cache:putStats(user_id, stats, fingerprint) end
+        dialog:setStats(stats, nil)
+      elseif outcome == "stale" then
+        dialog:setStats(saved, statsNote(saved.saved_at, _("Couldn't refresh.")))
+      else
+        StatusDialogs.retry(err, _("Loading your stats"),
+          function() self:showStats() end,
+          function() UIManager:close(dialog) end)
+      end
+    end)
+  end
+
+  -- Home checked the shelves a moment ago: its word will do
+  local fresh = self:freshPrints()
+  if fresh then
+    if not unchanged(fresh[FINISHED]) then load(fresh[FINISHED]) end
+    return
+  end
+  -- otherwise one small request says whether Read changed
+  Api:getShelfCountsAsync(user_id, { FINISHED }, function(_counts, _err, prints)
     if not UIManager:isWidgetShown(dialog) then return end
-    local outcome = ScreenLoad.finish(stats, saved)
-    if outcome == "fresh" then
-      if cache then cache:putStats(user_id, stats) end
-      dialog:setStats(stats, nil)
-    elseif outcome == "stale" then
-      dialog:setStats(saved, statsNote(saved.saved_at, _("Couldn't refresh.")))
-    else
-      StatusDialogs.retry(err, _("Loading your stats"),
-        function() self:showStats() end,
-        function() UIManager:close(dialog) end)
-    end
+    local fingerprint = prints and prints[FINISHED]
+    if fingerprint and unchanged(fingerprint) then return end
+    load(fingerprint)
   end)
 end
 
@@ -1057,53 +972,19 @@ function DialogManager:archiveGoal(dialog, goal, on_saved)
 end
 
 --
--- Your lists and the ones you follow. Shown at once with a loading line, filled in
--- when the answer arrives; a list opens in the shelf screen (showList).
---
-function DialogManager:showLists()
-  self:screens():discard("lists")
-
-  local dialog = require("hardcover/lib/ui/lists_dialog"):new {
-    message = _("Loading your lists\226\128\166"),
-    select_cb = function(row)
-      self:showList(row)
-    end,
-  }
-  self:screens():track("lists", dialog)
-  UIManager:show(dialog)
-
-  if not Network.connected() then
-    dialog:setMessage(_("Lists need an internet connection."))
-    return
-  end
-
-  Api:getListsAsync(function(lists, err)
-    if not UIManager:isWidgetShown(dialog) then return end
-    if not lists then
-      StatusDialogs.retry(err, _("Loading your lists"),
-        function() self:showLists() end,
-        function() UIManager:close(dialog) end)
-      return
-    end
-    if #lists.mine == 0 and #lists.following == 0 then
-      dialog:setMessage(_("No lists yet. Make one on hardcover.app and it will show up here."))
-      return
-    end
-    dialog:setLists(lists.mine, lists.following)
-  end)
-end
-
---
 -- "For you": books suggested from the ones you rated 4 or more (see Api:getForYou), in the
 -- shelf screen with the reason under each. The saved picks show at once (and are all
 -- there is offline, with the date they are from); a fresh set replaces them when it
 -- arrives and is saved for next time.
 --
+-- Saved picks are made again at least this often.
+local FOR_YOU_FRESH_FOR = 7 * 24 * 3600
+
 function DialogManager:showForYou()
   local user_id = User:getId()
   local cache = self.shelf_cache
-  local saved, saved_at
-  if cache then saved, saved_at = cache:forYou(user_id) end
+  local saved, saved_at, saved_signature
+  if cache then saved, saved_at, saved_signature = cache:forYou(user_id) end
 
   local dialog
   dialog = require("hardcover/lib/ui/shelf_dialog"):new {
@@ -1132,31 +1013,60 @@ function DialogManager:showForYou()
     return
   end
 
+  -- The saved picks are still right while your ratings and what is on your shelves have
+  -- not changed (ShelvesSync.ratingSignature) and they are under a week old: Hardcover's
+  -- "readers also liked" lists move slowly. Then nothing is fetched (three requests saved).
+  local function unchanged(signature)
+    local age = saved_at and (os.time() - saved_at)
+    return saved ~= nil and #saved > 0 and saved_signature ~= nil and signature == saved_signature
+      and age ~= nil and age >= 0 and age < FOR_YOU_FRESH_FOR
+  end
+  local fresh = self:freshPrints()
+  local signature = fresh and ShelvesSync.ratingSignature(fresh, Home.statusIds()) or nil
+  if signature and unchanged(signature) then return end
+
   local loading = not (saved and #saved > 0) and StatusDialogs.loading(_("Finding books for you\226\128\166"))
-  Api:getForYouAsync(function(entries, err, note)
-    if loading then StatusDialogs.close(loading) end
-    if not UIManager:isWidgetShown(dialog) then return end
+  local function load()
+    Api:getForYouAsync(function(entries, err, note)
+      if loading then StatusDialogs.close(loading) end
+      if not UIManager:isWidgetShown(dialog) then return end
 
-    if entries == nil then
-      if saved and #saved > 0 then return end -- keep the saved picks
-      StatusDialogs.retry(err, _("Finding books for you"),
-        function()
-          UIManager:close(dialog)
-          self:showForYou()
-        end,
-        function() UIManager:close(dialog) end)
+      if entries == nil then
+        if saved and #saved > 0 then return end -- keep the saved picks
+        StatusDialogs.retry(err, _("Finding books for you"),
+          function()
+            UIManager:close(dialog)
+            self:showForYou()
+          end,
+          function() UIManager:close(dialog) end)
+        return
+      end
+
+      if #entries == 0 then
+        dialog:setEmptyState(note == "no_ratings"
+          and _("Rate a few books 4 or 5 stars and suggestions will appear here.")
+          or _("No suggestions yet."))
+        return
+      end
+      if cache then cache:putForYou(user_id, entries, signature) end
+      dialog.offset = #entries
+      dialog:setEntries(entries, false, true)
+    end)
+  end
+
+  if fresh then
+    load()
+    return
+  end
+  -- otherwise one small request for the shelves' fingerprints
+  Api:getShelfCountsAsync(user_id, Home.statusIds(), function(_counts, _err, prints)
+    if not UIManager:isWidgetShown(dialog) then
+      if loading then StatusDialogs.close(loading) end
       return
     end
-
-    if #entries == 0 then
-      dialog:setEmptyState(note == "no_ratings"
-        and _("Rate a few books 4 or 5 stars and suggestions will appear here.")
-        or _("No suggestions yet."))
-      return
-    end
-    if cache then cache:putForYou(user_id, entries) end
-    dialog.offset = #entries
-    dialog:setEntries(entries, false, true)
+    signature = ShelvesSync.ratingSignature(prints, Home.statusIds())
+    if signature and unchanged(signature) then return end
+    load()
   end)
 end
 
@@ -1269,76 +1179,6 @@ end
 -- numbers them). Loaded a page at a time in the background, like a shelf, but not
 -- saved for offline: a list is read when you open it.
 --
-function DialogManager:showList(row)
-  local dialog = require("hardcover/lib/ui/shelf_dialog"):new {
-    compatibility_mode = self.settings:compatibilityMode(),
-    title = row.name,
-    sortable = false,
-    entries = {},
-    has_more = false,
-    offset = 0,
-    page_size = SHELF_PAGE_SIZE,
-    fetch_page = function(_offset, _limit, callback) callback(nil, _("not available offline")) end,
-    select_entry_cb = function(entry)
-      self:showBookDetail(entry.book_id)
-    end,
-  }
-  UIManager:show(dialog)
-
-  if not Network.connected() then
-    StatusDialogs.info(_("Lists need an internet connection."))
-    UIManager:close(dialog)
-    return
-  end
-
-  local loading = StatusDialogs.loading(_("Loading the list\226\128\166"))
-  local function stopLoading()
-    if loading then
-      StatusDialogs.close(loading)
-      loading = nil
-    end
-  end
-
-  Background.run(function()
-    local result = ShelfLoader.load {
-      fetch = function(offset, limit)
-        return Api:getListBooks(row.id, row.source, row.ranked, offset, limit)
-      end,
-      use_has_more = true,
-      alive = function() return UIManager:isWidgetShown(dialog) end,
-      sleep = Background.sleep,
-      on_page = function(fresh)
-        stopLoading()
-        dialog.offset = #fresh
-        dialog:setEntries(fresh, true, true)
-      end,
-    }
-
-    stopLoading()
-    if not result then return end
-
-    local plan = ShelfLoader.plan(result, false)
-    local fresh = result.entries
-
-    if plan == "replace" then
-      if #fresh == 0 then
-        dialog:setEmptyState(_("No books on this list yet"))
-      else
-        dialog.offset = #fresh
-        dialog:setEntries(fresh, false, true)
-      end
-    elseif plan == "retry" then
-      StatusDialogs.retry(result.failure, _("Loading the list"),
-        function()
-          UIManager:close(dialog)
-          self:showList(row)
-        end,
-        function() UIManager:close(dialog) end)
-    end
-    -- "partial": keep what arrived
-  end)
-end
-
 --
 --
 -- A failure the user must notice.

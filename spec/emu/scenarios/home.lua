@@ -53,6 +53,10 @@ return {
     assert(dialog, "showHome did not produce a dialog")
     assert(UIManager:isWidgetShown(dialog), "the home screen was built but never shown")
 
+    -- its covers are pictures, so the screen is dithered once they are in (cover_cells.lua)
+    assert(#dialog.covers:list() > 0, "no cover picture reached Home")
+    assert(dialog.dithered == true, "Home shows covers but is not dithered")
+
     -- the shelves are tiles (its count big, its name beside it); what you are
     -- reading is opened from its own heading, which carries the count
     for _, expected in ipairs({

@@ -184,6 +184,11 @@ function CoverMenu:updateItems(select_number, no_recalculate_dimen)
 
             item.entry.cover_bb = RenderImage:renderImageData(content, #content, false, item.cover_w, item.cover_h)
             item.entry.cover_bb:setAllocated(1)
+            -- the row scales the picture by these, and the picture is not the size
+            -- Hardcover reports for the cover as uploaded: it comes from the image
+            -- service at the size it is shown (see covers.lua)
+            item.entry.cover_w = item.entry.cover_bb:getWidth()
+            item.entry.cover_h = item.entry.cover_bb:getHeight()
             -- where the placeholder was, so it is covered if the picture is a
             -- different size (the frame is all that changes when a cover arrives)
             local was = item.cover_frame and Refresh.copy(item.cover_frame.dimen)

@@ -211,7 +211,7 @@ return {
     local Api = require("hardcover/lib/hardcover_api")
     local held
     local real_async = Api.getSimilarBooksAsync
-    Api.getSimilarBooksAsync = function(_, _, callback) held = callback end
+    Api.getSimilarBooksAsync = function(_, _, _, _, callback) held = callback end -- (book, limit, user, callback)
     fixtures.similar_ids = { 9, 4, 7, 2 }
     details = manager:showBookDetail(book_id)
     emu:pump()
