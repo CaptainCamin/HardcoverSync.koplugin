@@ -109,6 +109,7 @@ return {
     --------------------------------------------------------------- the panel
     local panel_calls = {}
     local sync = true
+    emu:stub_page() -- the panel is drawn over the book page, and the page is already up
     local ReaderPanel = require("hardcover/lib/ui/reader_panel")
     local panel = ReaderPanel.show {
       model = function()
@@ -133,11 +134,31 @@ return {
     perf.run_loop()
     results.panel_toggle = probe:report("reader panel: tick toggled")
     print("        small: " .. perf.small_regions(results.panel_toggle))
+    -- a popup opened from the panel (Set page, rating, a confirmation) shows over a hatched
+    -- sheet: the popup and its backdrop arrive in one refresh, and leave in one
+    local Backdrop = require("hardcover/lib/ui/backdrop")
+    local SpinWidget = require("ui/widget/spinwidget")
+    local spin = SpinWidget:new {
+      value = 3, value_min = 0, value_max = 5, value_step = 0.5, precision = "%.1f",
+      title_text = "Set Rating", ok_text = "Save",
+    }
+    probe:reset()
+    Backdrop.show(spin)
+    perf.run_loop()
+    results.popup_open = probe:report("reader panel: popup opened")
+    print("        small: " .. perf.small_regions(results.popup_open))
+    probe:reset()
+    spin:onClose()
+    perf.run_loop()
+    results.popup_close = probe:report("reader panel: popup closed")
+    print("        small: " .. perf.small_regions(results.popup_close))
     probe:reset()
     panel:onClose()
     perf.run_loop()
     results.panel_close = probe:report("reader panel: close")
     print("        small: " .. perf.small_regions(results.panel_close))
+    emu:closeAll()
+    perf.run_loop()
 
     ----------------------------------------------------------------- settings
     local ticks = {}
@@ -207,6 +228,10 @@ return {
     end
     whole_screen_once("reader panel open", results.panel_open)
     whole_screen_once("reader panel close", results.panel_close)
+    -- a popup over the panel: its backdrop (the sheet's hatching) and the box in one pass, then
+    -- one pass to take them away. Not two (a hatching pass and a popup pass), not a flashing one
+    whole_screen_once("popup over the panel open", results.popup_open)
+    whole_screen_once("popup over the panel close", results.popup_close)
     -- ticking an option redraws that row, not the page. A tap flashes the row first (the
     -- highlight, one refresh of the row), then the tick redraws it, with the highlight's
     -- undo merged into that refresh: two row-sized passes, and the budget is set for exactly that

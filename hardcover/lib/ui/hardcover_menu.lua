@@ -413,6 +413,20 @@ function HardcoverMenu:getSubMenuItems(book_view)
         end, true)
       end,
       keep_menu_open = true,
+    },
+    -- the popup has no Reviews button of its own: this is the way in
+    book_view and {
+      opens = true, -- opens a screen, a dialog or a picker: its row gets a chevron
+      text = _("Reviews"),
+      enabled_func = function()
+        return self.enabled and self.settings:bookLinked()
+      end,
+      callback = function()
+        self:withWifiThen(function()
+          self.dialog_manager:showReviews(self.settings:getLinkedBookId())
+        end, true)
+      end,
+      keep_menu_open = true,
       separator = true
     },
     self:getSyncMenuItem(),
@@ -704,9 +718,10 @@ function HardcoverMenu:getSyncMenuItem()
       if pending > 0 then
         return T(_("Sync pending changes (%1)"), pending)
       end
-      return _("Sync now")
+      return _("Up to date")
     end,
-    -- Greyed out when there is nothing to send. Offline with changes queued it
+    -- Greyed out when there is nothing to send (the label then says "Up to
+    -- date", not a command). Offline with changes queued it
     -- stays enabled: tapping it is how the user learns they are saved and
     -- will sync later.
     enabled_func = function()
@@ -1159,7 +1174,8 @@ function HardcoverMenu:getStatusSubMenuItems()
             self:savePage(current_read, edition_page, menu_instance)
           end
         }
-        UIManager:show(spinner)
+        -- over the hatched sheet it was opened from
+        require("hardcover/lib/ui/backdrop").show(spinner)
       end,
       keep_menu_open = true
     },
@@ -1224,7 +1240,7 @@ function HardcoverMenu:getStatusSubMenuItems()
             self:saveRating(spin.value, menu_instance)
           end
         }
-        UIManager:show(spinner)
+        require("hardcover/lib/ui/backdrop").show(spinner)
       end,
       hold_callback = function(menu_instance)
         self:saveRating(0, menu_instance, true)

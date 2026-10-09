@@ -23,6 +23,11 @@
 -- label in one pill, a run of them sharing a row; `narrow` is icon only); the rest
 -- are pill buttons.
 --
+-- The page above the sheet is hatched by a Backdrop layer shown just under the panel, so
+-- the hatching comes back whenever the page is repainted (a screen opened from the panel
+-- closing, say). Screens and popups opened from the panel sit above it in the window
+-- stack, so nothing of the sheet can be drawn over them.
+--
 -- Tapping above the sheet, or the Back key, closes it.
 
 local Blitbuffer = require("ffi/blitbuffer")
@@ -38,6 +43,7 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
 
+local Backdrop = require("hardcover/lib/ui/backdrop")
 local Refresh = require("hardcover/lib/ui/refresh")
 local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
@@ -57,6 +63,8 @@ function ReaderPanel:init()
   self.ges_events = {
     TapOutside = { GestureRange:new { ges = "tap", range = self.dimen } },
   }
+  -- the page above the sheet; the sheet covers the rest
+  self.backdrop = Backdrop:new { bottom = function() return self.sheet_top end }
   self:render()
 end
 
@@ -233,29 +241,19 @@ function ReaderPanel:render()
   local old = self.sheet_rect
   local old_top = self.sheet_top
   self.sheet_top = screen_h - sheet:getSize().h
-  -- the page behind the sheet is hatched, once: all of it when the panel opens, and
-  -- the strip the sheet uncovers when it gets shorter
-  if not old_top then
-    self.scrim = { x = 0, y = 0, w = screen_w, h = self.sheet_top }
-  elseif self.sheet_top > old_top then
-    self.scrim = { x = 0, y = old_top, w = screen_w, h = self.sheet_top - old_top }
-  end
+  -- popups opened over the panel hatch the sheet only: the page is hatched already
+  self.hatched_to = self.sheet_top
   self.sheet_rect = { x = 0, y = self.sheet_top, w = screen_w, h = sheet:getSize().h }
   -- only the sheet is drawn over the page, so only the sheet's rows of the panel
   -- need redrawing (and, when it changes height, where it used to be): not the
-  -- whole book page behind it
-  local dirty = Refresh.union(old, self.sheet_rect)
-  if self.scrim then dirty = Refresh.union(dirty, self.scrim) end
-  UIManager:setDirty(self, "ui", self:rect(dirty))
-end
-
--- the sheet, then the hatching over the page it leaves visible (see render)
-function ReaderPanel:paintTo(bb, x, y)
-  InputContainer.paintTo(self, bb, x, y)
-  local s = self.scrim
-  if s then
-    Theme.hatchRect(bb, x + s.x, y + s.y, s.w, s.h)
-    self.scrim = nil
+  -- whole book page behind it. The first draw is the whole screen: the hatching
+  local dirty = old and Refresh.union(old, self.sheet_rect) or { x = 0, y = 0, w = screen_w, h = screen_h }
+  if old_top and self.sheet_top > old_top then
+    -- a shorter sheet uncovers a strip that still holds the old one: everything is
+    -- repainted from the page up, so the strip is the page again, hatched
+    UIManager:setDirty("all", "ui", self:rect(dirty))
+  else
+    UIManager:setDirty(self, "ui", self:rect(dirty))
   end
 end
 
@@ -273,6 +271,7 @@ end
 
 -- leaving the panel must repaint the page under it
 function ReaderPanel:onCloseWidget()
+  UIManager:close(self.backdrop)
   -- the page under was hatched, so all of it needs repainting without the hatching
   UIManager:setDirty(nil, "ui", self.dimen)
 end
@@ -291,6 +290,7 @@ local Dialog = {}
 
 function Dialog.show(opts)
   local panel = ReaderPanel:new { opts = opts }
+  UIManager:show(panel.backdrop)
   UIManager:show(panel)
   return panel
 end

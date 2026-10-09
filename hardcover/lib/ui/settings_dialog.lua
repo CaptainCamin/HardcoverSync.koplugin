@@ -40,6 +40,9 @@ local BACK_ARROW = "\226\128\185" -- single left angle quote
 local SettingsScreen = InputContainer:extend {
   name = "hardcover_settings",
   opts = nil,
+  -- it is the whole screen: what is under it (the reader panel, when it was opened from
+  -- there) is not painted at all while it is up
+  covers_fullscreen = true,
 }
 
 function SettingsScreen:init()
@@ -137,6 +140,8 @@ function SettingsScreen:buildTile(row, width, height, viewport)
       bold = select(2, Theme.serif("title")),
       width = text_w,
       fgcolor = row.dim and Theme.DARK_GREY or Theme.BLACK,
+      -- match the tile's background, or the text box paints a white patch on grey
+      bgcolor = row.dim and Theme.WASH or Theme.WHITE,
     },
   }
   local h = height or (content:getSize().h + 2 * Theme.space.m)

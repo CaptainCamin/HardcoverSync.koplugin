@@ -69,6 +69,8 @@ return {
     emu:screenNodes()           -- ...with geometry
     emu:expectNoButtonOverlap()
     emu:pump()                  -- run pending scheduled work
+    emu:stub_page()             -- a book page under what is drawn over a page (the reader panel)
+    emu:ink(x, y, w, h)         -- non-white pixel count and darkest grey of a screen rectangle
     emu:closeAll()
   end,
 }
@@ -99,6 +101,11 @@ These all cost time to find, and each one looks like a plugin bug.
   depth-first order — walk and record, do not sort.
 - **`Screen:shot()` writes the current framebuffer.** Take the screenshot after
   `UIManager:_repaint()`, or you capture the previous screen.
+- **A widget that is drawn over a page needs a page under it** (`emu:stub_page()`).
+  With nothing underneath, closing a screen or reshaping a panel repaints nothing
+  behind it, so the screenshot keeps the pixels of whatever was there before: a
+  screen that is no longer on the stack, or a second rule that is the old panel's.
+  On a device the reader repaints, so these show up there as a lost hatching instead.
 - **`emu:pump()` after every input.** Much of this plugin defers its next step
   with `UIManager:nextTick`; a screenshot taken straight after a key press shows
   the screen *before* the plugin reacted.

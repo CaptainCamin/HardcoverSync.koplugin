@@ -526,6 +526,66 @@ function M.boot(opts)
     }
   end
 
+  --[[--
+  A stand-in for the book page, for what is drawn OVER the page: the reader panel
+  and the popups it opens. Show it first, then the panel.
+
+  Without it nothing sits under the panel, so when a screen above the panel closes
+  or the panel changes height, UIManager has no page to repaint and the pixels of
+  whatever was there before stay in the framebuffer: a screenshot then shows a
+  screen that is not on the stack, and a bug that only a page repaint would show
+  (the hatching lost) cannot be seen. Like ReaderUI it covers the whole screen and
+  is repainted whenever anything above it is.
+  ]]
+  function emu:stub_page()
+    local Geom = require("ui/geometry")
+    local TextBoxWidget = require("ui/widget/textboxwidget")
+    local Widget = require("ui/widget/widget")
+    local W, H = Screen:getWidth(), Screen:getHeight()
+    local margin = math.floor(W / 14)
+    local para = "The old clock in the hall had stopped again, and nobody in the house could say "
+      .. "when it had last told the right time. She wound it, listened to it tick for a while, "
+      .. "and went back to her book without looking at the hands. "
+    local text = TextBoxWidget:new {
+      text = para .. para .. para .. para .. "\n\n" .. para .. para .. para .. para .. "\n\n"
+        .. para .. para .. para .. para .. "\n\n" .. para .. para .. para .. para,
+      face = self.Font:getFace("cfont", 22),
+      width = W - 2 * margin,
+      height = H - 2 * margin,
+      height_adjust = true,
+      height_overflow_show_ellipsis = false,
+    }
+    local page = Widget:new { name = "emu_book_page", covers_fullscreen = true, dimen = Geom:new { x = 0, y = 0, w = W, h = H } }
+    function page:paintTo(bb, x, y)
+      bb:paintRect(x, y, W, H, BB.COLOR_WHITE)
+      text:paintTo(bb, x + margin, y + margin)
+    end
+    UIManager:show(page)
+    UIManager:_repaint()
+    return page
+  end
+
+  --[[--
+  What a rectangle of the screen holds, after what is pending is painted: how many
+  of its pixels are not white, and the darkest of them (0 black, 255 white). For
+  what only pixels show: hatching over a blank margin, one rule and not two, a
+  region the panel must not have drawn in.
+  ]]
+  function emu:ink(x, y, w, h)
+    UIManager:_repaint()
+    local count, darkest = 0, 255
+    for yy = y, y + h - 1 do
+      for xx = x, x + w - 1 do
+        local v = Screen.bb:getPixel(xx, yy):getColor8().a
+        if v < 255 then
+          count = count + 1
+          if v < darkest then darkest = v end
+        end
+      end
+    end
+    return count, darkest
+  end
+
   -- Top of the stack, i.e. what the user is actually looking at.
   function emu:top()
     return UIManager:getTopmostVisibleWidget()

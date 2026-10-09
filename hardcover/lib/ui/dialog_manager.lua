@@ -205,7 +205,7 @@ end
 function DialogManager:confirm(options)
   options.text = options.text or "Are you sure"
 
-  UIManager:show(ConfirmBox:new(options))
+  require("hardcover/lib/ui/backdrop").show(ConfirmBox:new(options))
 end
 
 function DialogManager:maybeConfirm(options)
@@ -353,7 +353,7 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
   self.wifi:wifiPrompt(function(wifi_enabled)
     wifi_was_off = wifi_enabled
 
-    UIManager:show(dialog)
+    require("hardcover/lib/ui/backdrop").show(dialog)
     dialog:onShowKeyboard()
 
     --[[
