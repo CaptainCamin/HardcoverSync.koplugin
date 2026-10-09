@@ -14,7 +14,7 @@
 -- Pure logic over an injected store (`db`, see sqlite_store.lua), which holds strings;
 -- this file does the JSON. Every operation is best-effort, like the store under it.
 
-local json = require("json")
+local Codec = require("hardcover/lib/codec")
 local Shelf = require("hardcover/lib/shelf")
 
 local BookStore = {}
@@ -39,20 +39,6 @@ function BookStore:new(o)
   return setmetatable(o, self)
 end
 
-local function encode(value)
-  local ok, text = pcall(json.encode, value)
-  return ok and type(text) == "string" and text or nil
-end
-
--- "simple": a JSON null reads as nil (the API is decoded the same way). Without it
--- KOReader's decoder hands back a placeholder that is not nil, and `if book.pages`
--- would be true for a book with no page count.
-local function decode(text)
-  if type(text) ~= "string" then return nil end
-  local ok, value = pcall(json.decode, text, json.decode.simple)
-  return ok and type(value) == "table" and value or nil
-end
-
 -- A shelf entry (or anything shaped like one) cut down to the book's own fields.
 function BookStore.rowOf(entry)
   if type(entry) ~= "table" or not tonumber(entry.book_id) then return nil end
@@ -62,15 +48,49 @@ function BookStore.rowOf(entry)
   return row
 end
 
--- Save the books of these shelf entries, replacing what was saved of them.
-function BookStore:saveRows(entries)
+-- Did the old saved-shelves file cut this synopsis short? It kept at most 600 bytes
+-- and ended a cut one with an ellipsis.
+function BookStore.isCut(description)
+  return type(description) == "string" and #description >= 300 and #description <= 603
+    and description:sub(-3) == "\226\128\166"
+end
+
+-- How long details that may still change (see isSettled) are trusted before the details
+-- screen fetches them again.
+BookStore.RECHECK_AFTER = 7 * 24 * 3600
+
+--
+-- Is what the details screen shows of this book (the `book` of Api:getBookDetail) done
+-- changing? Out, with a synopsis, a cover and a length: a book's synopsis, publication
+-- date, authors and series hardly ever change after that, so its details are kept for
+-- good. A book still to come, or missing any of those, is fetched again now and then
+-- (RECHECK_AFTER), as Hardcover's librarians fill it in.
+--
+function BookStore.isSettled(book, today)
+  if type(book) ~= "table" then return false end
+  if type(book.description) ~= "string" or book.description == "" then return false end
+  if not (type(book.cached_image) == "table" and book.cached_image.url) then return false end
+  if not (tonumber(book.pages) or tonumber(book.audio_seconds)
+      or (type(book.default_audio_edition) == "table" and tonumber(book.default_audio_edition.audio_seconds))) then
+    return false
+  end
+  today = today or os.date("%Y-%m-%d")
+  local released = book.first_release_date or book.release_date
+  if type(released) == "string" and released ~= "" then return released <= today end
+  local year = tonumber(book.release_year)
+  return year ~= nil and year <= tonumber(today:sub(1, 4))
+end
+
+-- Save the books of these shelf entries, replacing what was saved of them. `partial`:
+-- these rows are not whole (see isCut), so the books count as not saved yet.
+function BookStore:saveRows(entries, partial)
   local books, seen = {}, {}
   for _, entry in ipairs(type(entries) == "table" and entries or {}) do
     local row = BookStore.rowOf(entry)
-    local text = row and not seen[row.book_id] and encode(row)
+    local text = row and not seen[row.book_id] and Codec.encode(row)
     if text then
       seen[row.book_id] = true
-      books[#books + 1] = { book_id = row.book_id, row = text }
+      books[#books + 1] = { book_id = row.book_id, row = text, partial = partial and true or nil }
     end
   end
   if #books == 0 then return true end
@@ -81,7 +101,7 @@ end
 function BookStore:rows(ids)
   local out = {}
   for id, text in pairs(self.db:getRows(ids) or {}) do
-    out[id] = decode(text)
+    out[id] = Codec.decode(text)
   end
   return out
 end
@@ -116,13 +136,17 @@ function BookStore:saveDetail(book_id, edition_id, detail)
   for k, v in pairs(book) do
     if k ~= "user_books" then kept[k] = v end
   end
-  local text = encode(kept)
+  -- when Hardcover last said what this is (see isSettled)
+  kept._checked_at = self.now()
+  local text = Codec.encode(kept)
   if not text then return false end
 
   local ok = self.db:putDetail(book_id, tonumber(edition_id) or 0, text, self.now())
   if not edition_id then
     -- an edition's page count is not the book's, so only a book-level fetch does this
-    self:saveRows({ Shelf.normalizeEntry({ book = kept }) })
+    local row = Shelf.normalizeEntry({ book = kept })
+    row.user_book_id, row.status_id, row.user_rating, row.date_added = nil, nil, nil, nil
+    self:saveRows({ row })
   end
   self.db:evict(BookStore.OPENED_CAP)
   return ok
@@ -139,9 +163,9 @@ function BookStore:detail(book_id, edition_id)
   book_id = tonumber(book_id)
   if not book_id then return nil end
 
-  local book = decode(edition_id and self.db:getDetail(book_id, tonumber(edition_id)) or nil)
-    or decode(self.db:getDetail(book_id, 0))
-    or decode(self.db:anyDetail(book_id))
+  local book = Codec.decode(edition_id and self.db:getDetail(book_id, tonumber(edition_id)) or nil)
+    or Codec.decode(self.db:getDetail(book_id, 0))
+    or Codec.decode(self.db:anyDetail(book_id))
   if book then
     book.book_id = book.book_id or book_id
     return { book = book }, "details"
@@ -152,6 +176,80 @@ function BookStore:detail(book_id, edition_id)
     local detail = Shelf.detailFromEntry(row)
     return { book = detail.book }, "row"
   end
+end
+
+--
+-- The details screen's saved copy of a book, if it can be shown without asking Hardcover
+-- for the book again: fetched before (not just a list's row), and either done changing
+-- (isSettled) or fetched within RECHECK_AFTER. Counts as the book being opened again.
+-- Returns { book = ... } (no status or rating) or nil.
+--
+function BookStore:settledDetail(book_id, edition_id)
+  local detail, source = self:detail(book_id, edition_id)
+  if source ~= "details" then return nil end
+  local book = detail.book
+  local fresh = tonumber(book._checked_at)
+    and (self.now() - book._checked_at) >= 0 and (self.now() - book._checked_at) < BookStore.RECHECK_AFTER
+  if not (BookStore.isSettled(book) or fresh) then return nil end
+  self.db:touchDetail(tonumber(book_id), tonumber(edition_id) or 0, self.now())
+  return detail
+end
+
+--
+-- The community numbers Hardcover gave for the book just now (rating, ratings_count,
+-- users_count, users_read_count), laid over its saved details and row, for next time.
+-- When the details were fetched does not change: these numbers say nothing about whether
+-- the rest is current.
+--
+function BookStore:updateNumbers(book_id, numbers)
+  book_id = tonumber(book_id)
+  if not (book_id and type(numbers) == "table") then return false end
+  local fields = { "rating", "ratings_count", "users_count", "users_read_count" }
+  local text = self.db:getDetail(book_id, 0)
+  local book = Codec.decode(text)
+  if book then
+    for _, f in ipairs(fields) do
+      if numbers[f] ~= nil then book[f] = numbers[f] end
+    end
+    local updated = Codec.encode(book)
+    if updated and updated ~= text then self.db:putDetail(book_id, 0, updated, self.now()) end
+  end
+  local row = self:rows({ book_id })[book_id]
+  -- (a row whose synopsis is still cut short is left to be fetched whole)
+  if row and not BookStore.isCut(row.description) then
+    if numbers.rating ~= nil then row.community_rating = numbers.rating end
+    if numbers.ratings_count ~= nil then row.ratings_count = numbers.ratings_count end
+    if numbers.users_count ~= nil then row.users_count = numbers.users_count end
+    self:saveRows({ row })
+  end
+  return true
+end
+
+-- Your saved copy of a series (Api:getSeriesBooks's answer) and when it was saved, or nil.
+function BookStore:series(user_id, series_id)
+  local saved = Codec.decode(self.db:getBlob("series:" .. tostring(user_id or 0) .. ":" .. tostring(series_id)))
+  if saved and type(saved.series) == "table" then return saved.series, saved.saved_at end
+end
+
+function BookStore:putSeries(user_id, series_id, series)
+  local text = type(series) == "table" and Codec.encode({ series = series, saved_at = self.now() })
+  return text and self.db:putBlob("series:" .. tostring(user_id or 0) .. ":" .. tostring(series_id), text) or false
+end
+
+-- The covers (as uploaded) of every book on your shelves and saved lists, each once.
+function BookStore:libraryCovers(user_id)
+  local ids = self.db:libraryBookIds(tonumber(user_id) or 0)
+  local rows = self:rows(ids)
+  local urls, seen = {}, {}
+  for _, id in ipairs(ids) do
+    local image = rows[id] and rows[id].cached_image
+    local url = type(image) == "table" and image.url
+    if type(url) == "string" and url ~= "" and not seen[url] then
+      seen[url] = true
+      urls[#urls + 1] = url
+    end
+  end
+  return urls
 end
 
 -- Drop what no list holds and was not opened recently (see OPENED_CAP).

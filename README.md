@@ -275,12 +275,18 @@ leading "The", "A" or "An" is ignored), author (by surname), year published, pag
 community rating, or your own rating. Each shelf remembers its order, and the title shows it when it is not the
 default. Sorting works on the loaded list, so it needs no connection.
 
-Lists you have opened are saved on the device, so they also open with no connection, showing the saved copy.
+Every shelf is saved on the device, whether or not you have opened it: Home checks them each time it opens and
+downloads only what changed, so they open at once, also with no connection. `Refresh` in a shelf's menu (upper left)
+downloads it again.
 
 **Your Hardcover lists.** `More lists` on the home screen opens your lists and the ones you follow; choose one to see
 its books (a ranked list is numbered). Every list is kept on the device, whether or not you have opened it: Home checks
 them each time it opens and downloads only what changed, so they all open with no connection, and a book on one of them
 opens with its whole synopsis. `Refresh` in a list's menu (upper left) downloads it again.
+
+**Covers for offline.** Covers are kept once they have been on screen. `Download covers for offline` in the settings
+keeps the cover of every book on your shelves and lists, so they also show with no connection; it says how many and
+about how much first, can be stopped at any time, and carries on where it stopped when run again.
 
 ## Settings
 

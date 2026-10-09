@@ -17,6 +17,7 @@ local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
 local BookActions = require("hardcover/lib/book_actions")
 local DeviceSearch = require("hardcover/lib/device_search")
+local Home = require("hardcover/lib/home")
 local Lists = require("hardcover/lib/lists")
 local Network = require("hardcover/lib/network")
 local Recommendations = require("hardcover/lib/recommendations")
@@ -39,8 +40,12 @@ local Flows = {}
 -- before the dialog existed, so a failure showed an error in place of a screen
 -- and an offline tap did nothing at all.
 --
-function Flows:showBookDetail(book_id, edition_id)
-  local dialog = require("hardcover/lib/ui/book_detail_dialog"):new {
+-- `opts.refresh`: fetch everything again, even what the device has (the screen's reload
+-- icon).
+function Flows:showBookDetail(book_id, edition_id, opts)
+  opts = opts or {}
+  local dialog
+  dialog = require("hardcover/lib/ui/book_detail_dialog"):new {
     detail = nil,
     loading = true,
     -- the details on screen go along, so the reviews can say which book and how it is rated
@@ -58,6 +63,16 @@ function Flows:showBookDetail(book_id, edition_id)
     on_series = function(_, name) self:searchBooks(name) end,
     on_author = function(_, name) self:searchBooks(name) end,
     on_status = function(_, status_id) self:showShelf(status_id, Shelf.statusLabel(status_id)) end,
+    -- the reload icon: everything fetched again, the escape hatch for anything kept that
+    -- has gone out of date
+    on_refresh = function()
+      if not Network.connected() then
+        StatusDialogs.info(_("Refreshing needs an internet connection."))
+        return
+      end
+      UIManager:close(dialog)
+      self:showBookDetail(book_id, edition_id, { refresh = true })
+    end,
   }
 
   UIManager:show(dialog)
@@ -72,7 +87,7 @@ function Flows:showBookDetail(book_id, edition_id)
   local function saved_detail()
     if not looked_up then
       looked_up = true
-      local entry = self.shelf_cache and self.shelf_cache:findEntry(user_id, book_id)
+      local entry = self:findShelfEntry(user_id, book_id)
       local stored = self.book_store and self.book_store:detail(book_id, edition_id)
       if stored then
         stored.user_book_id = entry and entry.user_book_id
@@ -87,8 +102,11 @@ function Flows:showBookDetail(book_id, edition_id)
   end
 
   local function showSaved()
-    dialog:setDetail(self:withPendingRating(saved_detail()))
+    local detail = saved_detail()
+    dialog:setDetail(self:withPendingRating(detail))
     StatusDialogs.info(_("Offline: showing saved details"))
+    -- the saved series, if there is one (offline nothing is fetched)
+    if detail and detail.book then self:loadSeries(dialog, detail.book, user_id) end
   end
 
   if not Network.connected() then
@@ -102,6 +120,25 @@ function Flows:showBookDetail(book_id, edition_id)
         end,
         function() UIManager:close(dialog) end)
     end
+    return dialog
+  end
+
+  -- A book whose details the device has, and that is done changing (or was fetched this
+  -- week), opens from the device at once: no loading line, no request for the book.
+  -- Your status and rating come from the saved shelves, which Home keeps checked, and
+  -- the similar-books request brings them (and the community numbers) up to date. Only
+  -- when every shelf is saved can a book on none of them be taken as not in the library.
+  local shelves = self:shelves()
+  local settled = not opts.refresh and self.book_store and shelves
+    and shelves:synced(user_id, Home.statusIds()) and self.book_store:settledDetail(book_id, edition_id)
+  if settled then
+    local m = shelves:member(user_id, book_id)
+    settled.user_book_id = m and m.user_book_id
+    settled.status_id = m and m.status_id
+    settled.user_rating = m and m.rating
+    dialog.similar_card = Recommendations.loadingCard(settled.book and settled.book.title)
+    dialog:setDetail(self:withPendingRating(settled))
+    self:loadSeries(dialog, settled.book, user_id, function() self:loadSimilar(dialog, book_id) end)
     return dialog
   end
 
@@ -135,7 +172,8 @@ function Flows:showBookDetail(book_id, edition_id)
     dialog:setDetail(self:withPendingRating(detail))
 
     -- one after the other: two requests in flight at once left one of them lost
-    self:loadSeries(dialog, detail.book, user_id, function() self:loadSimilar(dialog, book_id) end)
+    self:loadSeries(dialog, detail.book, user_id, function() self:loadSimilar(dialog, book_id) end,
+      opts.refresh)
   end)
 
   return dialog
@@ -537,8 +575,12 @@ function Flows:rateBook(dialog)
   })
 end
 
--- A queued rating went through: the saved shelves show the old one.
+-- A queued rating went through: the saved shelf shows the new one at once.
 function Flows:ratingSent(_user_book_id, user_book)
+  local shelves = self:shelves()
+  if shelves and type(user_book) == "table" and user_book.book_id then
+    shelves:rateBook(User:getId(), user_book.book_id, user_book.rating)
+  end
   self:forgetShelves(user_book and user_book.status_id, nil)
 end
 
@@ -561,7 +603,7 @@ function Flows:saveShelf(dialog, status_id)
       end
 
       -- the change happened whether or not the screen is still there
-      self:forgetShelves(old_status_id, status_id)
+      self:shelfChanged(request.book_id, old_status_id, status_id, user_book.id or detail.user_book_id)
       if UIManager:isWidgetShown(dialog) then
         dialog:setStatus(status_id, user_book.id or detail.user_book_id)
       end
@@ -586,7 +628,7 @@ function Flows:removeFromShelf(dialog)
       return
     end
 
-    self:forgetShelves(old_status_id, nil)
+    self:shelfChanged(detail.book and detail.book.book_id, old_status_id, nil)
     if UIManager:isWidgetShown(dialog) then
       dialog:setStatus(nil, nil)
     end
@@ -601,25 +643,109 @@ end
 -- on top of this one, so Close comes back here. Nothing is fetched offline (the
 -- screen simply has no card) or for a book that is in no series.
 --
-function Flows:loadSeries(dialog, book, user_id, when_done)
+-- How long a saved series is shown without asking Hardcover for it again.
+local SERIES_FRESH_FOR = 7 * 24 * 3600
+
+-- The series with your status and rating on each book from the saved shelves, which
+-- are newer than the saved series (Home keeps them checked).
+local function withShelfStatuses(self, series, user_id)
+  local shelves = self:shelves()
+  if not (shelves and shelves:synced(user_id, Home.statusIds())) then return series end
+  local copy = {}
+  for k, v in pairs(series) do copy[k] = v end
+  copy.books = {}
+  for i, b in ipairs(series.books or {}) do
+    local row = {}
+    for k, v in pairs(b) do row[k] = v end
+    local m = shelves:member(user_id, b.book_id)
+    row.status_id = m and m.status_id or nil
+    row.rating = m and m.rating or nil
+    copy.books[i] = row
+  end
+  return copy
+end
+
+-- `refresh`: ask Hardcover even if the series is saved (the screen's reload icon).
+function Flows:loadSeries(dialog, book, user_id, when_done, refresh)
   local series_id = Shelf.seriesId(book)
-  if not series_id or not Network.connected() then
+  if not series_id then
     if when_done then when_done() end
     return
   end
 
-  Background.run(function()
-    local series = Api:getSeriesBooks(series_id, user_id)
-
-    -- failed, cancelled by a tap, or the screen was closed meanwhile
+  local function show(series)
     local card = series and UIManager:isWidgetShown(dialog) and Shelf.seriesCard(series, book.book_id)
     if card then
       dialog:setSeries(card, function(book_id)
         self:showBookDetail(book_id)
       end)
     end
+  end
+
+  -- kept for a week, and shown offline
+  local store = self.book_store
+  local saved, saved_at
+  if store then saved, saved_at = store:series(user_id, series_id) end
+  local age = saved_at and ((store and store.now() or os.time()) - saved_at)
+  local fresh = age and age >= 0 and age < SERIES_FRESH_FOR
+  if saved and (not Network.connected() or (fresh and not refresh)) then
+    show(withShelfStatuses(self, saved, user_id))
+    if when_done then when_done() end
+    return
+  end
+
+  if not Network.connected() then
+    if when_done then when_done() end
+    return
+  end
+
+  Background.run(function()
+    local series = Api:getSeriesBooks(series_id, user_id)
+    if series and store then store:putSeries(user_id, series_id, series) end
+
+    -- failed, cancelled by a tap, or the screen was closed meanwhile: a saved copy will do
+    show(series or (saved and withShelfStatuses(self, saved, user_id)))
     if when_done and UIManager:isWidgetShown(dialog) then when_done() end
   end)
+end
+
+--
+-- What the similar-books request said about the book on screen (see
+-- Api:getSimilarBooks): your status and rating on it, kept on the saved shelves and
+-- shown if they changed. The community numbers are kept for next time, but the screen
+-- is not redrawn for them alone: they move a little every day, and a full redraw on
+-- e-ink for that would be a flash for nothing.
+--
+function Flows:applyAbout(dialog, book_id, about)
+  local detail = dialog.detail
+  if type(about) ~= "table" or not (detail and detail.book) then return end
+  local user_id = User:getId()
+
+  if self.book_store then self.book_store:updateNumbers(book_id, about) end
+
+  local mine = about.user_book
+  local status_id = mine and tonumber(mine.status_id) or nil
+  local user_book_id = mine and tonumber(mine.id) or nil
+  if status_id ~= detail.status_id or (status_id and user_book_id ~= detail.user_book_id) then
+    local shelves = self:shelves()
+    if shelves then
+      if status_id then
+        shelves:moveBook(user_id, book_id, status_id, user_book_id)
+      else
+        shelves:removeBook(user_id, book_id)
+      end
+    end
+    dialog:setStatus(status_id, user_book_id)
+  end
+
+  -- a rating set here and not sent yet stays on screen
+  local waiting = self.rating_queue and user_book_id and self.rating_queue:get(user_book_id)
+  local rating = mine and tonumber(mine.rating) or nil
+  if status_id and waiting == nil and rating ~= dialog.detail.user_rating then
+    local shelves = self:shelves()
+    if shelves then shelves:rateBook(user_id, book_id, rating) end
+    dialog:setRating(rating or 0)
+  end
 end
 
 -- "Similar to <title>" on a book's details: Hardcover's ranking, fetched after the
@@ -638,8 +764,9 @@ function Flows:loadSimilar(dialog, book_id)
   local tries = 0
   local function attempt()
     tries = tries + 1
-    Api:getSimilarBooksAsync(book_id, function(entries, err)
+    Api:getSimilarBooksAsync(book_id, nil, User:getId(), function(entries, err, about)
       if not UIManager:isWidgetShown(dialog) then return end
+      if about then self:applyAbout(dialog, book_id, about) end
       if entries == nil then
         logger.warn("hardcover: similar books failed (try " .. tries .. ")", err)
         if Recommendations.retryPolicy(tries, err) == "retry" then

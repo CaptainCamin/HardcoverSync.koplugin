@@ -43,6 +43,7 @@ local BookDetailDialog = FocusManager:extend {
   -- called with no arguments when Lists is tapped (the lists to put the book on);
   -- no callback, no button
   on_lists = nil,
+  on_refresh = nil, -- the title bar's reload icon; nil hides it
   -- called with the dialog when On device is tapped (look for the book among the files
   -- on this device); no callback, no button
   on_find = nil,
@@ -77,6 +78,9 @@ function BookDetailDialog:init()
   local title_bar = Theme.titleBar {
     title = self.title,
     close_callback = function() self:onCloseDetail() end,
+    -- the reload icon: fetch everything again (the details may be shown from the device)
+    left_icon = self.on_refresh and "cre.render.reload" or nil,
+    left_callback = self.on_refresh and function() self.on_refresh(self) end or nil,
     show_parent = self,
   }
   self.title_bar = title_bar
@@ -581,7 +585,7 @@ function BookDetailDialog:loadCover(cover, width, height)
     if not bb then return end
 
     self:placeCover(bb, width, height)
-  end)
+  end, { size = "large" })
   self.cover_halt = halt
 end
 

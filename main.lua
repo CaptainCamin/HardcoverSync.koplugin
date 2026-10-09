@@ -34,6 +34,7 @@ local ListStore = require("hardcover/lib/list_store")
 local PageMapper = require("hardcover/lib/page_mapper")
 local Scheduler = require("hardcover/lib/scheduler")
 local ShelfCache = require("hardcover/lib/shelf_cache")
+local ShelfStore = require("hardcover/lib/shelf_store")
 local SqliteStore = require("hardcover/lib/sqlite_store")
 local SyncQueue = require("hardcover/lib/sync_queue")
 local GoalQueue = require("hardcover/lib/goal_queue")
@@ -144,13 +145,14 @@ function HardcoverApp:init()
     open = function(path) return LuaSettings:open(path) end,
   }
 
-  -- Your lists and every book on them, kept once each (see book_store.lua). Also opened
+  -- Your lists, your shelves and every book on them, kept once each (see book_store.lua). Also opened
   -- on first use; closed with this plugin (onCloseWidget).
   self.library_db = SqliteStore:new {
     path = ("%s/%s"):format(DataStorage:getSettingsDir(), "hardcoversync_library.sqlite3"),
   }
   self.book_store = BookStore:new { db = self.library_db }
   self.list_store = ListStore:new { db = self.library_db, books = self.book_store }
+  self.shelf_store = ShelfStore:new { db = self.library_db, books = self.book_store }
 
   self.sync_queue = SyncQueue:new {
     settings = LuaSettings:open(("%s/%s"):format(DataStorage:getSettingsDir(), "hardcoversync_queue.lua"))
@@ -201,6 +203,7 @@ function HardcoverApp:init()
     shelf_cache = self.shelf_cache,
     book_store = self.book_store,
     list_store = self.list_store,
+    shelf_store = self.shelf_store,
     -- books finished offline, for the reading goal's number
     sync_queue = self.sync_queue,
     -- goals made or changed offline, and the way to send them
@@ -630,6 +633,8 @@ function HardcoverApp:onCloseWidget()
 end
 
 function HardcoverApp:onSuspend()
+  -- a cover download for offline stops; running it again carries on
+  if self.dialog_manager and self.dialog_manager.stopCoverDownload then self.dialog_manager:stopCoverDownload() end
   local had_pending = self.page_update_pending
   self:cancelPendingUpdates()
 

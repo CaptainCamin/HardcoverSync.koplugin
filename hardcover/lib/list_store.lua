@@ -9,7 +9,7 @@
 -- Keyed by user, so another account never sees someone else's lists. Pure logic over
 -- the same injected store as book_store.lua; every operation is best-effort.
 
-local json = require("json")
+local Codec = require("hardcover/lib/codec")
 local Lists = require("hardcover/lib/lists")
 
 local ListStore = {}
@@ -19,17 +19,6 @@ function ListStore:new(o)
   o = o or {}
   o.now = o.now or os.time
   return setmetatable(o, self)
-end
-
-local function encode(value)
-  local ok, text = pcall(json.encode, value)
-  return ok and type(text) == "string" and text or nil
-end
-
-local function decode(text)
-  if type(text) ~= "string" then return nil end
-  local ok, value = pcall(json.decode, text, json.decode.simple)
-  return ok and type(value) == "table" and value or nil
 end
 
 local function who(user_id) return tostring(user_id or 0) end
@@ -42,7 +31,7 @@ local function listKey(user_id, list_id) return "list:" .. who(user_id) .. ":" .
 -- `checked_at` is when Hardcover last said the lists were as saved (on Home, or when
 -- the lists screen fetched them); `saved_at` when they last changed here.
 function ListStore:index(user_id)
-  local saved = decode(self.db:getBlob(indexKey(user_id)))
+  local saved = Codec.decode(self.db:getBlob(indexKey(user_id)))
   if saved and type(saved.mine) == "table" and type(saved.following) == "table" then
     return saved
   end
@@ -77,7 +66,7 @@ function ListStore:putIndex(user_id, lists)
   end
   if dropped then self.books:evict() end
 
-  local text = encode(fresh)
+  local text = Codec.encode(fresh)
   return text and self.db:putBlob(indexKey(user_id), text) or false
 end
 
@@ -87,7 +76,7 @@ function ListStore:markChecked(user_id)
   local saved = self:index(user_id)
   if not saved then return false end
   saved.checked_at = self.now()
-  local text = encode(saved)
+  local text = Codec.encode(saved)
   return text and self.db:putBlob(indexKey(user_id), text) or false
 end
 
@@ -101,13 +90,13 @@ function ListStore:markStale(user_id, list_id)
   local saved = self:contents(user_id, list_id)
   if saved then
     saved.fingerprint = nil
-    local text = encode(saved)
+    local text = Codec.encode(saved)
     if text then self.db:putBlob(listKey(user_id, list_id), text) end
   end
   local index = self:index(user_id)
   if index then
     index.checked_at = nil
-    local text = encode(index)
+    local text = Codec.encode(index)
     if text then self.db:putBlob(indexKey(user_id), text) end
   end
   return true
@@ -127,7 +116,7 @@ end
 -- { fingerprint, complete, saved_at, members = { { list_book_id, position, book_id,
 -- date_added }, ... } } as last saved, or nil when this list was never saved.
 function ListStore:contents(user_id, list_id)
-  local saved = decode(self.db:getBlob(listKey(user_id, list_id)))
+  local saved = Codec.decode(self.db:getBlob(listKey(user_id, list_id)))
   if saved and type(saved.members) == "table" then return saved end
 end
 
@@ -176,7 +165,7 @@ local function membersOf(entries)
 end
 
 local function save(self, user_id, row, members, ids, complete)
-  local text = encode({
+  local text = Codec.encode({
     fingerprint = row.fingerprint or Lists.fingerprint(row),
     complete = complete and true or false,
     saved_at = self.now(),

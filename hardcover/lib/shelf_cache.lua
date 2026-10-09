@@ -250,11 +250,13 @@ function ShelfCache:forYou(user_id)
   local saved = home and home:readSetting("for_you")
   local mine = saved and saved[tostring(user_id or 0)]
   if mine and type(mine.entries) == "table" then
-    return mine.entries, mine.saved_at
+    return mine.entries, mine.saved_at, mine.signature
   end
 end
 
-function ShelfCache:putForYou(user_id, entries)
+-- `signature` (ShelvesSync.ratingSignature) is what the picks were made from: when your
+-- ratings and shelves still give the same one, they are still right.
+function ShelfCache:putForYou(user_id, entries, signature)
   local home = self:_home()
   if not home or type(entries) ~= "table" then return false end
 
@@ -270,7 +272,7 @@ function ShelfCache:putForYou(user_id, entries)
     copy.description = nil
     kept[i] = copy
   end
-  saved[tostring(user_id or 0)] = { entries = kept, saved_at = os.time() }
+  saved[tostring(user_id or 0)] = { entries = kept, saved_at = os.time(), signature = signature }
   return (pcall(home.flush, home))
 end
 
@@ -332,7 +334,9 @@ function ShelfCache:stats(user_id)
   if mine and type(mine.rows) == "table" then return mine end
 end
 
-function ShelfCache:putStats(user_id, stats)
+-- `fingerprint` is the Read shelf's (Shelf.fingerprint) when the stats were loaded: while
+-- it has not moved, the finished books have not changed.
+function ShelfCache:putStats(user_id, stats, fingerprint)
   local store = self:_store()
   if not store or type(stats) ~= "table" or type(stats.rows) ~= "table" then return false end
   local saved = store:readSetting("stats")
@@ -342,6 +346,7 @@ function ShelfCache:putStats(user_id, stats)
   end
   saved[tostring(user_id or 0)] = {
     rows = stats.rows, genres = stats.genres or {}, complete = stats.complete ~= false, saved_at = os.time(),
+    fingerprint = fingerprint,
   }
   return (pcall(store.flush, store))
 end
@@ -390,6 +395,24 @@ function ShelfCache:invalidate(user_id, status_ids)
   local ok = (pcall(store.flush, store))
   if home and home ~= store then ok = (pcall(home.flush, home)) and ok end
   return ok
+end
+
+-- The shelves of one user, after they were carried over to the shelf store (see
+-- ShelfStore:convert): the file then holds goals and Stats, and is small again.
+function ShelfCache:dropShelves(user_id)
+  local store = self:_store()
+  local shelves = store and store:readSetting("shelves")
+  if not shelves then return true end
+  local prefix = tostring(user_id or 0) .. ":"
+  local dropped = false
+  for key in pairs(shelves) do
+    if key:sub(1, #prefix) == prefix then
+      shelves[key] = nil
+      dropped = true
+    end
+  end
+  if not dropped then return true end
+  return (pcall(store.flush, store))
 end
 
 -- Everything, for sign out: the cache holds a user's library.

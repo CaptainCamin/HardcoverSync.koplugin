@@ -496,6 +496,24 @@ function Shelf.carouselWindow(total, per_page, first, centre)
   return { first = first, last = last, has_prev = first > 1, has_next = last < total }
 end
 
+--
+-- What says whether a saved shelf is still right, from a user_books_aggregate's
+-- `aggregate`: how many books it holds, when the latest of them last changed, and the
+-- total of your ratings on it. A book joining or leaving the shelf changes the count or
+-- the time (Hardcover moves a book's updated_at when its status changes); a rating
+-- changes the total, whether or not it moves the time. nil when the answer is not an
+-- aggregate.
+--
+function Shelf.fingerprint(aggregate)
+  if type(aggregate) ~= "table" then return nil end
+  local count = tonumber(aggregate.count)
+  if not count then return nil end
+  local latest = type(aggregate.max) == "table" and aggregate.max.updated_at or nil
+  local ratings = type(aggregate.sum) == "table" and tonumber(aggregate.sum.rating) or nil
+  return string.format("%d|%s|%s", count, type(latest) == "string" and latest or "",
+    ratings and string.format("%.1f", ratings) or "")
+end
+
 -- A book's cover as { url, width, height }, or nil when it has none.
 function Shelf.coverOf(book)
   local image = type(book) == "table" and book.cached_image

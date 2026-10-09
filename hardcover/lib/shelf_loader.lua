@@ -8,6 +8,8 @@
 
 local _ = require("gettext")
 
+local unpack = unpack or table.unpack -- luacheck: ignore (5.1 and LuaJIT have it bare)
+
 local ShelfLoader = {}
 
 -- How many books each request asks for. The loop keeps asking until a page comes
@@ -46,6 +48,7 @@ ShelfLoader.RATE_LIMIT_WAITS = 5
 --               shifting later rows into earlier pages)
 --   use_has_more  true when `fetch` says whether more follows (a list does); the
 --               load then ends on "no more" instead of waiting for an empty page
+--   page_size   how many rows each request asks for (PAGE_SIZE when not given)
 --   on_page     function(fresh): called after each page that had books and more
 --               to come, with everything loaded so far (a list the loader keeps
 --               appending to)
@@ -70,7 +73,7 @@ function ShelfLoader.load(opts)
       break
     end
 
-    local entries, err, has_more = opts.fetch(offset, ShelfLoader.PAGE_SIZE)
+    local entries, err, has_more = opts.fetch(offset, opts.page_size or ShelfLoader.PAGE_SIZE)
 
     if not opts.alive() then
       return nil
@@ -128,6 +131,25 @@ end
 --              and leave the reload icon so the reader can carry on
 --   "retry"    nothing arrived and nothing was saved: offer the retry
 --
+--
+-- Make one request, waiting and asking again while Hardcover says to slow down (HTTP
+-- 429), as load() does for pages. `call()` returns what the request returns; `sleep`
+-- pauses without freezing the UI. Gives up after RATE_LIMIT_WAITS waits.
+--
+function ShelfLoader.patient(call, sleep)
+  local waits = 0
+  while true do
+    local results = { call() }
+    local err = results[2]
+    if results[1] ~= nil or not (type(err) == "table" and err.status == 429)
+        or waits >= ShelfLoader.RATE_LIMIT_WAITS then
+      return unpack(results, 1, 3)
+    end
+    waits = waits + 1
+    if sleep then sleep(2 * waits) end
+  end
+end
+
 function ShelfLoader.plan(result, had_saved)
   if result.complete then return "replace" end
   if had_saved then return "keep" end
