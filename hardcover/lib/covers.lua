@@ -10,6 +10,9 @@
 -- Two sizes, from the screen: "small" for rows, strips, Home's cards and the lists
 -- screen, "large" for a book's details. They are rounded to steps so the same sizes
 -- come back each time (the image service caches what it made, and so does the device).
+-- A book's details go further: they ask for the exact box the cover is drawn in (see
+-- Covers.url's `box`), so nothing is resized again on the device, and at JPEG quality
+-- 90 instead of the service's 75 (Covers.QUALITY), which keeps the shading of a photo.
 --
 -- The service is undocumented (it is what hardcover.app uses), so nothing depends on it:
 -- the image loader falls back to the cover as uploaded when it fails. Only covers on
@@ -24,6 +27,11 @@ Covers.SERVICE = "https://production-img.hardcover.app/enlarge"
 -- What part of the screen's shorter side each size is, rounded up to STEP pixels.
 Covers.SIZES = { small = 0.20, large = 0.36 }
 Covers.STEP = 40
+
+-- The JPEG quality asked for, per size. Only "large" is asked for above the service's
+-- default (75): it is the picture drawn big enough for the loss to show. "small" has no
+-- entry, so its address is exactly what it was before this was added.
+Covers.QUALITY = { large = 90 }
 
 -- Only covers here are resized: the service is Hardcover's, for Hardcover's assets.
 local ASSETS = "^https://assets%.hardcover%.app/"
@@ -50,10 +58,20 @@ end
 -- of w x h: the image service's for a cover on Hardcover's asset host, the cover as
 -- uploaded otherwise. The parameters are in the order hardcover.app sends them.
 --
-function Covers.url(url, kind, screen_w, screen_h)
+-- `box` (optional, { w = ..., h = ... }): the exact pixel size to ask for, instead of the
+-- size `kind` gives for the screen (no rounding to steps). A book's details pass the box
+-- their cover is drawn in, so the picture arrives at that size.
+--
+function Covers.url(url, kind, screen_w, screen_h, box)
   if type(url) ~= "string" or not url:match(ASSETS) then return url end
   local w, h = Covers.size(kind, screen_w, screen_h)
-  return string.format("%s?height=%d&type=jpeg&url=%s&width=%d", Covers.SERVICE, h, encode(url), w)
+  if type(box) == "table" and (tonumber(box.w) or 0) > 0 and (tonumber(box.h) or 0) > 0 then
+    w, h = math.floor(box.w), math.floor(box.h)
+  end
+  local quality = Covers.QUALITY[kind]
+  local with_quality = quality and string.format("&quality=%d", quality) or ""
+  return string.format("%s?height=%d%s&type=jpeg&url=%s&width=%d",
+    Covers.SERVICE, h, with_quality, encode(url), w)
 end
 
 -- The cover as uploaded, from an image-service address (nil when it is not one).
