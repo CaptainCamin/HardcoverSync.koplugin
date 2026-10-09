@@ -17,6 +17,7 @@ local ListRow = require("hardcover/lib/ui/list_row")
 local Screen = Device.screen
 
 local HardcoverSearchDialog = InputContainer:extend {
+  name = "hardcover_search_dialog",
   width = nil,
   bordersize = Size.border.window,
   items = {},

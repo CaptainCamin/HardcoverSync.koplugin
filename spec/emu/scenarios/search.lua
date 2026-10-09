@@ -42,6 +42,7 @@ return {
     local dialog = open_search(emu, { query = "the" })
     emu:expectText("Link book")
     emu:expectText("N. K. Jemisin")
+    assert(dialog.name == "hardcover_search_dialog", "the dialog is named " .. tostring(dialog.name))
 
     --[[--
     Same file-marker invariant as the shelf: an item with neither .file nor

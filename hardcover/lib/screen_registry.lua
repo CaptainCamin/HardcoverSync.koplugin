@@ -79,4 +79,18 @@ function ScreenRegistry.pluginWindows(stack)
   return ours
 end
 
+--
+-- Quit: the windows (from pluginWindows) that hold changes not yet saved. A screen says so with
+-- an `unsavedChanges()` method; one without it has nothing to lose.
+--
+function ScreenRegistry.unsaved(windows)
+  local out = {}
+  for _, widget in ipairs(windows) do
+    if type(widget.unsavedChanges) == "function" and widget:unsavedChanges() then
+      out[#out + 1] = widget
+    end
+  end
+  return out
+end
+
 return ScreenRegistry

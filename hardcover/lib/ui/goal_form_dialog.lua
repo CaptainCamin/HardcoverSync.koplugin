@@ -65,6 +65,11 @@ function GoalFormDialog:dirty()
   return false
 end
 
+-- Quit asks before closing a form with changes in it (see quit.lua)
+function GoalFormDialog:unsavedChanges()
+  return self:dirty()
+end
+
 -- what each row shows
 function GoalFormDialog:rows()
   local f = self.form

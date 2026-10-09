@@ -133,4 +133,12 @@ check("quit takes the plugin's windows, top first, and leaves the reader under t
   assert(#ScreenRegistry.pluginWindows({ { name = nil } }) == 0, "an unnamed widget is not the plugin's")
 end)
 
+check("quit asks first only for a window that says it has unsaved changes", function()
+  local dirty = { name = "hardcover_goal_form", unsavedChanges = function() return true end }
+  local saved = { name = "hardcover_goal_form", unsavedChanges = function() return false end }
+  local plain = { name = "hardcover_goals" }
+  local found = ScreenRegistry.unsaved({ dirty, saved, plain })
+  assert(#found == 1 and found[1] == dirty, "only the window with changes is listed")
+end)
+
 r.finish()
