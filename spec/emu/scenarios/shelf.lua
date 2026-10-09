@@ -170,15 +170,20 @@ return {
       #items, menu.page_num))
 
     --[[--
-    Sorting. The title bar's left button opens the sort menu; choosing Title
-    re-orders the rows (articles ignored, so "Babel" before "The Lathe of
-    Heaven"), with real taps, and the order is remembered for the next time the
-    shelf opens.
+    Sorting. The Sort button in the row under the title bar names the order and opens the
+    picker; choosing Title re-orders the rows (articles ignored, so "Babel" before "The
+    Lathe of Heaven"), with real taps, the button then names the new order, and the order
+    is remembered for the next time the shelf opens.
     ]]
-    local UIManager_ = require("ui/uimanager")
-    local left = menu.title_bar.left_button
-    assert(left and left.dimen, "the shelf has no sort button")
-    emu:tapExpecting(left.dimen.x + 5, left.dimen.y + 5)
+    emu:screenNodes() -- positions are only real once painted
+    local sort
+    for _, button in ipairs(menu.title_bar.row_buttons) do
+      if button.text:find("^Sort:") then sort = button end
+    end
+    assert(sort and sort.dimen, "the shelf has no Sort button in its row")
+    assert(sort.text == "Sort: Date added (newest first)", "the Sort button says " .. sort.text)
+    -- (the corner of the button, where the bar's Back tap zone reaches over it)
+    emu:tapExpecting(sort.dimen.x + 5, sort.dimen.y + 5)
     emu:expectText("Sort by")
     emu:expectText("Date added (newest first)")
     emu:shot("shelf_sort_menu")
@@ -187,7 +192,14 @@ return {
     emu:tapExpecting(choice.x + 5, choice.y + 5)
     assert(menu.item_table[1].title == "Babel", "sorting by title left " .. tostring(menu.item_table[1].title) .. " first")
     emu:expectText("Babel")
-    emu:expectText("Want to Read \194\183 Title")
+    -- the title stays the shelf's name; the Sort button names the order
+    emu:screenNodes()
+    local named
+    for _, button in ipairs(menu.title_bar.row_buttons) do
+      if button.text:find("^Sort:") then named = button.text end
+    end
+    assert(named == "Sort: Title (A\226\128\147Z)", "the Sort button says " .. tostring(named))
+    assert(not emu:screenText():find("Want to Read \194\183", 1, true), "the order is back in the title")
     emu:shot("shelf_sorted_title")
 
     local saved = settings:readSetting(require("hardcover/lib/constants/settings").SHELF_SORT)

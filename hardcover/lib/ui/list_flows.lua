@@ -236,8 +236,8 @@ function Flows:showList(row)
     has_more = false,
     offset = 0,
     page_size = ShelfLoader.PAGE_SIZE,
-    -- the menu's "Load the rest of the list", after an interrupted first download: the
-    -- whole list comes through the queue, and what this screen lacks is appended
+    -- the reload icon, after an interrupted first download: the whole list comes through
+    -- the queue, and what this screen lacks is appended
     fetch_page = function(offset, _limit, callback)
       if not Network.connected() then
         callback(nil, _("not available offline"))
@@ -259,9 +259,8 @@ function Flows:showList(row)
     select_entry_cb = function(entry)
       self:showBookDetail(entry.book_id)
     end,
-    actions = store and {
-      { text = _("Refresh"), callback = function() refresh() end },
-    } or nil,
+    -- the reload icon beside the X
+    on_refresh = store and function() refresh() end or nil,
   }
   UIManager:show(dialog)
 

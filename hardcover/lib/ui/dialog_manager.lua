@@ -477,6 +477,8 @@ function DialogManager:showSearchResults(query, books)
     entries = books,
     has_more = false,
     offset = #books,
+    -- "New search" in the row opens the box again, with these words in it
+    on_search = function() self:showSearchInput(query) end,
     select_entry_cb = function(entry)
       self:showBookDetail(entry.book_id)
     end,

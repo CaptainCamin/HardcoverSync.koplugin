@@ -422,8 +422,9 @@ check("Refresh downloads the shelf and its books again, in full", function()
   m:showShelf(1, "Want to Read")
   api_calls = {}
   shelf_pages = { page(50, 1000), { {} } }
-  fake[1].actions[1].callback()
-  assert(fake[1].actions[1].text == "Refresh")
+  -- the reload icon beside the X runs it
+  assert(type(fake[1].on_refresh) == "function", "no refresh behind the reload icon")
+  fake[1].on_refresh(fake[1])
   assert(api_calls[1] == "shelf@0" and #fake[1].shown == 50 and fake[1].shown[1].title == "B1001")
 end)
 

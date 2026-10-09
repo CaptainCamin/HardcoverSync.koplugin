@@ -91,7 +91,8 @@ package.preload["ui/uimanager"] = function()
   return {
     show = function(self, widget) self._shown = widget return widget end,
     close = function(self, widget) self._closed = widget end,
-    setDirty = function() end,
+    -- counted, so a test can tell whether a refresh was asked for
+    setDirty = function(self, _, what) self.dirty_calls = (self.dirty_calls or 0) + 1 self.last_dirty = what end,
     scheduleIn = function(_, _, fn, ...) if type(fn) == "function" then fn(...) end end,
     unschedule = function() end,
     repaint = function() end,
@@ -137,6 +138,42 @@ package.preload["ui/widget/buttondialog"] = function()
   return M
 end
 
+-- The header (list_header.lua has its own harness): keep what it is built with and told,
+-- and apply an update the way the real one does, so the dialog's state shows in it.
+package.preload["hardcover/lib/ui/list_header"] = function()
+  local Header = {}
+  Header.__index = Header
+  Header.new = function(cls, o)
+    o = setmetatable(o or {}, cls)
+    o.updates = 0
+    o.dimen = { x = 0, y = 0, w = o.width, h = 300 }
+    Header.last = o
+    return o
+  end
+  Header.update = function(self, opts)
+    self.updates = self.updates + 1
+    for _, key in ipairs({ "title", "right_icon", "right_callback", "buttons" }) do
+      if opts[key] ~= nil then self[key] = opts[key] end
+    end
+  end
+  return Header
+end
+
+-- The search box: keep what it is given, and let a test type into it
+package.preload["ui/widget/inputdialog"] = function()
+  local Box = { last = nil }
+  Box.new = function(cls, o)
+    o = setmetatable(o or {}, cls)
+    o.text = o.input or ""
+    Box.last = o
+    return o
+  end
+  Box.__index = Box
+  function Box:getInputText() return self.text end
+  function Box:onShowKeyboard() self.keyboard = true end
+  return Box
+end
+
 -- Capture what the plugin hands the real Menu.
 local Menu, record = support.capturing_menu()
 package.preload["ui/widget/menu"] = function() return Menu end
@@ -153,6 +190,10 @@ package.preload["hardcover/lib/shelf"] = function()
     statusLabel = function(id)
       local labels = { [1] = "Want to Read", [2] = "Currently Reading", [3] = "Read" }
       return labels[id] or "Status " .. tostring(id)
+    end,
+    appendPage = function(entries, page)
+      for _, e in ipairs(page or {}) do table.insert(entries, e) end
+      return entries
     end,
   }
 end
@@ -195,6 +236,12 @@ local function buildDialog(entries, opts)
     has_more = opts.has_more or false,
     status_id = opts.status_id or 1,
     compatibility_mode = opts.compatibility_mode or false,
+    fetch_page = opts.fetch_page,
+    on_refresh = opts.on_refresh,
+    on_search = opts.on_search,
+    sortable = opts.sortable,
+    sort_key = opts.sort_key,
+    filter = opts.filter,
   }
   return d
 end
@@ -393,27 +440,104 @@ for _, n in ipairs({ 0, 1, 2, 20, 21, 50 }) do
   r.check(string.format("%d entries build cleanly", n), ok, ok and nil or tostring(err))
 end
 
--- ---------------------------------------------------------------- paging
-print("\n== paging ==")
+-- ---------------------------------------------------------------- the header
+print("\n== the header ==")
 do
-  local d = buildDialog({ entry() }, { has_more = true })
+  local d = buildDialog({ entry() })
   local spec = lastSpec()
-  -- has_more is consumed by the dialog to decide whether to offer a reload
-  -- affordance; it is not itself handed to Menu.
-  r.check("a next-page affordance is offered when more pages exist",
-    type(spec.onLeftButtonTap) == "function",
-    "onLeftButtonTap = " .. type(spec.onLeftButtonTap))
-  r.check("the affordance is labelled as a reload",
-    spec.title_bar_left_icon == "cre.render.reload",
-    "title_bar_left_icon = " .. tostring(spec.title_bar_left_icon))
+  local header = d.header
+  r.check("the menu is given the header as its title bar", spec.custom_title_bar == header and header ~= nil)
+  r.check("and builds no left icon or callback of its own",
+    spec.title_bar_left_icon == nil and spec.onLeftButtonTap == nil)
+  r.check("the header is as wide as the menu", header.width == spec.width, tostring(header.width) .. " vs " .. tostring(spec.width))
+  r.check("it carries the shelf's title", header.title == "Want to Read", tostring(header.title))
+  local UIManager_ = require("ui/uimanager")
+  UIManager_._closed = nil
+  local closed = 0
+  d.close_callback = function() closed = closed + 1 end
+  -- (the container stub gives every instance an empty onClose; the real one is under test)
+  d.onClose = ShelfDialog.onClose
+  header.back_callback()
+  r.check("Back closes the screen", UIManager_._closed == d and closed == 1)
+  UIManager_._closed = nil
+  spec.close_callback()
+  r.check("so does the device's Back key, through the menu", UIManager_._closed == d and closed == 2)
 end
+
+-- ---------------------------------------------------------------- the reload icon
+print("\n== the reload icon ==")
 do
-  local d = buildDialog({ entry() }, { has_more = false })
-  local spec = lastSpec()
-  r.check("no next-page affordance on the last page",
-    spec.onLeftButtonTap == nil and spec.title_bar_left_icon == nil,
-    "onLeftButtonTap = " .. type(spec.onLeftButtonTap)
-      .. ", icon = " .. tostring(spec.title_bar_left_icon))
+  local function icon(d) return d.header.right_icon end
+  local fetched = {}
+  local function fetch(offset, limit, callback) fetched[#fetched + 1] = { offset, limit, callback } end
+
+  local d = buildDialog({ entry() }, { has_more = true, fetch_page = fetch })
+  r.check("more to load: the reload icon is beside the X", icon(d) == "cre.render.reload", tostring(icon(d)))
+  r.check("and it is the header's second icon, not a menu icon", lastSpec().title_bar_left_icon == nil)
+  d.header.right_callback()
+  r.check("it carries on loading from where the list ends", #fetched == 1 and fetched[1][1] == 1,
+    "fetched " .. #fetched)
+
+  d = buildDialog({ entry() }, { has_more = true })
+  r.check("more to load but no way to load it: no icon", icon(d) == nil, tostring(icon(d)))
+
+  d = buildDialog({ entry() }, { has_more = false, fetch_page = fetch })
+  r.check("nothing more to load: no icon", icon(d) == nil, tostring(icon(d)))
+
+  local refreshed
+  d = buildDialog({ entry() }, { on_refresh = function(dialog) refreshed = dialog end })
+  r.check("a screen that can refresh has the icon from the start", icon(d) == "cre.render.reload", tostring(icon(d)))
+  d.header.right_callback()
+  r.check("it runs on_refresh with the dialog", refreshed == d)
+
+  fetched, refreshed = {}, nil
+  d = buildDialog({ entry() }, { has_more = true, fetch_page = fetch, on_refresh = function(dialog) refreshed = dialog end })
+  d.header.right_callback()
+  r.check("with both, finishing the load comes first", #fetched == 1 and refreshed == nil)
+
+  -- kept current as the state changes: every caller builds with has_more = false and
+  -- sets it later, which is why the old icon never showed
+  d = buildDialog({ entry() }, { fetch_page = fetch })
+  local before = d.header.updates
+  d:setEntries({ entry(), entry() }, true, true)
+  r.check("rows arriving with more to come show the icon", icon(d) == "cre.render.reload", tostring(icon(d)))
+  r.check("by updating the header, not rebuilding it", d.header == lastSpec().custom_title_bar and d.header.updates == before + 1)
+  local dirty = require("ui/uimanager").dirty_calls
+  d:setEntries({ entry(), entry(), entry() }, true, true)
+  r.check("a header that did not change is left alone", d.header.updates == before + 1)
+  d:setEntries({ entry() }, false, true)
+  r.check("the last page takes the icon away (false, which removes it)", icon(d) == false, tostring(icon(d)))
+
+  fetched = {}
+  d = buildDialog({ entry() }, { fetch_page = fetch })
+  d:setEntries({ entry() }, true, true)
+  d.offset = 1
+  d.header.right_callback()
+  fetched[1][3]({ entry(), entry() }, nil, false)
+  r.check("loading the rest appends it and takes the icon away", #d.entries == 3 and d.has_more == false
+    and icon(d) == false, "entries " .. #d.entries .. ", icon " .. tostring(icon(d)))
+
+  d = buildDialog({ entry() }, { fetch_page = fetch })
+  d:setEntries({ entry() }, true, true)
+  fetched = {}
+  d.header.right_callback()
+  fetched[1][3](nil, "boom")
+  r.check("a failed load keeps the icon, to try again", icon(d) == "cre.render.reload" and d.has_more == true)
+
+  d = buildDialog({ entry() }, { has_more = true, fetch_page = fetch })
+  d:setEmptyState("Nothing")
+  r.check("an empty answer takes the icon away", icon(d) == false or icon(d) == nil)
+
+  -- the refresh covers the header's rectangle only
+  d = buildDialog({ entry() }, { fetch_page = fetch })
+  local UIManager = require("ui/uimanager")
+  UIManager.dirty_calls, UIManager.last_dirty = 0, nil
+  d:updatePager()
+  r.check("nothing changed: nothing is refreshed", UIManager.dirty_calls == 0)
+  d.has_more = true
+  d:updatePager()
+  r.check("the header changed: its own region is refreshed", UIManager.dirty_calls == 1 and type(UIManager.last_dirty) == "function",
+    tostring(UIManager.dirty_calls) .. " " .. type(UIManager.last_dirty))
 end
 
 -- ---------------------------------------------------------------- keeping the reader's place
@@ -461,9 +585,10 @@ do
   end
 
   local d, spec = shelf()
-  r.check("a shelf's left icon is the sort button, even when nothing is left to load", spec.title_bar_left_icon == "appbar.menu"
-    and type(spec.onLeftButtonTap) == "function", tostring(spec.title_bar_left_icon))
+  r.check("a shelf has no menu icon: sorting is a button in the row", spec.title_bar_left_icon == nil
+    and spec.onLeftButtonTap == nil)
   r.check("it opens in the arrival order by default", titles(spec) == "The Zebra|Apple|Mango", titles(spec))
+  r.check("the title is the shelf's name, whatever the order", d:displayTitle() == "Want to Read" and spec.title == "Want to Read")
 
   local changed
   d, spec = shelf({ on_sort_change = function(k) changed = k end })
@@ -497,17 +622,173 @@ do
 
   d, spec = shelf({ has_more = true })
   d:showSortMenu()
-  r.check("a shelf whose load was interrupted offers to carry on in the sort menu",
-    ButtonDialog.last.buttons[1][1].text:find("Load the rest", 1, true) ~= nil)
-  d, spec = shelf()
-  d:showSortMenu()
-  r.check("a complete shelf does not", ButtonDialog.last.buttons[1][1].text:find("Load the rest", 1, true) == nil)
+  r.check("the picker lists the orders and nothing else, even when a load was interrupted",
+    #ButtonDialog.last.buttons == 11 and ButtonDialog.last.buttons[1][1].text:find("Load the rest", 1, true) == nil,
+    #ButtonDialog.last.buttons .. " rows")
 
-  -- search results are in relevance order: no sort button, reload icon as before
-  record.specs = {}
-  ShelfDialog:new { title = "x", entries = { entry() }, has_more = true, status_id = 1 }
-  local plain = lastSpec()
-  r.check("a list that is not a shelf has no sort button", plain.title_bar_left_icon == "cre.render.reload")
+  -- the Sort button names the order, and follows it
+  d, spec = shelf()
+  local function sortText(dialog) return dialog.header.buttons[1].text end
+  r.check("the Sort button names the order in use", sortText(d) == "Sort: Date added (newest first)", sortText(d))
+  r.check("it opens a picker, so it carries the chevron", d.header.buttons[1].chevron == true)
+  d.header.buttons[1].callback()
+  r.check("and tapping it opens the picker", #ButtonDialog.last.buttons == 11)
+  d:setSort("title")
+  r.check("choosing an order renames the button", sortText(d) == "Sort: Title (A\226\128\147Z)", sortText(d))
+  r.check("the title is still just the name", d.header.title == "Want to Read", d.header.title)
+  d, spec = shelf({ sort_key = "author" })
+  r.check("a remembered order is on the button when the shelf opens", sortText(d) == "Sort: Author (A\226\128\147Z)", sortText(d))
+
+  -- search results are in relevance order: no Sort button
+  d = ShelfDialog:new { title = "x", entries = { entry() }, status_id = 1 }
+  r.check("a list that is not a shelf has no Sort button", #d.header.buttons == 1 and d.header.buttons[1].text == "Search")
+end
+
+-- ---------------------------------------------------------------- the row of buttons
+print("\n== the row under the title bar ==")
+do
+  local function texts(dialog)
+    local out = {}
+    for _, b in ipairs(dialog.header.buttons) do out[#out + 1] = b.text end
+    return table.concat(out, " | ")
+  end
+  local d = buildDialog({ entry() }, { sortable = true })
+  r.check("a shelf: Sort and Search", texts(d) == "Sort: Date added (newest first) | Search", texts(d))
+  d = buildDialog({ entry() }, {})
+  r.check("a list: Search alone", texts(d) == "Search", texts(d))
+
+  local searched = 0
+  d = buildDialog({ entry() }, { on_search = function() searched = searched + 1 end })
+  r.check("search results: New search alone, with the chevron", texts(d) == "New search" and d.header.buttons[1].chevron == true, texts(d))
+  d.header.buttons[1].callback()
+  r.check("it runs on_search", searched == 1)
+  d:setFilter("x")
+  r.check("and never grows a filter button", texts(d) == "New search", texts(d))
+end
+
+-- ---------------------------------------------------------------- searching a list
+print("\n== searching a list ==")
+do
+  local InputDialog = require("ui/widget/inputdialog")
+  local UIManager = require("ui/uimanager")
+  local function titles(dialog)
+    local out = {}
+    for i, item in ipairs(dialog.menu.item_table) do out[i] = item.title or item.text end
+    return table.concat(out, "|")
+  end
+  local function row(dialog)
+    local out = {}
+    for _, b in ipairs(dialog.header.buttons) do out[#out + 1] = b.text end
+    return table.concat(out, " | ")
+  end
+  local function shelf(opts)
+    opts = opts or {}
+    local entries = {
+      entry({ book_id = 1, title = "The Zebra", authors = "Ann Zed" }),
+      entry({ book_id = 2, title = "Apple", authors = "Bob Young" }),
+      entry({ book_id = 3, title = "Mango", authors = "Cy Xu", series = "Fruit" }),
+      entry({ book_id = 4, title = "Caf\195\169", authors = "\195\137mile Zola" }),
+    }
+    opts.sortable = opts.sortable ~= false
+    return buildDialog(entries, opts)
+  end
+
+  local d = shelf()
+  d.header.buttons[2].callback()
+  local box = InputDialog.last
+  r.check("Search opens a box, titled for a shelf", box and box.title == "Search this shelf", tostring(box and box.title))
+  r.check("with nothing in it, the keyboard up, and Cancel and Search", box.input == "" and box.keyboard == true
+    and box.buttons[1][1].text == "Cancel" and box.buttons[1][2].text == "Search")
+  box.text = "e"
+  box.buttons[1][2].callback()
+  r.check("searching closes the box", UIManager._closed == box)
+  r.check("and keeps the matches only, in the order in use", titles(d) == "The Zebra|Apple|Caf\195\169", titles(d))
+  r.check("every row is the entry that matched", (function()
+    for _, item in ipairs(d.menu.item_table) do
+      if not (item.entry and item.entry.book_id) then return false end
+    end
+    return #d.menu.item_table > 0
+  end)())
+  r.check("the filter is kept", d.filter == "e")
+
+  d = shelf({ sort_key = "title" })
+  d:setFilter("e")
+  r.check("the filter is applied before the sort", titles(d) == "Apple|Caf\195\169|The Zebra", titles(d))
+  d:setFilter("zed")
+  r.check("authors are searched", titles(d) == "The Zebra", titles(d))
+  d:setFilter("fruit")
+  r.check("so is the series", titles(d) == "Mango", titles(d))
+  d:setFilter("CAFE")
+  r.check("case and accents do not matter", titles(d) == "Caf\195\169", titles(d))
+  d:setFilter("zebra zed")
+  r.check("every word has to match", titles(d) == "The Zebra", titles(d))
+  d:setFilter("zebra apple")
+  r.check("words from two books match neither", #d.menu.item_table == 1 and d.menu.item_table[1].file == "hardcover-empty")
+  r.check("the entries themselves are untouched", #d.entries == 4)
+
+  d:setFilter("zebra")
+  r.check("a filter shows the words in black, and a small x",
+    row(d) == "Sort: Title (A\226\128\147Z) | \226\128\156zebra\226\128\157 | \195\151", row(d))
+  r.check("the words are the filled button; the x is narrow", d.header.buttons[2].filled == true and d.header.buttons[3].narrow == true
+    and not d.header.buttons[1].filled)
+  d.header.buttons[2].callback()
+  box = InputDialog.last
+  r.check("the words open the box again with the filter in it", box.input == "zebra", tostring(box.input))
+  box.text = "mango"
+  box.buttons[1][2].callback()
+  r.check("a new search replaces the filter", d.filter == "mango" and titles(d) == "Mango")
+  d.header.buttons[3].callback()
+  r.check("the x clears it: every book is back, the row is Sort and Search",
+    d.filter == nil and #d.menu.item_table == 4 and row(d) == "Sort: Title (A\226\128\147Z) | Search", row(d))
+
+  d:setFilter("   ")
+  r.check("only spaces is no filter", d.filter == nil and #d.menu.item_table == 4)
+  d:setFilter("  mango ")
+  r.check("spaces around the words are dropped", d.filter == "mango")
+  d.header.buttons[2].callback()
+  box = InputDialog.last
+  box.text = ""
+  box.buttons[1][2].callback()
+  r.check("searching with nothing in the box clears the filter", d.filter == nil and #d.menu.item_table == 4)
+  d.header.buttons[2].callback()
+  box = InputDialog.last
+  UIManager._closed = nil
+  box.buttons[1][1].callback()
+  r.check("Cancel closes the box and changes nothing", UIManager._closed == box and d.filter == nil)
+
+  -- nothing matches: a row says so, like an empty shelf
+  d = shelf()
+  d:setFilter("qqq")
+  local only = d.menu.item_table[1]
+  r.check("a word nothing matches says so", #d.menu.item_table == 1 and only.text == "No books match \226\128\156qqq\226\128\157", tostring(only and only.text))
+  r.check("in a row the list will draw as a book, not a folder", only.file == "hardcover-empty" and only.mandatory == "")
+  r.check("and it is not the shelf's own empty state", d.empty_state == nil)
+
+  -- the filter outlives new rows, and does not touch what is left to load
+  local fetched = {}
+  d = shelf({ fetch_page = function(offset, _, callback) fetched[#fetched + 1] = callback end })
+  d:setEntries(d.entries, true, true)
+  d:setFilter("qqq")
+  r.check("a filter that matches nothing leaves the reload icon", d.header.right_icon == "cre.render.reload" and d.has_more == true)
+  d:setEntries({ entry({ book_id = 7, title = "Qqq Book" }) }, true, true)
+  r.check("rows that arrive are filtered too", #d.menu.item_table == 1 and d.menu.item_table[1].title == "Qqq Book")
+  d.offset = 1
+  d.header.right_callback()
+  fetched[1]({ entry({ book_id = 8, title = "Another" }), entry({ book_id = 9, title = "More qqq" }) }, nil, false)
+  r.check("and so is the rest of the list when it comes", #d.entries == 3 and #d.menu.item_table == 2, #d.menu.item_table .. " rows")
+
+  -- an empty shelf says so again once a filter on it is cleared
+  d = shelf()
+  d:setEntries({}, false, true)
+  d:setEmptyState("No books on this shelf yet")
+  d:setFilter("x")
+  d:setFilter(nil)
+  r.check("an empty shelf keeps its own message", #d.menu.item_table == 1 and d.menu.item_table[1].text == "No books on this shelf yet")
+
+  -- a list is a list: Search says "list"
+  d = shelf({ sortable = false })
+  d.header.buttons[1].callback()
+  r.check("on a list the box says list", InputDialog.last.title == "Search this list", tostring(InputDialog.last.title))
 end
 
 r.finish()

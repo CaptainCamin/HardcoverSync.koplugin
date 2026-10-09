@@ -386,9 +386,9 @@ end)
 check("Refresh downloads the list and its books again, in full", function()
   local m = primed()
   m:showList(rowNamed(m, "Owned"))
-  local refresh = shown.shelf.actions[1]
-  assert(refresh.text == "Refresh")
-  refresh.callback()
+  -- the reload icon beside the X runs it
+  assert(type(shown.shelf.on_refresh) == "function", "no refresh behind the reload icon")
+  shown.shelf.on_refresh(shown.shelf)
   assert(named("getListBooks") == 1 and shown.shelf.updates >= 2)
 end)
 
@@ -397,6 +397,7 @@ check("a manager with no stores still opens a list from the network", function()
   m.book_store, m.list_store = nil, nil
   m:showList(listOf(11))
   assert(named("getListBooks") == 1 and #shown.shelf.entries == 2 and #retries == 0)
+  assert(shown.shelf.on_refresh == nil, "a list with no store has a reload icon to refresh nothing")
 end)
 
 check("a book put on a list from its details is in the list next time, however soon", function()

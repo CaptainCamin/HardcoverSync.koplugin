@@ -3,7 +3,7 @@ Searching for books from the home screen, with real taps.
 
 Home -> "Search books" button -> input dialog -> Search -> results list (the
 shelf's five-tall-row list) -> tap a row -> book details -> close -> back on the
-results -> Close -> home again. Also a query with no matches, an empty query
+results -> Back -> home again. Also a query with no matches, an empty query
 (must make no request) and an offline search (must make no request).
 
 Screens: search_home, search_input, search_results, search_book, search_none,
@@ -113,13 +113,13 @@ return {
     emu:pump()
     assert(topmost() == results, "closing the details did not return to the results")
 
-    -- Close returns to home
-    local close = results.menu.title_bar.right_button
-    assert(close and close.dimen, "results have no close button")
-    emu:tapExpecting(close.dimen.x + 5, close.dimen.y + 5)
+    -- Back returns to home (the X would quit the plugin)
+    local back = results.menu.title_bar.left_button
+    assert(back and back.dimen, "results have no Back arrow")
+    emu:tapExpecting(back.dimen.x + 5, back.dimen.y + 5)
     emu:pump()
-    assert(not UIManager:isWidgetShown(results), "Close left the results open")
-    assert(topmost() == home, "closing the results did not return to home")
+    assert(not UIManager:isWidgetShown(results), "Back left the results open")
+    assert(topmost() == home, "going back from the results did not return to home")
 
     -- no matches: an answer, not a blank list
     local b = home.search_button.dimen
