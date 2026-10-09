@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (1.7.0 betas)
+## 1.7.0
 
 ### Added
 
@@ -16,6 +16,7 @@
 - **A shelf or list that has not changed costs nothing to open**: no request at all when Home checked a moment ago, or one small request otherwise. One that changed downloads only which books it holds and the books the device does not have yet. Finishing a book no longer reloads your whole Read shelf; a book added to a 25-book list costs about 3 KB instead of 32 KB. Each book is kept once, however many lists and shelves it is on.
 - **Covers are fetched at the size they are drawn**, from Hardcover's image service (as hardcover.app does), instead of as uploaded: a cover uploaded at 1.9 MB now comes as 30 KB in a list and 165 KB on its details screen. Twelve covers from a real shelf came to 327 KB instead of 6.2 MB. If the service fails, the cover as uploaded is used. Covers are kept in 30 MB of space rather than as 300 files, so the large covers earlier versions saved are the first to go.
 - A book's details fetch its cover at exactly the size it is shown, at JPEG quality 90 instead of 75, and covers are drawn with e-ink dithering, so photos no longer band into flat patches.
+- A fresher look: buttons are rounded pills, section headings and the big figures (Stats, a book's numbers) are set in a bold serif, and progress bars are solid black.
 - Moving a book to another shelf, rating it or removing it changes the saved shelf at once, instead of throwing both shelves away to be downloaded again.
 - **Stats** loads again only when your Read shelf changed, after a change made on this device, or once a week. **For you** is made again only when your ratings or shelves changed, or once a week. Otherwise both open from the device with nothing downloaded.
 - Measured on a real account (9 lists, 4 shelves, 758 books):
@@ -26,10 +27,6 @@
   - everything opens offline with no request, and the whole library takes 1.5 MB on the device.
 - The book count under a list is now counted rather than taken from the number Hardcover stores, which can be off by one.
 - Lists, shelves and their books are kept in a small database (`hardcoversync_library.sqlite3` in KOReader's settings folder), using the SQLite that KOReader already includes. The shelves an earlier version saved are carried over the first time Home or a shelf opens. Signing out clears it.
-
-### Fixed
-
-- Covers in a shelf, a list or search results were drawn far too small or spilled out of their row (1.7.0-beta.2). The row sized each cover by the size it was uploaded at, but the cover now comes from the image service at the size it is shown.
 
 ## 1.6.3
 
