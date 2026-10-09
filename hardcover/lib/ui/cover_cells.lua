@@ -70,6 +70,13 @@ local function show(cell, bb, w, h)
   if old and type(old.free) == "function" then pcall(old.free, old) end
 end
 
+-- Put a picture in a box. The screen is then flagged as showing pictures, so its
+-- repaints are dithered (see refresh.lua).
+function CoverCells:showPicture(cell, bb, w, h)
+  show(cell, bb, w, h)
+  if self.window then self.window.dithered = true end
+end
+
 -- Start laying out: pictures from the last layout stay available to be reused.
 function CoverCells:begin()
   for k, bb in pairs(self.bbs) do
@@ -99,7 +106,7 @@ function CoverCells:cell(url, w, h)
   if kept then
     self.prev[k] = nil
     self.bbs[k] = kept
-    show(cell, kept, w, h)
+    self:showPicture(cell, kept, w, h)
   else
     self.cells[url] = self.cells[url] or {}
     table.insert(self.cells[url], { cell = cell, w = w, h = h })
@@ -139,9 +146,10 @@ function CoverCells:load()
         if bb then self.bbs[k] = bb end
       end
       if bb then
-        show(spec.cell, bb, spec.w, spec.h)
+        self:showPicture(spec.cell, bb, spec.w, spec.h)
         local cell = spec.cell
-        Refresh.box(window, function() return cell.dimen end, self.clip)
+        -- a picture: its box is refreshed dithered
+        Refresh.box(window, function() return cell.dimen end, self.clip, nil, true)
       end
     end
   end)
