@@ -236,6 +236,22 @@ function BookStore:putSeries(user_id, series_id, series)
   return text and self.db:putBlob("series:" .. tostring(user_id or 0) .. ":" .. tostring(series_id), text) or false
 end
 
+-- The covers (as uploaded) of every book on your shelves and saved lists, each once.
+function BookStore:libraryCovers(user_id)
+  local ids = self.db:libraryBookIds(tonumber(user_id) or 0)
+  local rows = self:rows(ids)
+  local urls, seen = {}, {}
+  for _, id in ipairs(ids) do
+    local image = rows[id] and rows[id].cached_image
+    local url = type(image) == "table" and image.url
+    if type(url) == "string" and url ~= "" and not seen[url] then
+      seen[url] = true
+      urls[#urls + 1] = url
+    end
+  end
+  return urls
+end
+
 -- Drop what no list holds and was not opened recently (see OPENED_CAP).
 function BookStore:evict()
   return self.db:evict(BookStore.OPENED_CAP)
