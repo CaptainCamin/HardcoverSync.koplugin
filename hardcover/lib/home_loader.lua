@@ -24,7 +24,7 @@ HomeLoader.GOALS_RETRY_AFTER = 3
 --   user_id, status_ids
 --   saved_counts, saved_reading   what the screen was drawn from, to tell what changed
 --   shown_reading  function(entries) -> the cards with offline reading laid over them
---   on_counts(counts), on_reading(shown), on_list_count(n), on_goals(goals)
+--   on_counts(counts), on_reading(shown), on_list_count(n, marks), on_goals(goals)
 --                  what to do with each answer that changed or is new
 --
 function HomeLoader.refresh(opts)
@@ -64,10 +64,11 @@ function HomeLoader.refresh(opts)
     end
   end
 
-  -- the "More lists" tile's number: yours plus the ones you follow
-  local list_count = api:getListCount()
+  -- the "More lists" tile's number: yours plus the ones you follow; and each list's
+  -- fingerprint, which the caller compares with the saved lists (see list_flows.lua)
+  local list_count, list_marks = api:getListCount()
   if list_count and alive() then
-    opts.on_list_count(list_count)
+    opts.on_list_count(list_count, list_marks)
   end
 
   -- the goal card: fresh goals replace the saved ones

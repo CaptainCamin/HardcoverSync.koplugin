@@ -37,18 +37,63 @@ local function covers(list_books)
   return urls
 end
 
+-- How many books a list holds. Counted (list_books_aggregate) when the answer has the
+-- count: the list's own books_count is a stored number that can be off (26 for a list of
+-- 25, seen on the real API).
+local function bookCount(list)
+  local aggregate = type(list.list_books_aggregate) == "table" and list.list_books_aggregate.aggregate
+  return tonumber(type(aggregate) == "table" and aggregate.count or nil) or tonumber(list.books_count) or 0
+end
+
+--
+-- What says whether a saved list is still right: when Hardcover last changed the list,
+-- and how many books it holds. Adding or removing a book moves the time (checked against
+-- the real API: the time follows the new book by milliseconds); the count is there too,
+-- so a removal is seen even if the time did not move. nil when the answer had no time,
+-- which never matches, so such a list is always fetched.
+--
+function Lists.fingerprint(r)
+  if type(r) ~= "table" or type(r.updated_at) ~= "string" or r.updated_at == "" then return nil end
+  return r.updated_at .. "|" .. tostring(tonumber(r.count) or 0)
+end
+
 local function row(list, source, owner)
   if type(list) ~= "table" or not list.id then return nil end
-  return {
+  local r = {
     id = list.id,
     source = source, -- "mine" or "followed": which part of `me` the books are read through
     name = (type(list.name) == "string" and list.name ~= "") and list.name or "Untitled list",
-    count = tonumber(list.books_count) or 0,
+    count = bookCount(list),
     ranked = list.ranked and true or false,
     private = list.privacy_setting_id ~= nil and list.privacy_setting_id ~= 1 or nil,
     owner = owner,
     covers = covers(list.list_books),
+    updated_at = type(list.updated_at) == "string" and list.updated_at or nil,
   }
+  r.fingerprint = Lists.fingerprint(r)
+  return r
+end
+
+--
+-- `me` from Api:getListCount: each list's id, source and fingerprint, enough to tell
+-- whether the saved lists are still right without fetching them. Returns
+-- { { id, source, fingerprint }, ... }, yours first.
+--
+function Lists.marks(me)
+  if type(me) == "table" and me[1] ~= nil then me = me[1] end
+  local marks = {}
+  if type(me) ~= "table" then return marks end
+  local function add(list, source)
+    if type(list) == "table" and list.id then
+      local r = { id = list.id, count = bookCount(list), updated_at = list.updated_at }
+      marks[#marks + 1] = { id = list.id, source = source, fingerprint = Lists.fingerprint(r) }
+    end
+  end
+  for _, list in ipairs(type(me.lists) == "table" and me.lists or {}) do add(list, "mine") end
+  for _, followed in ipairs(type(me.followed_lists) == "table" and me.followed_lists or {}) do
+    add(type(followed) == "table" and followed.list or nil, "followed")
+  end
+  return marks
 end
 
 --
@@ -103,6 +148,7 @@ function Lists.entry(list_book, ranked)
   })
   entry.user_book_id = nil -- a list entry is not one of your own library rows
   entry.list_book_id = list_book.id
+  entry.position = tonumber(list_book.position)
   if ranked and tonumber(list_book.position) then
     entry.rank = tonumber(list_book.position) + 1
   end
