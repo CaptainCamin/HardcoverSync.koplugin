@@ -83,6 +83,50 @@ function ImageLoader:lookup(key)
   return cache and cache:get(key) or nil
 end
 
+--
+-- Download cover `url` at `size`. Call from inside Trapper:wrap. The resized cover;
+-- once more if it failed (the image service sometimes answers a 502 the first time it
+-- makes a size); then the cover as uploaded. A download cancelled by a tap (not
+-- completed) is respected: nothing more is tried. `background`: not cancellable by a
+-- tap. `stopped()`: whether to give up between tries.
+-- Returns completed, success, content, and the key it was downloaded as.
+--
+function ImageLoader:download(url, size, background, stopped)
+  stopped = stopped or function() return false end
+  local fetch = self:fetchUrl(url, size)
+  local function get(from)
+    return Trapper:dismissableRunInSubprocess(function()
+      return getUrlContent(from, 10, 30)
+    end, background and {} or nil)
+  end
+  local saved_as = fetch
+  local completed, success, content = get(fetch)
+  if completed and not success and not stopped() then
+    completed, success, content = get(fetch)
+  end
+  if completed and not success and fetch ~= url and not stopped() then
+    saved_as = url
+    completed, success, content = get(url)
+  end
+  return completed, success, content, saved_as
+end
+
+-- Download cover `url` (small) for offline and keep it where the cover space's limit
+-- does not reach. Never cancelled by a tap. Call from inside Trapper:wrap. True when kept.
+function ImageLoader:keepForOffline(url, stopped)
+  local pinned = self:getPinned()
+  if not pinned then return false end
+  local completed, success, content, saved_as = self:download(url, "small", true, stopped)
+  return completed and success and pinned:put(saved_as, content) or false
+end
+
+-- A cover on the device from being seen, kept for offline as well. True when kept.
+function ImageLoader:copyForOffline(key)
+  local pinned, cache = self:getPinned(), self:getCache()
+  local content = cache and cache:get(key)
+  return content ~= nil and pinned ~= nil and pinned:put(key, content) or false
+end
+
 -- Overridable so tests need no network manager.
 function ImageLoader:isOnline()
   local ok, NetworkManager = pcall(require, "ui/network/manager")
@@ -163,27 +207,20 @@ function Batch:loadImages(urls, size)
       return
     end
 
+    -- downloaded for offline before the image service was used for it: as uploaded
+    local pinned = ImageLoader:getPinned()
+    local kept = fetch ~= url and pinned and pinned:get(url)
+    if kept then
+      self.callback(url, kept)
+      schedule_next(CACHED_DELAY)
+      return
+    end
+
     Trapper:wrap(function()
       if stop_loading then return end
 
-      local function download(from)
-        return Trapper:dismissableRunInSubprocess(function()
-          return getUrlContent(from, 10, 30)
-        end)
-      end
-
-      -- the resized cover; once more if it failed (the image service sometimes answers a
-      -- 502 the first time it makes a size); then the cover as uploaded. A tap that
-      -- cancelled the download (not completed) is respected: nothing more is tried.
-      local saved_as = fetch
-      local completed, success, content = download(fetch)
-      if completed and not success and not stop_loading then
-        completed, success, content = download(fetch)
-      end
-      if completed and not success and fetch ~= url and not stop_loading then
-        saved_as = url
-        completed, success, content = download(url)
-      end
+      local completed, success, content, saved_as = ImageLoader:download(url, size, false,
+        function() return stop_loading end)
 
       if completed and success then
         if cache then cache:put(saved_as, content) end

@@ -50,6 +50,8 @@ require("hardcover/lib/ui/book_flows").install(DialogManager)
 require("hardcover/lib/ui/list_flows").install(DialogManager)
 -- And the shelves, and keeping them saved.
 require("hardcover/lib/ui/shelf_flows").install(DialogManager)
+-- And Settings > Download covers for offline.
+require("hardcover/lib/ui/cover_flows").install(DialogManager)
 
 -- The open screens by kind (see screen_registry.lua). Built on first use so a manager
 -- made without it, or by a test, still works.

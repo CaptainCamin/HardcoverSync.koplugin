@@ -633,6 +633,8 @@ function HardcoverApp:onCloseWidget()
 end
 
 function HardcoverApp:onSuspend()
+  -- a cover download for offline stops; running it again carries on
+  if self.dialog_manager and self.dialog_manager.stopCoverDownload then self.dialog_manager:stopCoverDownload() end
   local had_pending = self.page_update_pending
   self:cancelPendingUpdates()
 

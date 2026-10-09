@@ -377,6 +377,18 @@ function SqliteStore:deleteMember(user_id, book_id)
   end)
 end
 
+-- Every book on one of the user's shelves or saved lists (what Download for offline
+-- fetches covers for).
+function SqliteStore:libraryBookIds(user_id)
+  return self:_try(function(conn)
+    local out = {}
+    local found = rows(conn, "SELECT book_id FROM shelf_books WHERE user_id = ? UNION SELECT book_id FROM refs WHERE owner LIKE ?",
+      user_id, "list:" .. tostring(user_id) .. ":%")
+    for i, r in ipairs(found) do out[i] = r[1] end
+    return out
+  end) or {}
+end
+
 -- Keep the `keep_opened` most recently opened details, and the books some list or shelf
 -- holds or that still have details; delete the rest.
 function SqliteStore:evict(keep_opened)

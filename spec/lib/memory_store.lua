@@ -208,6 +208,24 @@ function MemoryStore:close()
   self.closed = true
 end
 
+function MemoryStore:libraryBookIds(user_id)
+  if self.fail then return {} end
+  local seen, out = {}, {}
+  for _, m in pairs(self.shelf) do
+    if m.user_id == user_id and not seen[m.book_id] then seen[m.book_id] = true; out[#out + 1] = m.book_id end
+  end
+  local prefix = "list:" .. tostring(user_id) .. ":"
+  for owner, ids in pairs(self.refs) do
+    if owner:sub(1, #prefix) == prefix then
+      for _, id in ipairs(ids) do
+        if not seen[id] then seen[id] = true; out[#out + 1] = id end
+      end
+    end
+  end
+  table.sort(out)
+  return out
+end
+
 -- for assertions
 function MemoryStore:count(name)
   local n = 0

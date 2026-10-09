@@ -108,6 +108,8 @@ function Flows:checkShelves(prints)
   local store = self:shelves()
   if not store or type(prints) ~= "table" then return end
   self:convertShelves()
+  -- what Download covers for offline says is missing is counted again
+  self._covers_missing = nil
   local user_id = User:getId()
   for _, status_id in ipairs(Home.statusIds()) do
     local fingerprint = prints[status_id]
