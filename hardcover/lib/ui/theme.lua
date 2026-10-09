@@ -476,10 +476,14 @@ end
 --
 function Theme.touchable(child, w, callback, viewport)
   local TapRow = require("hardcover/lib/ui/tap_row")
-  local h = math.max(child:getSize().h, Theme.TOUCH_MIN)
+  local size = child:getSize()
+  local h = math.max(size.h, Theme.TOUCH_MIN)
   return TapRow:new {
     callback = callback,
     viewport = viewport,
+    -- the child is the label: it flashes where it is drawn (LeftContainer centres it
+    -- vertically, as the floor below)
+    feedback = { x = 0, y = math.floor((h - size.h) / 2), w = size.w, h = size.h },
     LeftContainer:new {
       dimen = Geom:new { w = w, h = h },
       child,
@@ -521,6 +525,7 @@ function Theme.button(text, w, opts)
   local tap = TapRow:new {
     callback = enabled and opts.callback or nil,
     viewport = opts.viewport,
+    feedback = true, -- the whole button is its label
     box,
   }
   tap.label = label
@@ -530,22 +535,30 @@ function Theme.button(text, w, opts)
 end
 
 --
--- The title bar every screen shares: the title centred, an optional icon at
--- the left (settings, sort), the close X at the right, and no rule under it
--- (the first section heading of the page draws the firm rule).
+-- The title bar every screen shares: the title centred, the close X at the right,
+-- and no rule under it (the first section heading of the page draws the firm rule).
+-- At the left, a screen opened from another has a Back arrow (`back_callback`: leave
+-- this screen, the one beneath shows again); the root screen has its own icon there
+-- instead (`left_icon` / `left_callback`, Home's settings).
+-- The X always quits the plugin, from any screen (see quit.lua).
 --
 function Theme.titleBar(opts)
+  local Quit = require("hardcover/lib/ui/quit")
   local face = Theme.serif("title")
+  local left_icon, left_callback = opts.left_icon, opts.left_callback
+  if opts.back_callback then
+    left_icon, left_callback = "back.top", opts.back_callback
+  end
   return TitleBar:new {
     title_face = face,
     width = opts.width or Screen:getWidth(),
     fullscreen = true,
     align = "center",
     title = opts.title,
-    left_icon = opts.left_icon,
-    left_icon_tap_callback = opts.left_callback,
+    left_icon = left_icon,
+    left_icon_tap_callback = left_callback,
     with_bottom_line = false,
-    close_callback = opts.close_callback,
+    close_callback = function() Quit.run() end,
     show_parent = opts.show_parent,
   }
 end

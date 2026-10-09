@@ -110,6 +110,7 @@ function SettingsScreen:buildRow(row, width, viewport)
     callback = row.choose,
     hold_callback = row.hold,
     viewport = viewport,
+    feedback = true,
     box,
   }
   tap.text = row.text
@@ -157,6 +158,7 @@ function SettingsScreen:buildTile(row, width, height, viewport)
     callback = row.choose,
     hold_callback = row.hold,
     viewport = viewport,
+    feedback = true,
     box,
   }
   tap.text = value
@@ -292,7 +294,7 @@ function SettingsScreen:render(keep)
   local M = Theme.margin
   local title_bar = Theme.titleBar {
     title = (current.title:gsub("[:%s]+$", "")),
-    close_callback = function() self:onClose() end,
+    back_callback = function() self:onClose() end,
     show_parent = self,
   }
   self.title_bar = title_bar

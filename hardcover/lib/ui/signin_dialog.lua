@@ -76,10 +76,10 @@ function SignInDialog:init()
   self.height = screen_h
   self.started_at = os.time()
 
-  -- the family's title bar; its X is Cancel too
+  -- the family's title bar: Back cancels the sign-in; the X quits the plugin
   self.title_bar = Theme.titleBar {
     title = _("Sign in to Hardcover"),
-    close_callback = function() self:onCancel() end,
+    back_callback = function() self:onCancel() end,
     show_parent = self,
   }
   self.title_text = self.title_bar
@@ -263,6 +263,9 @@ end
 -- WidgetContainer does not either, so every way out of this dialog (success,
 -- declined, expired, cancelled) left the code on screen.
 function SignInDialog:onCloseWidget()
+  -- however it closes (Back, Cancel, or the X quitting the plugin), the polling stops: a
+  -- sign-in that finishes later must not show a message over whatever the user went to
+  self.cancelled = true
   UIManager:setDirty(nil, "ui")
 end
 

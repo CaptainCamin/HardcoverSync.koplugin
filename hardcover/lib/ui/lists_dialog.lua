@@ -102,11 +102,13 @@ function ListsDialog:buildRow(row, width, viewport)
     Theme.hspan(Theme.space.m),
     chevron,
   }
+  -- the names, not the covers beside them: the label column, the height of the row
   local tap = TapRow:new {
     callback = function()
       if self.select_cb then self.select_cb(row) end
     end,
     viewport = viewport,
+    feedback = { x = strip_w + Theme.space.l, y = 0, w = text_w, h = line:getSize().h },
     line,
   }
   tap.text = row.name
@@ -150,7 +152,7 @@ function ListsDialog:build()
   local M = Theme.margin
   local title_bar = Theme.titleBar {
     title = self.title,
-    close_callback = function() self:onClose() end,
+    back_callback = function() self:onClose() end,
     show_parent = self,
   }
   local room = screen_h - title_bar:getSize().h

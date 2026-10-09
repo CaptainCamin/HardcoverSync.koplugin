@@ -183,6 +183,7 @@ function HomeDialog:buildTile(row, w, h, viewport)
         self.select_cb(row)
       end
     end,
+    feedback = true,
     Theme.box(w, h, line, { round = true }),
   }
   -- what the tile shows, so a rebuild can tell which tiles changed (and so which
@@ -233,6 +234,7 @@ function HomeDialog:buildColumn(width, viewport)
         self.search_cb()
       end
     end,
+    feedback = true,
     Theme.box(width, field_h, LeftContainer:new {
       dimen = Geom:new { w = width - 2 * Theme.line.firm, h = field_h - 2 * Theme.line.firm },
       HorizontalGroup:new {
@@ -317,6 +319,7 @@ function HomeDialog:buildColumn(width, viewport)
         self.select_cb({ status_id = HARDCOVER.STATUS.READING, title = _("Currently Reading") })
       end
     end,
+    feedback = true,
     Theme.sectionHeader(_("Currently reading"), width, right),
   }
   self.reading_header = header
@@ -371,7 +374,6 @@ function HomeDialog:build()
         self.settings_cb()
       end
     end,
-    close_callback = function() self:onClose() end,
     show_parent = self,
   }
   local room = screen_h - title_bar:getSize().h

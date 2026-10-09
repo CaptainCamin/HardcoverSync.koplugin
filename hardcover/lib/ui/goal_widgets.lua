@@ -85,7 +85,7 @@ function GoalWidgets.card(goal, p, width, viewport, on_tap, first)
     table.insert(body, text(_(p.per_week_text), "small", { grey = true, width = width }))
   end
 
-  local tappable = on_tap and TapRow:new { callback = on_tap, viewport = viewport, body } or body
+  local tappable = on_tap and TapRow:new { callback = on_tap, viewport = viewport, feedback = true, body } or body
   local out = VerticalGroup:new { align = "left" }
   -- the heading above ends in a firm rule: a hairline right under it would double it
   if not first then table.insert(out, Theme.rule(width, false)) end
@@ -106,6 +106,7 @@ function GoalWidgets.homeCard(goal, p, width, viewport, on_goal, on_all)
   table.insert(out, TapRow:new {
     callback = on_all,
     viewport = viewport,
+    feedback = true,
     Theme.sectionHeader(_("Goals"), width, more),
   })
   table.insert(out, Theme.span("s"))
@@ -134,7 +135,7 @@ function GoalWidgets.homeCard(goal, p, width, viewport, on_goal, on_all)
   end
   if small ~= "" then table.insert(body, text(small, "small", { grey = true, width = width })) end
 
-  table.insert(out, TapRow:new { callback = on_goal, viewport = viewport, body })
+  table.insert(out, TapRow:new { callback = on_goal, viewport = viewport, feedback = true, body })
   return out
 end
 
@@ -149,12 +150,14 @@ function GoalWidgets.homeEmpty(width, viewport, on_all)
   table.insert(out, TapRow:new {
     callback = on_all,
     viewport = viewport,
+    feedback = true,
     Theme.sectionHeader(_("Goals"), width, more),
   })
   table.insert(out, Theme.span("s"))
   table.insert(out, TapRow:new {
     callback = on_all,
     viewport = viewport,
+    feedback = true,
     text(_("No current goal. Tap to see your goals or set a new one."), "small", { grey = true, width = width }),
   })
   return out

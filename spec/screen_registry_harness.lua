@@ -121,4 +121,16 @@ check("a screen the registry never saw (set on the owner directly) is still foun
   assert(reg:open("home") == w)
 end)
 
+check("quit takes the plugin's windows, top first, and leaves the reader under them", function()
+  local ScreenRegistry = require("hardcover/lib/screen_registry")
+  local reader = { name = "reader" }
+  local kvpage = { name = "KeyValuePage" }
+  local goals = { name = "hardcover_goals" }
+  local panel = { name = "hardcover_reader_panel" }
+  local found = ScreenRegistry.pluginWindows({ panel, kvpage, goals, reader })
+  assert(#found == 2 and found[1] == panel and found[2] == goals, "the plugin's windows, top first")
+  assert(#ScreenRegistry.pluginWindows({ reader }) == 0, "nothing of the plugin's: nothing to close")
+  assert(#ScreenRegistry.pluginWindows({ { name = nil } }) == 0, "an unnamed widget is not the plugin's")
+end)
+
 r.finish()

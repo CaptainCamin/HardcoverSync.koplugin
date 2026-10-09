@@ -72,11 +72,11 @@ function BookDetailDialog:init()
   -- with no way out.
   self.key_events.CloseDetail = { { "Back" } }
 
-  -- the family's title bar; its X is the Close button (the loading screen has
-  -- one too, so a slow fetch can always be left)
+  -- the family's title bar: Back leaves this screen (the loading screen has one too, so a
+  -- slow fetch can always be left); the X quits the plugin
   local title_bar = Theme.titleBar {
     title = self.title,
-    close_callback = function() self:onCloseDetail() end,
+    back_callback = function() self:onCloseDetail() end,
     show_parent = self,
   }
   self.title_bar = title_bar

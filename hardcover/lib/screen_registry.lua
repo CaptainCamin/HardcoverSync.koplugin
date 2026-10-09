@@ -63,4 +63,20 @@ function ScreenRegistry:open(kind)
   return nil
 end
 
+--
+-- Quit: which widgets on KOReader's window stack are the plugin's, in the order
+-- given (top first). Every screen of the plugin is named "hardcover_..." (its `name`),
+-- so the name says which are ours; the reader or the file browser under them is not.
+-- `stack` is a list of widgets.
+--
+function ScreenRegistry.pluginWindows(stack)
+  local ours = {}
+  for _, widget in ipairs(stack) do
+    if type(widget.name) == "string" and widget.name:find("^hardcover_") then
+      ours[#ours + 1] = widget
+    end
+  end
+  return ours
+end
+
 return ScreenRegistry

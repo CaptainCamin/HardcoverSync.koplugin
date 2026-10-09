@@ -115,6 +115,7 @@ function GoalFormDialog:buildRow(row, width, viewport)
   local tap = TapRow:new {
     callback = function() if not self.busy then row.edit() end end,
     viewport = viewport,
+    feedback = true,
     box,
   }
   tap.text = row.label
@@ -171,7 +172,7 @@ function GoalFormDialog:build()
   local M = Theme.margin
   local title_bar = Theme.titleBar {
     title = self.goal and _("Edit goal") or _("New goal"),
-    close_callback = function() self:cancel() end,
+    back_callback = function() self:cancel() end,
     show_parent = self,
   }
   local room = screen_h - title_bar:getSize().h

@@ -96,7 +96,7 @@ function GoalDialog:build()
   local M = Theme.margin
   local title_bar = Theme.titleBar {
     title = self.goal.name,
-    close_callback = function() self:onClose() end,
+    back_callback = function() self:onClose() end,
     show_parent = self,
   }
   local room = screen_h - title_bar:getSize().h

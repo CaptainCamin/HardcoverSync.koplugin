@@ -72,6 +72,7 @@ function GoalsDialog:pastRow(goal, width, viewport, first)
     TapRow:new {
       callback = function() if self.open_cb then self.open_cb(goal) end end,
       viewport = viewport,
+      feedback = true,
       body,
     },
     Theme.span("s"),
@@ -126,7 +127,7 @@ function GoalsDialog:build()
   local M = Theme.margin
   local title_bar = Theme.titleBar {
     title = self.title,
-    close_callback = function() self:onClose() end,
+    back_callback = function() self:onClose() end,
     show_parent = self,
   }
   local room = screen_h - title_bar:getSize().h

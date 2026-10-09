@@ -72,7 +72,7 @@ function ReaderPanel:buildTile(action, w)
     Theme.text(action.text, "small", { bold = true, grey = not enabled, width = face_inner }),
   }
   local box = Theme.box(w, Theme.px(56), content, { round = true })
-  return TapRow:new { callback = enabled and action.run or nil, box }
+  return TapRow:new { callback = enabled and action.run or nil, feedback = true, box }
 end
 
 function ReaderPanel:render()
@@ -149,7 +149,7 @@ function ReaderPanel:render()
         Theme.chevron(),
       } or Theme.text(pr.line, "body", { width = width }),
     }
-    table.insert(content, TapRow:new { callback = pr.enabled ~= false and pr.run or nil, block })
+    table.insert(content, TapRow:new { callback = pr.enabled ~= false and pr.run or nil, feedback = true, block })
   end
 
   if model.blurb then

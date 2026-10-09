@@ -177,7 +177,8 @@ return {
 
     ------------------------------------------------------------------ budget
     -- what each user action may cost the panel. A screen's first draw is one
-    -- full refresh; whatever arrives later redraws only its own box or region.
+    -- full refresh; whatever arrives later redraws only its own box or region. The reader
+    -- panel is the exception that is allowed one: it hatches the page behind it (see below).
     local function within(name, snap, max_full, max_area, max_decodes)
       assert(snap.full <= max_full, string.format("%s refreshed the whole panel %d times (budget %d)", name, snap.full, max_full))
       assert(snap.area_screens <= max_area, string.format("%s refreshed %.2f screens of area (budget %.2f)", name, snap.area_screens, max_area))
@@ -195,11 +196,20 @@ return {
     within("book details", results.detail, 2, 2.4)
     -- the sign-in bar stepping: the bar and its line, nothing else
     within("sign-in bar", results.signin, 0, 0.1)
-    -- the panel is a sheet over the page: never the whole panel
-    within("reader panel open", results.panel_open, 0, 0.6)
+    -- the sheet's own rows, on a tick: the sheet is about 0.4 of the screen and nothing else moves
     within("reader panel tick", results.panel_toggle, 0, 0.6)
-    within("reader panel close", results.panel_close, 0, 0.6)
-    -- ticking an option redraws that row, not the page
-    within("settings tick", results.settings_tick, 0, 0.1)
+    -- opening and closing the panel hatch the page behind it (or clear the hatching), so the
+    -- whole screen changes once. That is one non-flashing ui pass, not two passes for the
+    -- same area (a scrim pass and a sheet pass): a flashing refresh would still fail here
+    local function whole_screen_once(name, snap)
+      within(name, snap, 1, 1.0)
+      assert(snap.flashes == 0, string.format("%s used %d flashing refresh(es)", name, snap.flashes))
+    end
+    whole_screen_once("reader panel open", results.panel_open)
+    whole_screen_once("reader panel close", results.panel_close)
+    -- ticking an option redraws that row, not the page. A tap flashes the row first (the
+    -- highlight, one refresh of the row), then the tick redraws it, with the highlight's
+    -- undo merged into that refresh: two row-sized passes, and the budget is set for exactly that
+    within("settings tick", results.settings_tick, 0, 0.15)
   end,
 }
