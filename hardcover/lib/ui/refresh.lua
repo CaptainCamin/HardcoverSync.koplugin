@@ -51,15 +51,23 @@ end
 -- paint. A rectangle that is not known (nil, or never painted) means the whole
 -- panel. `mode` defaults to "ui".
 --
-function Refresh.region(window, get_rect, mode)
+-- `dither`: true when the rectangle holds a picture. The panel then draws it with
+-- dithering, which hides the banding a photo gets on a 16-grey screen. This is the
+-- refresh's own hint, the third value its function returns. A window flagged
+-- `dithered` has every repaint dithered by UIManager anyway, as KOReader's cover
+-- browser does, so the screens that show covers set that flag as well.
+--
+function Refresh.region(window, get_rect, mode, dither)
   local UIManager = require("ui/uimanager")
   UIManager:setDirty(window, function()
     local r = get_rect and get_rect()
-    if not Refresh.valid(r) then
-      return mode or "ui"
+    local region = nil -- nil: the whole panel
+    if Refresh.valid(r) then
+      local Geom = require("ui/geometry")
+      region = Geom:new { x = r.x, y = r.y, w = r.w, h = r.h }
     end
-    local Geom = require("ui/geometry")
-    return mode or "ui", Geom:new { x = r.x, y = r.y, w = r.w, h = r.h }
+    if dither then return mode or "ui", region, true end
+    return mode or "ui", region
   end)
 end
 
@@ -68,9 +76,9 @@ end
 -- dimen, read after the paint), cut to `get_clip()` (the visible part of a scroll
 -- area; the screen when omitted). A box that is not on screen needs nothing
 -- redrawn now, so nothing is queued: the picture is drawn when it scrolls into
--- view.
+-- view. `dither`: see Refresh.region (true for a box that shows a picture).
 --
-function Refresh.box(window, get_dimen, get_clip, mode)
+function Refresh.box(window, get_dimen, get_clip, mode, dither)
   local before = get_dimen and get_dimen()
   local clip = get_clip and get_clip() or screen_rect()
   if Refresh.valid(before) and Refresh.valid(clip) and not Viewport.intersect(before, clip) then
@@ -83,7 +91,7 @@ function Refresh.box(window, get_dimen, get_clip, mode)
     -- scrolled out of view by the time it painted: refresh the visible area (a
     -- queued repaint with no refresh would fall back to a full-panel one)
     return Viewport.intersect(d, c) or Refresh.copy(c)
-  end, mode)
+  end, mode, dither)
   return true
 end
 

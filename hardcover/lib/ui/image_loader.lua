@@ -68,9 +68,11 @@ function ImageLoader:screenSize()
 end
 
 -- Where cover `url` is downloaded from at `size` ("small", "large"): see covers.lua.
-function ImageLoader:fetchUrl(url, size)
+-- `box` (optional, { w, h }): the exact size to ask for, for a cover drawn in a box that
+-- size. The saved copy is kept under this address, so it is found under it again.
+function ImageLoader:fetchUrl(url, size, box)
   local w, h = self:screenSize()
-  return Covers.url(url, size or "small", w, h)
+  return Covers.url(url, size or "small", w, h, box)
 end
 
 -- A saved cover for `key`: downloaded for offline first, then seen.
@@ -84,16 +86,16 @@ function ImageLoader:lookup(key)
 end
 
 --
--- Download cover `url` at `size`. Call from inside Trapper:wrap. The resized cover;
--- once more if it failed (the image service sometimes answers a 502 the first time it
--- makes a size); then the cover as uploaded. A download cancelled by a tap (not
--- completed) is respected: nothing more is tried. `background`: not cancellable by a
--- tap. `stopped()`: whether to give up between tries.
+-- Download cover `url` at `size` (and `box`, as fetchUrl takes it). Call from inside
+-- Trapper:wrap. The resized cover; once more if it failed (the image service sometimes
+-- answers a 502 the first time it makes a size); then the cover as uploaded. A download
+-- cancelled by a tap (not completed) is respected: nothing more is tried. `background`:
+-- not cancellable by a tap. `stopped()`: whether to give up between tries.
 -- Returns completed, success, content, and the key it was downloaded as.
 --
-function ImageLoader:download(url, size, background, stopped)
+function ImageLoader:download(url, size, background, stopped, box)
   stopped = stopped or function() return false end
-  local fetch = self:fetchUrl(url, size)
+  local fetch = self:fetchUrl(url, size, box)
   local function get(from)
     return Trapper:dismissableRunInSubprocess(function()
       return getUrlContent(from, 10, 30)
@@ -146,7 +148,7 @@ end
 local CACHED_DELAY = nil
 local FETCH_DELAY = 0.05
 
-function Batch:loadImages(urls, size)
+function Batch:loadImages(urls, size, box)
   if self.loading then
     error("batch already in progress")
   end
@@ -186,9 +188,9 @@ function Batch:loadImages(urls, size)
     if stop_loading then return end
 
     -- `url` is the cover as the book has it, and the key the caller knows it by; `fetch`
-    -- is where it is downloaded from at this size (covers.lua)
+    -- is where it is downloaded from at this size and box (covers.lua)
     local url = table.remove(url_queue, 1)
-    local fetch = ImageLoader:fetchUrl(url, size)
+    local fetch = ImageLoader:fetchUrl(url, size, box)
 
     local cached = ImageLoader:lookup(fetch)
     if cached then
@@ -220,7 +222,7 @@ function Batch:loadImages(urls, size)
       if stop_loading then return end
 
       local completed, success, content, saved_as = ImageLoader:download(url, size, false,
-        function() return stop_loading end)
+        function() return stop_loading end, box)
 
       if completed and success then
         if cache then cache:put(saved_as, content) end
@@ -247,10 +249,12 @@ function Batch:loadImages(urls, size)
 end
 
 -- `opts.size`: "small" (the default: rows, strips, cards) or "large" (a book's details).
+-- `opts.box`: { w, h } for a cover drawn in a box of exactly that size (see fetchUrl);
+-- nil for the size `opts.size` gives.
 function ImageLoader:loadImages(urls, callback, opts)
   local batch = Batch:new()
   batch.callback = callback
-  local halt = batch:loadImages(urls, opts and opts.size or "small")
+  local halt = batch:loadImages(urls, opts and opts.size or "small", opts and opts.box)
   return batch, halt
 end
 

@@ -318,6 +318,64 @@ check("offline, the large cover falls back to the small one, then to a full-size
   expect(got == "FULL SIZE FROM BEFORE" and #fetched == 0)
 end)
 
+check("a details cover is asked for at exactly its box, at quality 90, in alphabetical order", function()
+  local box = { w = 300, h = 450 }
+  local url = Covers.url(COVER, "large", 1200, 1600, box)
+  expect(url:find("^https://production%-img%.hardcover%.app/enlarge%?height=450&quality=90&type=jpeg&url=") ~= nil, url)
+  expect(url:match("&width=300$") ~= nil, url)
+  expect(Covers.original(url) == COVER, "the original does not come back out of a quality address")
+  -- the same cover without a box keeps the screen's size, at the same quality
+  local plain = Covers.url(COVER, "large", 1200, 1600)
+  expect(plain ~= url and plain:find("&quality=90&type=jpeg&", 1, true) ~= nil, plain)
+  expect(Covers.original(plain) == COVER)
+end)
+
+check("small covers keep their address: no quality, and the screen's size without a box", function()
+  local small = Covers.url(COVER, "small", 1200, 1600)
+  expect(not small:find("quality", 1, true), small)
+  expect(small:find("?height=360&type=jpeg&url=", 1, true) ~= nil, small)
+end)
+
+check("a box is for covers on Hardcover's assets only", function()
+  expect(Covers.url("https://example.com/c.jpg", "large", 1200, 1600, { w = 300, h = 450 }) == "https://example.com/c.jpg")
+  expect(Covers.url(nil, "large", 1, 1, { w = 1, h = 1 }) == nil)
+end)
+
+check("a details cover is saved and found under its box address, not downloaded again", function()
+  reset()
+  local box = { w = 300, h = 450 }
+  local key = Covers.url(COVER, "large", 1200, 1600, box)
+  local got = {}
+  ImageLoader:loadImages({ COVER }, function(_, content) got[#got + 1] = content end, { size = "large", box = box })
+  drain()
+  expect(#fetched == 1 and fetched[1] == key, "fetched " .. table.concat(fetched, " | "))
+  expect(got[1] == "IMG:" .. key, tostring(got[1]))
+  expect(ImageLoader.cache:get(key), "the cover was not saved under its box address")
+
+  ImageLoader:loadImages({ COVER }, function(_, content) got[#got + 1] = content end, { size = "large", box = box })
+  drain()
+  expect(#fetched == 1 and got[2] == "IMG:" .. key, "a second look downloaded it again: " .. table.concat(fetched, " | "))
+
+  -- another box is another picture: downloaded at its own size
+  ImageLoader:loadImages({ COVER }, function() end, { size = "large", box = { w = 240, h = 360 } })
+  drain()
+  expect(#fetched == 2 and fetched[2] == Covers.url(COVER, "large", 1200, 1600, { w = 240, h = 360 }),
+    "a different box was not fetched at its own size: " .. table.concat(fetched, " | "))
+end)
+
+check("offline, a details cover at its box falls back to the small cover saved before", function()
+  reset()
+  local original = ImageLoader.isOnline
+  ImageLoader.isOnline = function() return false end
+  ImageLoader.cache:put(Covers.url(COVER, "small", 1200, 1600), "SMALL")
+  local got
+  ImageLoader:loadImages({ COVER }, function(_, content) got = content end,
+    { size = "large", box = { w = 300, h = 450 } })
+  drain()
+  ImageLoader.isOnline = original
+  expect(got == "SMALL" and #fetched == 0, tostring(got))
+end)
+
 check("the cache keeps to its space, dropping what was used longest ago", function()
   os.execute("rm -f '" .. dir .. "'/*")
   mtimes = {}
