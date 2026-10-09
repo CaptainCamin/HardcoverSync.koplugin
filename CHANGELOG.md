@@ -26,6 +26,10 @@
 - The book count under a list is now counted rather than taken from the number Hardcover stores, which can be off by one.
 - Lists, shelves and their books are kept in a small database (`hardcoversync_library.sqlite3` in KOReader's settings folder), using the SQLite that KOReader already includes. The shelves an earlier version saved are carried over the first time Home or a shelf opens. Signing out clears it.
 
+### Fixed
+
+- Covers in a shelf, a list or search results were drawn far too small or spilled out of their row (1.7.0-beta.2). The row sized each cover by the size it was uploaded at, but the cover now comes from the image service at the size it is shown.
+
 ## 1.6.3
 
 ### Fixed
