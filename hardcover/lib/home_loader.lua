@@ -24,14 +24,20 @@ HomeLoader.GOALS_RETRY_AFTER = 3
 --   user_id, status_ids
 --   saved_counts, saved_reading   what the screen was drawn from, to tell what changed
 --   shown_reading  function(entries) -> the cards with offline reading laid over them
---   on_counts(counts), on_reading(shown), on_list_count(n, marks), on_goals(goals)
+--   on_counts(counts), on_prints(fingerprints), on_reading(shown), on_list_count(n, marks),
+--   on_goals(goals)
 --                  what to do with each answer that changed or is new
 --
 function HomeLoader.refresh(opts)
   local api, cache, alive = opts.api, opts.cache, opts.alive
   local user_id, ids = opts.user_id, opts.status_ids
 
-  local counts = api:getShelfCounts(user_id, ids)
+  local counts, _err, prints = api:getShelfCounts(user_id, ids)
+
+  -- the shelves' fingerprints, which the caller compares with the saved shelves
+  if prints and alive() and opts.on_prints then
+    opts.on_prints(prints)
+  end
 
   -- failed or cancelled: the saved numbers are still on screen, leave them
   if counts and alive() then

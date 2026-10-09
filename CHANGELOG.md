@@ -4,21 +4,32 @@
 
 ### Added
 
-- **A library on your device, starting with your lists.** Until now most screens downloaded everything again each time they opened, even when nothing had changed, and lists did not work offline at all. The plugin now keeps your data on the device and asks Hardcover only what changed. Lists are first; shelves and covers follow in the next betas.
-- **Every list is kept on the device**, yours and the ones you follow, whether or not you have opened it. Home checks them each time it opens, in the request it already makes for the "More lists" tile, and downloads only the lists that changed.
-- **Lists work offline.** The lists screen, each list and every book on them open at once from the device, offline too, with a note saying when they are from. A book on any list opens offline with its whole synopsis (shelves still keep only the first 600 characters), and a book you opened online opens offline with everything its details showed.
-- A list's menu (top left) has **Refresh**, to download the list and its books again if anything looks out of date.
+- **A library on your device.** Until now most screens downloaded everything again each time they opened, even when nothing had changed, and lists did not work offline at all. The plugin now keeps your lists, your shelves and every book on them on the device, and asks Hardcover only what changed. What has not changed opens from the device with no download at all.
+- **Every list and every shelf is kept on the device**, yours and the lists you follow, whether or not you have opened them. Home checks them each time it opens, in the requests it already makes for the shelf counts and the "More lists" tile, and downloads only what changed.
+- **Lists work offline.** The lists screen, each list and every book on them open at once from the device, offline too, with a note saying when they are from. A book on any list or shelf opens offline with its whole synopsis (the old saved shelves kept only the first 600 characters), and a book you opened online opens offline with everything its details showed.
+- **A book's details open at once.** A book you have opened before, that is out and has a synopsis, a cover and a page count, opens from the device with no loading message and no request for the book. Your shelf and rating on it come from your saved shelves, and are brought up to date by the request the "Similar to" strip makes anyway. A book still to come is asked for again once a week. The series is kept for a week, and shown offline.
+- **Settings > Download covers for offline** keeps the cover of every book on your shelves and lists on the device, so a shelf browsed offline is not a page of blank boxes. It says first how many covers and about how much it will download, shows its progress with a Stop button, keeps the device from standby while it runs, and turns Wi-Fi on the way Sync does. Running it again carries on where it stopped. The item says how many covers are missing.
+- **Refresh** in a shelf's and a list's menu (top left), and a reload icon on a book's details, download them again in full if anything looks out of date.
 
 ### Changed
 
-- **A list that has not changed costs nothing to open**: no request at all. One that changed downloads only which books it holds and the books the device does not have yet, instead of the whole list again. A book added to a 25-book list costs about 3 KB instead of 32 KB. Each book is kept once, however many lists it is on.
-- Measured on a real account with 9 lists and 61 books:
-  - the first Home open saves every list in the background (91 KB);
+- **A shelf or list that has not changed costs nothing to open**: no request at all when Home checked a moment ago, or one small request otherwise. One that changed downloads only which books it holds and the books the device does not have yet. Finishing a book no longer reloads your whole Read shelf; a book added to a 25-book list costs about 3 KB instead of 32 KB. Each book is kept once, however many lists and shelves it is on.
+- **Covers are fetched at the size they are drawn**, from Hardcover's image service (as hardcover.app does), instead of as uploaded: a cover uploaded at 1.9 MB now comes as 30 KB in a list and 165 KB on its details screen. Twelve covers from a real shelf came to 327 KB instead of 6.2 MB. If the service fails, the cover as uploaded is used. Covers are kept in 30 MB of space rather than as 300 files, so the large covers earlier versions saved are the first to go.
+- A book's details fetch its cover at exactly the size it is shown, at JPEG quality 90 instead of 75, and covers are drawn with e-ink dithering, so photos no longer band into flat patches.
+- Moving a book to another shelf, rating it or removing it changes the saved shelf at once, instead of throwing both shelves away to be downloaded again.
+- **Stats** loads again only when your Read shelf changed, after a change made on this device, or once a week. **For you** is made again only when your ratings or shelves changed, or once a week. Otherwise both open from the device with nothing downloaded.
+- Measured on a real account (9 lists, 4 shelves, 758 books):
+  - the first Home open after updating saves everything in the background, about 1.1 MB in under half a minute, waiting when Hardcover asks it to slow down;
   - each later check with nothing changed is one request of about 1 KB;
-  - everything opens offline with no request;
-  - the whole library takes 160 KB on the device.
+  - opening the 611-book Read shelf reads it from the device in 8 ms, with no request;
+  - when Read changes, its update is 51 KB instead of 840 KB;
+  - everything opens offline with no request, and the whole library takes 1.5 MB on the device.
 - The book count under a list is now counted rather than taken from the number Hardcover stores, which can be off by one.
-- Lists and their books are kept in a small database (`hardcoversync_library.sqlite3` in KOReader's settings folder), using the SQLite that KOReader already includes. Signing out clears it.
+- Lists, shelves and their books are kept in a small database (`hardcoversync_library.sqlite3` in KOReader's settings folder), using the SQLite that KOReader already includes. The shelves an earlier version saved are carried over the first time Home or a shelf opens. Signing out clears it.
+
+### Fixed
+
+- Covers in a shelf, a list or search results were drawn far too small or spilled out of their row (1.7.0-beta.2). The row sized each cover by the size it was uploaded at, but the cover now comes from the image service at the size it is shown.
 
 ## 1.6.3
 

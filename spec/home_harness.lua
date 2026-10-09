@@ -99,6 +99,16 @@ check("one request counts every shelf", function()
   end
 end)
 
+check("the same request says whether each saved shelf is still right", function()
+  answer({ s3 = { aggregate = { count = 611, max = { updated_at = "2026-10-07T18:23:49.67481+00:00" },
+                                sum = { rating = 1644.0 } } },
+           s1 = { aggregate = { count = 0, max = {}, sum = {} } } })
+  local _, _, prints = Api:getShelfCounts(7, { 1, 3 })
+  assert(prints[3] == "611|2026-10-07T18:23:49.67481+00:00|1644.0", tostring(prints[3]))
+  assert(prints[1] == "0||")
+  assert(captured.q:find("max { updated_at }", 1, true) and captured.q:find("sum { rating }", 1, true))
+end)
+
 check("it stays within five top-level queries per request", function()
   answer({})
   assert(Api:getShelfCounts(7, { 1, 2, 3, 4, 5, 6 }) == nil, "asked for six at once")
