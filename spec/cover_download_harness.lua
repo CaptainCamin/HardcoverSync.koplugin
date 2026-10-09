@@ -120,7 +120,7 @@ check("the estimate is about 30 KB a download, said plainly", function()
   local plan = { fetch = {}, copy = {} }
   for i = 1, 800 do plan.fetch[i] = {} end
   assert(CoverDownload.size(CoverDownload.estimate(plan)) == "23 MB", CoverDownload.size(CoverDownload.estimate(plan)))
-  assert(CoverDownload.size(1000) == "less than 1 MB")
+  assert(CoverDownload.size(1000) == "under 1 MB")
 end)
 
 check("the run copies first, then downloads, counts what failed, and stops when asked", function()
