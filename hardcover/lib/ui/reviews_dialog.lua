@@ -80,7 +80,7 @@ function ReviewsDialog:init()
 
   self.title_bar = Theme.titleBar {
     title = self.title,
-    close_callback = function() self:onClose() end,
+    back_callback = function() self:onClose() end,
     show_parent = self,
   }
   self.close_button = self.title_bar.right_button

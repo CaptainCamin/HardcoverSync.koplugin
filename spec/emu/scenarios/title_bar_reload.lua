@@ -53,6 +53,9 @@ return {
     assert(dialog and dialog.name == "hardcover_book_detail", string.format(
       "book details did not open on top (top is %s)", tostring(dialog and dialog.name)))
     assert(#plugin_windows() > 0, "book details is not counted as a plugin window")
+    -- the flows pass their own on_refresh (fetch the book again); count taps instead. The
+    -- title bar reads the dialog's on_refresh when tapped, so swapping it here is enough
+    dialog.on_refresh = function() refreshed = refreshed + 1 end
 
     local bar = dialog.title_bar
     assert(bar, "book details has no title bar")
