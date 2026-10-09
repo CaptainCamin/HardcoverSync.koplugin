@@ -1,11 +1,12 @@
--- The chrome around a cover list (the shelf, search results): the title bar the
--- Menu builds is already the family's (title centred, icon at the left, X at
--- the right), so what is left to restyle is the footer.
+-- The chrome around a cover list (the shelf, search results): the title bar is a
+-- ListHeader (the family's title bar and a row of buttons), so what is left to restyle
+-- is the footer.
 --
 -- Menu builds "Page 1 of 4" as a plain regular-weight Button unless it is
--- handed one, so this hands it one in the family's small bold type. Everything
--- the stock button does is kept: tapping it does nothing, holding it opens the
--- "go to page" box (the same hold_input table Menu would have made).
+-- handed one, so this hands it one in the family's small bold type. Tapping or
+-- holding it opens a "Go to page" box with a number keyboard: Go jumps to that
+-- page (clamped to the list's pages), Cancel closes the box. The box only jumps
+-- pages, so it takes no text or letters.
 
 local Button = require("ui/widget/button")
 local T = require("ffi/util").template
@@ -21,7 +22,10 @@ local ListChrome = {}
 -- count when it opens, which is long after construction).
 --
 function ListChrome.options(get_menu)
-  local page_info_text = Button:new {
+  -- declared first: the buttons below close over it, and a local is not in
+  -- scope inside its own initialiser
+  local page_info_text
+  page_info_text = Button:new {
     text = "",
     text_font_face = "cfont",
     text_font_size = Theme.type.small + 1,
@@ -29,16 +33,38 @@ function ListChrome.options(get_menu)
     bordersize = 0,
     call_hold_input_on_tap = true,
     hold_input = {
-      title = _("Enter text, letter or page number"),
-      input_func = function()
-        local menu = get_menu()
-        return menu and menu.search_index and menu.search_string
-      end,
+      title = _("Go to page"),
+      input_type = "number",
       hint_func = function()
         local menu = get_menu()
-        return T(_("(a - z) or (1 - %1)"), menu and menu.page_num or 1)
+        return T(_("1 - %1"), menu and menu.page_num or 1)
       end,
-      buttons = { { { text = _("Search"), callback = function() end } } },
+      buttons = {
+        {
+          {
+            text = _("Cancel"),
+            id = "close",
+            callback = function()
+              page_info_text:closeInputDialog()
+            end,
+          },
+          {
+            text = _("Go"),
+            is_enter_default = true,
+            callback = function()
+              -- onInput stores the box on the button it was opened from
+              local n = tonumber(page_info_text.input_dialog:getInputText())
+              -- nothing typed, or not a whole number: leave the box open
+              if not n or n ~= math.floor(n) then return end
+              local menu = get_menu()
+              if menu then
+                menu:onGotoPage(math.max(1, math.min(n, menu.page_num)))
+              end
+              page_info_text:closeInputDialog()
+            end,
+          },
+        },
+      },
     },
   }
   return { page_info_text = page_info_text }
