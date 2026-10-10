@@ -11,6 +11,7 @@
 -- scan can open it themselves.
 
 local _ = require("gettext")
+local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 
 local Blitbuffer = require("ffi/blitbuffer")
 local CenterContainer = require("ui/widget/container/centercontainer")
@@ -18,7 +19,6 @@ local Device = require("device")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
-local InfoMessage = require("ui/widget/infomessage")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
@@ -61,7 +61,7 @@ local function step(number, title, detail, width)
       text = detail,
       face = Theme.face("body"),
       width = text_w,
-      fgcolor = Theme.DARK_GREY,
+      fgcolor = Theme.secondary(),
     })
   end
   return HorizontalGroup:new { align = "top", square, Theme.hspan("l"), column }
@@ -114,7 +114,7 @@ function SignInDialog:init()
     text = _("Waiting for approval..."),
     face = Theme.face("small"),
     max_width = math.floor(width * 0.6),
-    fgcolor = Theme.DARK_GREY,
+    fgcolor = Theme.secondary(),
   }
   local lifetime = tonumber(self.device.expires_in)
   local lifetime_text = TextWidget:new {
@@ -269,10 +269,7 @@ function SignInDialog:onSuccess()
   self.cancelled = true
   UIManager:close(self)
 
-  UIManager:show(InfoMessage:new {
-    text = _("Signed in to Hardcover"),
-    timeout = 2,
-  })
+  StatusDialogs.info(_("Signed in to Hardcover"), 2)
 
   if self.success_callback then
     self.success_callback()
@@ -283,11 +280,7 @@ function SignInDialog:onFinish(message)
   self.cancelled = true
   UIManager:close(self)
 
-  UIManager:show(InfoMessage:new {
-    text = message,
-    icon = "notice-warning",
-    timeout = 3,
-  })
+  StatusDialogs.error(message, 3)
 
   if self.close_callback then
     self.close_callback()

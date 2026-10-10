@@ -12,8 +12,7 @@ local UIManager = require("ui/uimanager")
 local NetworkMgr = require("ui/network/manager")
 local logger = require("logger")
 
-local ConfirmBox = require("ui/widget/confirmbox")
-local InfoMessage = require("ui/widget/infomessage")
+local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 local SpinWidget = require("ui/widget/spinwidget")
 
 local Api = require("hardcover/lib/hardcover_api")
@@ -136,7 +135,7 @@ end
 
 function HardcoverMenu:showReaderPanel()
   if not (self.ui and self.ui.document) then
-    UIManager:show(InfoMessage:new { text = _("Open a book first.") })
+    StatusDialogs.info(_("Open a book first."))
     return
   end
 
@@ -190,22 +189,14 @@ function HardcoverMenu:showReaderPanel()
       end,
     }
 
-    local pills = {}
-    if not linked then
-      pills[1] = { text = _("Not linked to Hardcover") }
-    elseif status.status_id and STATUS_LABELS[status.status_id] then
-      pills[1] = { text = _(STATUS_LABELS[status.status_id]), filled = true }
-    end
-
     local bits = {}
     local reads = status.user_book_reads
     local read = reads and reads[#reads]
     local pages = self.settings:pages()
     if linked and pages then
-      bits[#bits + 1] = T(_("Page %1 of %2"), read and read.progress_pages or 0, pages)
-    end
-    if status.rating then
-      bits[#bits + 1] = T(_("Rated %1"), tostring(status.rating))
+      local page = read and read.progress_pages or 0
+      bits[#bits + 1] = T(_("Page %1 of %2"), page, pages)
+      bits[#bits + 1] = T(_("%1%"), math.floor(100 * page / pages + 0.5))
     end
 
     local actions = {}
@@ -215,45 +206,29 @@ function HardcoverMenu:showReaderPanel()
       actions[#actions + 1] = action
     end
 
+    -- the three things a reader does mid-book, as in the mock; everything else is under More
     if linked then
-      add(_("Status"), status_item)
-      add(_("Set page"), pages_item)
-      add(_("Rating"), rating_item)
-      add(_("Add a note"), note_item)
+      add(_("Update progress"), pages_item)
+      add(_("Rate this book"), rating_item)
       actions[#actions + 1] = {
-        text = _("Details"), enabled = self.enabled,
+        text = _("Open book page"), enabled = self.enabled,
         run = function()
           self:withWifiThen(function()
             self.dialog_manager:showBookDetail(self.settings:getLinkedBookId(), self.settings:getLinkedEditionId())
           end, true)
         end,
       }
-      actions[#actions + 1] = {
-        text = _("Reviews"), enabled = self.enabled,
-        run = function()
-          self:withWifiThen(function()
-            self.dialog_manager:showReviews(self.settings:getLinkedBookId())
-          end, true)
-        end,
-      }
-      add(_("Change edition"), edition_item)
-      add(_("Settings"), settings_item)
     else
-      add(_("Link this book"), link_item, { primary = true, wide = true })
-      add(_("Settings"), settings_item, { wide = true })
+      add(_("Link this book"), link_item)
     end
-    -- everything the reader's tracking menu holds (unlink, remove, sync now...)
-    add(_("More"), {
-      enabled_func = function() return true end,
-      text = _("Hardcover"),
-      sub_item_table_func = function() return self:getSubMenuItems(true) end,
-    }, { wide = true })
+    -- the mock has nothing else; status, note, reviews, edition and settings are on the book page
+    -- and in the Hardcover menu
 
     return {
       title = title,
       linked = linked,
-      pills = pills,
-      line = #bits > 0 and table.concat(bits, "  \194\183  ") or nil,
+      pills = {},
+      line = not linked and _("Not linked to Hardcover") or #bits > 0 and table.concat(bits, "  \194\183  ") or nil,
       track = linked and {
         checked = self.settings:syncEnabled(),
         toggle = function() self.settings:setSync(not self.settings:syncEnabled()) end,
@@ -315,18 +290,7 @@ function HardcoverMenu:getSubMenuItems(book_view)
         -- leave button enabled to allow clearing local link when api disabled
         return self.enabled or self.settings:bookLinked()
       end,
-      hold_callback = function(menu_instance)
-        if self.settings:bookLinked() then
-          self.settings:updateBookSetting(
-            self.ui.document.file,
-            {
-              _delete = { 'book_id', 'edition_id', 'edition_format', 'pages', 'title' }
-            }
-          )
-
-          menu_instance:updateItems()
-        end
-      end,
+      hold_callback = function(menu_instance) self:unlinkBook(menu_instance) end,
       keep_menu_open = true,
       callback = function(menu_instance)
         if not self.enabled then
@@ -422,8 +386,10 @@ function HardcoverMenu:getSubMenuItems(book_view)
       keep_menu_open = true,
       separator = true
     },
+    book_view and self:getUnlinkMenuItem(),
     self:getSyncMenuItem(),
     self:pendingTotal() > 0 and self:getPendingChangesMenuItem(),
+    self.sync_queue:pendingCount() > 0 and self:getDiscardMenuItem(),
     self:conflictCount() > 0 and self:getSyncConflictsMenuItem(),
     -- OAuth sign-in/out. Only offered when hardcover_config.lua supplies a
     -- client_id; with a static API key there is nothing to sign in to.
@@ -453,50 +419,48 @@ end
 function HardcoverMenu:installUpdate(release)
   local dir = Updater.pluginDir()
   if not dir then
-    UIManager:show(InfoMessage:new { text = _("Can't tell where the plugin is installed.") })
+    StatusDialogs.info(_("Can't tell where the plugin is installed."))
     return
   end
-  local progress = InfoMessage:new { text = _("Downloading the update…"), timeout = 120 }
-  UIManager:show(progress)
+  local progress = StatusDialogs.loading(_("Downloading the update…"))
   UIManager:nextTick(function()
     local ok, installed, err = pcall(Updater.install, release, dir)
-    UIManager:close(progress)
+    StatusDialogs.close(progress)
     if not ok then installed, err = false, installed end
     if not installed then
-      UIManager:show(InfoMessage:new { text = T(_("The update failed: %1"), tostring(err)) })
+      StatusDialogs.info(T(_("The update failed: %1"), tostring(err)))
       return
     end
     self.settings:updateSetting(SETTING.UPDATE_AVAILABLE, false)
     if Device:canRestart() then
-      UIManager:show(ConfirmBox:new {
+      StatusDialogs.confirm {
+        title = _("Update installed"),
         text = T(_("Hardcover Sync %1 is installed. Restart KOReader to use it?"), release.version),
         ok_text = _("Restart"),
+        cancel_text = _("Later"),
         ok_callback = function() UIManager:restartKOReader() end,
-      })
+      }
     else
-      UIManager:show(InfoMessage:new {
-        text = T(_("Hardcover Sync %1 is installed. Restart KOReader to use it."), release.version),
-      })
+      StatusDialogs.info(T(_("Hardcover Sync %1 is installed. Restart KOReader to use it."), release.version))
     end
   end)
 end
 
 function HardcoverMenu:showRelease(release)
   if not release.version then
-    UIManager:show(InfoMessage:new {
-      text = T(_("Hardcover Sync is up to date (v%1)."), (VERSION.text or table.concat(VERSION, "."))),
-    })
+    StatusDialogs.info(T(_("Hardcover Sync is up to date (v%1)."), (VERSION.text or table.concat(VERSION, "."))))
     return
   end
   local notes = release.notes and release.notes ~= "" and ("\n\n" .. release.notes:sub(1, 600)) or ""
-  UIManager:show(ConfirmBox:new {
-    text = T(_("Version %1 is available (you have v%2).%3"), release.version, (VERSION.text or table.concat(VERSION, ".")), notes),
+  StatusDialogs.confirm {
+    title = T(_("Version %1 is available"), release.version),
+    text = T(_("You have v%1.%2"), (VERSION.text or table.concat(VERSION, ".")), notes),
     ok_text = release.zip_url and _("Install") or _("OK"),
     cancel_text = _("Later"),
     ok_callback = function()
       if release.zip_url then self:installUpdate(release) end
     end,
-  })
+  }
 end
 
 function HardcoverMenu:getUpdateMenuItems()
@@ -508,10 +472,9 @@ function HardcoverMenu:getUpdateMenuItems()
         return _("Check for updates")
       end,
       callback = function()
-        local checking = InfoMessage:new { text = _("Checking for updates…"), timeout = 10 }
-        UIManager:show(checking)
+        local checking = StatusDialogs.loading(_("Checking for updates…"))
         Github:latestReleaseAsync(function(release, why)
-          UIManager:close(checking)
+          StatusDialogs.close(checking)
           if not release then
             local message = _("Couldn't reach GitHub. Try again when you're online.")
             if why == "limited" then
@@ -519,7 +482,7 @@ function HardcoverMenu:getUpdateMenuItems()
             elseif why == "answer" then
               message = _("GitHub answered, but not with a release list. Try again in a while.")
             end
-            UIManager:show(InfoMessage:new { text = message })
+            StatusDialogs.info(message)
             return
           end
           Updater.remember(self.settings, release)
@@ -574,51 +537,27 @@ function HardcoverMenu:getAboutMenuItem()
       -- indistinguishable on e-ink from a screen that failed to refresh.
       -- Showing first and asking second makes the screen's appearance
       -- independent of the network.
-      local LATEST_MARK = " \u{25CB} checking for a newer release\u{2026}"
-
-      local function about_text(latest)
-        local new_release_str = ""
-        if latest then
-          new_release_str = " (latest v" .. latest .. ")"
-        end
-
-        return [[
-Hardcover plugin
-v]] .. version .. new_release_str .. [[
-
-
-Updates book progress and status on Hardcover.app
-
-Project:
-github.com/CaptainCamin/HardcoverSync.koplugin
-(a fork of github.com/billiam/hardcoverapp.koplugin)
-
-Settings:
-]] .. settings_file
+      local Dialog = require("hardcover/lib/ui/components/dialog")
+      local box
+      -- latest: nil = not known; checking: the question is still out
+      local function show(latest, checking)
+        local line = "v" .. version
+        if latest then line = line .. T(_(" (latest v%1)"), latest)
+        elseif checking then line = line .. _(" \u{25CB} checking for a newer release\u{2026}") end
+        if box and not box.closed then box:close() end
+        box = Dialog.show {
+          title = _("Hardcover Sync"),
+          text = line .. "\n\n" .. _("Updates book progress and status on Hardcover.app.") .. "\n\n"
+            .. "github.com/CaptainCamin/HardcoverSync.koplugin\n"
+            .. _("(a fork of github.com/billiam/hardcoverapp.koplugin)") .. "\n\n" .. _("Settings:") .. "\n" .. settings_file,
+          buttons = { { label = _("Close"), primary = true } },
+        }
       end
-
-      local message = InfoMessage:new {
-        text = about_text(nil),
-        face = Font:getFace("cfont", 18),
-        show_icon = false,
-      }
-
-      UIManager:show(message)
+      show(nil, true)
 
       -- Update in place once the answer arrives, if the box is still up.
       Github:newestReleaseAsync(function(new_release)
-        if not new_release then
-          if message.text and message.text:find(LATEST_MARK, 1, true) then
-            message.text = message.text:gsub(LATEST_MARK:gsub("(%W)", "%%%1"), "")
-          end
-          return
-        end
-
-        if message.text and message.text:find(LATEST_MARK, 1, true) then
-          message.text = message.text:gsub(LATEST_MARK:gsub("(%W)", "%%%1"),
-            " (latest v" .. new_release .. ")")
-          UIManager:setDirty(message, "ui")
-        end
+        if box and not box.closed then show(new_release, false) end
       end, self.settings:readSetting(SETTING.UPDATE_BETA) == true)
     end,
     keep_menu_open = true
@@ -699,6 +638,53 @@ function HardcoverMenu:getSyncConflictsMenuItem()
   }
 end
 
+-- Unlink and discard were long presses only; they are rows now (the long press stays a shortcut).
+function HardcoverMenu:unlinkBook(menu_instance)
+  if not self.settings:bookLinked() then return end
+  self.dialog_manager:confirm({
+    title = _("Unlink this book?"),
+    text = _("It stays on Hardcover. This device forgets which book it is."),
+    ok_text = _("Unlink"),
+    ok_callback = function()
+      self.settings:updateBookSetting(self.ui.document.file,
+        { _delete = { 'book_id', 'edition_id', 'edition_format', 'pages', 'title' } })
+      menu_instance:updateItems()
+    end,
+  })
+end
+
+function HardcoverMenu:getUnlinkMenuItem()
+  return {
+    text = _("Unlink book"),
+    enabled_func = function() return self.settings:bookLinked() end,
+    callback = function(menu_instance) self:unlinkBook(menu_instance) end,
+    keep_menu_open = true,
+  }
+end
+
+function HardcoverMenu:discardPending(menu_instance)
+  local count = self.sync_queue:pendingCount()
+  if count == 0 then return end
+  self.dialog_manager:confirm({
+    title = T(_("Discard %1 queued changes?"), count),
+    text = _("They are deleted from this device and never sent to Hardcover."),
+    ok_text = _("Discard"),
+    ok_callback = function()
+      self.sync_queue:clearAll()
+      menu_instance:updateItems()
+    end,
+  })
+end
+
+function HardcoverMenu:getDiscardMenuItem()
+  return {
+    text_func = function() return T(_("Discard %1 queued changes"), self.sync_queue:pendingCount()) end,
+    enabled_func = function() return self.sync_queue:pendingCount() > 0 end,
+    callback = function(menu_instance) self:discardPending(menu_instance) end,
+    keep_menu_open = true,
+  }
+end
+
 -- Sync now / pending changes: one definition for the menu and the home screen's
 -- settings.
 function HardcoverMenu:getSyncMenuItem()
@@ -724,25 +710,7 @@ function HardcoverMenu:getSyncMenuItem()
         self.on_flush_sync_queue()
       end, true)
     end,
-    hold_callback = function(menu_instance)
-      -- long press discards anything queued, for when a queued change is
-      -- wrong and the user would rather retype it than push it
-      local count = self.sync_queue:pendingCount()
-      if count == 0 then
-        return
-      end
-
-      self.dialog_manager:maybeConfirm({
-        text = T(_("Discard %1 pending changes?"), count),
-        ok_callback = function()
-          self.sync_queue:clearAll()
-          menu_instance:updateItems()
-        end,
-        no_confirm_callback = function()
-          menu_instance:updateItems()
-        end
-      })
-    end,
+    hold_callback = function(menu_instance) self:discardPending(menu_instance) end,
     keep_menu_open = true,
     separator = true,
     -- the settings screen shows this one as a tile at the top
@@ -828,6 +796,9 @@ function HardcoverMenu:getHomeSettingsItems(opts)
     items[1] = self:getSyncMenuItem()
     if self:pendingTotal() > 0 then
       items[#items + 1] = self:getPendingChangesMenuItem()
+    end
+    if self.sync_queue:pendingCount() > 0 then
+      items[#items + 1] = self:getDiscardMenuItem()
     end
     if self:conflictCount() > 0 then
       items[#items + 1] = self:getSyncConflictsMenuItem()
@@ -1229,6 +1200,16 @@ function HardcoverMenu:getStatusSubMenuItems()
         self:saveRating(0, menu_instance, true)
       end,
       keep_menu_open = true,
+    },
+    {
+      text = _("Clear rating"),
+      enabled_func = function()
+        return self.enabled and self.state.book_status.id ~= nil and self.state.book_status.rating ~= nil
+      end,
+      callback = function(menu_instance)
+        self:saveRating(0, menu_instance, true)
+      end,
+      keep_menu_open = true,
       separator = true
     },
     {
@@ -1406,6 +1387,26 @@ function HardcoverMenu:getSettingsSubMenuItems()
       end
     },
     {
+      text = _("New navigation bar (beta)"),
+      checked_func = function()
+        return self.settings:newNavigation()
+      end,
+      callback = function()
+        self.settings:updateSetting(SETTING.NEW_NAVIGATION, not self.settings:newNavigation())
+      end,
+      help = _("Open Hardcover to Home, Library, Goals and Stats tabs with a bar at the bottom. Takes effect the next time Hardcover opens."),
+    },
+    {
+      text = _("Pure black secondary text (beta)"),
+      checked_func = function()
+        return self.settings:pureBlackText()
+      end,
+      callback = function()
+        self.settings:updateSetting(SETTING.PURE_BLACK_TEXT, not self.settings:pureBlackText())
+      end,
+      help = _("Draw author lines, captions and hints in pure black instead of dark grey. Screens already open change the next time they open."),
+    },
+    {
       text = "Compatibility mode",
       checked_func = function()
         return self.settings:compatibilityMode()
@@ -1414,13 +1415,7 @@ function HardcoverMenu:getSettingsSubMenuItems()
         local setting = self.settings:compatibilityMode()
         self.settings:updateSetting(SETTING.COMPATIBILITY_MODE, not setting)
       end,
-      hold_callback = function()
-        UIManager:show(InfoMessage:new {
-          text = [[Disable fancy menu for book and edition search results.
-
-May improve compatibility for some versions of KOReader]],
-        })
-      end
+      help = _("Turns off the fancy list in the pickers that link a book or choose an edition. May help on some versions of KOReader."),
     }
   }
 end

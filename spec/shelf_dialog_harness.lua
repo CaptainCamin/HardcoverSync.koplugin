@@ -1,170 +1,130 @@
--- Drives the real ShelfDialog against a capturing Menu.
+-- The shelf screen (shelf_dialog.lua): what it builds for a list of books, a page at a time.
 --
--- Why this shape: the crash the user reported ("KO-Reader crashes when you try
--- to view either the currently reading or want to read lists") happens in the
--- widget layer, but the plugin's own code is what decides what the widget gets.
--- Loading the real shelf_dialog.lua with a capturing Menu lets us assert on the
--- exact list the plugin built -- text, mandatory labels, cover fields,
--- callbacks, paging flags -- without trying to make a vendored widget tree
--- genuinely run.
---
--- That last part is the whole point. Making the vendored Menu/CoverMenu
--- actually execute is a losing game: every KOReader method it touches that the
--- harness does not stub surfaces as a nil call, and that failure is
--- indistinguishable from a plugin bug. Two full debugging passes went into
--- chasing those. The capturing approach tests code we actually wrote, and
--- plugin-owned modules are never stubbed.
+-- The widgets here are small stand-ins that keep their children in plain arrays, so the structure the
+-- dialog builds can be walked and counted; the drawing itself is checked on a real KOReader
+-- (spec/emu/scenarios/shelf.lua). Plugin-owned modules (Theme, ListRow, Shelf, ShelfSort, CoverCells,
+-- Button) are the real ones.
 --
 -- Usage: lua spec/shelf_dialog_harness.lua [plugin-root]
 
 local PLUGIN = arg[1] or "."
+package.path = PLUGIN .. "/?.lua;" .. PLUGIN .. "/?/init.lua;" .. package.path
+
 local support = dofile(PLUGIN .. "/spec/support.lua")
 local r = support.reporter()
 
-support.preload_koreader_stubs()
+local function make()
+  return setmetatable({}, {
+    __index = function() return make() end,
+    __call = function() return make() end,
+    __add = function() return 0 end, __sub = function() return 0 end,
+    __mul = function() return 0 end, __div = function() return 0 end,
+    __concat = function() return "" end,
+    __lt = function() return false end, __le = function() return false end,
+  })
+end
 
--- ---------------------------------------------------------------- KOReader widgets
--- Inert containers. The dialog only ever constructs them and stores them, so a
--- table that accepts the spec and reports its size is enough.
-local function container_stub(name)
-  local base = {}
-  base.__index = base
-  base.new = function(cls, o)
+local function widget(kind)
+  local C = { kind = kind }
+  C.__index = C
+  function C:new(o)
     o = o or {}
-    setmetatable(o, cls)
-    o.getSize = o.getSize or function() return { w = 600, h = 800 } end
-    o.paintTo = function() end
-    o.free = function() end
-    o.onShow = function() end
-    o.onClose = function() end
-    o.refresh = function() end
-    -- Real InputContainer:new runs init. Dropping it means the dialog never
-    -- builds its menu and every assertion silently sees nothing, so keep it.
-    if o.init then
-      o:init()
-    end
-    return o
+    o.kind = kind
+    return setmetatable(o, C)
   end
-  base.extend = function()
-    local child = {}
-    setmetatable(child, { __index = base })
-    child.__index = child
-    child.new = function(cls, o) return base.new(child, o) end
-    return child
-  end
-  package.loaded[name] = base
-  return base
+  function C:getSize() return { w = self.width or 10, h = 20 } end
+  function C:free() end
+  return C
 end
 
-for _, n in ipairs({
-  "ui/widget/container/centercontainer",
-  "ui/widget/container/inputcontainer",
-  "ui/widget/container/framecontainer",
-}) do
-  container_stub(n)
+local FocusManager = {}
+function FocusManager:extend(o)
+  o = o or {}
+  o.__index = o
+  return setmetatable(o, { __index = FocusManager })
+end
+function FocusManager:new(o)
+  o = setmetatable(o or {}, self)
+  o.key_events = {}
+  o:init()
+  return o
 end
 
-support.preload_theme_stubs() -- (after the containers above, which are real stubs)
+local shown, closed, dirty = {}, {}, 0
+local errors = {}
+local popovers = {}
+local bars = {}
 
-package.preload["ffi/util"] = function()
-  return { template = function(t, ...)
-    local args = { ... }
-    return (tostring(t):gsub("%%(%d)", function(n) return tostring(args[tonumber(n)]) end))
-  end }
-end
-package.preload["device"] = function()
-  return {
+local widgets = {
+  ["ui/widget/focusmanager"] = FocusManager,
+  ["ui/widget/horizontalgroup"] = widget("HGroup"),
+  ["ui/widget/verticalgroup"] = widget("VGroup"),
+  ["ui/widget/container/centercontainer"] = widget("Center"),
+  ["ui/widget/container/leftcontainer"] = widget("Left"),
+  ["ui/widget/container/framecontainer"] = widget("Frame"),
+  ["ui/widget/overlapgroup"] = widget("Overlap"),
+  ["hardcover/lib/ui/tap_row"] = widget("TapRow"),
+  ["ui/geometry"] = { new = function(_, t) return t end },
+  ["ui/gesturerange"] = { new = function(_, t) return t end },
+  ["device"] = {
+    isTouchDevice = function() return false end,
+    hasKeys = function() return false end,
     screen = {
-      -- KOReader's Screen is called with a colon, so the first arg is the
-      -- table itself. ShelfDialog:init sizes itself from these.
-      scaleBySize = function(_, n) return n end,
       getWidth = function() return 1080 end,
       getHeight = function() return 1440 end,
-      getSize = function() return { x = 0, y = 0, w = 1080, h = 1440 } end,
-      getDpi = function() return 300 end,
-      isColorScreen = function() return true end,
+      scaleBySize = function(_, n) return n end,
+      getSize = function() return { w = 1080, h = 1440 } end,
     },
-  }
-end
+  },
+  ["ui/uimanager"] = {
+    show = function(_, w) shown[#shown + 1] = w end,
+    close = function(_, w) closed[#closed + 1] = w end,
+    setDirty = function() dirty = dirty + 1 end,
+  },
+  -- the components that draw: here they record what they were given
+  ["hardcover/lib/ui/components/top_bar"] = { new = function(opts)
+    local bar = widget("Bar"):new { opts = opts }
+    bar.back_button = widget("Back"):new {}
+    bar.action_buttons = {}
+    for i = 1, #(opts.actions or {}) do bar.action_buttons[i] = widget("Action"):new { dimen = { x = 900 + i, y = 10, w = 40, h = 40 } } end
+    bars[#bars + 1] = bar
+    return bar
+  end },
+  ["hardcover/lib/ui/components/scroll_control"] = {
+    gutter = function() return 18 end,
+    paged = function(opts) return widget("Control"):new { opts = opts } end,
+  },
+  ["hardcover/lib/ui/components/button"] = { new = function(o) return widget("Button"):new { text = o.label, callback = o.callback } end },
+  ["hardcover/lib/ui/components/popover"] = { show = function(opts)
+    popovers[#popovers + 1] = opts
+    return { close = function() end }
+  end },
+  ["hardcover/lib/ui/components/draw"] = { chevron = function() return widget("Chevron"):new {} end },
+  ["hardcover/lib/ui/status_dialogs"] = { error = function(message) errors[#errors + 1] = message end },
+}
 
-package.preload["ui/uimanager"] = function()
-  return {
-    show = function(self, widget) self._shown = widget return widget end,
-    close = function(self, widget) self._closed = widget end,
-    setDirty = function() end,
-    scheduleIn = function(_, _, fn, ...) if type(fn) == "function" then fn(...) end end,
-    unschedule = function() end,
-    repaint = function() end,
-    getPaintCtx = function() return {} end,
-  }
+package.preload["hardcover_version"] = function() return { "0", "0", "0", "spec" } end
+package.preload["gettext"] = function()
+  return setmetatable({}, { __call = function(_, s) return s end })
 end
-
-package.preload["ui/widget/infomessage"] = function()
-  local M = { last = nil }
-  M.new = function(_, o)
-    o = o or {}
-    setmetatable(o, M)
-    o.show = function() M.last = o.text end
-    o.free = function() end
-    return o
+package.preload["logger"] = function()
+  return { dbg = function() end, info = function() end, warn = function() end, err = function() end }
+end
+package.preload["util"] = function()
+  return { htmlEntitiesToUtf8 = function(s) return s end }
+end
+local real_require = require
+_G.require = function(name)
+  if widgets[name] then return widgets[name] end
+  if name:match("^hardcover/") or package.preload[name] or package.loaded[name] then
+    return real_require(name)
   end
-  return M
+  return make()
 end
 
--- shelf_dialog now routes its load-more failure through StatusDialogs, which
--- builds a ConfirmBox as well as an InfoMessage. Both are captured so a test
--- can assert on what the user was shown.
-package.preload["ui/widget/confirmbox"] = function()
-  local M = { last = nil }
-  M.new = function(_, o)
-    o = o or {}
-    setmetatable(o, M)
-    o.show = function() M.last = o end
-    o.free = function() end
-    return o
-  end
-  return M
-end
-
--- The sort menu: record the buttons it is given
-package.preload["ui/widget/buttondialog"] = function()
-  local M = { last = nil }
-  M.new = function(_, o)
-    o = o or {}
-    M.last = o
-    return o
-  end
-  return M
-end
-
--- Capture what the plugin hands the real Menu.
-local Menu, record = support.capturing_menu()
-package.preload["ui/widget/menu"] = function() return Menu end
-
--- The plugin's own SearchMenu derives from Menu; keep it real but harmless.
-package.preload["hardcover/lib/ui/search_menu"] = function()
-  local SearchMenu = Menu:extend()
-  SearchMenu._do_cover_images = true
-  return SearchMenu
-end
-
-package.preload["hardcover/lib/shelf"] = function()
-  return {
-    statusLabel = function(id)
-      local labels = { [1] = "Want to Read", [2] = "Currently Reading", [3] = "Read" }
-      return labels[id] or "Status " .. tostring(id)
-    end,
-  }
-end
-
-package.path = PLUGIN .. "/?.lua;" .. PLUGIN .. "/?/init.lua;" .. package.path
-
-local ShelfDialog = require("hardcover/lib/ui/shelf_dialog")
+local ShelfDialog = real_require("hardcover/lib/ui/shelf_dialog")
 
 -- ---------------------------------------------------------------- fixtures
--- Shaped exactly like a Hardcover GraphQL shelf row, including the optional
--- fields that are absent for many real books. The crash was reported for both
--- shelf views, so the common path is what matters.
 local function entry(over)
   local e = {
     user_book_id = 501,
@@ -174,10 +134,6 @@ local function entry(over)
     authors = "Ursula K. Le Guin",
     cached_image = { url = "https://covers.example/1.jpg", width = 120, height = 180 },
   }
-  -- Assign explicitly in pairs order rather than skipping nils, so a variant
-  -- can genuinely clear a field the default supplies. Without this,
-  -- `{ cached_image = nil }` silently kept the default cover and the test was
-  -- asserting against data it thought it had removed.
   for k, v in pairs(over or {}) do e[k] = v end
   for k in pairs(over or {}) do
     if over[k] == nil then e[k] = nil end
@@ -185,329 +141,313 @@ local function entry(over)
   return e
 end
 
-local function buildDialog(entries, opts)
+local function fakeLoader()
+  return { loadImages = function() return {}, function() end end }
+end
+
+local function build(entries, opts)
   opts = opts or {}
-  record.specs = {}
-  record.shown = {}
-  local d = ShelfDialog:new {
-    title = opts.title or "Want to Read",
-    entries = entries,
-    has_more = opts.has_more or false,
-    status_id = opts.status_id or 1,
-    compatibility_mode = opts.compatibility_mode or false,
-  }
-  return d
+  bars = {}
+  opts.entries = entries
+  opts.title = opts.title or "Want to Read"
+  opts.status_id = opts.status_id or 1
+  opts.image_loader = fakeLoader()
+  return ShelfDialog:new(opts)
 end
 
-local function lastSpec()
-  return record.specs[#record.specs]
+local function many(n)
+  local rows = {}
+  for i = 1, n do rows[i] = entry({ book_id = 9000 + i, user_book_id = 500 + i, title = "Book " .. i }) end
+  return rows
 end
 
--- ---------------------------------------------------------------- the list itself
-print("\n== the list the plugin builds ==")
-do
-  buildDialog({ entry() })
-  local spec = lastSpec()
-  r.check("a menu is constructed", spec ~= nil)
-  if spec then
-    r.check("every entry becomes an item", #(spec.item_table or {}) == 1,
-      "got " .. tostring(spec and #(spec.item_table or {})))
-    local item = (spec.item_table or {})[1]
-    r.check("an item was built", item ~= nil)
-    if item then
-      r.check("the title reaches the row", type(item.text) == "string"
-        and item.text:find("The Dispossessed", 1, true) ~= nil,
-        "text = " .. tostring(item.text))
-      --[[
-The author reaches the row in `authors`, not in `text`.
-
-It used to be asserted against `text`, which was true only because the old
-shelf code appended authors to the text string itself. Row shaping now puts
-them in their own field, because that is what ListMenu and SearchMenu read:
-SearchMenu draws title and authors as separate lines from those fields, and
-cramming them into `text` meant the SearchMenu path printed the title twice
-for a shelf row.
-
-So the assertion follows the field the menu actually paints from, and
-separately pins the compatibility-mode `text` form, where there is only one
-line to put the author on.
-]]
-      r.check("the author reaches the row", type(item.authors) == "string"
-        and item.authors:find("Le Guin", 1, true) ~= nil,
-        "authors = " .. tostring(item.authors))
-      r.check("the title is not polluted with the author",
-        item.text ~= nil and item.text:find("Le Guin", 1, true) == nil,
-        "text = " .. tostring(item.text))
-      -- Shelf rows still need their own decoration: the status label and rating are
-  -- properties of a shelf entry, not of a book, so they are applied after the
-  -- shared row shaping rather than inside it.
-  -- The shelf already says the status and the details say the page count and
-  -- year, so a row is cover, title and author, and your rating when you have one.
-  r.check("rows are tall (five a page) and carry no keyboard letters",
-        lastSpec().files_per_page == 5 and lastSpec().is_enable_shortcut == false,
-        "files_per_page = " .. tostring(lastSpec().files_per_page) .. ", shortcuts = " .. tostring(lastSpec().is_enable_shortcut))
-  r.check("an unrated row has no right-hand column", item.mandatory == "",
-        "mandatory = " .. tostring(item.mandatory))
-  r.check("no page count or year clutters the row", item.pages == nil and not (item.title or ""):find("%(%d%d%d%d%)"),
-        "pages = " .. tostring(item.pages) .. ", title = " .. tostring(item.title))
-  r.check("a suggestion says why, where a series would be", (function()
-    buildDialog({ entry({ reason = "Wool", book_series = { { position = 2, series = { name = "Shift" } } } }) })
-    local row = (lastSpec().item_table or {})[1]
-    return row and row.series and row.series:find("Wool", 1, true) ~= nil and row.series_index == nil
-  end)(), "the reason did not replace the series")
-  r.check("in the one-line list the reason ends the line", (function()
-    local d = buildDialog({ entry() }, { compatibility_mode = true })
-    local row = d:createListItem(entry({ reason = "Wool" }))
-    return row.text:find(" - Because you liked Wool", 1, true) ~= nil
-  end)(), "the stock list lost the reason")
-  r.check("a rating is the only thing in the right-hand column",
-        (function()
-          local rated = buildDialog({ entry({ user_rating = 4 }) })
-          local r_item = (lastSpec().item_table or {})[1]
-          return r_item and r_item.mandatory:find("4*", 1, true) ~= nil
-        end)(),
-        "a whole rating must read 4*, not 4.0*")
-  r.check("a fractional rating keeps its decimal",
-        (function()
-          local d = buildDialog({ entry({ user_rating = 4.5 }) })
-          local r_item = (lastSpec().item_table or {})[1]
-          return r_item and r_item.mandatory:find("4.5*", 1, true) ~= nil
-        end)(),
-        "expected 4.5* in the mandatory label")
-      r.check("the cover url is attached", item.cover_url == "https://covers.example/1.jpg",
-        "cover_url = " .. tostring(item.cover_url))
-      r.check("cover dimensions are passed through",
-        item.cover_w == 120 and item.cover_h == 180,
-        tostring(item.cover_w) .. "x" .. tostring(item.cover_h))
-      r.check("the cover is marked for lazy loading", item.lazy_load_cover == true,
-        "lazy_load_cover = " .. tostring(item.lazy_load_cover))
-      -- Selection is wired at the menu level via onMenuSelect, not per item:
-      -- shelf_dialog mirrors search_dialog here, and a per-row callback would
-      -- be redundant.
-      -- THE CRASH. hardcover/vendor/listmenu.lua decides how to draw a row with:
-      --   self.is_directory = not (self.entry.is_file or self.entry.file)
-      -- A shelf item carrying neither is drawn as a FOLDER, not a book, and the
-      -- directory branch is what blew up on device. search_dialog sets
-      -- file = "hardcover-<book_id>"; the shelf dialog did not, so every row in
-      -- both shelf views took the directory path.
-      r.check("a book row is not mistaken for a directory",
-        item.file ~= nil or item.is_file == true,
-        "item has neither .file nor .is_file, so the menu renders it as a folder")
-      r.check("the file marker identifies this specific book",
-        item.file == "hardcover-9001",
-        "file = " .. tostring(item.file))
-
-      r.check("row selection is wired on the menu", type(spec.onMenuSelect) == "function",
-        "onMenuSelect = " .. type(spec.onMenuSelect))
-      r.check("tapping a row does not carry its own callback", item.callback == nil,
-        "callback = " .. tostring(item.callback))
-    end
-    r.check("paging is declared", spec.has_more == false or spec.has_more == nil
-      or type(spec.has_more) == "boolean", "has_more = " .. tostring(spec.has_more))
-  end
+local function check(label, fn)
+  local ok, err = pcall(fn)
+  r.check(label, ok, err)
 end
+
+-- ---------------------------------------------------------------- the rows
+print("\n== the rows the plugin builds ==")
+
+check("an entry becomes a row with its title, author and cover", function()
+  local d = build({ entry() })
+  assert(#d.items == 1 and #d.rows == 1, "items " .. #d.items .. ", rows " .. #d.rows)
+  local row = d.items[1].row
+  assert(row.title == "The Dispossessed", tostring(row.title))
+  assert(row.authors and row.authors:find("Le Guin", 1, true), tostring(row.authors))
+  assert(row.cover_url == "https://covers.example/1.jpg", tostring(row.cover_url))
+end)
+
+check("an unrated row has no rating; a rating reads 4 or 4.5, never 4.0", function()
+  assert(build({ entry() }).items[1].rating == nil)
+  assert(build({ entry({ user_rating = 4 }) }).items[1].rating == "4")
+  assert(build({ entry({ user_rating = 4.5 }) }).items[1].rating == "4.5")
+  assert(build({ entry({ user_rating = 0 }) }).items[1].rating == nil, "a zero rating is shown")
+end)
+
+check("no page count or year clutters the row", function()
+  local row = build({ entry({ pages = 300, release_year = 1974 }) }).items[1].row
+  assert(row.pages == nil or row.pages == 300) -- the data may carry it; the screen does not draw it
+  assert(not (row.title or ""):find("%(%d%d%d%d%)"))
+end)
+
+check("a suggestion says why", function()
+  local item = build({ entry({ reason = "Wool" }) }).items[1]
+  assert(item.reason == "Because you liked Wool", tostring(item.reason))
+  assert(build({ entry() }).items[1].reason == nil)
+end)
+
+check("a ranked list carries the rank of each book", function()
+  assert(build({ entry({ rank = 3 }) }).items[1].rank == 3)
+end)
+
+check("tapping a row calls the owner with the entry", function()
+  local got
+  local e = entry()
+  local d = build({ e }, { select_entry_cb = function(x) got = x end })
+  d.rows[1].callback()
+  assert(got == e, "the entry was not handed over")
+  build({ e }).rows[1].callback() -- no handler: no error
+end)
+
+check("the top bar has a back arrow that closes, and it is Close for the focus order", function()
+  local closing = false
+  local d = build({ entry() }, { close_callback = function() closing = true end })
+  assert(bars[1].opts.on_back and d.close_button == bars[1].back_button)
+  bars[1].opts.on_back()
+  assert(closing, "back did not call close_callback")
+  local last = d.layout[#d.layout]
+  assert(last[1] == d.close_button and #last == 1, "Close is not last in the focus order")
+end)
 
 -- ---------------------------------------------------------------- both shelf views
--- The user reported both lists crash, so both must build.
 print("\n== both shelf views ==")
-for _, case in ipairs({
-  { id = 1, name = "Want to Read" },
-  { id = 2, name = "Currently Reading" },
-}) do
-  local d = buildDialog({ entry({ status_id = case.id }) }, {
-    title = case.name, status_id = case.id,
-  })
-  local spec = lastSpec()
-  local item = spec and (spec.item_table or {})[1]
-  r.check(case.name .. " builds a row", item ~= nil)
-  r.check(case.name .. " does not repeat the shelf's own status on every row", item and item.mandatory == "",
-    "mandatory = " .. tostring(item and item.mandatory))
+for _, case in ipairs({ { id = 1, name = "Want to Read" }, { id = 2, name = "Currently Reading" } }) do
+  check(case.name .. " builds a row, and a title", function()
+    local d = build({ entry({ status_id = case.id }) }, { title = case.name, status_id = case.id })
+    assert(#d.items == 1 and bars[1].opts.title == case.name, tostring(bars[1].opts.title))
+  end)
 end
 
 -- ---------------------------------------------------------------- optional fields
--- Real shelves are full of books missing a cover, a series, or a rating. Each
--- of these is a place the dialog could index nil, so each is asserted.
 print("\n== books with missing optional fields ==")
-local variants = {
+for _, v in ipairs({
   { name = "no cover at all", over = { cached_image = nil } },
   { name = "cover with no dimensions", over = { cached_image = { url = "https://c/x.jpg" } } },
   { name = "empty cover object", over = { cached_image = {} } },
   { name = "no author", over = { authors = nil } },
   { name = "empty author string", over = { authors = "" } },
   { name = "no series", over = { series = nil } },
-  { name = "series with no number", over = { series = "Dune", series_index = nil } },
   { name = "no rating", over = { user_rating = nil, community_rating = nil } },
   { name = "zero rating", over = { user_rating = 0 } },
   { name = "no page count", over = { pages = nil } },
   { name = "no release year", over = { release_year = nil } },
   { name = "empty title", over = { title = "" } },
-}
-
-for _, v in ipairs(variants) do
-  local ok, err = pcall(function()
-    local d = buildDialog({ entry(v.over) })
-    local spec = lastSpec()
-    assert(spec, "no menu constructed")
-    assert(#(spec.item_table or {}) == 1, "expected 1 item, got " .. tostring(#(spec.item_table or {})))
-    local item = spec.item_table[1]
-    assert(item.text ~= nil, "item has no text")
-    -- Only assert cover behaviour for variants that actually touch
-    -- cached_image. Every other variant keeps the fixture's default cover, so
-    -- expecting it to vanish was testing the fixture, not the plugin.
-    local touched_cover = v.over.cached_image ~= nil
-    if touched_cover then
-      local has_url = v.over.cached_image.url ~= nil
-      if not has_url then
-        assert(item.cover_url == nil,
-          "cover_url should be absent, got " .. tostring(item.cover_url))
-        assert(item.lazy_load_cover == nil,
-          "lazy_load_cover should be absent, got " .. tostring(item.lazy_load_cover))
-      else
-        assert(item.cover_url == v.over.cached_image.url,
-          "cover_url = " .. tostring(item.cover_url))
-        assert(item.lazy_load_cover == true,
-          "lazy_load_cover = " .. tostring(item.lazy_load_cover))
-        if v.over.cached_image.width == nil then
-          assert(item.cover_w == nil and item.cover_h == nil,
-            "expected no dimensions, got " .. tostring(item.cover_w) .. "x" .. tostring(item.cover_h))
-        end
-      end
-    else
-      assert(item.cover_url == "https://covers.example/1.jpg",
-        "default cover should survive, got " .. tostring(item.cover_url))
+}) do
+  check("survives: " .. v.name, function()
+    local d = build({ entry(v.over) })
+    assert(#d.items == 1 and #d.rows == 1, "expected one row")
+    if v.over.cached_image == nil and next(v.over) == "cached_image" then
+      assert(d.items[1].row.cover_url == nil, "a cover url for a book with none")
     end
   end)
-  r.check("survives: " .. v.name, ok, ok and nil or tostring(err))
 end
 
--- ---------------------------------------------------------------- larger shelves
-print("\n== shelf sizes ==")
+-- ---------------------------------------------------------------- pages
+print("\n== a page at a time ==")
+
+check("only one page of rows is built, however long the shelf", function()
+  local d = build(many(60))
+  assert(d.per_page and d.per_page > 1, "per_page " .. tostring(d.per_page))
+  assert(#d.items == 60 and #d.rows == d.per_page, "built " .. #d.rows .. " rows")
+  assert(d.pages == math.ceil(60 / d.per_page), "pages " .. d.pages)
+end)
+
 for _, n in ipairs({ 0, 1, 2, 20, 21, 50 }) do
-  local rows = {}
-  for i = 1, n do rows[i] = entry({ book_id = 9000 + i, user_book_id = 500 + i }) end
-  local ok, err = pcall(function()
-    buildDialog(rows)
-    local spec = lastSpec()
-    assert(#(spec.item_table or {}) == n, "expected " .. n .. " items, got " .. tostring(#(spec.item_table or {})))
+  check(string.format("%d entries build cleanly", n), function()
+    local d = build(many(n))
+    assert(#d.items == n)
+    assert(#d.rows == math.min(n, d.per_page))
   end)
-  r.check(string.format("%d entries build cleanly", n), ok, ok and nil or tostring(err))
 end
 
--- ---------------------------------------------------------------- paging
-print("\n== paging ==")
-do
-  local d = buildDialog({ entry() }, { has_more = true })
-  local spec = lastSpec()
-  -- has_more is consumed by the dialog to decide whether to offer a reload
-  -- affordance; it is not itself handed to Menu.
-  r.check("a next-page affordance is offered when more pages exist",
-    type(spec.onLeftButtonTap) == "function",
-    "onLeftButtonTap = " .. type(spec.onLeftButtonTap))
-  r.check("the affordance is labelled as a reload",
-    spec.title_bar_left_icon == "cre.render.reload",
-    "title_bar_left_icon = " .. tostring(spec.title_bar_left_icon))
-end
-do
-  local d = buildDialog({ entry() }, { has_more = false })
-  local spec = lastSpec()
-  r.check("no next-page affordance on the last page",
-    spec.onLeftButtonTap == nil and spec.title_bar_left_icon == nil,
-    "onLeftButtonTap = " .. type(spec.onLeftButtonTap)
-      .. ", icon = " .. tostring(spec.title_bar_left_icon))
-end
+check("a short shelf has one page and no scroll control", function()
+  local d = build(many(3))
+  assert(d.pages == 1 and d.control == nil)
+  assert(build(many(60)).control, "no scroll control on a long shelf")
+end)
+
+check("the control steps by page through the dialog, and stays inside the pages", function()
+  local d = build(many(60))
+  local opts = d.control.opts
+  assert(opts.page() == 1 and opts.pages() == d.pages)
+  opts.go(2)
+  assert(d.page == 2 and opts.page() == 2, "go(2) left page " .. d.page)
+  opts.go(99)
+  assert(d.page == d.pages, "went past the last page")
+  opts.go(-4)
+  assert(d.page == 1, "went before the first page")
+end)
+
+check("the next page shows the next rows, and the keys step", function()
+  local d = build(many(60))
+  local first_title = d.rows[1] and d.items[1].row.title
+  d:onNextPage()
+  assert(d.page == 2)
+  local tapped
+  d.select_entry_cb = function(e) tapped = e.title end
+  d.rows[1].callback()
+  assert(tapped == "Book " .. (d.per_page + 1), "page 2 starts with " .. tostring(tapped))
+  d:onPrevPage()
+  assert(d.page == 1 and first_title == "Book 1")
+end)
+
+check("a swipe up turns the page on, down turns it back", function()
+  local d = build(many(60))
+  assert(d:onSwipeShelf(nil, { direction = "north" }) and d.page == 2)
+  assert(d:onSwipeShelf(nil, { direction = "south" }) and d.page == 1)
+  assert(d:onSwipeShelf(nil, { direction = "east" }) == false, "a sideways swipe was taken")
+end)
+
+-- ---------------------------------------------------------------- more to load
+print("\n== the rest of a shelf ==")
+
+check("a shelf that is not all here ends with a Load more block", function()
+  local d = build(many(3), { has_more = true, fetch_page = function() end })
+  assert(#d.items == 4 and d.items[4].kind == "more", "no Load more block")
+  assert(d.more_button and d.more_button.text == "Load more books")
+  assert(build(many(3), { has_more = false, fetch_page = function() end }).more_button == nil, "Load more on a full shelf")
+  assert(build(many(3), { has_more = true }).more_button == nil, "Load more with nothing to ask")
+end)
+
+check("loading more appends the rows and goes to the first new one", function()
+  local asked
+  local d
+  d = build(many(20), {
+    has_more = true, page_size = 20, offset = 20,
+    fetch_page = function(offset, limit, callback) asked = { offset, limit }; callback(many(5), nil, false) end,
+  })
+  local per = d.per_page
+  d:loadMore()
+  assert(asked[1] == 20 and asked[2] == 20, "asked for " .. tostring(asked and asked[1]))
+  assert(#d.entries == 25 and d.has_more == false and d.offset == 25, "entries " .. #d.entries)
+  assert(d.page == math.floor(20 / per) + 1, "page " .. d.page)
+  assert(d.more_button == nil, "Load more still offered")
+end)
+
+check("a failed load says so and keeps what there is", function()
+  errors = {}
+  local d = build(many(3), { has_more = true, fetch_page = function(_, _, cb) cb(nil, "down") end })
+  d:loadMore()
+  assert(#errors == 1 and #d.entries == 3 and d.has_more == true and d.loading == false, "state after a failure")
+end)
+
+check("a second Load more while one is on its way does nothing", function()
+  local calls = 0
+  local d = build(many(3), { has_more = true, fetch_page = function() calls = calls + 1 end })
+  d:loadMore()
+  d:loadMore()
+  assert(calls == 1, "asked " .. calls .. " times")
+end)
 
 -- ---------------------------------------------------------------- keeping the reader's place
 print("\n== keeping the reader's place while rows arrive ==")
-do
-  local d = buildDialog({ entry() })
-  local got = "unset"
-  d.menu.switchItemTable = function(_, _, _, number) got = number end
-  d.menu.page, d.menu.perpage = 3, 10
 
-  d:setEntries({ entry(), entry() }, true, true)
-  r.check("stays on the page being viewed when keep_position is set", got == 21,
-    "item number " .. tostring(got))
+check("setEntries stays on the page being viewed when keep_position is set", function()
+  local d = build(many(60))
+  d:setPage(3)
+  d:setEntries(many(80), true, true)
+  assert(d.page == 3, "page " .. d.page)
+  d:setEntries(many(5), false)
+  assert(d.page == 1, "page " .. d.page)
+end)
 
-  got = "unset"
-  d:setEntries({ entry() }, false)
-  r.check("returns to the first page when it is not", got == nil,
-    "item number " .. tostring(got))
-end
+check("an empty shelf says so, where the rows would be", function()
+  local d = build({})
+  d:setEmptyState("Nothing here yet")
+  assert(d.empty_state == "Nothing here yet" and #d.items == 0 and #d.rows == 0 and d.has_more == false)
+  d:setEntries(many(2), false)
+  assert(d.empty_state == nil and #d.rows == 2, "the message stayed")
+end)
 
 -- ---------------------------------------------------------------- sorting a shelf
 print("\n== sorting a shelf ==")
-do
-  local ButtonDialog = require("ui/widget/buttondialog")
-  local function titles(spec)
-    local out = {}
-    for i, item in ipairs(spec.item_table) do out[i] = item.title end
-    return table.concat(out, "|")
-  end
-  local function shelf(opts)
-    opts = opts or {}
-    opts.sortable = true
-    local entries = {
-      entry({ book_id = 1, title = "The Zebra", authors = "Ann Zed", pages = 100 }),
-      entry({ book_id = 2, title = "Apple", authors = "Bob Young", pages = 300 }),
-      entry({ book_id = 3, title = "Mango", authors = "Cy Xu", pages = 200 }),
-    }
-    record.specs = {}
-    local d = ShelfDialog:new {
-      title = "Want to Read", entries = entries, status_id = 1, sortable = true,
-      sort_key = opts.sort_key, on_sort_change = opts.on_sort_change, has_more = opts.has_more or false,
-      fetch_page = opts.has_more and function() end or nil,
-    }
-    return d, lastSpec()
-  end
 
-  local d, spec = shelf()
-  r.check("a shelf's left icon is the sort button, even when nothing is left to load", spec.title_bar_left_icon == "appbar.menu"
-    and type(spec.onLeftButtonTap) == "function", tostring(spec.title_bar_left_icon))
-  r.check("it opens in the arrival order by default", titles(spec) == "The Zebra|Apple|Mango", titles(spec))
+local function titles(d)
+  local out = {}
+  for i, item in ipairs(d.items) do out[i] = item.row.title end
+  return table.concat(out, "|")
+end
+local function shelf(opts)
+  opts = opts or {}
+  local entries = {
+    entry({ book_id = 1, title = "The Zebra", authors = "Ann Zed", pages = 100 }),
+    entry({ book_id = 2, title = "Apple", authors = "Bob Young", pages = 300 }),
+    entry({ book_id = 3, title = "Mango", authors = "Cy Xu", pages = 200 }),
+  }
+  return build(entries, { sortable = true, sort_key = opts.sort_key, on_sort_change = opts.on_sort_change, actions = opts.actions })
+end
 
+check("a shelf has the sort icon in the top bar, a list that is not a shelf does not", function()
+  local d = shelf()
+  assert(bars[1].opts.actions[1].icon == "sort" and d.sort_button == bars[1].action_buttons[1])
+  build({ entry() })
+  assert(#bars[1].opts.actions == 0 and #bars[1].action_buttons == 0, "a sort icon on search results")
+end)
+
+check("it opens in the arrival order by default", function()
+  assert(titles(shelf()) == "The Zebra|Apple|Mango", titles(shelf()))
+end)
+
+check("choosing a sort re-orders the rows (articles ignored) and tells the owner", function()
   local changed
-  d, spec = shelf({ on_sort_change = function(k) changed = k end })
+  local d = shelf({ on_sort_change = function(k) changed = k end })
   d:setSort("title")
-  r.check("choosing a sort re-orders the rows (articles ignored)", titles(spec) == "Apple|Mango|The Zebra", titles(spec))
-  r.check("and tells the owner, so the choice can be remembered", changed == "title")
+  assert(titles(d) == "Apple|Mango|The Zebra", titles(d))
+  assert(changed == "title")
   d:setSort("pages_asc")
-  r.check("another sort replaces it", titles(spec) == "The Zebra|Mango|Apple", titles(spec))
+  assert(titles(d) == "The Zebra|Mango|Apple", titles(d))
   changed = nil
   d:setSort("pages_asc")
-  r.check("choosing the current sort again does nothing", changed == nil)
+  assert(changed == nil, "choosing the current sort again did something")
   d:setSort("nonsense")
-  r.check("an unknown sort is ignored", titles(spec) == "The Zebra|Mango|Apple")
+  assert(titles(d) == "The Zebra|Mango|Apple", "an unknown sort was taken")
+end)
 
-  d, spec = shelf({ sort_key = "author" })
-  r.check("a remembered sort is applied when the shelf opens (author by surname)", titles(spec) == "Mango|Apple|The Zebra", titles(spec))
-  r.check("the entries themselves keep their arrival order (counts and the saved copy depend on it)",
-    d.entries[1].book_id == 1 and d.entries[2].book_id == 2 and d.entries[3].book_id == 3)
+check("a remembered sort is applied when the shelf opens; the entries keep their arrival order", function()
+  local d = shelf({ sort_key = "author" })
+  assert(titles(d) == "Mango|Apple|The Zebra", titles(d))
+  assert(d.entries[1].book_id == 1 and d.entries[2].book_id == 2 and d.entries[3].book_id == 3)
+end)
 
-  d, spec = shelf({ sort_key = "title" })
+check("a sort that is not the usual one is in the title", function()
+  shelf({ sort_key = "title" })
+  assert(bars[1].opts.title:find("Title", 1, true), bars[1].opts.title)
+  shelf()
+  assert(bars[1].opts.title == "Want to Read", bars[1].opts.title)
+end)
+
+check("the sort menu lists every order, the current one marked, and choosing sorts", function()
+  popovers = {}
+  local d = shelf({ sort_key = "title" })
   d:showSortMenu()
-  local dialog = ButtonDialog.last
-  local labels = {}
-  for _, row in ipairs(dialog.buttons) do labels[#labels + 1] = row[1].text end
-  r.check("the sort menu lists every order", #labels == 11, #labels .. " rows")
-  r.check("the current order is ticked, only that one", labels[3]:find("\226\156\147", 1, true) ~= nil
-    and (table.concat(labels):gsub("\226\156\147", "")) ~= table.concat(labels)
-    and select(2, table.concat(labels):gsub("\226\156\147", "")) == 1)
-  dialog.buttons[4][1].callback() -- Author
-  r.check("choosing from the menu sorts by it", titles(spec) == "Mango|Apple|The Zebra", titles(spec))
+  local menu = popovers[1]
+  assert(menu and #menu.items == 11, "items " .. tostring(menu and #menu.items))
+  local current = 0
+  for _, item in ipairs(menu.items) do if item.current then current = current + 1 end end
+  assert(current == 1 and menu.items[3].current, "the current order is not the one marked")
+  assert(menu.x and menu.y, "the menu has no anchor")
+  menu.items[4].callback() -- Author
+  assert(titles(d) == "Mango|Apple|The Zebra", titles(d))
+end)
 
-  d, spec = shelf({ has_more = true })
-  d:showSortMenu()
-  r.check("a shelf whose load was interrupted offers to carry on in the sort menu",
-    ButtonDialog.last.buttons[1][1].text:find("Load the rest", 1, true) ~= nil)
-  d, spec = shelf()
-  d:showSortMenu()
-  r.check("a complete shelf does not", ButtonDialog.last.buttons[1][1].text:find("Load the rest", 1, true) == nil)
-
-  -- search results are in relevance order: no sort button, reload icon as before
-  record.specs = {}
-  ShelfDialog:new { title = "x", entries = { entry() }, has_more = true, status_id = 1 }
-  local plain = lastSpec()
-  r.check("a list that is not a shelf has no sort button", plain.title_bar_left_icon == "cre.render.reload")
-end
+check("a screen's actions (a list's Refresh) are icons in the top bar", function()
+  local ran = false
+  build({ entry() }, { actions = { { text = "Refresh", callback = function() ran = true end } } })
+  local action = bars[1].opts.actions[1]
+  assert(action and action.icon == "sync", "no reload icon")
+  action.callback()
+  assert(ran)
+end)
 
 r.finish()

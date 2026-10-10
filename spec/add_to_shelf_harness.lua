@@ -79,8 +79,27 @@ real_require("hardcover/lib/background").sleep = function(seconds) slept = slept
 User.getId = function() return 1 end
 
 
-package.preload["ui/widget/buttondialog"] = function()
-  return { new = function(_, o) o.is_picker = true; return o end }
+package.preload["hardcover/lib/ui/picker"] = function()
+  -- the sheet's rows, readable and tappable like the real ones; `buttons` is the old view of them
+  local M = {}
+  function M.new(o)
+    o.is_picker = true
+    o.buttons = {}
+    for _, row in ipairs(o.rows) do
+      row.enabled = true
+      o.buttons[#o.buttons + 1] = { row }
+    end
+    return o
+  end
+  function M.setRow(picker, id, text, enabled, checked)
+    for _, row in ipairs(picker.rows) do
+      if row.id == id then
+        row.text, row.enabled = text, enabled ~= false
+        if checked ~= nil then row.checked = checked end
+      end
+    end
+  end
+  return M
 end
 
 local Api = real_require("hardcover/lib/hardcover_api")
@@ -110,8 +129,8 @@ end)
 
 check("the shelf button says where the book is, or invites adding it", function()
   assert(Shelf.shelfButtonText(nil) == "Add to shelf")
-  assert(Shelf.shelfButtonText(1) == "Shelf: Want to Read")
-  assert(Shelf.shelfButtonText(5) == "Shelf: Did Not Finish")
+  assert(Shelf.shelfButtonText(1) == "Change shelf")
+  assert(Shelf.shelfButtonText(5) == "Change shelf")
 end)
 
 -- ------------------------------------------------------------ cache
@@ -285,7 +304,7 @@ end
 local function press(p, label)
   for _, row_ in ipairs(p.buttons) do
     local text = row_[1].text
-    if text == label or text == "\226\128\162 " .. label then
+    if text == label then
       row_[1].callback()
       return true
     end
@@ -302,7 +321,7 @@ check("a book not in the library gets the four shelves and no Remove", function(
   local p = picker(m, detailScreen(NEW()))
   assert(p, "no picker")
   local got = labels(p)
-  assert(table.concat(got, "|") == "Want to Read|Currently Reading|Read|Did Not Finish|Cancel", table.concat(got, "|"))
+  assert(table.concat(got, "|") == "Want to Read|Currently Reading|Read|Did Not Finish", table.concat(got, "|"))
 end)
 
 check("a shelved book also gets Remove from library, and its current shelf is marked", function()
@@ -311,7 +330,7 @@ check("a shelved book also gets Remove from library, and its current shelf is ma
   local p = picker(m, detailScreen(SHELVED()))
   local got = table.concat(labels(p), "|")
   assert(got:find("Remove from library", 1, true), got)
-  assert(got:find("\226\128\162 Want to Read", 1, true), "current shelf not marked: " .. got)
+  assert(p.buttons[1][1].current == true and p.buttons[2][1].current == false, "the radio is on the current shelf")
 end)
 
 check("each choice sends the right status id", function()

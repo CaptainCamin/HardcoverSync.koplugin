@@ -85,7 +85,7 @@ return {
     tap_button(emu, "New goal")
     local form = top()
     assert(form and form.name == "hardcover_goal_form" and not form.goal, "New goal did not open the form: " .. tostring(form and form.name))
-    for _, label in ipairs({ "New goal", "Name", "Counting", "Target", "Period", "Visible to", "Same as your account", "12 books", "Save", "Cancel" }) do
+    for _, label in ipairs({ "New goal", "Name", "Counting", "Target", "Period", "Visible to", "Same as your account", "12 books", "Save" }) do
       emu:expectText(label)
     end
     for _, node in ipairs(emu:screenNodes()) do
@@ -146,7 +146,7 @@ return {
     local screen = top()
     assert(screen and screen.name == "hardcover_goals", "the form did not close onto the Goals screen: " .. tostring(screen and screen.name))
     emu:expectText(presets[3].name)
-    emu:expectText("/ 25 pages")
+    emu:expectText("of 25 pages")
     -- and the saved copy has it, for offline
     local saved = manager:savedGoals()
     assert(#saved == 2, "saved goals: " .. #saved)
@@ -209,7 +209,7 @@ return {
     assert(#sent == before + 1 and sent[#sent].id == new_goal.id and sent[#sent].input.goal == 30, "the change was not sent")
     local one = top()
     assert(one and one.name == "hardcover_goal", "the form did not close onto the goal: " .. tostring(one and one.name))
-    emu:expectText("/ 30 pages")
+    emu:expectText("of 30 pages")
 
     -- ------------------------------------------------------------------ Cancel
     tap_button(emu, "Edit goal")
@@ -217,7 +217,11 @@ return {
     tap_row(emu, form, "target")
     top():setInputText("99")
     tap_button(emu, "Set")
-    tap_button(emu, "Cancel")
+    -- the back arrow of the top bar is Cancel
+    emu:screenNodes()
+    local back = top().title_bar.back_button.dimen
+    emu:tapExpecting(back.x + math.floor(back.w / 2), back.y + math.floor(back.h / 2))
+    emu:pump()
     emu:expectText("Discard your changes?")
     tap_button(emu, "Discard")
     assert(top().name == "hardcover_goal", "Discard did not close the form")

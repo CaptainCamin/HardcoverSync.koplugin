@@ -49,6 +49,8 @@ function SettingsItems.rows(items, open, refresh)
         submenu = (item.sub_item_table ~= nil or item.sub_item_table_func ~= nil) or nil,
         tile = item.tile,
         separator = item.separator,
+        -- a line under the label that says what the option does (was a long press)
+        support = resolve(item, "help"),
       }
 
       row.choose = function()

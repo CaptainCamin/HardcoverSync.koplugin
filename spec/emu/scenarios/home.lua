@@ -191,19 +191,21 @@ return {
     emu:expectText("About")
     emu:shot("home_settings")
 
-    -- every row is a boxed row inside the page margins, tall enough to hit
-    local Theme = require("hardcover/lib/ui/theme")
+    -- every row is a list item with the list's side padding; a switch shows an option's state
+    local ListItem = require("hardcover/lib/ui/components/list_item")
     local ticks = function()
       local n = 0
-      for _, node in ipairs(emu:screenNodes()) do
-        if node.text == "\226\156\147" then n = n + 1 end
+      for _, t in ipairs(emu:top().taps or {}) do
+        if t.shows:find("|true|", 1, true) then n = n + 1 end
       end
       return n
     end
     local screen_w = require("device").screen:getWidth()
     for _, node in ipairs(emu:screenNodes()) do
       if node.text == "Automatically link by ISBN" or node.text == "About" then
-        assert(node.x >= Theme.margin and node.x + node.w <= screen_w - Theme.margin, node.text .. " is outside the margins")
+        -- the row is the node (the whole row is the touch target): inside the screen, a full-width list row
+        assert(node.x >= 0 and node.x + node.w <= screen_w, node.text .. " is off the screen")
+        assert(node.w >= screen_w - 2 * ListItem.PAD, node.text .. " is not a full-width row")
       end
     end
     local ticks_before = ticks()
@@ -211,16 +213,19 @@ return {
     local before = settings:readSetting(SETTING.LINK_BY_ISBN) == true
     local option = emu:expectText("Automatically link by ISBN")
     emu:tapExpecting(option.x + 5, option.y + 5)
-    assert(ticks() ~= ticks_before, "the tick box did not change when its option was tapped")
+    assert(ticks() ~= ticks_before, "the switch did not change when its option was tapped")
     assert((settings:readSetting(SETTING.LINK_BY_ISBN) == true) ~= before,
       "tapping an option did not change the setting")
 
     local sub = emu:expectText("Track progress settings")
     emu:tapExpecting(sub.x + 5, sub.y + 5)
-    emu:expectText("Back")
+    emu:pump()
+    assert(emu:top().current.title:find("Track progress", 1, true), "the submenu did not open")
     emu:shot("home_settings_sub")
-    local back = emu:expectText("Back")
-    emu:tapExpecting(back.x + 5, back.y + 5)
+    -- the top bar's back arrow goes up one level (there is no Back row any more)
+    emu:screenNodes()
+    local arrow = require("device").screen:scaleBySize(30)
+    emu:tapExpecting(arrow, arrow)
     emu:expectText("Automatically link by ISBN")
     emu:closeAll()
 
@@ -240,7 +245,7 @@ return {
     bare:showHome()
     emu:pump()
     assert(bare.home_dialog, "the home screen did not open without counts")
-    emu:expectText("Currently reading") -- the heading stays: it opens the shelf
+    emu:expectText("Currently reading") -- the heading stays: it opens the shelf (the old Home, beta off)
     assert(not emu:screenText():find("The Dispossessed", 1, true), "showed cards that were never loaded")
     for _, row in ipairs(bare.home_dialog.rows) do
       assert(row.count == nil, "invented a count for " .. row.title)

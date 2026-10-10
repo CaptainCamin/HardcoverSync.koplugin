@@ -85,15 +85,17 @@ return {
     assert(dialog and dialog.name == "hardcover_book_detail", "the details did not open")
     emu:expectText("The Left Hand of Darkness")
 
-    -- the bar: four buttons in order, inside the margins, none on another
+    -- the buttons: Shelf over Reviews, then Lists and Z-library in one row below, inside the
+    -- margins, none on another
     assert(dialog.lists_button, "no Lists button for an OAuth sign-in")
-    local buttons = {}
-    for _, child in ipairs(dialog.action_bar) do if child.callback then buttons[#buttons + 1] = child end end
-    assert(#buttons == 4 and buttons[1] == dialog.shelf_button and buttons[2] == dialog.lists_button
-      and buttons[3] == dialog.reviews_button and buttons[4] == dialog.zlibrary_button, "the bar is not Shelf | Lists | Reviews | Z-library")
     emu:expectText("Lists")
     local M = require("hardcover/lib/ui/theme").margin
     UIManager:_repaint()
+    local at = function(name) return dialog[name].dimen end
+    assert(at("zlibrary_button").y < at("reviews_button").y and at("reviews_button").y < at("shelf_button").y,
+      "the buttons are not Z-library, Reviews, then Shelf")
+    assert(at("shelf_button").y == at("lists_button").y and at("shelf_button").x < at("lists_button").x,
+      "Shelf and Lists are not one row, Shelf first")
     for _, name in ipairs({ "shelf_button", "lists_button", "reviews_button", "zlibrary_button" }) do
       local d = dialog[name].dimen
       assert(d and d.x >= M and d.x + d.w <= emu.Screen:getWidth() - M, name .. " is outside the margins")
@@ -130,13 +132,13 @@ return {
     Api.auth = fixtures.fake_auth(true)
     tapButton(dialog.lists_button)
     local picker = topmost()
-    assert(picker ~= dialog and picker.buttons, "the picker did not open")
+    assert(picker ~= dialog and picker.rows, "the picker did not open")
     assert(count("getBookLists") == 1 and lastCall("getBookLists").book_id == 103, "the membership was not asked for once")
     emu:expectText("Add to lists")
-    emu:expectText("\226\152\145  To Read - SciFi (7)") -- on it
-    emu:expectText("\226\152\144  Books that made me grin (4)") -- not
-    emu:expectText("\226\152\145  Research (1)")
-    emu:expectText("\226\152\144  Someday (0)")
+    emu:expectText("To Read - SciFi (7)") -- on it
+    emu:expectText("Books that made me grin (4)") -- not
+    emu:expectText("Research (1)")
+    emu:expectText("Someday (0)")
     emu:expectText("Done")
     assert(not screenHas("Top 25"), "a followed list was offered")
     emu:shot("add_to_list_picker")
@@ -147,18 +149,18 @@ return {
     local sent = lastCall("addToList")
     assert(sent.book_id == 103 and sent.list_id == 2 and sent.position == 4,
       string.format("insert was book %s list %s position %s", tostring(sent.book_id), tostring(sent.list_id), tostring(sent.position)))
-    emu:expectText("\226\152\145  Books that made me grin (5)")
+    emu:expectText("Books that made me grin (5)")
     assert(topmost() == picker, "the picker closed on a tick")
     tapText("Someday")
     sent = lastCall("addToList")
     assert(count("addToList") == 2 and sent.list_id == 4 and sent.position == 0, "the empty list was not added to at position 0")
-    emu:expectText("\226\152\145  Someday (1)")
+    emu:expectText("Someday (1)")
     emu:shot("add_to_list_added")
 
     -- untick: one delete with the list_books id (501, from the membership)
     tapText("To Read - SciFi")
     assert(count("removeFromList") == 1 and lastCall("removeFromList").id == 501, "the delete did not carry the list_books id")
-    emu:expectText("\226\152\144  To Read - SciFi (6)")
+    emu:expectText("To Read - SciFi (6)")
 
     -- untick one that was just added: the id came with the answer, no lookup
     tapText("Someday")
@@ -173,7 +175,7 @@ return {
     emu:shot("add_to_list_failed")
     fixtures.list_write_fail = nil
     dismiss(picker)
-    emu:expectText("\226\152\145  Research (1)")
+    emu:expectText("Research (1)")
     assert(count("removeFromList") == 3, "the failing delete was not attempted")
 
     -- a refusal for the scope, wherever it comes up, gives the sign-in message
@@ -182,7 +184,7 @@ return {
     emu:expectText("Sign out and back in")
     fixtures.list_write_fail = nil
     dismiss(picker)
-    emu:expectText("\226\152\144  Someday (0)")
+    emu:expectText("Someday (0)")
 
     -- the lists screen, if it is underneath, follows: here only the picker/details are
     -- on the stack, so nothing to refresh and nothing raised
@@ -198,7 +200,7 @@ return {
     local asked = count("getBookLists")
     tapButton(dialog.lists_button)
     assert(count("getBookLists") == asked, "the picker asked for the lists again")
-    emu:expectText("\226\152\145  Books that made me grin (5)")
+    emu:expectText("Books that made me grin (5)")
     UIManager:close(topmost())
     emu:pump()
     emu:closeAll()

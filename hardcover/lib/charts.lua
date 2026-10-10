@@ -3,13 +3,9 @@
 -- No KOReader requires, so it runs under stock Lua in the spec suite: the widgets
 -- (ui/chart_widgets.lua) only draw what this works out. Designed for an e-ink panel and for
 -- any library, large or small: scales that round to clean numbers, a tail of small slices
--- folded into "Other", shares that add up to 100, grey levels that stay apart on a mono panel.
+-- folded into "Other", shares that add up to 100, grey steps that stay apart on a mono panel.
 
 local Charts = {}
-
--- math.atan2 is gone from Lua 5.3+, where math.atan takes (y, x); LuaJIT (KOReader) and 5.1 have
--- only atan2, since there math.atan takes one argument.
-local atan2 = math.atan2 or math.atan
 
 --
 -- A clean top for an axis and the step between its ticks: 0..max in about four steps, each a
@@ -65,7 +61,7 @@ function Charts.shorten(text, max)
 end
 
 --
--- Shares for a pie or a stacked bar. `items` are { label, value }; the biggest `max` keep their
+-- Shares for a ranked set of bars. `items` are { label, value }; the biggest `max` keep their
 -- own slice, the rest are folded into one "Other" (named by `other_label`). Zero and negative
 -- values are dropped. Each slice gets `fraction` (0..1) and `percent`, a whole number: the
 -- percents add up to exactly 100 (largest remainders), so a chart never says 99% or 101%.
@@ -117,60 +113,15 @@ function Charts.slices(items, max, other_label)
 end
 
 --
--- Where each slice of a ring starts and ends, as fractions of a turn from 12 o'clock clockwise
--- (0..1). Adds `from` and `to` to each slice.
+-- Grey levels (0 black .. 255 white) for bars that run from the biggest to the smallest, each a
+-- clear step lighter than the one before and none so light that it washes out against white paper.
+-- The first is black: the biggest is the headline. Past the last, the lightest repeats.
 --
-function Charts.arcs(slices)
-  local at = 0
-  for _, s in ipairs(slices) do
-    s.from, s.to = at, at + s.fraction
-    at = s.to
-  end
-  return slices
+local RAMP = { 0x00, 0x44, 0x77, 0x99, 0xBB }
+function Charts.ramp(i)
+  return RAMP[math.min(math.max(i or 1, 1), #RAMP)]
 end
-
--- Which slice a point belongs to: (dx, dy) from the ring's centre, y down. nil outside the ring
--- (`inner` and `outer` are radii) or past the last slice.
-function Charts.sliceAt(slices, dx, dy, inner, outer)
-  local d2 = dx * dx + dy * dy
-  if d2 > outer * outer or d2 < inner * inner then return nil end
-  -- a turn from 12 o'clock, clockwise: atan2(dx, -dy)
-  local turn = atan2(dx, -dy) / (2 * math.pi)
-  if turn < 0 then turn = turn + 1 end
-  for i, s in ipairs(slices) do
-    if turn >= s.from and turn < s.to then return i end
-  end
-  return #slices > 0 and #slices or nil
-end
-
--- Like sliceAt, but a thin gap (`gap` px wide, in the surface colour) is left where two slices
--- meet: nil for a pixel within gap/2 of a slice's edge. `outer` is used as the ring's mid radius
--- to turn the angle into a length. Only between slices: a single slice is a whole ring.
-function Charts.sliceAtGap(slices, dx, dy, inner, outer, gap)
-  local index = Charts.sliceAt(slices, dx, dy, inner, outer)
-  if not index or #slices < 2 or not gap or gap <= 0 then return index end
-  local turn = atan2(dx, -dy) / (2 * math.pi)
-  if turn < 0 then turn = turn + 1 end
-  local s = slices[index]
-  local r = math.sqrt(dx * dx + dy * dy)
-  local edge = math.min(math.abs(turn - s.from), math.abs(s.to - turn)) * 2 * math.pi * r
-  -- the first slice also meets the last across 12 o'clock
-  if index == 1 then edge = math.min(edge, (1 - slices[#slices].to + turn) * 2 * math.pi * r) end
-  if index == #slices then edge = math.min(edge, (1 - turn + slices[1].from) * 2 * math.pi * r) end
-  if edge < gap / 2 then return nil end
-  return index
-end
-
---
--- Grey levels (0 black .. 255 white) for `n` slices, far enough apart to tell on a mono panel
--- and none so light that it washes out against white paper. The first is the darkest: the
--- biggest slice is the headline. A folded "Other" takes the lightest.
---
-local LEVELS = { 0x00, 0x66, 0x33, 0x99, 0xBB }
-function Charts.shade(i)
-  return LEVELS[((i or 1) - 1) % #LEVELS + 1]
-end
-Charts.LEVELS = LEVELS
+Charts.RAMP = RAMP
 
 --
 -- Columns for a column chart in an area `w` x `h`: one per value, with a gap between, a

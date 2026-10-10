@@ -53,11 +53,11 @@ return {
     probe:reset()
     manager:showShelf(HARDCOVER.STATUS.TO_READ, "Want to Read")
     perf.run_loop()
-    results.shelf = probe:report("shelf: open (5 rows of covers)")
+    results.shelf = probe:report("shelf: open (a page of rows with covers)")
     print("        small: " .. perf.small_regions(results.shelf))
-    local menu = manager.shelf_dialog.menu
+    local shelf = manager.shelf_dialog
     probe:reset()
-    menu:onNextPage()
+    shelf:onNextPage()
     perf.run_loop()
     results.shelf_page = probe:report("shelf: one page turn")
     print("        small: " .. perf.small_regions(results.shelf_page))
@@ -175,6 +175,22 @@ return {
     emu:closeAll()
     perf.run_loop()
 
+    ------------------------------------------------------------------ shell
+    -- switching a tab is one redraw of the screen and nothing else
+    local shell = manager:showShell("home")
+    perf.run_loop()
+    probe:reset()
+    shell:setTab("goals")
+    perf.run_loop()
+    results.shell_tab = probe:report("shell: tab switched (Home to Goals)")
+    print("        small: " .. perf.small_regions(results.shell_tab))
+    probe:reset()
+    shell:setTab("library")
+    perf.run_loop()
+    results.shell_tab_back = probe:report("shell: tab switched (Goals to Library)")
+    emu:closeAll()
+    perf.run_loop()
+
     ------------------------------------------------------------------ budget
     -- what each user action may cost the panel. A screen's first draw is one
     -- full refresh; whatever arrives later redraws only its own box or region.
@@ -199,6 +215,9 @@ return {
     within("reader panel open", results.panel_open, 0, 0.6)
     within("reader panel tick", results.panel_toggle, 0, 0.6)
     within("reader panel close", results.panel_close, 0, 0.6)
+    -- a tab switch: the screen once
+    within("shell tab switch", results.shell_tab, 1, 1.3)
+    within("shell tab switch (second)", results.shell_tab_back, 1, 1.3)
     -- ticking an option redraws that row, not the page
     within("settings tick", results.settings_tick, 0, 0.1)
   end,

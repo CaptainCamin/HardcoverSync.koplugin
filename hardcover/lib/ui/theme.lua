@@ -16,9 +16,34 @@
 --   * Redraw as little as possible: nothing animates, and a screen changes
 --     its own contents in place rather than being rebuilt.
 --
---   * Serif for titles, sans for the rest (Theme.serif). Pill-shaped buttons.
+--   Learned from Mudita Mindful Design (docs/e-ink-design.md has the sources, how
+--   much to trust them, and the open questions):
+--
+--   * Every control is visible. Anything that can be tapped, scrolled or held has a
+--     control on screen. A swipe or a long press may be a shortcut, never the only
+--     way to do something.
+--   * Fit in the lines. Rows keep one fixed height and stay put from page to page, so
+--     the rules between them are redrawn in the same places. A long page should
+--     scroll by whole pages that land on row edges.
+--   * State never rests on grey alone. A disabled or off control shows it with a
+--     check, a fill or a dotted border, or is left out.
+--   * Few big dark areas. Try an outline or a pattern before a solid fill; a fill
+--     marks the one primary action or the active choice.
+--   * Say what happened. With no animation, acknowledge a tap with visible text
+--     ("Saved"). Underline alone does not read as a link: use a box or an icon.
+--
+--   * Titles in Lato Black, text in Lato Medium (Theme.title, Theme.mmdText); no serif. Buttons are
+--     rectangular with an 8 radius (components/button.lua); the older pill buttons are being moved over.
 --     Solid black progress bars (Theme.progress). Where a grey is wanted, hatch
---     (Theme.hatch) rather than use a mid grey: grey ghosts, hatching stays crisp.
+--     (Theme.hatch) rather than use a mid grey.
+--
+--   Owner's direction (2026-10-10, nothing implemented yet): charts may keep tonal
+--   greys (polish them rather than swap in patterns); Lato is liked and is the
+--   likely typeface; pure-black secondary text is wanted as a beta setting, with
+--   DARK_GREY staying the default. Still open: divider weight (dotted or solid),
+--   compact button heights, a bottom navigation bar. Known gaps: Theme.hatchRect
+--   paints at 40% opacity (grey stripes, and nothing calls it yet), and eight
+--   scroll screens have no tap controls for paging.
 --
 -- All sizes go through Screen:scaleBySize, so the same numbers read right at
 -- 167 dpi and at 300.
@@ -56,6 +81,13 @@ Theme.BLACK = Blitbuffer.COLOR_BLACK
 Theme.DARK_GREY = Blitbuffer.COLOR_GRAY_5 or Blitbuffer.COLOR_DARK_GRAY
 Theme.WHITE = Blitbuffer.COLOR_WHITE
 
+-- Secondary text: dark grey by default, pure black when the beta setting asks for it. Every
+-- grey text site goes through here, so the setting reaches all of them. Called when a widget
+-- is built, not once at load, so a change shows on the next screen that opens.
+function Theme.secondary()
+  return require("hardcover/lib/ui_prefs").pure_black_text and Theme.BLACK or Theme.DARK_GREY
+end
+
 -- spacing scale (scaled units: the same multiples everywhere)
 Theme.space = {
   xs = px(4),
@@ -77,6 +109,20 @@ Theme.line = {
   firm = math.max(2, px(2)),
 }
 
+-- Component metrics from the Mudita Mindful Design appendix (docs/e-ink-design.md), in the
+-- diagrams' own px, scaled like everything else. Components read their sizes from here.
+Theme.mmd = {
+  switch = { w = px(48), h = px(30), knob = px(20), touch = px(56) },
+  radio = { size = px(26), dot = px(14), touch = px(48) },
+  checkbox = { size = px(28), touch = px(48) },
+  tabs = { h = px(50) },
+  top_bar = { h = px(67), icon = px(28), side = px(16) },
+  nav_bar = { h = px(57), icon = px(18) },
+  rule = { overlay = px(3), gap = px(2) }, -- the black rule and white gap on top of anything laid over a page
+  row = { pad_x = px(16), pad_y = px(15.5), gap = px(4), icon = px(28), tile = px(48) },
+  button = { radius = px(8), border = math.max(2, px(2)) },
+}
+
 -- type: sizes in points, all one family so nothing fights
 Theme.type = {
   display = 26, -- a book's title
@@ -91,16 +137,46 @@ function Theme.face(size_name)
 end
 
 --
--- The serif face for titles and headings (KOReader ships Noto Serif, so it needs no
--- bundling). Falls back to the UI face where it is not installed. The file is a real
--- bold, so do not also ask the widget for bold.
+-- MMD type for the components: "text" is Lato Medium and "strong" is Lato Black, sizes in the
+-- appendix's design px. Lato is used when it is installed; until then KOReader's UI font stands in,
+-- with `strong` as bold. Returns the face and whether the widget still has to ask for bold.
 --
-function Theme.serif(size_name)
-  local size = Theme.type[size_name] or size_name
-  local ok, face = pcall(Font.getFace, Font, "NotoSerif-Bold.ttf", size)
-  if ok and face then return face, false end
-  return Theme.face(size_name), true
+local MMD_FONT = { text = "Lato-Medium.ttf", strong = "Lato-Black.ttf" }
+local mmd_missing = {} -- fonts KOReader could not load: asked once, since it logs an error each time
+function Theme.mmdFace(kind, size)
+  local name = MMD_FONT[kind] or MMD_FONT.text
+  if not mmd_missing[name] then
+    local ok, face = pcall(Font.getFace, Font, name, size)
+    if ok and face then return face, false end
+    mmd_missing[name] = true
+  end
+  return Font:getFace("cfont", size), kind == "strong"
 end
+
+-- One line of MMD type. opts { width (cut with an ellipsis), secondary, color }.
+function Theme.mmdText(str, kind, size, opts)
+  opts = opts or {}
+  local face, bold = Theme.mmdFace(kind, size)
+  return TextWidget:new {
+    text = tostring(str),
+    face = face,
+    bold = bold,
+    max_width = opts.width,
+    fgcolor = opts.color or (opts.secondary and Theme.secondary() or Theme.BLACK),
+  }
+end
+
+--
+-- The face for titles and headings: Lato Black (MMD's type, the owner's call of 10 Oct 2026: no serif),
+-- or KOReader's UI font as bold where Lato is not installed. Returns the face and whether the widget
+-- still has to ask for bold. `size_name` is a Theme.type name or a size.
+--
+function Theme.title(size_name)
+  local size = Theme.type[size_name] or size_name
+  return Theme.mmdFace("strong", size)
+end
+-- the old name, for callers not yet renamed
+Theme.serif = Theme.title
 
 --
 -- Hatching: a grey that stays crisp on e-ink (diagonal black lines at 40% opacity), the
@@ -184,7 +260,7 @@ function Theme.text(str, size, opts)
     face = Theme.face(size or "body"),
     bold = opts.bold,
     max_width = opts.width,
-    fgcolor = opts.grey and Theme.DARK_GREY or Theme.BLACK,
+    fgcolor = opts.grey and Theme.secondary() or Theme.BLACK,
   }
 end
 
@@ -207,6 +283,27 @@ function Theme.rule(width, firm)
 end
 
 --
+-- A dotted horizontal rule `width` wide: one hairline of black dots. The
+-- divider between list rows; a solid rule is for structure. Built when first drawn, so the module
+-- loads without it.
+--
+function Theme.dottedRule(width)
+  local Widget = require("ui/widget/widget")
+  local t = Theme.line.hair
+  local rule = Widget:new { dimen = Geom:new { w = width, h = t } }
+  function rule:getSize() return self.dimen end
+  function rule:paintTo(bb, x, y)
+    self.dimen.x, self.dimen.y = x, y
+    -- dots a hairline across with a gap of two, so it reads as dots and not as a faint solid line
+    local pitch = t * 3
+    for dx = 0, width - t, pitch do
+      bb:paintRect(x + dx, y, t, t, Theme.BLACK)
+    end
+  end
+  return rule
+end
+
+--
 -- A section heading: the words in bold with a firm rule beneath, so sections
 -- read as chapters, with the room above to separate it from what came before.
 -- `right` (a widget) is placed at the far end of the heading line (a count, a
@@ -216,7 +313,7 @@ function Theme.sectionHeader(text, width, right)
   -- a long heading is cut short (with an ellipsis) rather than pushing what is at the
   -- end of the line past the edge
   local room = right and math.max(0, width - right:getSize().w - Theme.space.m) or width
-  local face, bold = Theme.serif("title")
+  local face, bold = Theme.title("title")
   local title = TextWidget:new {
     text = text,
     face = face,
@@ -235,29 +332,6 @@ function Theme.sectionHeader(text, width, right)
     line,
     VerticalSpan:new { width = Theme.space.xs },
     Theme.rule(width, true),
-  }
-end
-
---
--- A key figure over its label ("129" / "Want to Read"): the number big and
--- bold, the label small beneath. For counts and ratings.
---
-function Theme.stat(value, label, width)
-  return VerticalGroup:new {
-    align = "center",
-    TextWidget:new {
-      text = tostring(value),
-      face = (Theme.serif("display")),
-      bold = select(2, Theme.serif("display")),
-      max_width = width,
-      fgcolor = Theme.BLACK,
-    },
-    TextWidget:new {
-      text = label,
-      face = Theme.face("small"),
-      max_width = width,
-      fgcolor = Theme.DARK_GREY,
-    },
   }
 end
 
