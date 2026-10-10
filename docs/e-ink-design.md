@@ -63,7 +63,6 @@ Settled, with the date and where it is built. If something here disagrees with a
 - **Overlay rule order.** The 2 white band sits above the 3 black rule in every overlay; unchecked against the appendix.
 - **Lato on a device.** Medium vs Regular, and whether the plugin can write to KOReader's fonts folder on a Kobo and a Kindle.
 - **The Lists tab's rows** (the shelf icon, "7 books · ranked") have no mock of their own.
-- **Whether Vibes stays a Library tab** (mock 2v) or leaves.
 
 ## Known deviations from the rules above
 
