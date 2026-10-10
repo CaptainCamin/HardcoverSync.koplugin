@@ -449,14 +449,15 @@ end
 
 local function loadList(app, source, force, done)
   local user_id = app.settings:readSetting(SETTING.USER_ID)
-  local key = listRequestKey(source.list_source, source.list_id)
+  local list_source = source.list_source or "mine"
+  local key = listRequestKey(list_source, source.list_id)
   startLoad(key, force, function()
     if not user_id and not Network.connected() then
       retry_after[key] = os.time() + 30
       return
     end
     local list_user_id = user_id or User:getId()
-    local actual_key = listKey(list_user_id, source.list_source, source.list_id)
+    local actual_key = listKey(list_user_id, list_source, source.list_id)
     local current = list_entries[actual_key]
     if not current then
       current = savedList(app, list_user_id, source)
@@ -470,7 +471,7 @@ local function loadList(app, source, force, done)
 
     local result = ShelfLoader.load {
       fetch = function(offset, limit)
-        return Api:getListBooks(source.list_id, source.list_source,
+        return Api:getListBooks(source.list_id, list_source,
           source.ranked == true, offset, limit)
       end,
       network = Network,
