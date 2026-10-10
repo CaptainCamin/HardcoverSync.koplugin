@@ -1,6 +1,6 @@
 --[[--
-The shell: Home, Library, Goals and Stats as tabs of one screen with a navigation bar. Goals is the
-first tab moved in as a hosted body (the others are placeholders for now). Checked for real:
+The shell: Home, Library, Goals and Stats as tabs of one screen with a navigation bar. Home (fixed, never
+scrolls) and Goals are hosted bodies (Library and Stats are still placeholders). Checked for real:
 tapping the bar changes the tab; a tab keeps its body (so its scroll position) when left and
 reopened; an answer that arrives for a hidden tab is on screen when the tab is opened; a goal opened
 from the Goals tab stacks over the shell and closing it reveals the shell, live; Back goes to the
@@ -57,8 +57,9 @@ return {
     local path = emu.DataStorage:getSettingsDir() .. "/hardcovershelf_cache_shell.lua"
     os.remove(path)
     local DialogManager = require("hardcover/lib/ui/dialog_manager")
+    local pending = 0
     local manager = DialogManager:new { settings = settings,
-      sync_queue = { finishedCount = function() return 0 end },
+      sync_queue = { finishedCount = function() return 0 end, pendingCount = function() return pending end },
       shelf_cache = ShelfCache:new { path = path, open = function(p) return LuaSettings:open(p) end } }
 
     local W, H = Device.screen:getWidth(), Device.screen:getHeight()
@@ -75,6 +76,33 @@ return {
     assert(shell.active == "home", "the shell should open on Home")
     emu:screenNodes()
     emu:shot("shell_home")
+    emu:expectText("Currently reading")
+    emu:expectText("All synced")
+    local home = shell.bodies.home
+    assert(home and home.shell == shell and not home.scroll, "Home must be a body that never scrolls")
+    pending = 2
+    home:rebuild()
+    emu:pump()
+    emu:expectText("2 changes waiting to sync")
+    pending = 0
+    home:rebuild()
+
+    -- books being read: the cards come first, as many as fit, and the page never scrolls; the
+    -- shelves go before the last card does, then the sync line
+    home:setReading(fixtures.currently_reading)
+    home:rebuild()
+    emu:pump()
+    emu:expectText("The Dispossessed")
+    emu:shot("shell_home_cards")
+    local L = home.layout
+    assert(not home.scroll, "Home scrolled with cards")
+    assert(L.cards >= 1, "Home dropped every card")
+    print(string.format("        home at %dx%d: %d cards, note=%s, shelves=%s", W, H, L.cards, tostring(L.note), tostring(L.shelves)))
+    if H < 900 or W > H then
+      assert(L.cards == 1 or not L.shelves, "a small screen kept the shelves over cards")
+    end
+    local bottom = home.dimen.y + home.dimen.h
+    assert(bottom <= H - require("hardcover/lib/ui/components/nav_bar").HEIGHT, "Home reaches into the nav bar")
 
     -- to Goals: the saved copy is empty, so it loads; the answer comes in
     nav(3)

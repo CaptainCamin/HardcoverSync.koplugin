@@ -529,18 +529,18 @@ function DialogManager:shellTabs()
         Theme.mmdText(label, "text", 21, { secondary = true }) }
     end
   end
-  local function host(id)
+  local function host(id, show)
     return function(shell, width, height)
-      return self:showGoals({ shell = shell, width = width, height = height, id = id })
+      return show(self, { shell = shell, width = width, height = height, id = id })
     end
   end
   return {
-    { id = "home", label = _("Home"), icon_name = "home", make = placeholder(_("Home")),
+    { id = "home", label = _("Home"), icon_name = "home", make = host("home", self.showOldHome),
       actions = { { icon = "settings", callback = function() self:showSettings() end } } },
     { id = "library", label = _("Library"), icon_name = "shelves", make = placeholder(_("Library")) },
-    { id = "goals", label = _("Goals"), icon_name = "goals", make = host("goals"),
+    { id = "goals", label = _("Goals"), icon_name = "goals", make = host("goals", self.showGoals),
       actions = { { icon = "plus", callback = function() self:showGoalForm(nil) end } } },
-    { id = "stats", label = _("Stats"), icon_name = "stats", make = placeholder(_("Stats")) },
+    { id = "stats", label = _("Stats"), icon_name = "stats", make = host("stats", self.showStats) },
   }
 end
 
@@ -558,7 +558,8 @@ function DialogManager:showHome()
   return self:showOldHome()
 end
 
-function DialogManager:showOldHome()
+-- `host` ({ shell, width, height }) builds Home as the shell's first tab (ui/home_body.lua).
+function DialogManager:showOldHome(host)
   local user_id = User:getId()
   local cache = self.shelf_cache
   local ids = Home.statusIds()
@@ -577,7 +578,14 @@ function DialogManager:showOldHome()
     end)
   end
 
-  local dialog = require("hardcover/lib/ui/home_dialog"):new {
+  local dialog = require(host and "hardcover/lib/ui/home_body" or "hardcover/lib/ui/home_dialog"):new {
+    shell = host and host.shell, width = host and host.width, height = host and host.height,
+    pending_fn = function()
+      return (self.sync_queue and self.sync_queue:pendingCount() or 0)
+        + (self.goal_queue and self.goal_queue:count() or 0)
+    end,
+    -- changes waiting: the settings screen, where Sync is the first row
+    note_cb = function() self:showSettings() end,
     rows = Home.rows(saved_counts),
     entries = shownReading(saved_reading),
     select_cb = function(row)
@@ -618,11 +626,11 @@ function DialogManager:showOldHome()
   }
   self:screens():track("home", dialog)
 
-  UIManager:show(dialog)
+  if not host then UIManager:show(dialog) end
   self:checkForUpdate()
 
   if not Network.connected() then
-    return
+    return dialog
   end
 
   -- the account line in Settings names who is signed in: found out here if it is not known yet
@@ -672,6 +680,7 @@ function DialogManager:showOldHome()
       self:checkShelves(shelf_prints)
     end
   end)
+  return dialog
 end
 
 -- The shelf loader owns the paging rules; list screens page by the same size.
@@ -784,7 +793,7 @@ end
 -- Saved stats are reloaded at least this often, whatever the Read shelf says.
 local STATS_FRESH_FOR = 7 * 24 * 3600
 
-function DialogManager:showStats()
+function DialogManager:showStats(host)
   local user_id = User:getId()
   local cache = self.shelf_cache
   local saved = cache and cache:stats(user_id)
@@ -794,6 +803,7 @@ function DialogManager:showStats()
   local online = Network.connected()
   local start = ScreenLoad.start(saved, online)
   local dialog = require("hardcover/lib/ui/stats_dialog"):new {
+    shell = host and host.shell, width = host and host.width, height = host and host.height,
   }
   if saved then
     dialog.rows, dialog.genres, dialog.complete = saved.rows, saved.genres, saved.complete ~= false
@@ -805,8 +815,8 @@ function DialogManager:showStats()
     dialog.message = _("Stats need an internet connection the first time.")
   end
   self:screens():track("stats", dialog)
-  UIManager:show(dialog)
-  if not online then return end
+  if not host then UIManager:show(dialog) elseif host.remount then host.shell:remount(host.id, dialog) end
+  if not online then return dialog end
 
   -- The saved stats are still right while the Read shelf has not changed (its
   -- fingerprint), no change made here marked them stale, and they are under a week old
@@ -829,8 +839,11 @@ function DialogManager:showStats()
         dialog:setStats(saved, statsNote(saved.saved_at, _("Couldn't refresh.")))
       else
         StatusDialogs.retry(err, _("Loading your stats"),
-          function() self:showStats() end,
-          function() UIManager:close(dialog) end)
+          function()
+            self:showStats(host and { shell = host.shell, width = host.width, height = host.height,
+              id = host.id, remount = true })
+          end,
+          function() if not host then UIManager:close(dialog) end end)
       end
     end)
   end
@@ -839,7 +852,7 @@ function DialogManager:showStats()
   local fresh = self:freshPrints()
   if fresh then
     if not unchanged(fresh[FINISHED]) then load(fresh[FINISHED]) end
-    return
+    return dialog
   end
   -- otherwise one small request says whether Read changed
   Api:getShelfCountsAsync(user_id, { FINISHED }, function(_counts, _err, prints)
@@ -848,6 +861,7 @@ function DialogManager:showStats()
     if fingerprint and unchanged(fingerprint) then return end
     load(fingerprint)
   end)
+  return dialog
 end
 
 -- One goal, big. `note` is the saved-copy note when the goals shown are not fresh.

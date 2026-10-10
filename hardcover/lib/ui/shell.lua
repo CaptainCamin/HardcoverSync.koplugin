@@ -46,6 +46,12 @@ function Shell:init()
   self:build()
 end
 
+-- A body leaving: late answers must find it gone, and what it holds (decoded covers) is let go.
+local function release(body)
+  body.unmounted = true
+  if body.onCloseWidget then pcall(body.onCloseWidget, body) end
+end
+
 function Shell:tab(id)
   for _, tab in ipairs(self.tabs) do
     if tab.id == id then return tab end
@@ -103,7 +109,7 @@ end
 function Shell:unmount(body)
   for id, b in pairs(self.bodies) do
     if b == body then
-      body.unmounted = true
+      release(body)
       self.bodies[id] = nil
     end
   end
@@ -127,9 +133,8 @@ function Shell:onBack()
 end
 
 function Shell:onCloseWidget()
-  for _, body in pairs(self.bodies) do
-    body.unmounted = true
-  end
+  self.closed = true -- what the cover cells check before they refresh
+  for _, body in pairs(self.bodies) do release(body) end
   UIManager:setDirty(nil, "ui")
 end
 
