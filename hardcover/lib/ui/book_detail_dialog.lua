@@ -127,7 +127,7 @@ function BookDetailDialog:init()
       text = _("Loading book details…"),
       face = Theme.face("body"),
       max_width = screen_w - 2 * M,
-      fgcolor = Theme.DARK_GREY,
+      fgcolor = Theme.secondary(),
     }
     self.loading_frame = FrameContainer:new {
       width = screen_w,
@@ -184,7 +184,7 @@ function BookDetailDialog:init()
       bold = bold,
       width = text_width,
       alignment = "left",
-      fgcolor = grey and Theme.DARK_GREY or Theme.BLACK,
+      fgcolor = grey and Theme.secondary() or Theme.BLACK,
     }
   end
 
@@ -341,7 +341,7 @@ function BookDetailDialog:init()
       text = row.label,
       face = Theme.face("small"),
       max_width = label_width,
-      fgcolor = Theme.DARK_GREY,
+      fgcolor = Theme.secondary(),
     }
     local label_cell = LeftContainer:new {
       dimen = Geom:new { w = label_width, h = label:getSize().h },

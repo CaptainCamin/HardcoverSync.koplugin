@@ -80,6 +80,13 @@ Theme.BLACK = Blitbuffer.COLOR_BLACK
 Theme.DARK_GREY = Blitbuffer.COLOR_GRAY_5 or Blitbuffer.COLOR_DARK_GRAY
 Theme.WHITE = Blitbuffer.COLOR_WHITE
 
+-- Secondary text: dark grey by default, pure black when the beta setting asks for it. Every
+-- grey text site goes through here, so the setting reaches all of them. Called when a widget
+-- is built, not once at load, so a change shows on the next screen that opens.
+function Theme.secondary()
+  return require("hardcover/lib/ui_prefs").pure_black_text and Theme.BLACK or Theme.DARK_GREY
+end
+
 -- spacing scale (scaled units: the same multiples everywhere)
 Theme.space = {
   xs = px(4),
@@ -99,6 +106,20 @@ Theme.TOUCH_MIN = px(48)
 Theme.line = {
   hair = math.max(1, px(1)),
   firm = math.max(2, px(2)),
+}
+
+-- Component metrics from the Mudita Mindful Design appendix (docs/e-ink-design.md), in the
+-- diagrams' own px, scaled like everything else. Components read their sizes from here.
+Theme.mmd = {
+  switch = { w = px(48), h = px(30), knob = px(20), touch = px(56) },
+  radio = { size = px(26), dot = px(14), touch = px(48) },
+  checkbox = { size = px(28), touch = px(48) },
+  tabs = { h = px(50) },
+  top_bar = { h = px(67), icon = px(28), side = px(16) },
+  nav_bar = { h = px(57), icon = px(18) },
+  rule = { overlay = px(3), gap = px(2) }, -- the black rule and white gap on top of anything laid over a page
+  row = { pad_x = px(16), pad_y = px(15.5), gap = px(4), icon = px(28), tile = px(48) },
+  button = { radius = px(8), border = math.max(2, px(2)) },
 }
 
 -- type: sizes in points, all one family so nothing fights
@@ -208,7 +229,7 @@ function Theme.text(str, size, opts)
     face = Theme.face(size or "body"),
     bold = opts.bold,
     max_width = opts.width,
-    fgcolor = opts.grey and Theme.DARK_GREY or Theme.BLACK,
+    fgcolor = opts.grey and Theme.secondary() or Theme.BLACK,
   }
 end
 
@@ -228,6 +249,25 @@ function Theme.rule(width, firm)
     dimen = Geom:new { w = width, h = firm and Theme.line.firm or Theme.line.hair },
     background = firm and Theme.BLACK or Theme.DARK_GREY,
   }
+end
+
+--
+-- A dotted horizontal rule `width` wide: one hairline of black dots, as many gaps as dots. The
+-- divider between list rows; a solid rule is for structure. Built when first drawn, so the module
+-- loads without it.
+--
+function Theme.dottedRule(width)
+  local Widget = require("ui/widget/widget")
+  local t = Theme.line.hair
+  local rule = Widget:new { dimen = Geom:new { w = width, h = t } }
+  function rule:getSize() return self.dimen end
+  function rule:paintTo(bb, x, y)
+    self.dimen.x, self.dimen.y = x, y
+    for dx = 0, width - 1, 2 * t do
+      bb:paintRect(x + dx, y, math.min(t, width - dx), t, Theme.BLACK)
+    end
+  end
+  return rule
 end
 
 --
@@ -280,7 +320,7 @@ function Theme.stat(value, label, width)
       text = label,
       face = Theme.face("small"),
       max_width = width,
-      fgcolor = Theme.DARK_GREY,
+      fgcolor = Theme.secondary(),
     },
   }
 end

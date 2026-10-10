@@ -110,7 +110,7 @@ function ReaderPanel:render()
       text = model.line,
       face = Theme.face("body"),
       max_width = width,
-      fgcolor = Theme.DARK_GREY,
+      fgcolor = Theme.secondary(),
     })
   end
 

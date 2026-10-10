@@ -61,7 +61,7 @@ local function step(number, title, detail, width)
       text = detail,
       face = Theme.face("body"),
       width = text_w,
-      fgcolor = Theme.DARK_GREY,
+      fgcolor = Theme.secondary(),
     })
   end
   return HorizontalGroup:new { align = "top", square, Theme.hspan("l"), column }
@@ -114,7 +114,7 @@ function SignInDialog:init()
     text = _("Waiting for approval..."),
     face = Theme.face("small"),
     max_width = math.floor(width * 0.6),
-    fgcolor = Theme.DARK_GREY,
+    fgcolor = Theme.secondary(),
   }
   local lifetime = tonumber(self.device.expires_in)
   local lifetime_text = TextWidget:new {

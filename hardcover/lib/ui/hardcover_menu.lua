@@ -1406,6 +1406,20 @@ function HardcoverMenu:getSettingsSubMenuItems()
       end
     },
     {
+      text = _("Pure black secondary text (beta)"),
+      checked_func = function()
+        return self.settings:pureBlackText()
+      end,
+      callback = function()
+        self.settings:updateSetting(SETTING.PURE_BLACK_TEXT, not self.settings:pureBlackText())
+      end,
+      hold_callback = function()
+        UIManager:show(InfoMessage:new {
+          text = _("Draw author lines, captions and hints in pure black instead of dark grey. Screens already open change the next time they open."),
+        })
+      end,
+    },
+    {
       text = "Compatibility mode",
       checked_func = function()
         return self.settings:compatibilityMode()
