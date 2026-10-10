@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hardcover Sync redesign</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Noto+Sans:wght@400;500;700;900&family=Noto+Serif:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --view:.5;
+  --sans:'Lato','Noto Sans',sans-serif;
+  --sec:#555;
+  --div:1px dotted #000;
+  --w-text:500;   /* MMD "Medium" */
+  --w-strong:900; /* MMD "Black" */
+  --serif:'Noto Serif',Georgia,serif;
+}
+body.noto{--sans:'Noto Sans',sans-serif;--w-text:400;--w-strong:700}
+body.black{--sec:#000}
+body.solid{--div:1px solid #000}
+*{box-sizing:border-box}
+html,body{margin:0;background:#e9e9e9;color:#000;font-family:system-ui,sans-serif}
+.ctl{position:sticky;top:0;z-index:10;background:#fff;border-bottom:2px solid #000;padding:10px 16px;display:flex;gap:18px;flex-wrap:wrap;align-items:center;font-size:14px}
+.ctl h1{font-size:16px;margin:0 8px 0 0}
+.ctl label{display:flex;gap:6px;align-items:center;cursor:pointer}
+.note{max-width:1100px;margin:14px auto 0;padding:0 16px;font-size:14px;line-height:1.45}
+.grid{display:flex;flex-wrap:wrap;gap:28px;padding:20px 16px 60px;justify-content:center}
+figure{margin:0}
+figcaption{font-size:14px;line-height:1.4;max-width:540px;margin-top:8px}
+figcaption b{display:block;font-size:15px}
+.frame{zoom:var(--view);background:#fff;border:2px solid #000;width:1072px;height:1448px;overflow:hidden}
+/* ---------- screen, authored at 572x772 design px (1u = 1.875 device px) ---------- */
+.screen{zoom:1.875;width:572px;height:772px;position:relative;background:#fff;color:#000;font-family:var(--sans);font-weight:var(--w-text);font-size:18px;line-height:18px;overflow:hidden}
+.screen *{font-family:inherit}
+.strong{font-weight:var(--w-strong)}
+.sec{color:var(--sec)}
+.serif{font-family:var(--serif)!important;font-weight:700}
+svg{display:block}
+/* top bar */
+.top{height:67px;position:relative;display:flex;align-items:center;padding:0 16px;gap:10px;border-bottom:3px solid #000}
+.top .ttl{font-weight:var(--w-strong);font-size:25px;line-height:28px;flex:1;white-space:nowrap;overflow:hidden}
+.top .ic{width:48px;height:48px;display:flex;align-items:center;justify-content:center;margin:0 -8px}
+.top .ic.back{margin-left:-14px}
+/* nav */
+.nav{position:absolute;left:0;right:0;bottom:0;height:57px;border-top:2px solid #000;display:flex}
+.nav>div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:15px;line-height:15px;position:relative}
+.nav>div.on{font-weight:var(--w-strong)}
+.nav>div.on::before{content:"";position:absolute;top:-2px;left:12%;right:12%;height:4px;background:#000}
+/* tabs */
+.tabs{display:flex;height:50px;border-bottom:1px solid #000}
+.tabs>div{flex:1;display:flex;align-items:center;justify-content:center;font-size:15px;position:relative}
+.tabs>div.on{font-weight:var(--w-strong)}
+.tabs>div.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:4px;background:#000}
+/* rows */
+.row{position:relative;display:flex;align-items:center;gap:14px;padding:15.5px 16px}
+.row::after{content:"";position:absolute;left:var(--dl,16px);right:0;bottom:0;border-top:var(--div)}
+.row .lead{width:48px;height:48px;flex:none;display:flex;align-items:center;justify-content:center}
+.row .txt{flex:1;min-width:0}
+.row .lab{font-size:21px;line-height:23px;font-weight:var(--w-strong)}
+.row .sup{font-size:18px;line-height:18px;margin-top:4px}
+.row .trail{flex:none;display:flex;align-items:center;gap:8px;font-size:18px}
+.sechead{padding:16px 16px 6px;font-size:15px;letter-spacing:.06em;text-transform:uppercase;font-weight:var(--w-strong)}
+/* chips, buttons */
+.chip{height:36px;display:inline-flex;align-items:center;padding:0 14px;border:2px solid #000;border-radius:20px;font-size:18px;font-weight:var(--w-strong);background:#fff;gap:6px;white-space:nowrap}
+.chip.on{background:#000;color:#fff}
+.chips{display:flex;gap:8px;padding:12px 16px}
+.btn{display:flex;align-items:center;justify-content:center;height:56px;border:2px solid #000;border-radius:8px;font-size:21px;line-height:21px;font-weight:var(--w-strong);background:#fff;color:#000}
+.btn.pri{background:#000;color:#fff}
+.btn.sm{height:40px;font-size:18px;padding:0 16px}
+/* progress */
+.prog{position:relative;height:14px}
+.prog i{position:absolute;left:0;right:0;top:5px;height:4px;border:1px solid #000;border-radius:3px;background:#fff}
+.prog b{position:absolute;left:0;top:2px;height:10px;background:#000;border-radius:5px}
+/* switch */
+.sw{width:48px;height:30px;border:2px solid #000;border-radius:15px;position:relative;background:#fff}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#000}
+.sw.on{background:#000}
+.sw.on::after{left:21px;background:#fff}
+.hit{width:56px;height:56px;margin:-13px -4px;display:flex;align-items:center;justify-content:center}
+/* covers */
+.cover{border:2px solid #000;background:#fff;position:relative;flex:none;overflow:hidden}
+.cover svg{position:absolute;inset:0;width:100%;height:100%}
+/* info note */
+.infonote{margin:0 16px;border:2px dotted #000;border-radius:10px;padding:12px 14px;display:flex;gap:12px;align-items:center}
+/* card */
+.card{margin:0 16px;border:3px solid #000;border-radius:12px;padding:14px}
+/* scroll control */
+.scroll{position:absolute;right:6px;width:16px;display:flex;flex-direction:column;align-items:center}
+.scroll .trk{flex:1;width:10px;border-left:1px solid #000;border-right:1px solid #000;position:relative;margin:4px 0}
+.scroll .bar{position:absolute;left:1px;right:1px;background:#000;border-radius:3px}
+/* overlays */
+.rule{border-top:3px solid #000;box-shadow:inset 0 0 0 0 #000;position:relative;padding-top:2px}
+.rule::before{content:"";position:absolute;left:0;right:0;top:0;height:2px;background:#fff}
+.sheet{box-shadow:0 -2px 0 #fff;position:absolute;left:0;right:0;bottom:0;background:#fff;border-top:3px solid #000;padding-top:2px;outline:0}
+.sheet .inner{border-top:0;padding:24px 12px 18px}
+.snack{box-shadow:0 -2px 0 #fff;position:absolute;left:12px;right:12px;bottom:12px;background:#fff;border:2px solid #000;border-top:3px solid #000;min-height:64px;display:flex;align-items:center;padding:0 8px 0 16px;gap:12px}
+.snack::before{content:"";position:absolute;left:-2px;right:-2px;top:3px;height:2px;background:#fff}
+.dlg{box-shadow:0 -2px 0 #fff;position:absolute;left:36px;right:36px;background:#fff;border:2px solid #000;border-top:3px solid #000;border-radius:0 0 6px 6px}
+.dlg::before{content:"";position:absolute;left:-2px;right:-2px;top:3px;height:2px;background:#fff}
+.reader p{margin:0 0 14px;font-family:var(--serif)!important;font-weight:400;font-size:20px;line-height:30px}
+.xs{font-size:15px;line-height:15px}
+</style>
+</head>
+<body>
+<div class="ctl">
+  <h1>Hardcover Sync: full redesign</h1>
+  <label><input type="checkbox" id="tNoto"> Noto Sans (else Lato Medium/Black)</label>
+  <label><input type="checkbox" id="tBlack"> Pure black secondary text (proposed beta setting; else 0x55)</label>
+  <label><input type="checkbox" id="tSolid"> Solid dividers (else dotted)</label>
+  <label><input type="checkbox" id="tFull"> Full size (1072 x 1448)</label>
+</div>
+<p class="note">Ten screens at the real canvas (1072 x 1448, authored at 572 x 772 design px, 1 u = 1.875 px) using the MMD appendix metrics: top bar 67 + 3px rule, nav bar 57, list rows with Black 21 / Medium 18 labels, 48 x 30 switches, 2px chips, 3 + 2 overlay rule, slim scroll bar with bare triangles. Everything is black and white except secondary text and chart fills, which may use grey (decided). The secondary-text colour is the proposed beta setting, flip it above to compare. This is a mockup in a browser, not a render from the plugin, so spacing is design intent and unverified on a panel.</p>
+<div class="grid" id="grid"></div>
+
+<!-- shared patterns -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <pattern id="pV" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="2" height="4" fill="#000"/></pattern>
+    <pattern id="pH" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="4" height="2" fill="#000"/></pattern>
+    <pattern id="pD" width="6" height="6" patternUnits="userSpaceOnUse"><rect width="2" height="2" fill="#000"/></pattern>
+    <pattern id="pG" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="2" height="2" fill="#000"/><rect x="2" y="2" width="2" height="2" fill="#000"/></pattern>
+  </defs>
+</svg>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const ICON = {
+  back:'<path d="M17 4 7 14l10 10M7 14h18" fill="none" stroke="#000" stroke-width="3" stroke-linecap="square"/>',
+  search:'<circle cx="12" cy="12" r="7" fill="none" stroke="#000" stroke-width="3"/><path d="M17.5 17.5 25 25" stroke="#000" stroke-width="3"/>',
+  gear:'<circle cx="14" cy="14" r="4" fill="none" stroke="#000" stroke-width="3"/><path d="M14 2v4M14 22v4M2 14h4M22 14h4M5.5 5.5l3 3M19.5 19.5l3 3M22.5 5.5l-3 3M8.5 19.5l-3 3" stroke="#000" stroke-width="3"/>',
+  sort:'<path d="M4 7h20M7 14h14M10 21h8" stroke="#000" stroke-width="3"/>',
+  plus:'<path d="M14 4v20M4 14h20" stroke="#000" stroke-width="3"/>',
+  chev:'<path d="M9 4l10 10L9 24" fill="none" stroke="#000" stroke-width="3"/>',
+  home:'<path d="M2 9 9 3l7 6v8H2z" fill="none" stroke="#000" stroke-width="2"/>',
+  book:'<path d="M2 3h6l1 1 1-1h6v13H10l-1 1-1-1H2z" fill="none" stroke="#000" stroke-width="2"/>',
+  goal:'<circle cx="9" cy="9" r="7" fill="none" stroke="#000" stroke-width="2"/><circle cx="9" cy="9" r="2.5" fill="#000"/>',
+  explore:'<circle cx="9" cy="9" r="7" fill="none" stroke="#000" stroke-width="2"/><path d="M12.5 5.5 10.2 10.2 5.5 12.5 7.8 7.8z" fill="#000"/>',
+  ranked:'<path d="M3 6h2M9 6h16M3 14h2M9 14h16M3 22h2M9 22h16" stroke="#000" stroke-width="3" fill="none"/>',
+  sparkle:'<path d="M14 3l2.6 8.4L25 14l-8.4 2.6L14 25l-2.6-8.4L3 14l8.4-2.6z" fill="none" stroke="#000" stroke-width="2.5" stroke-linejoin="miter"/>',
+  lock:'<rect x="5" y="12" width="18" height="13" fill="none" stroke="#000" stroke-width="3"/><path d="M9 12V8a5 5 0 0 1 10 0v4" fill="none" stroke="#000" stroke-width="3"/>',
+  chart:'<path d="M2 16V8h3v8M7.5 16V3h3v13M13 16V10h3v6" fill="none" stroke="#000" stroke-width="2"/>',
+  info:'<circle cx="14" cy="14" r="11" fill="none" stroke="#000" stroke-width="2.5"/><path d="M14 12v8M14 7.5v2" stroke="#000" stroke-width="3"/>',
+  close:'<path d="M6 6l16 16M22 6 6 22" stroke="#000" stroke-width="3"/>',
+  check:'<path d="M4 10l5 5 9-10" fill="none" stroke="#fff" stroke-width="3"/>',
+  shelf:'<path d="M5 4h18v20H5zM5 11h18" fill="none" stroke="#000" stroke-width="3"/>',
+  user:'<circle cx="14" cy="9" r="5" fill="none" stroke="#000" stroke-width="3"/><path d="M4 25c1-6 5-8 10-8s9 2 10 8" fill="none" stroke="#000" stroke-width="3"/>',
+  sync:'<path d="M5 12a9 9 0 0 1 16-4M23 16a9 9 0 0 1-16 4" fill="none" stroke="#000" stroke-width="3"/><path d="M21 3v6h-6M7 25v-6h6" fill="none" stroke="#000" stroke-width="3"/>',
+  hourglass:'<path d="M6 3h16M6 25h16M7 3c0 8 14 8 14 0M7 25c0-8 14-8 14 0" fill="none" stroke="#000" stroke-width="3"/>',
+  star:'<path d="M14 2l3.5 8 8.5.8-6.4 5.6 1.9 8.4L14 20.4 6.5 24.8l1.9-8.4L2 10.8 10.5 10z" fill="none" stroke="#000" stroke-width="2.5" stroke-linejoin="miter"/>',
+  starOn:'<path d="M14 2l3.5 8 8.5.8-6.4 5.6 1.9 8.4L14 20.4 6.5 24.8l1.9-8.4L2 10.8 10.5 10z" fill="#000" stroke="#000" stroke-width="2.5"/>',
+  warn:'<path d="M14 3 26 25H2z" fill="none" stroke="#000" stroke-width="3"/><path d="M14 11v7M14 20.5v2" stroke="#000" stroke-width="3"/>'
+};
+const ic = (n, s = 28) => `<svg width="${s}" height="${s}" viewBox="0 0 28 28">${ICON[n]}</svg>`;
+const nav = (on) => {
+  const items = [['Home','home'],['Library','book'],['Goals','goal'],['Stats','chart']];
+  return `<div class="nav">${items.map(([t,i]) => `<div class="${t===on?'on':''}"><svg width="22" height="22" viewBox="0 0 18 18" style="transform:scale(1)">${ICON[i]}</svg><span>${t}</span></div>`).join('')}</div>`;
+};
+const nav2 = (on) => {
+  const items = [['Home','home'],['Explore','explore'],['Goals','goal'],['Stats','chart']];
+  return `<div class="nav">${items.map(([t,i]) => `<div class="${t===on?'on':''}"><svg width="22" height="22" viewBox="0 0 18 18">${ICON[i]}</svg><span>${t}</span></div>`).join('')}</div>`;
+};
+const tb = (title, o = {}) => `<div class="top">${o.back?`<div class="ic back">${ic('back')}</div>`:''}<div class="ttl">${title}</div>${(o.actions||[]).map(a=>`<div class="ic">${ic(a)}</div>`).join('')}</div>`;
+const tabs = (items, on) => `<div class="tabs">${items.map(t=>`<div class="${t===on?'on':''}">${t}</div>`).join('')}</div>`;
+const sw = (on) => `<div class="hit"><div class="sw ${on?'on':''}"></div></div>`;
+const chip = (t, on, extra='') => `<span class="chip ${on?'on':''}">${on&&extra==='check'?`<svg width="16" height="16" viewBox="0 0 22 22" style="margin-left:-2px">${ICON.check.replace('M4 10l5 5 9-10','M3 11l6 6 11-12')}</svg>`:''}${t}</span>`;
+const prog = (pct) => `<div class="prog"><i></i><b style="width:${pct}%"></b></div>`;
+const row = (o) => `<div class="row" style="--dl:${o.lead?78:(o.dl!==undefined?o.dl:16)}px">${o.lead?`<div class="lead">${o.lead}</div>`:''}<div class="txt"><div class="lab">${o.t}</div>${o.s?`<div class="sup sec">${o.s}</div>`:''}</div>${o.trail?`<div class="trail">${o.trail}</div>`:''}</div>`;
+const cover = (w, h, pat, label='') => `<div class="cover" style="width:${w}px;height:${h}px"><svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect x="${w*0.12}" y="${h*0.12}" width="${w*0.76}" height="${h*0.3}" fill="#fff" stroke="#000" stroke-width="2"/><rect x="0" y="${h*0.62}" width="${w}" height="${h*0.38}" fill="url(#${pat})"/></svg></div>`;
+const scrollctl = (top, bottom, thumbTop, thumbH) => {
+  const upOn = thumbTop > 0.5, downOn = thumbTop + thumbH < 99.5;
+  const tri = (d, on) => `<svg width="12" height="10" viewBox="0 0 12 10"><path d="${d==='up'?'M6 1 11 9H1z':'M6 9 11 1H1z'}" ${on?'fill="#000"':'fill="none" stroke="#000" stroke-width="1.2" stroke-dasharray="1.5 1.5"'}/></svg>`;
+  return `<div class="scroll" style="top:${top}px;bottom:${bottom}px">${tri('up',upOn)}<div class="trk"><div class="bar" style="top:${thumbTop}%;height:${thumbH}%"></div></div>${tri('down',downOn)}</div>`;
+};
+const chev = ic('chev', 20);
+
+const screens = [];
+const add = (name, note, html) => screens.push({name, note, html});
+
+/* 1 HOME (rebuilt from the real screen: search, currently reading, For you, Vibes, goal, stats) */
+const searchPill = `<div style="margin:14px 16px 4px;height:48px;border:2px solid #000;border-radius:24px;display:flex;align-items:center;padding:0 16px;gap:10px" class="sec">${ic('search',22)}<span>Search books on Hardcover</span></div>`;
+const secrow = (t, right) => `<div style="display:flex;align-items:baseline;padding:18px 16px 8px;gap:8px"><span class="strong" style="font-size:15px;letter-spacing:.06em;text-transform:uppercase;flex:1">${t}</span>${right?`<span class="sec">${right}</span>${ic('chev',14)}`:''}</div>`;
+const reading = [['The Dispossessed','Ursula K. Le Guin',35,'35%  ·  120 / 341','pH'],['A Wizard of Earthsea','Ursula K. Le Guin',11,'11%  ·  20 / 183','pD'],['The Hundred Thousand Kingdoms','N. K. Jemisin',72,'72%  ·  300 / 418','pV']];
+const readingRows = reading.map(([t,a,pc,txt,p]) => `<div class="row" style="--dl:98px;gap:14px;padding-top:11px;padding-bottom:11px">${cover(54,81,p)}<div class="txt"><div class="lab">${t}</div><div class="sup sec" style="margin-top:3px">${a}</div><div style="margin-top:8px">${prog(pc)}</div><div class="sup sec" style="margin-top:4px">${txt}</div></div><div class="trail">${chev}</div></div>`).join('');
+const readingRows2 = reading.map(([t,a,pc,txt,p]) => `<div class="row" style="--dl:82px;gap:12px;padding-top:8px;padding-bottom:8px"><div style="flex:none">${cover(42,63,p)}</div><div class="txt"><div class="lab" style="font-size:19px;line-height:21px">${t}</div><div class="sec" style="margin-top:2px;font-size:16px;line-height:17px">${a}</div><div style="display:flex;align-items:center;gap:10px;margin-top:5px"><div style="flex:1">${prog(pc)}</div><div class="sec" style="font-size:16px;line-height:17px;white-space:nowrap">${pc}%</div></div></div><div class="trail">${chev}</div></div>`).join('');
+const forYou2 = [['Hyperion','pH'],['Solaris','pD'],['Kindred','pV'],['Dawn','pG']].map(([t,p]) => `<div style="width:84px">${cover(84,126,p)}<div class="strong" style="font-size:15px;line-height:17px;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t}</div></div>`).join('');
+add('1  Home (nav: Home), the first version', 'One "currently reading" card with one primary button, a note when changes are queued (with a visible Sync now), shelves as list rows. Settings moves behind the gear. The long scrolling page becomes a short fixed one.',
+`${tb('Home', {actions:['search','gear']})}
+<div style="padding:16px 0 0">
+ <div class="sechead" style="padding-top:0">Currently reading</div>
+ <div class="card">
+  <div style="display:flex;gap:14px">
+   ${cover(84,126,'pV')}
+   <div style="flex:1;min-width:0">
+     <div class="serif" style="font-size:25px;line-height:29px">The Left Hand of Darkness</div>
+     <div class="sec" style="margin-top:6px">Ursula K. Le Guin</div>
+     <div style="margin-top:14px">${prog(62)}</div>
+     <div class="sec xs" style="margin-top:6px;font-size:18px;line-height:18px">62% · page 186 of 300</div>
+   </div>
+  </div>
+  <div class="btn pri" style="margin-top:14px">Open book</div>
+ </div>
+ <div class="infonote" style="margin-top:14px">${ic('sync',26)}<div style="flex:1"><div class="strong" style="font-size:21px;line-height:23px">2 changes waiting</div><div class="sec" style="margin-top:3px">They sync when you are online.</div></div><div class="btn sm">Sync now</div></div>
+ <div class="sechead" style="margin-top:6px">Shelves</div>
+ ${row({t:'Want to read',s:'24 books',trail:chev,dl:16})}
+ ${row({t:'Currently reading',s:'3 books',trail:chev,dl:16})}
+ ${row({t:'Read',s:'118 books',trail:chev,dl:16})}
+</div>
+${nav('Home')}`);
+
+
+add('1a  Home, nothing waiting', 'Same screen when no changes are queued. The sync note stays in its place, because removing it would pull the shelves up a row and make the page jump. It becomes a quiet, solid-bordered status line of the same height: a check, All synced, the time, and Sync now still visible. The dotted box means something is waiting, so the two states differ by border, icon and words, not by grey.',
+`${tb('Home', {actions:['search','gear']})}
+<div style="padding:16px 0 0">
+ <div class="sechead" style="padding-top:0">Currently reading</div>
+ <div class="card">
+  <div style="display:flex;gap:14px">
+   ${cover(84,126,'pV')}
+   <div style="flex:1;min-width:0">
+     <div class="serif" style="font-size:25px;line-height:29px">The Left Hand of Darkness</div>
+     <div class="sec" style="margin-top:6px">Ursula K. Le Guin</div>
+     <div style="margin-top:14px">${prog(62)}</div>
+     <div class="sec xs" style="margin-top:6px;font-size:18px;line-height:18px">62% · page 186 of 300</div>
+   </div>
+  </div>
+  <div class="btn pri" style="margin-top:14px">Open book</div>
+ </div>
+ <div class="infonote" style="margin-top:14px;border-style:solid;border-width:1px;min-height:62px">${ic('check',26).replace('stroke="#fff"','stroke="#000"')}<div style="flex:1"><div class="strong" style="font-size:21px;line-height:23px">All synced</div><div class="sec" style="margin-top:3px">Last synced 2 minutes ago.</div></div><div class="btn sm">Sync now</div></div>
+ <div class="sechead" style="margin-top:6px">Shelves</div>
+ ${row({t:'Want to read',s:'24 books',trail:chev,dl:16})}
+ ${row({t:'Currently reading',s:'3 books',trail:chev,dl:16})}
+ ${row({t:'Read',s:'118 books',trail:chev,dl:16})}
+</div>
+${nav('Home')}`);
+
+
+
+const crow = (t, n) => `<div class="row" style="--dl:16px;padding-top:11px;padding-bottom:11px"><div class="txt"><div class="lab">${t}</div></div><div class="trail"><span class="strong">${n}</span>${chev}</div></div>`;
+add('1e  Home and Library combined (proposal)', 'Proposal for merging the two. Home keeps what you liked (the Currently reading card and the sync note) and gains a compact Library section: your shelves and lists as single-line rows with counts, plus All shelves for the rest. The Library tab goes away, so there is room for Explore and the nav stays at four: Home, Explore, Goals, Stats. Still one fixed screen. Lists is a row here, not a tab; opening it shows your lists and the ones you follow.',
+`${tb('Home', {actions:['search','gear']})}
+<div style="padding:12px 0 0">
+ <div class="card" style="padding:12px">
+  <div style="display:flex;gap:12px">
+   ${cover(66,99,'pV')}
+   <div style="flex:1;min-width:0">
+     <div class="serif" style="font-size:23px;line-height:27px">The Left Hand of Darkness</div>
+     <div class="sec" style="margin-top:4px">Ursula K. Le Guin</div>
+     <div style="margin-top:10px">${prog(62)}</div>
+     <div class="sec" style="margin-top:4px">62% · page 186 of 300</div>
+   </div>
+  </div>
+  <div class="btn pri" style="margin-top:10px;height:48px">Open book</div>
+ </div>
+ <div class="infonote" style="margin-top:10px;padding:8px 14px">${ic('sync',24)}<div style="flex:1"><div class="strong" style="font-size:19px;line-height:21px">2 changes waiting</div><div class="sec" style="font-size:16px;line-height:17px;margin-top:2px">They sync when you are online.</div></div><div class="btn sm" style="height:38px">Sync now</div></div>
+ <div class="sechead" style="padding-top:12px;padding-bottom:2px">Library</div>
+ ${crow('Want to read','42')}${crow('Read','130')}${crow('Did not finish','2')}${crow('Lists','5')}${crow('All shelves','')}
+</div>
+${nav2('Home')}`);
+
+/* 1c VIBES INDEX */
+const vibeRow = (t, sub, icon) => row({t:t, s:sub, lead:ic(icon,30), trail:chev});
+const headrow = (t, n) => `<div style="display:flex;align-items:baseline;padding:18px 16px 8px;border-bottom:var(--div)"><span class="strong" style="font-size:15px;letter-spacing:.06em;text-transform:uppercase;flex:1">${t}</span><span class="sec">${n}</span></div>`;
+add('2v  Library > Vibes tab', 'Vibes as the third Library tab (Shelves, Lists, Vibes). One 30px icon per row instead of covers, which also saves cover fetches: a sparkle for For you, a ranked-list icon for Hardcover vibes, a lock for private ones. For you is simply the first row (no heading of its own), the group headings sit on the same dotted line the rows use, and dividers start after the icon, so there is one line weight on the screen apart from the tab underline.',
+`${tb('Library', {actions:['search']})}
+${tabs(['Shelves','Lists','Vibes'],'Vibes')}
+${vibeRow('For you','8 books \u00b7 based on what you read','sparkle')}
+${headrow('From Hardcover','2')}
+${vibeRow('Top Picks','6 books \u00b7 ranked','ranked')}
+${vibeRow('Recommendations','3 books \u00b7 ranked','ranked')}
+${headrow('Made by you','1')}
+${vibeRow('For Red Rising Withdrawl','2 books \u00b7 ranked \u00b7 private','lock')}
+${nav('Library')}`);
+
+/* 1d A VIBE */
+const rankRow = (n,t,a,p) => `<div class="row" style="--dl:134px;gap:14px;padding-top:11px;padding-bottom:11px"><div class="strong" style="width:34px;font-size:28px;line-height:30px;text-align:center">${n}</div>${cover(48,72,p)}<div class="txt"><div class="lab">${t}</div><div class="sup sec" style="margin-top:3px">${a}</div></div><div class="trail">${chev}</div></div>`;
+add('1d  A vibe, in its ranking', 'A vibe opens as a ranked list: the rank is a large Black numeral, so order never relies on position alone. Same fixed row height as every other list, scroll control at the right edge.',
+`${tb('Top Picks', {back:true, actions:['search']})}
+<div style="padding-right:22px">
+${rankRow(1,'Hyperion','Dan Simmons','pH')}
+${rankRow(2,'A Wizard of Earthsea','Ursula K. Le Guin','pD')}
+${rankRow(3,'Solaris','Stanislaw Lem','pV')}
+${rankRow(4,'Kindred','Octavia E. Butler','pH')}
+${rankRow(5,'The Lathe of Heaven','Ursula K. Le Guin','pD')}
+</div>
+${scrollctl(70, 14, 0, 50)}
+<div style="position:absolute;left:16px;bottom:12px" class="sec">Showing 1 to 5 of 6</div>`);
+
+/* 2 LIBRARY */
+add('2  Library (nav: Library)', 'Two tabs replace the stacked "Your lists / Following" sections. No third tab and no filter chips. Every row is one touch target with a chevron and a count.',
+`${tb('Library', {actions:['search']})}
+${tabs(['Shelves','Lists','Vibes'],'Shelves')}
+${[['Want to read','24 books'],['Currently reading','3 books'],['Read','118 books'],['Did not finish','7 books'],['Favourites','12 books'],['Owned','61 books']].map(([a,b])=>row({t:a,s:b,trail:chev,lead:ic('shelf',26)})).join('')}
+${nav('Library')}`);
+
+/* 2b / 2c LIBRARY: ALL BOOKS */
+const lib = [
+  ['The Left Hand of Darkness','Ursula K. Le Guin','Reading',62,'pV'],
+  ['Piranesi','Susanna Clarke','Want to read',0,'pH'],
+  ['Annihilation','Jeff VanderMeer','Read',100,'pD'],
+  ['Station Eleven','Emily St. John Mandel','Reading',18,'pG'],
+  ['A Memory Called Empire','Arkady Martine','Want to read',0,'pV'],
+  ['Ancillary Justice','Ann Leckie','Did not finish',41,'pH'],
+  ['Dawn','Octavia E. Butler','Read',100,'pD']
+];
+const libRows = (list, showProg) => list.map(([t,a,st,pct,p]) => `<div class="row" style="--dl:94px;padding-top:11px;padding-bottom:11px;gap:16px">${cover(46,68,p)}<div class="txt"><div class="lab">${t}</div><div class="sup sec" style="margin-top:3px">${a}</div>${showProg?`<div style="margin-top:8px">${prog(pct)}</div>`:`<div class="sup" style="margin-top:3px;font-weight:var(--w-strong)">${st}${st==='Reading'?' · '+pct+'%':''}</div>`}</div><div class="trail">${chev}</div></div>`).join('');
+const libChips = (on) => `<div class="chips" style="padding-bottom:6px">${[['All','All'],['Reading','Reading'],['Want to read','Want to read'],['Read','Read'],['DNF','DNF']].map(([k,l])=>chip(l, k===on)).join('')}</div>`;
+const sortLine = (n) => `<div style="display:flex;align-items:center;padding:6px 16px 8px 16px;gap:10px;border-bottom:var(--div)"><span class="sec" style="flex:1">${n} books · Sorted by <b class="strong" style="color:#000">Date added</b></span><span style="display:flex;align-items:center;gap:6px" class="strong">${ic('sort',22)}Sort</span></div>`;
+/* 3 SHELF */
+const books = [['Piranesi','Susanna Clarke','pV'],['The Dispossessed','Ursula K. Le Guin','pH'],['Annihilation','Jeff VanderMeer','pD'],['Station Eleven','Emily St. John Mandel','pG'],['A Memory Called Empire','Arkady Martine','pV'],['Ancillary Justice','Ann Leckie','pH'],['Dawn','Octavia E. Butler','pD']];
+add('3  Shelf (pushed screen)', 'Back arrow, short title, two actions. Fixed 80-unit rows so lines sit in the same place each page. The scroll control is a slim bar with bare triangles at the right edge, outside the text.',
+`${tb('Want to read', {back:true, actions:['search','sort']})}
+<div style="padding-right:22px">
+${books.map(([t,a,p])=>`<div class="row" style="--dl:94px;padding-top:12px;padding-bottom:12px;gap:16px">${cover(46,68,p)}<div class="txt"><div class="lab">${t}</div><div class="sup sec">${a}</div></div><div class="trail">${chev}</div></div>`).join('')}
+</div>
+${scrollctl(122, 14, 0, 48)}
+<div style="position:absolute;left:16px;right:34px;bottom:12px;display:flex;justify-content:space-between;align-items:center" class="sec">Showing 1 to 5 of 24</div>`);
+
+/* 4 BOOK DETAIL (from the real screen: stats, shelf, reviews, about, genres, series carousel, details) */
+const bookTop = `${tb('Book details', {back:true, actions:['sync']})}`;
+add('4  Book details (page 1)', 'Same content as today, restructured. Cover, serif title, authors, the edition line and the series. Three quiet stat cells (rating, readers, reviews). Your own rating is five visible stars, not a hidden number. One filled primary (Shelf), Reviews outlined. About and Genres below; the scroll control pages to the series and details.',
+`${bookTop}
+<div style="padding:16px 34px 0 16px">
+ <div style="display:flex;gap:16px">
+  ${cover(116,174,'pV')}
+  <div style="flex:1;min-width:0">
+   <div class="serif" style="font-size:27px;line-height:31px">The Left Hand of Darkness</div>
+   <div style="margin-top:8px">Ursula K. Le Guin, Jane Illustrator</div>
+   <div class="sec" style="margin-top:6px">2016 · 304 pages · Paperback</div>
+   <div class="strong" style="margin-top:8px">Hainish Cycle #4</div>
+  </div>
+ </div>
+ <div style="display:flex;border-top:var(--div);border-bottom:var(--div);margin-top:16px">
+  ${[['4.2','120 ratings'],['4,811','readers'],['37','reviews']].map(([n,l],i)=>`<div style="flex:1;text-align:center;padding:10px 0 9px;${i?'border-left:var(--div);':''}"><div class="strong" style="font-size:27px;line-height:29px">${n}</div><div class="sec" style="margin-top:3px">${l}</div></div>`).join('')}
+ </div>
+ <div style="display:flex;align-items:center;padding:8px 0 4px"><div class="lab strong" style="font-size:21px;flex:1">Your rating</div><div style="display:flex">${[1,2,3,4].map(()=>`<div style="width:44px;height:48px;display:flex;align-items:center;justify-content:center">${ic('starOn',28)}</div>`).join('')}<div style="width:44px;height:48px;display:flex;align-items:center;justify-content:center">${ic('star',28)}</div></div></div>
+ <div class="btn pri" style="margin-top:6px">Shelf: Currently reading</div>
+ <div class="btn" style="margin-top:10px">Reviews</div>
+ <div class="sechead" style="padding-left:0;padding-top:16px">About</div>
+ <div style="line-height:24px;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden">A lone envoy arrives on a frozen world to bring its people into a league of planets, and finds that nothing about the place, its politics, its weather or its customs, is what he was told to expect. Genly Ai must win the trust of a king and a fugitive, and learn that the people he came to persuade do not divide the world the way he does, nor the way anyone on his own side ever imagined.</div>
+ <div style="display:flex;justify-content:flex-end;margin-top:6px"><div class="btn sm" style="height:44px">Read more</div></div>
+</div>
+${scrollctl(70, 14, 0, 38)}`);
+const series = [['#2','Planet of Exile','Read','pH'],['#3','City of Illusions','Reading','pD'],['#4','The Left Hand','','pV'],['#5','The Dispossessed','Want to read','pH']];
+const similar = [['Hyperion','Dan Simmons','pH'],['A Wizard of\u2026','Ursula K. Le Guin','pD'],['Solaris','Stanislaw Lem','pV'],['Kindred','Octavia E. Butler','pG']];
+const carousel = (title, right, items, cur) => `<div style="display:flex;align-items:baseline;padding:18px 0 8px"><span class="strong" style="font-size:15px;letter-spacing:.06em;text-transform:uppercase;flex:1">${title}</span><span class="sec">${right}</span></div>
+ <div style="display:flex;align-items:center;gap:4px;border-top:3px solid #000;padding-top:12px"><div style="width:28px;display:flex;justify-content:center">${ic('back',22)}</div>
+ <div style="display:flex;gap:10px;flex:1;justify-content:center">${items.map(([a,b,c,p],i)=>`<div style="width:100px;text-align:center"><div style="padding:3px;border:3px solid ${cur===i?'#000':'#fff'};display:inline-block">${cover(88,118,p)}</div><div class="strong" style="margin-top:3px;font-size:16px;line-height:18px">${a}</div><div class="xs sec" style="line-height:16px;margin-top:2px;min-height:16px">${b}</div>${c?`<div class="xs sec" style="min-height:16px">${c}</div>`:''}</div>`).join('')}</div>
+ <div style="width:28px;display:flex;justify-content:center;transform:scaleX(-1)">${ic('back',22)}</div></div>`;
+add('4b  Book details (page 2): series and similar', 'Page 2 starts with Genres (three shown, +4 more opens the rest), then the series carousel (current book thick-bordered, with the status of each) and Similar to this book, a second carousel of recommendations with the author under each title. Both have visible arrows at each end; neither relies on swiping.',
+`${bookTop}
+<div style="padding:0 34px 0 16px">
+ <div class="sechead" style="padding-left:0;padding-top:12px">Genres</div>
+ <div style="display:flex;align-items:center;gap:10px;height:48px"><span style="flex:1">Science fiction · Fiction · Classics</span><div class="btn sm" style="height:40px">+4 more</div></div>
+ ${carousel('More in Hainish Cycle','8 books \u00b7 complete',series.map(([n,t,st,p])=>[n,t,st,p]),2)}
+ ${carousel('Similar to The Left Hand of Darkness','8 books',similar.map(([t,a,p])=>[t,a,'',p]),-1)}
+</div>
+${scrollctl(70, 14, 40, 38)}`);
+const drow = (k,v) => `<div style="display:flex;padding:9px 0;border-bottom:var(--div)"><div class="sec" style="width:150px">${k}</div><div style="flex:1">${v}</div></div>`;
+add('4c  Book details (page 3): details', 'Details shows the five rows that matter, each one fixed height with a dotted divider, then an All details row (chevron) for the rest. Nothing is cut off mid-row and the block is the same size for every book.',
+`${bookTop}
+<div style="padding:0 34px 0 16px">
+ <div class="sechead" style="padding-left:0;padding-top:18px;border-bottom:3px solid #000;margin-bottom:2px">Details</div>
+ ${drow('Publisher','Fixture Press')}${drow('Edition released','5 Jan 2016')}${drow('Language','English')}${drow('ISBN','97810000000103')}${drow('Pages','304')}
+ <div class="row" style="padding:12px 0;--dl:0px"><div class="txt"><div class="lab">All details</div><div class="sup sec">Illustrator, reads, lists, editions</div></div><div class="trail">${chev}</div></div>
+</div>
+${scrollctl(70, 14, 62, 38)}`);
+/* 4d REVIEWS (from the real screen) */
+const hist = (() => {
+  const vals=[0,4,0,6,8,14,22,31,17,18], labs=['0.5','1','1.5','2','2.5','3','3.5','4','4.5','5'];
+  const W=520,H=190,x0=34,bw=30,step=48; let g='';
+  [0,10,20,30,40].forEach((v,i)=>{const y=160-v*3.4; g+=`<line x1="${x0-6}" x2="${W}" y1="${y}" y2="${y}" stroke="#d8d8d8"/><text x="${x0-10}" y="${y+5}" text-anchor="end" font-size="15" fill="var(--sec)">${v}</text>`;});
+  vals.forEach((v,i)=>{const h=v*3.4,x=x0+8+i*step,y=160-h; if(v) g+=`<path d="M${x} 160V${y+4}Q${x} ${y} ${x+4} ${y}H${x+bw-4}Q${x+bw} ${y} ${x+bw} ${y+4}V160Z" fill="#000"/>`; g+=`<text x="${x+bw/2}" y="182" text-anchor="middle" font-size="15" fill="var(--sec)">${labs[i]}</text>`;});
+  g+=`<line x1="${x0-6}" x2="${W}" y1="160" y2="160" stroke="#000" stroke-width="2"/>`;
+  const ax=x0+8+6.4*step; g+=`<line x1="${ax}" x2="${ax}" y1="22" y2="160" stroke="#000" stroke-dasharray="3 4"/><path d="M${ax-6} 8h12l-6 10z" fill="#000"/><text x="${ax+10}" y="18" font-size="16" fill="#000">avg 3.7</text>`;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="font-family:var(--sans)">${g}</svg>`;
+})();
+const review = (n,r,d,body,likes,more) => `<div style="padding:12px 0;border-top:var(--div)"><div style="display:flex;align-items:baseline;gap:10px"><span class="strong" style="font-size:21px;line-height:23px">${n}</span><span class="strong" style="display:flex;align-items:center;gap:3px">${ic('starOn',16)}${r}</span><span class="sec" style="margin-left:auto">${d}</span></div><div style="margin-top:6px;line-height:24px">${body}</div><div style="display:flex;align-items:center;margin-top:8px"><span class="strong">${likes} likes</span>${more?`<span class="btn sm" style="margin-left:auto">Read more</span>`:''}</div></div>`;
+const reviewFoot = (page, prev) => `<div style="position:absolute;left:0;right:0;bottom:0;height:72px;border-top:3px solid #000;display:flex;align-items:center;justify-content:space-between;padding:0 16px;background:#fff">${prev?`<div class="btn sm" style="width:116px;height:48px">Previous</div>`:`<div style="width:116px;height:48px;border:2px dotted #000;border-radius:8px;display:flex;align-items:center;justify-content:center" class="strong"><span style="font-weight:var(--w-text)">Previous</span></div>`}<span class="strong" style="font-size:21px">${page}</span><div class="btn sm" style="width:116px;height:48px">Next</div></div>`;
+const rcard = (n,r,d,body,likes,more) => `<div style="padding:11px 0;border-top:var(--div);height:162px;overflow:hidden"><div style="display:flex;align-items:baseline;gap:10px"><span class="strong" style="font-size:21px;line-height:23px">${n}</span><span class="strong" style="display:flex;align-items:center;gap:3px">${ic('starOn',16)}${r}</span><span class="sec" style="margin-left:auto">${d}</span></div><div style="margin-top:5px;line-height:24px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${body}</div><div style="display:flex;align-items:center;margin-top:7px"><span class="strong">${likes} likes</span>${more?`<span class="btn sm" style="margin-left:auto;height:40px">Read more</span>`:''}</div></div>`;
+const longRev='I did not expect this book to stay with me the way it has. The first hundred pages are slow, and the world is explained only by what people do in it, never by what anyone says about it. By the middle I had stopped reading for the plot and was reading for the people.';
+const shortRev=(n)=>'Review number '+n+': a fair read with some good moments, and a slow start that is worth pushing through.';
+add('4d  Reviews (start of the list)', 'Reviews as one scrolling list, using the same paged scroll control as every other long screen. The summary (book title, 4.2 and stars, histogram with its average marker) is the first block and scrolls away. Reviews are fixed-height cards, three lines of text with Read more. Up is the dotted, unavailable triangle at the top, down is solid.',
+`${tb('Reviews', {back:true})}
+<div style="padding:12px 34px 0 16px">
+ <div class="serif" style="font-size:25px;line-height:29px;padding-bottom:6px;border-bottom:3px solid #000">The Left Hand of Darkness</div>
+ <div style="display:flex;align-items:center;gap:14px;margin-top:10px"><span class="strong" style="font-size:36px;line-height:38px">4.2</span><div><div style="display:flex">${[1,2,3,4].map(()=>ic('starOn',22)).join('')}${ic('star',22)}</div><div class="sec" style="margin-top:2px">120 ratings</div></div></div>
+ <div style="margin-top:4px">${hist}</div>
+ ${rcard('Maya Okafor','4.5','2025-11-02',longRev,'48',true)}
+</div>
+${scrollctl(70, 14, 0, 22)}`);
+add('4e  Reviews (scrolled)', 'One page down: three cards of the same height, each clamped, each with its own Read more. Both triangles are solid because there is more above and below. At the very end of the loaded reviews the last block is a visible Load more reviews button.',
+`${tb('Reviews', {back:true})}
+<div style="padding:0 34px 0 16px">
+ ${rcard('Maya Okafor','4.5','2025-11-02',longRev,'48',true)}
+ ${rcard('Reader 10','3.5','2025-02-15',shortRev(10),'14',true)}
+ ${rcard('Reader 11','5','2025-03-15',shortRev(11),'13',true)}
+ ${rcard('Reader 12','3.5','2025-04-15',shortRev(12),'12',true)}
+</div>
+${scrollctl(70, 14, 28, 22)}`);
+add('4g  Reviews (end of the list)', 'The end. The last cards, then a Load more reviews button as the final block while more exist on the server. When everything is loaded the button is replaced by "No more reviews" and the down triangle goes dotted, the same signal the other screens give.',
+`${tb('Reviews', {back:true})}
+<div style="padding:0 34px 0 16px">
+ ${rcard('Reader 13','5','2025-05-15',shortRev(13),'11',true)}
+ ${rcard('Reader 14','4','2025-06-15',shortRev(14),'9',true)}
+ ${rcard('Reader 15','4.5','2025-07-15',shortRev(15),'7',true)}
+ <div style="padding:14px 0"><div class="btn" style="height:56px">Load more reviews</div></div>
+</div>
+${scrollctl(70, 14, 72, 28)}`);
+
+add('4f  About (full synopsis)', 'Read more opens the whole synopsis on its own screen, scrolled by page with the same control as every other long screen: the title as a serif heading with the thick rule, then the text. A short synopsis fits without any control; a long one shows the triangles.',
+`${tb('About', {back:true})}
+<div style="padding:12px 34px 0 16px">
+ <div class="serif" style="font-size:25px;line-height:29px;padding-bottom:6px;border-bottom:3px solid #000">The Left Hand of Darkness</div>
+ <div style="margin-top:14px;line-height:28px;font-size:20px">A lone envoy arrives on a frozen world to bring its people into a league of planets, and finds that nothing about the place, its politics, its weather or its customs, is what he was told to expect. Genly Ai must win the trust of a king and a fugitive, and learn that the people he came to persuade do not divide the world the way he does, nor the way anyone on his own side ever imagined.</div>
+</div>
+${scrollctl(70, 14, 0, 60)}`);
+
+/* 5 READER SHEET */
+add('5  Reader action sheet', 'Over the reader. Top edge uses the 3 black + 2 white rule, so the sheet separates from the page without a dark scrim. An action sheet = outlined actions plus one filled Cancel. The switch is a list row, not a button. Never radios and Cancel together.',
+`<div class="reader" style="padding:30px 36px 0"><p>The most important thing about a journey is the way it ends, and the Ice stretched on without any promise of that. We pulled the sledge across a field of old snow that held no tracks but our own.</p><p>Estraven did not speak for hours. When he did, it was only to name the weather, as one names a stranger in a doorway.</p><p>By night the wind had shifted and the tent walls rang like the skin of a drum.</p></div>
+<div class="sheet"><div class="inner">
+ <div class="strong" style="font-size:25px;line-height:28px">The Left Hand of Darkness</div>
+ <div class="sec" style="margin-top:6px;font-size:18px;line-height:22px">Page 186 of 300 · 62%</div>
+ <div class="row" style="padding:12px 0;margin-top:8px;--dl:0px"><div class="txt"><div class="lab" style="font-size:21px">Update Hardcover as I read</div></div><div class="trail">${sw(true)}</div></div>
+ <div style="display:flex;flex-direction:column;gap:16px;margin-top:14px">
+  <div class="btn" style="height:64px">Update progress</div>
+  <div class="btn" style="height:64px">Rate this book</div>
+  <div class="btn" style="height:64px">Open book page</div>
+  <div class="btn pri" style="height:64px">Cancel</div>
+ </div>
+</div></div>`);
+
+/* 6 SETTINGS */
+add('6  Settings (pushed screen)', 'A flat list. Real switches (black track = on) replace boxed cards with tick glyphs. Chevron rows open choices. Dotted dividers start after the label column. Anything unavailable is shown by an off switch and a reason, never by grey.',
+`${tb('Settings', {back:true})}
+<div style="padding-right:22px">
+ <div class="sechead" style="padding-top:12px">Sync</div>
+ ${row({t:'Update Hardcover as I read',s:'Sends progress while you read',trail:sw(true)})}
+ ${row({t:'Sync over mobile data',s:'Off. Waits for Wi-Fi',trail:sw(false)})}
+ ${row({t:'Sync schedule',s:'Every hour',trail:chev})}
+ <div class="sechead" style="padding-top:20px">Display</div>
+ ${row({t:'Show covers',s:'On shelves and lists',trail:sw(true)})}
+ ${row({t:'Typeface',s:'Lato',trail:chev})}
+ <div class="sechead" style="padding-top:20px">Account</div>
+ ${row({t:'Signed in as',s:'@captaincamin',trail:chev})}
+ ${row({t:'Discard queued changes',s:'2 waiting',trail:chev})}
+</div>
+${scrollctl(70, 14, 0, 70)}`);
+
+/* 7 GOALS */
+add('7  Goals (nav: Goals)', 'Each goal is a card with a title, one line of status and a thick black progress bar over a thin track. One outlined button to add a goal. "On track" is a filled chip, never a grey state.',
+`${tb('Goals', {actions:['plus']})}
+${tabs(['This year','Past'],'This year')}
+<div style="padding-top:16px">
+ <div class="card"><div class="strong" style="font-size:21px;line-height:23px">Read 40 books</div>
+  <div style="display:flex;align-items:baseline;gap:8px;margin-top:10px"><span class="strong" style="font-size:44px;line-height:44px">26</span><span class="sec" style="font-size:21px;line-height:23px">of 40 books</span></div>
+  <div style="margin-top:10px">${prog(65)}</div>
+  <div style="margin-top:12px;display:flex;gap:8px">${chip('On track',true)}<span class="sec" style="align-self:center">3 books ahead</span></div></div>
+ <div class="card" style="margin-top:14px"><div class="strong" style="font-size:21px;line-height:23px">Read 12,000 pages</div>
+  <div style="display:flex;align-items:baseline;gap:8px;margin-top:10px"><span class="strong" style="font-size:44px;line-height:44px">7,412</span><span class="sec" style="font-size:21px;line-height:23px">of 12,000</span></div>
+  <div style="margin-top:10px">${prog(62)}</div>
+  <div style="margin-top:12px" class="sec">Needs 28 pages a day to finish</div></div>
+ <div class="btn" style="margin:16px 16px 0">New goal</div>
+</div>
+${nav('Goals')}`);
+
+/* 8 STATS */
+const months = [3,2,4,2,3,5,4,3,2,4,0,0];
+const mlab = 'JFMAMJJASOND';
+const chart = (() => {
+  const W = 540, H = 190, bw = 26, gap = 14, x0 = 34;
+  let g = '';
+  for (let i = 0; i <= 3; i++) { const y = 10 + i * 50; g += `<line x1="${x0-4}" x2="${W}" y1="${y}" y2="${y}" stroke="#d8d8d8" stroke-width="1"/><text x="${x0-10}" y="${y+5}" text-anchor="end" font-size="15" fill="var(--sec)">${6-i*2}</text>`; }
+  months.forEach((v,i) => { const h = v * 25, x = x0 + i * (bw + gap) + 4, y = 160 - h;
+    const cur = i === 9;
+    if (v) g += `<path d="M${x} 160V${y+5}Q${x} ${y} ${x+5} ${y}H${x+bw-5}Q${x+bw} ${y} ${x+bw} ${y+5}V160Z" fill="${cur?'#000':'#777'}"/>`;
+    if (cur) g += `<text x="${x+bw/2}" y="${y-6}" text-anchor="middle" font-size="16" font-weight="900" fill="#000">${v}</text>`;
+    g += `<text x="${x+bw/2}" y="182" text-anchor="middle" font-size="15" fill="${cur?'#000':'var(--sec)'}" ${cur?'font-weight="900"':''}>${mlab[i]}</text>`; });
+  g += `<line x1="${x0-4}" x2="${W}" y1="160" y2="160" stroke="#000" stroke-width="2"/>`;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="font-family:var(--sans)">${g}</svg>`;
+})();
+const gen = [['Sci-fi',42,'#000'],['Fantasy',30,'#555'],['Literary',18,'#8a8a8a'],['Non-fiction',10,'#bbb']];
+add('8  Stats (nav: Stats)', 'Period tabs (three, tap only). Charts keep tonal greys (your call: grey fills are fine in charts). Columns are mid grey with a rounded top, the highlighted month is solid black with its value, gridlines are a quiet light hairline. Genre bars step from black to light grey, ordered by size, with the percentage in black beside each so the value never depends on grey.',
+`${tb('Stats')}
+${tabs(['Year','30 days','All time'],'Year')}
+<div style="display:flex;border-bottom:var(--div);margin:0 16px">
+ ${[['26','Books'],['7,412','Pages'],['4.1','Rating']].map(([n,l],i)=>`<div style="flex:1;padding:14px 0 12px;${i?'border-left:var(--div);padding-left:14px;':''}"><div class="strong" style="font-size:32px;line-height:34px">${n}</div><div class="sec" style="margin-top:3px">${l}</div></div>`).join('')}
+</div>
+<div class="sechead" style="padding-top:14px">Books per month</div>
+<div style="padding:0 16px">${chart}</div>
+<div class="sechead" style="padding-top:12px">Genres</div>
+<div style="padding:0 16px">
+${gen.map(([n,v,p])=>`<div style="display:flex;align-items:center;gap:10px;height:30px"><div style="width:100px">${n}</div><svg width="${v*7}" height="18"><rect x="0" y="1" width="${v*7}" height="16" rx="4" fill="${p}"/></svg><span class="strong">${v}%</span></div>`).join('')}
+</div>
+${nav('Stats')}`);
+
+/* 9 SORT POPOVER */
+add('9  Sort menu (popover)', 'The sort menu opens as a small popover anchored under the Sort icon, not a bottom sheet. It covers little of the page, sits where your thumb just tapped, and marks the current order with a check and a bold label. Rounded 2px border, dotted dividers, rows at touch height. Tapping outside, or a choice, closes it. (The bottom choice sheet with radios is the alternative if you want the heavier, MMD-standard pattern.)',
+`${tb('Want to read', {back:true, actions:['search','sort']})}
+<div>${books.slice(0,5).map(([t,a,p])=>`<div class="row" style="--dl:94px;padding-top:12px;padding-bottom:12px;gap:16px">${cover(46,68,p)}<div class="txt"><div class="lab">${t}</div><div class="sup sec">${a}</div></div></div>`).join('')}</div>
+<div style="position:absolute;right:10px;top:70px;width:316px;background:#fff;border:2px solid #000;border-radius:10px;overflow:hidden">
+ ${[['Date added (newest first)',false],['Title (A to Z)',true],['Author (A to Z)',false],['Published (newest first)',false],['Pages (shortest first)',false]].map(([t,on],i,arr)=>`<div style="position:relative;display:flex;align-items:center;gap:10px;padding:0 14px;height:56px;${i<arr.length-1?'border-bottom:var(--div);':''}"><span style="width:20px;flex:none">${on?ic('check',20).replace('stroke="#fff"','stroke="#000"').replace('width="20" height="20" viewBox="0 0 28 28"','width="20" height="20" viewBox="0 0 22 22"'):''}</span><span style="font-size:21px;line-height:23px;${on?'font-weight:var(--w-strong)':''}">${t}</span></div>`).join('')}
+</div>`);
+
+/* 10 OVERLAYS */
+add('10  Dialog, snackbar, loading', 'Three overlays on a plain page. Dialog: specific title, short text, two actions at most, filled primary and outlined secondary. Snackbar: appears only after a tap, one line, one action. Loading: a static symbol with a bold label next to the content it relates to. All three share the 3 + 2 top rule.',
+`${tb('Book', {back:true, actions:['sync']})}
+<div style="padding:16px 16px 0;display:flex;gap:16px">${cover(100,150,'pV')}<div style="flex:1"><div class="serif" style="font-size:25px;line-height:29px">The Left Hand of Darkness</div><div style="margin-top:8px">Ursula K. Le Guin</div></div></div>
+<div style="margin:20px 16px 0;display:flex;align-items:center;gap:12px;border-top:3px solid #000;padding-top:2px;position:relative"><div style="position:absolute;left:0;right:0;top:0;height:2px;background:#fff"></div><div style="padding:14px 0;display:flex;gap:12px;align-items:center">${ic('hourglass',24)}<span class="strong" style="font-size:21px">Loading reviews</span></div></div>
+<div class="dlg" style="top:350px">
+ <div style="padding:22px 20px 12px"><div style="display:flex;align-items:flex-start"><div class="strong" style="font-size:25px;line-height:28px;flex:1">Unlink this book?</div><div style="margin:-10px -10px 0 0">${ic('close')}</div></div>
+ <div style="margin-top:10px;font-size:21px;line-height:25px">Your reading progress stays on Hardcover. This device will stop updating it for this book.</div></div>
+ <div style="display:flex;gap:10px;padding:8px 20px 22px"><div class="btn" style="flex:1;height:64px">Keep linked</div><div class="btn pri" style="flex:1;height:64px">Unlink</div></div>
+</div>
+<div class="snack"><div>${ic('check',24).replace('stroke="#fff"','stroke="#000"')}</div><div style="flex:1;font-size:21px;line-height:25px">Saved. It will sync when you are online.</div><div class="btn sm" style="height:48px;margin-right:4px">Undo</div></div>`);
+
+const grid = $('#grid');
+screens.forEach(s => {
+  const f = document.createElement('figure');
+  f.innerHTML = `<div class="frame"><div class="screen">${s.html}</div></div><figcaption><b>${s.name}</b>${s.note}</figcaption>`;
+  grid.appendChild(f);
+});
+
+const apply = () => {
+  document.body.classList.toggle('noto', $('#tNoto').checked);
+  document.body.classList.toggle('black', $('#tBlack').checked);
+  document.body.classList.toggle('solid', $('#tSolid').checked);
+  document.documentElement.style.setProperty('--view', $('#tFull').checked ? 1 : .5);
+  document.querySelectorAll('figcaption').forEach(c => c.style.maxWidth = $('#tFull').checked ? '1072px' : '540px');
+};
+['tNoto','tBlack','tSolid','tFull'].forEach(id => $('#'+id).addEventListener('change', apply));
+apply();
+</script>
+</body>
+</html>

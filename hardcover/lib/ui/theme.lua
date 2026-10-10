@@ -16,9 +16,33 @@
 --   * Redraw as little as possible: nothing animates, and a screen changes
 --     its own contents in place rather than being rebuilt.
 --
+--   Learned from Mudita Mindful Design (docs/e-ink-design.md has the sources, how
+--   much to trust them, and the open questions):
+--
+--   * Every control is visible. Anything that can be tapped, scrolled or held has a
+--     control on screen. A swipe or a long press may be a shortcut, never the only
+--     way to do something.
+--   * Fit in the lines. Rows keep one fixed height and stay put from page to page, so
+--     the rules between them are redrawn in the same places. A long page should
+--     scroll by whole pages that land on row edges.
+--   * State never rests on grey alone. A disabled or off control shows it with a
+--     check, a fill or a dotted border, or is left out.
+--   * Few big dark areas. Try an outline or a pattern before a solid fill; a fill
+--     marks the one primary action or the active choice.
+--   * Say what happened. With no animation, acknowledge a tap with visible text
+--     ("Saved"). Underline alone does not read as a link: use a box or an icon.
+--
 --   * Serif for titles, sans for the rest (Theme.serif). Pill-shaped buttons.
 --     Solid black progress bars (Theme.progress). Where a grey is wanted, hatch
---     (Theme.hatch) rather than use a mid grey: grey ghosts, hatching stays crisp.
+--     (Theme.hatch) rather than use a mid grey.
+--
+--   Owner's direction (2026-10-10, nothing implemented yet): charts may keep tonal
+--   greys (polish them rather than swap in patterns); Lato is liked and is the
+--   likely typeface; pure-black secondary text is wanted as a beta setting, with
+--   DARK_GREY staying the default. Still open: divider weight (dotted or solid),
+--   compact button heights, a bottom navigation bar. Known gaps: Theme.hatchRect
+--   paints at 40% opacity (grey stripes, and nothing calls it yet), and eight
+--   scroll screens have no tap controls for paging.
 --
 -- All sizes go through Screen:scaleBySize, so the same numbers read right at
 -- 167 dpi and at 300.
