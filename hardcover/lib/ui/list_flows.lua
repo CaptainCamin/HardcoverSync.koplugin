@@ -13,6 +13,7 @@ local _ = require("gettext")
 local T = require("ffi/util").template
 
 local UIManager = require("ui/uimanager")
+local Live = require("hardcover/lib/ui/live")
 
 local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
@@ -192,7 +193,7 @@ function Flows:showLists()
   end
 
   self:refreshLists(function(result)
-    if not UIManager:isWidgetShown(dialog) then return end
+    if not Live.shown(dialog) then return end
     local lists = result and result.lists
     if not lists then
       -- the saved lists are still there: failing to check them is not worth interrupting for
@@ -287,7 +288,7 @@ function Flows:showList(row)
       force = true,
       on_done = function(result)
         StatusDialogs.close(loading)
-        if not UIManager:isWidgetShown(dialog) then return end
+        if not Live.shown(dialog) then return end
         if result and result.complete then
           show(result.entries, true)
         else
@@ -329,14 +330,14 @@ function Flows:showList(row)
     -- rows appear as pages arrive when there is nothing saved to show
     on_page = not saved and function(fresh)
       stopLoading()
-      if UIManager:isWidgetShown(dialog) then
+      if Live.shown(dialog) then
         dialog.offset = #fresh
         dialog:setEntries(fresh, true, true)
       end
     end or nil,
     on_done = function(result)
       stopLoading()
-      if not UIManager:isWidgetShown(dialog) then return end
+      if not Live.shown(dialog) then return end
       if result and result.complete then
         show(result.entries, true)
         return
