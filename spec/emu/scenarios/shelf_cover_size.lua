@@ -45,22 +45,17 @@ return {
     local dialog = manager.shelf_dialog
     assert(dialog and UIManager:isWidgetShown(dialog), "the shelf was not shown")
 
-    -- every row that drew a picture: its frame is the row's height (a 2:3 cover in a
-    -- square box is as tall as the box), never a sliver and never taller
-    local checked = 0
-    for _, row in ipairs(dialog.menu.item_group) do
-      if row._has_cover_image and row.cover_frame and row.dimen then
-        checked = checked + 1
-        local frame_h, row_h = row.cover_frame:getSize().h, row.dimen.h
-        assert(frame_h <= row_h,
-          string.format("row %q: the cover (%d px) is taller than its row (%d px)",
-            tostring(row.entry and row.entry.text), frame_h, row_h))
-        assert(frame_h >= row_h * 0.9,
-          string.format("row %q: the cover (%d px) is far shorter than its row (%d px)",
-            tostring(row.entry and row.entry.text), frame_h, row_h))
-      end
+    -- every picture is drawn in the one box of the list's covers, whatever size was uploaded:
+    -- the decoded pictures are all that size (the keys end in the box)
+    local sizes, checked = {}, 0
+    for key in pairs(dialog.covers.bbs) do
+      checked = checked + 1
+      sizes[key:match("|(%d+x%d+)$")] = true
     end
+    local distinct = 0
+    for _ in pairs(sizes) do distinct = distinct + 1 end
     assert(checked >= #UPLOADED, "only " .. checked .. " rows drew a cover")
+    assert(distinct == 1, "the covers were drawn at " .. distinct .. " different sizes")
     emu:shot("shelf_cover_size")
 
     for i, size in pairs(saved) do

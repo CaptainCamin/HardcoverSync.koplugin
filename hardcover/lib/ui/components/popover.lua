@@ -15,10 +15,11 @@ local Popover = {}
 
 Popover.WIDTH = Theme.px(320)
 
--- opts { items = { { label, current, callback } }, x, y (the box's top-right corner), on_dismiss }
+-- opts { items = { { label, current, callback } }, x, y (the box's top-right corner), width (default WIDTH,
+-- wider for long labels), on_dismiss }
 -- Returns the shown overlay.
 function Popover.show(opts)
-  local w = Popover.WIDTH
+  local w = opts.width or Popover.WIDTH
   local border = Theme.line.firm
   local overlay
   local list = VerticalGroup:new { align = "left" }

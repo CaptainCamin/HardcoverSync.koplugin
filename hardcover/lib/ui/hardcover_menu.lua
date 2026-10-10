@@ -1444,7 +1444,7 @@ function HardcoverMenu:getSettingsSubMenuItems()
       end,
       hold_callback = function()
         UIManager:show(InfoMessage:new {
-          text = [[Disable fancy menu for book and edition search results.
+          text = [[Disable the fancy list in the pickers that link a book or choose an edition.
 
 May improve compatibility for some versions of KOReader]],
         })
