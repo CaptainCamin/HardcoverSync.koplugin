@@ -33,6 +33,7 @@ local retry_after = {}
 local cover_in_flight = {}
 local registered_app
 local remoteSpec
+local changed
 
 local function hasCredentials(app)
   if not app or not app.enabled or not app.auth then return false end
@@ -125,23 +126,86 @@ end
 local function shelfPage(user_id, status_id, offset, limit, sort_key)
   local state = shelf_entries[shelfKey(user_id, status_id)]
   if not state then return {}, nil end
-  local entries = toBooks(state.entries, status_id)
-  entries = ShelfSort.sort(entries, sort_key)
-  return slice(entries, offset, limit), state.complete and #state.entries or nil
+  local key = sort_key or ShelfSort.DEFAULT
+  if state.sorted_key ~= key then
+    state.sorted_books = ShelfSort.sort(toBooks(state.entries, status_id), key)
+    state.sorted_key = key
+  end
+  return slice(state.sorted_books, offset, limit), state.complete and #state.entries or nil
 end
 
-local function addCovers(spec, books)
-  if type(spec.cover) ~= "function" then return books end
+local function addCoverPaths(app, id, books)
+  local ImageLoader = require("hardcover/lib/ui/image_loader")
+  local missing = {}
   for _, book in ipairs(books) do
-    if not book.cover_image_path and not book.cover_bb then
-      local ok, bb, width, height = pcall(spec.cover, book)
-      if ok and bb then
-        book.cover_bb, book.cover_w, book.cover_h = bb, width, height
-        book.has_cover = true
+    local url = book.hardcover_cover_url
+    if type(url) == "string" and url ~= "" then
+      local path = ImageLoader:cachedPath(url, "small")
+      if path then
+        book.cover_image_path = path
+      else
+        book.cover_image_path = nil
+        local pending = cover_in_flight[url]
+        if not pending or os.time() - pending.started_at > 120 then
+          pending = { started_at = os.time(), queued = true }
+          cover_in_flight[url] = pending
+          missing[#missing + 1] = url
+          local retry = pending
+          UIManager:scheduleIn(125, function()
+            if cover_in_flight[url] == retry then
+              cover_in_flight[url] = nil
+              changed(app, id)
+            end
+          end)
+        end
       end
     end
   end
+  if #missing > 0 then
+    local batch_pending = {}
+    for _, url in ipairs(missing) do batch_pending[url] = cover_in_flight[url] end
+    local _batch, halt = ImageLoader:loadImages(missing, function(url)
+      if cover_in_flight[url] == batch_pending[url] then cover_in_flight[url] = nil end
+      changed(app, id)
+    end)
+    for _, url in ipairs(missing) do
+      if cover_in_flight[url] then cover_in_flight[url].halt = halt end
+    end
+  end
   return books
+end
+
+local function savedShelf(app, user_id, status_id)
+  if app.shelf_store and type(app.shelf_store.entries) == "function" then
+    local ok, entries, meta = pcall(app.shelf_store.entries, app.shelf_store,
+      user_id, status_id)
+    if ok and type(entries) == "table" and type(meta) == "table" then
+      return { entries = entries, complete = meta.complete == true }
+    end
+  end
+  return app.shelf_cache and app.shelf_cache:get(user_id, status_id) or nil
+end
+
+local function savedList(app, user_id, source)
+  local store = app.list_store
+  if not (store and store.index and store.entries) then return nil end
+  local ok, index = pcall(store.index, store, user_id)
+  if not ok or type(index) ~= "table" then return nil end
+  for _, group in ipairs({ index.mine or {}, index.following or {} }) do
+    for _, row in ipairs(group) do
+      if tostring(row.id) == tostring(source.list_id)
+          and (not source.list_source or row.source == source.list_source) then
+        local ok_entries, entries, meta = pcall(store.entries, store, user_id, row)
+        if ok_entries and type(entries) == "table" and type(meta) == "table" then
+          return {
+            entries = entries,
+            complete = meta.complete == true,
+            total = meta.complete and #entries or nil,
+          }
+        end
+      end
+    end
+  end
 end
 
 local function sortRows()
@@ -188,7 +252,7 @@ local function sortRows()
   }
 end
 
-local function changed(app, id)
+changed = function(app, id)
   local bookshelf = app and app.ui and app.ui.bookshelf
   if bookshelf and type(bookshelf.sourceChanged) == "function" then
     pcall(bookshelf.sourceChanged, bookshelf, id)
@@ -234,7 +298,7 @@ local function loadShelf(app, shelf, force, done)
   local known_id = app.settings:readSetting(SETTING.USER_ID)
   local key = shelfRequestKey(status_id)
   if known_id and not force then
-    local saved = app.shelf_cache:get(known_id, status_id)
+    local saved = savedShelf(app, known_id, status_id)
     if saved and saved.complete then
       shelf_entries[shelfKey(known_id, status_id)] = { entries = saved.entries, complete = true }
       if done then done() end
@@ -248,7 +312,7 @@ local function loadShelf(app, shelf, force, done)
       return
     end
     local user_id = known_id or User:getId()
-    local saved = app.shelf_cache:get(user_id, status_id)
+    local saved = savedShelf(app, user_id, status_id)
     if saved and not force then
       shelf_entries[shelfKey(user_id, status_id)] = {
         entries = saved.entries, complete = saved.complete == true,
@@ -272,15 +336,29 @@ local function loadShelf(app, shelf, force, done)
       alive = function() return true end,
       sleep = Background.sleep,
       on_page = function(entries)
-        shelf_entries[shelfKey(user_id, status_id)] = { entries = entries, complete = false }
-        changedShelf(app, status_id)
+        if not (saved and saved.complete) then
+          shelf_entries[shelfKey(user_id, status_id)] = { entries = entries, complete = false }
+          changedShelf(app, status_id)
+        end
       end,
     }
     if result then
-      shelf_entries[shelfKey(user_id, status_id)] = {
-        entries = result.entries, complete = result.complete == true,
-      }
-      app.shelf_cache:put(user_id, status_id, result.entries, result.complete)
+      if result.complete or not (saved and saved.complete) then
+        shelf_entries[shelfKey(user_id, status_id)] = {
+          entries = result.entries, complete = result.complete == true,
+        }
+      elseif saved then
+        shelf_entries[shelfKey(user_id, status_id)] = {
+          entries = saved.entries, complete = true,
+        }
+      end
+      if app.shelf_store and app.shelf_store.putEntries
+          and (result.complete or not (saved and saved.complete)) then
+        pcall(app.shelf_store.putEntries, app.shelf_store, user_id, status_id,
+          result.entries, result.complete, nil)
+      elseif app.shelf_cache and (result.complete or not (saved and saved.complete)) then
+        app.shelf_cache:put(user_id, status_id, result.entries, result.complete)
+      end
       changedShelf(app, status_id)
       if result.complete then retry_after[key] = nil
       else retry_after[key] = os.time() + 30 end
@@ -350,7 +428,7 @@ local function shelfSource(app, id, fixed_shelf, picker)
     local key = shelfKey(user_id, shelf.status)
     local state = shelf_entries[key]
     if not state then
-      local saved = app.shelf_cache:get(user_id, shelf.status)
+      local saved = savedShelf(app, user_id, shelf.status)
       if saved then
         state = { entries = saved.entries, complete = saved.complete == true }
         shelf_entries[key] = state
@@ -359,7 +437,7 @@ local function shelfSource(app, id, fixed_shelf, picker)
     if not (state and state.complete) then loadShelf(app, shelf, false) end
     local entries, total = shelfPage(user_id, shelf.status, offset, limit,
       source and source.sort_key)
-    return addCovers(spec, entries), total
+    return addCoverPaths(app, id, entries), total
   end
   spec.refresh = function(source, _drill, done)
     local shelf = fixed_shelf or shelfForStatus(source and source.status_id)
@@ -380,6 +458,10 @@ local function loadList(app, source, force, done)
     local list_user_id = user_id or User:getId()
     local actual_key = listKey(list_user_id, source.list_source, source.list_id)
     local current = list_entries[actual_key]
+    if not current then
+      current = savedList(app, list_user_id, source)
+      if current then list_entries[actual_key] = current end
+    end
     if current and current.complete and not force then return end
     if not Network.connected() then
       retry_after[key] = os.time() + 30
@@ -437,34 +519,6 @@ remoteSpec = function(app, id)
     end,
     info = function(book)
       bookDetail(app, book)
-    end,
-    cover = function(book)
-      local url = book and book.hardcover_cover_url
-      if type(url) ~= "string" or url == "" then return nil end
-      local ImageLoader = require("hardcover/lib/ui/image_loader")
-      local cache_key = ImageLoader:fetchUrl(url, "small")
-      local content = ImageLoader:lookup(cache_key)
-      -- Older cache entries, and pinned originals from before sized covers,
-      -- may still use the uploaded URL itself.
-      if not content and cache_key ~= url then content = ImageLoader:lookup(url) end
-      if not content then
-        local pending = cover_in_flight[url]
-        if not pending or os.time() - pending.started_at > 60 then
-          pending = { started_at = os.time() }
-          cover_in_flight[url] = pending
-          local _batch, halt = ImageLoader:loadImages({ url }, function()
-            cover_in_flight[url] = nil
-            changed(app, id)
-          end)
-          pending.halt = halt
-        end
-        return nil
-      end
-      local width = math.max(1, math.min(600, tonumber(book.hardcover_cover_width) or 320))
-      local height = math.max(1, math.min(900, tonumber(book.hardcover_cover_height) or 480))
-      local bb = require("ui/renderimage"):renderImageData(content, #content, false, width, height)
-      if bb then return bb, width, height end
-      return nil
     end,
   }
 end
@@ -574,12 +628,18 @@ function Sources.register(app)
     local key = listKey(user_id, source.list_source or "mine", source.list_id)
     local state = list_entries[key]
     if not state then
-      loadList(app, source, false)
-      return {}, nil
+      state = savedList(app, user_id, source)
+      if state then list_entries[key] = state end
     end
+    if not state then loadList(app, source, false); return {}, nil end
     if not state.complete then loadList(app, source, false) end
-    local books = ShelfSort.sort(toBooks(state.entries, nil), source.sort_key)
-    return addCovers(lists, slice(books, offset, limit)), state.total
+    local sort_key = source.sort_key or ShelfSort.DEFAULT
+    if state.sorted_key ~= sort_key then
+      state.sorted_books = ShelfSort.sort(toBooks(state.entries, nil), sort_key)
+      state.sorted_key = sort_key
+    end
+    return addCoverPaths(app, LISTS_ID,
+      slice(state.sorted_books, offset, limit)), state.total
   end
   lists.refresh = function(source, _drill, done)
     if not source.list_id then done(); return end
@@ -597,6 +657,8 @@ end
 
 function Sources.changed(app)
   app = app or registered_app
+  shelf_entries = {}
+  list_entries = {}
   for _, shelf in ipairs(SHELF_SOURCES) do retry_after[shelfRequestKey(shelf.status)] = nil end
   for key in pairs(retry_after) do
     if key:match("^list%-fetch:") then retry_after[key] = nil end

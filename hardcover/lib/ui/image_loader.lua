@@ -85,6 +85,26 @@ function ImageLoader:lookup(key)
   return cache and cache:get(key) or nil
 end
 
+-- Return the on-disk path for a cached cover without reading or decoding its
+-- bytes. Bookshelf can load this path through its own cover cache, which gives
+-- each painter an independently owned image instead of sharing a disposable
+-- BlitBuffer between the shelf tile and the hero.
+function ImageLoader:cachedPath(url, size)
+  if type(url) ~= "string" or url == "" then return nil end
+  local resized = self:fetchUrl(url, size or "small")
+  local keys = { url }
+  if resized and resized ~= url then keys = { resized, url } end
+  for _, key in ipairs(keys) do
+    local pinned = self:getPinned()
+    local path = pinned and pinned:touch(key)
+    if path then return path end
+    local cache = self:getCache()
+    path = cache and cache:touch(key)
+    if path then return path end
+  end
+  return nil
+end
+
 --
 -- Download cover `url` at `size` (and `box`, as fetchUrl takes it). Call from inside
 -- Trapper:wrap. The resized cover; once more if it failed (the image service sometimes
