@@ -42,6 +42,18 @@ function ImageCache:has(url)
   return true
 end
 
+-- Touch a cached image and return its path without reading the image bytes.
+-- Used by Bookshelf, which owns decoding and the rendered cover lifetime.
+function ImageCache:touch(url)
+  local path = self:path(url)
+  if not path then return nil end
+  local file = io.open(path, "rb")
+  if not file then return nil end
+  file:close()
+  if self.lfs and self.lfs.touch then pcall(self.lfs.touch, path) end
+  return path
+end
+
 function ImageCache:get(url)
   local path = self:path(url)
   if not path then return nil end

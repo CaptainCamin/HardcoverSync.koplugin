@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.7.1-beta.9
+
+### Fixed
+
+- Selecting a Hardcover book in Bookshelf could crash KOReader. The source shared a one-use cover buffer between the shelf tile and the hero; covers now use cached image paths, which Bookshelf can decode and reuse safely.
+
+### Changed
+
+- Hardcover shelf and list sources now read their already-synced books from the local SQLite stores, and cache the chosen order between redraws. Missing covers are queued together for the visible page, without decoding image buffers in the source callback.
+- A shelf loaded by its Bookshelf source is saved to the shared shelf database without also rewriting the large legacy cache file. An incomplete refresh keeps the last complete shelf.
+
 ## 1.7.1-beta.8
 
 ### Fixed
