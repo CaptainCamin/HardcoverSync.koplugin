@@ -23,12 +23,12 @@ checks the numbers.
 | `nav_bar.lua` | 57 tall, indicator above the active destination | 1 |
 | `note.lua` | info box: icon, title, text and one small button, dotted or solid outline | 1, 1a |
 | `overlay.lua` | base of every overlay: places one child, refreshes only its box; `top_rule` | n/a |
-| `popover.lua` | anchored menu under its icon, dotted dividers, tick on the current choice | sort |
+| `popover.lua` | anchored menu under its icon, dotted dividers, tick on the current choice | sort (shelf screen) |
 | `choice_sheet.lua` | radio list with an X, no Cancel | sort |
 | `action_sheet.lua` | outlined buttons plus one filled Cancel | 10 |
 | `dialog.lua` | centred, title + text, one or two buttons | 5 |
 | `snackbar.lua` | bottom message with at most one action, closes itself | 5 |
-| `scroll_control.lua` | bar over a double-line track, a triangle at each end (own PR) | all |
+| `scroll_control.lua` | bar over a double-line track, a triangle at each end; `wrap` for a scrolling container, `paged` for a list shown a page at a time | all |
 
 Text uses `Theme.mmdText(str, "text" | "strong", size)`: Lato Medium and Black when installed, KOReader's
 UI font (strong as bold) until then.

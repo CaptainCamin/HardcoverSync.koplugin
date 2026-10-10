@@ -50,11 +50,12 @@ Settled, with the date and where it is built. If something here disagrees with a
 | Dotted means evenly spaced round dots (outlines) and dots with a wide gap (dividers). | Dividers between rows are dotted; the earlier uneven dashes were wrong. | `Theme.dottedRule`, `Draw.dottedBorder` |
 | An unavailable switch has a hollow knob (the dotted switch was rejected). | State never rests on grey alone. | `components/switch.lua` |
 | Library rows are icon rows, not covers: the shelf icon for Shelves and Lists, a sparkle / ranked list / lock for Vibes. | No cover fetches on those tabs. | `ui/shelves_body.lua`, `ui/icon_list_body.lua` |
-| Sort is an anchored popover; choice sheets have radios and an X, no Cancel; action sheets have outlined buttons plus one filled Cancel. | Components exist; not yet used by the shelf screen. | `components/popover.lua`, `choice_sheet.lua`, `action_sheet.lua` |
+| Sort is an anchored popover; choice sheets have radios and an X, no Cancel; action sheets have outlined buttons plus one filled Cancel. | The shelf screen uses the popover for its sort (all eleven orders, the current one ticked). | `components/popover.lua`, `choice_sheet.lua`, `action_sheet.lua` |
 | Charts keep tonal greys. Secondary text is dark grey (0x55) by default, pure black as a beta setting. | `Theme.secondary()`; every grey text site goes through it. | PR 1 |
 | Lato (Medium and Black) is the typeface, **titles included: no serif** (owner, 10 Oct). | Shipped and copied into KOReader's fonts folder; components fall back to KOReader's font until it is there. Whether Medium reads better than Regular is still judged on a device. | PR 4, `Theme.mmdText` |
 | Long screens scroll with one control: a bar over a double-line track with a triangle at each end; a dotted triangle is that end reached. | On the eight scrolling screens, by whole rows. | PR 2 (`components/scroll_control.lua`) |
 | Settings is a flat list with real switches, chevrons and dotted dividers; the Sync and Account tiles are the first two rows; the back arrow goes up a level. | | PR 5 |
+| Shelves, lists, vibes, "For you" and search results are one list on our own widgets (not KOReader's Menu), a page at a time (mock 3): top bar with back, title and sort; fixed-height rows (cover 46x68, title, author, your rating, chevron; a large rank numeral on a ranked list; a "Because you liked" line, in taller rows, on suggestions); dotted dividers; the scroll control steps by page; a footer "Showing 1 to 5 of 24"; Load more as the last block when the list is not all here. | Only the page on screen is built, so its covers are the only ones decoded. Compatibility mode no longer affects this screen (it still does the link-book and edition pickers). | `shelf_dialog.lua`, `ScrollControl.paged` |
 | Book details is a stack of fixed-size blocks, compact like the owner's prototype (10 Oct): a thumbnail cover, then the title, author and series right under it (small, plain text, not tappable); one slot of buttons, no main button: Open (filled) when the book is on this device (a file the plugin has linked to it, found in its own table; no guessing from file names), otherwise Find on device and Z-library (outlined, when available) to get it; then Reviews; then Change shelf (or Add to shelf) and Lists in a row; "Your rating" as five stars; About clamped to 5 lines with Read more; the first genres on one line with "+N more" (moods and content warnings are in what it opens); series and Similar-to carousels; five detail rows plus All details. Sections are a dotted rule and a small Black label. A status pill sits between the series and the facts: filled with the status ("Currently Reading"), or outlined "Not on a shelf", so the line is there for every book; the shelf button says "Change shelf" or "Add to shelf". No stats strip. Reviews is one scrolling list of fixed-height cards, summary first, with Load more. | Read more, +N more and All details open screens of their own (`text_screen.lua`, `details_screen.lua`); the page paces by block. | `book_detail_dialog.lua`, `reviews_dialog.lua`, `clamp.lua` |
 
 ## Still open
@@ -66,13 +67,15 @@ Settled, with the date and where it is built. If something here disagrees with a
 
 ## Known deviations from the rules above
 
+- Shelf screen: the sort popover lists all eleven orders (MMD says five or six); it fits a 600x800 screen. Mock 3's search icon is not built (there is no search within a shelf). The ranked vibe list keeps covers beside the numeral (mock 1d).
+
 - Book details: Open only finds books the plugin has linked to a file (history, not the folder tree), so a book never opened here shows Find on device; the stats strip (rating, readers, reviews) is gone, and the author, the series and the status pill are not tappable (no search or shelf from the page; the owner's call); the figures are on the Reviews screen. The page lists three genres; moods and content warnings are only behind "+N more".
 
 - Hold-only actions: unlink a book (`hardcover_menu.lua`, the "Linked book" row), discard all queued changes (hold on Sync now; per-change cancel is visible in `pending_changes_dialog.lua`), and the compatibility-mode help text.
 - Grey fills and lines in the charts: levels down to 0xBB, a 0xD8 gridline, 0x88 dashes (`chart_widgets.lua`, `charts.lua`). Allowed (see the decisions), to be polished.
 - `Theme.hatchRect` paints at 40% opacity, so its stripes anti-alias to grey; nothing calls it yet.
 - `Theme.rule` hairlines and `Theme.button`'s disabled look use `DARK_GREY`.
-- Screens not yet moved to the new components: shelves and their sort menu, goals, stats, the dialogs and the reader panel.
+- Screens not yet moved to the new components: goals, stats, the dialogs and the reader panel.
 
 ## MMD component metrics
 
