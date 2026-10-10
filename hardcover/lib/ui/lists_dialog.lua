@@ -22,6 +22,7 @@ local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
 
 local CoverCells = require("hardcover/lib/ui/cover_cells")
+local Hosted = require("hardcover/lib/ui/hosted")
 local Lists = require("hardcover/lib/lists")
 local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
@@ -41,16 +42,21 @@ local ListsDialog = InputContainer:extend {
   select_cb = nil,   -- called with the chosen row
   close_callback = nil,
   image_loader = nil,
+  -- as a tab of the shell (see hosted.lua): the shell, and the size it gives this body
+  shell = nil,
+  width = nil,
+  height = nil,
 }
 
 function ListsDialog:init()
   self.closed = false
   self.title = self.title or _("Lists")
-  self.dimen = Geom:new { x = 0, y = 0, w = Screen:getWidth(), h = Screen:getHeight() }
-  self.key_events.CloseLists = { { "Back" } }
+  local w, h = Hosted.size(self)
+  self.dimen = Geom:new { x = 0, y = 0, w = w, h = h }
+  if not self.shell then self.key_events.CloseLists = { { "Back" } } end
   -- pictures already decoded are kept across rebuilds (see cover_cells.lua)
   self.covers = CoverCells:new {
-    window = self,
+    window = Hosted.window(self),
     loader = function() return self.image_loader or require("hardcover/lib/ui/image_loader") end,
     -- a cover scrolled out of view needs no refresh
     clip = function() return self.scroll and self.scroll.dimen or nil end,
@@ -147,14 +153,15 @@ end
 function ListsDialog:build()
   self.covers:begin()
 
-  local screen_w, screen_h = Screen:getWidth(), Screen:getHeight()
+  local screen_w, screen_h = Hosted.size(self)
   local M = Theme.margin
-  local title_bar = Theme.titleBar {
+  -- on its own it has a title bar and a close; in the shell it has neither
+  local title_bar = not self.shell and Theme.titleBar {
     title = self.title,
     close_callback = function() self:onClose() end,
     show_parent = self,
-  }
-  local room = screen_h - title_bar:getSize().h
+  } or nil
+  local room = screen_h - (title_bar and title_bar:getSize().h or 0)
 
   -- first at full width; if that is taller than the screen, again narrower (to
   -- leave the scroll bar its gutter) inside a scrolling container
@@ -168,7 +175,7 @@ function ListsDialog:build()
     width = screen_w - 2 * M - gutter
     self.scroll = ScrollableContainer:new {
       dimen = Geom:new { x = 0, y = 0, w = screen_w, h = room },
-      show_parent = self,
+      show_parent = Hosted.window(self),
     }
     local scroll = self.scroll
     content = self:buildContent(width, function() return scroll.dimen end)
@@ -186,7 +193,7 @@ function ListsDialog:build()
     bordersize = 0,
     padding = 0,
     margin = 0,
-    VerticalGroup:new { align = "left", title_bar, body },
+    title_bar and VerticalGroup:new { align = "left", title_bar, body } or body,
   }
   self[1] = self.frame
   self.covers:finish()
@@ -197,7 +204,7 @@ end
 -- small refreshes of its own as covers and counts arrive. Ask for the first
 -- full draw explicitly so it can never be skipped in favour of a small one.
 function ListsDialog:onShow()
-  UIManager:setDirty(self, "ui")
+  Hosted.dirty(self)
 end
 
 function ListsDialog:releaseCovers()
@@ -210,7 +217,7 @@ function ListsDialog:rebuild()
   end
   self[1] = nil
   self:build()
-  UIManager:setDirty(self, "ui")
+  Hosted.dirty(self)
 end
 
 -- The lists have arrived (or there are none: pass a message).
@@ -228,7 +235,7 @@ end
 function ListsDialog:onCloseWidget()
   self.closed = true
   self:releaseCovers()
-  UIManager:setDirty(nil, "ui")
+  if not self.shell then UIManager:setDirty(nil, "ui") end
 end
 
 function ListsDialog:onCloseLists()
@@ -236,6 +243,7 @@ function ListsDialog:onCloseLists()
 end
 
 function ListsDialog:onClose()
+  if self.shell then return true end -- the shell leaves, not a tab
   UIManager:close(self)
   if self.close_callback then self.close_callback() end
   return true
