@@ -45,7 +45,7 @@ Settled, with the date and where it is built. If something here disagrees with a
 | Decision | Result | Built in |
 |---|---|---|
 | Home is one fixed screen that never scrolls; mock 1 / 1a is the layout (one bordered reading card with a filled Open book, a sync box, Shelves as two-line rows). Open book opens the book's details. | Cards beyond the first are one tap away under Shelves > Currently Reading. Small screens drop the shelf rows, then the sync box; never the card or the nav bar. | PR 6 (`ui/home_body.lua`) |
-| Navigation: four tabs, Home, Library, Goals, Stats; Library is Shelves \| Lists \| Vibes. No chips, no "All books", no filters. | A bottom nav bar and one shell screen; a beta setting until verified on a device. | PR 6 (`ui/shell.lua`) |
+| Navigation: four tabs, Home, Library, Goals, Stats; Library is Shelves \| Lists \| Vibes (three tabs; the owner confirmed it on 10 Oct, an older two-tab mock is outdated). No chips, no "All books", no filters. | A bottom nav bar and one shell screen; a beta setting until verified on a device. | PR 6 (`ui/shell.lua`) |
 | Sync box is dotted in both states. | "N changes waiting" with a sync icon, or "All synced" with a check; Sync now in both; same height. | `components/note.lua` |
 | Dotted means evenly spaced round dots (outlines) and dots with a wide gap (dividers). | Dividers between rows are dotted; the earlier uneven dashes were wrong. | `Theme.dottedRule`, `Draw.dottedBorder` |
 | An unavailable switch has a hollow knob (the dotted switch was rejected). | State never rests on grey alone. | `components/switch.lua` |
