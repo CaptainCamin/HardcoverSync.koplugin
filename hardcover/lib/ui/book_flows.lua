@@ -60,9 +60,6 @@ function Flows:showBookDetail(book_id, edition_id, opts)
     on_rating = function(d) self:rateBook(d) end,
     -- only when signed in with OAuth (the write scope is an OAuth thing)
     on_lists = self:canChooseLists() and function(d) self:chooseLists(d) end or nil,
-    -- these open on top of the details, so closing them comes back here
-    on_series = function(_, name) self:searchBooks(name) end,
-    on_author = function(_, name) self:searchBooks(name) end,
     -- the reload icon: everything fetched again, the escape hatch for anything kept that
     -- has gone out of date
     on_refresh = function()

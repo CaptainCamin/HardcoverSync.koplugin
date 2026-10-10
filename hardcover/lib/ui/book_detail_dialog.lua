@@ -7,7 +7,6 @@
 -- and Back handled through FocusManager's key_events.
 
 local Blitbuffer = require("ffi/blitbuffer")
-local BottomContainer = require("ui/widget/container/bottomcontainer")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
 local FocusManager = require("ui/widget/focusmanager")
@@ -22,7 +21,6 @@ local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
 local ScrollControl = require("hardcover/lib/ui/components/scroll_control")
 local TextBoxWidget = require("ui/widget/textboxwidget")
-local TopContainer = require("ui/widget/container/topcontainer")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
@@ -90,12 +88,8 @@ local BookDetailDialog = FocusManager:extend {
   on_find = nil,
   -- present only when the Z-library plugin is installed (see hardcover/lib/zlibrary.lua)
   on_zlibrary = nil,
-  -- tapping the series or the author: called with the dialog and what to look for (the
-  -- series' name, the author's name). No callback, nothing tappable.
-  on_series = nil,
   -- tapping your rating: called with the dialog. No callback, not tappable.
   on_rating = nil,
-  on_author = nil,
   width = nil,
   height = nil,
 }
@@ -229,21 +223,6 @@ function BookDetailDialog:init()
   -- the header scrolls with the page, so taps are cut to what is showing (see
   -- viewport.lua)
   local viewport = function() return self.scroll and self.scroll.dimen end
-  -- `widget` made tappable when there is a handler and something to hand it
-  -- `edge` puts the words at the "bottom" or "top" of their touch cell (at least 48 tall), so two links
-  -- one above the other (the author, the series) can sit as close as lines of text while each keeps
-  -- its own full-size target
-  local function tappable(field, widget, handler, arg, edge)
-    self[field] = nil
-    if not (handler and arg) then return widget end
-    local cell = Geom:new { w = text_width, h = math.max(widget:getSize().h, Theme.TOUCH_MIN) }
-    local Holder = edge == "bottom" and BottomContainer or (edge == "top" and TopContainer or LeftContainer)
-    self[field] = TapRow:new {
-      callback = function() handler(self, arg) end, viewport = viewport,
-      Holder:new { dimen = cell, widget },
-    }
-    return self[field]
-  end
 
   self.title_text = wrapped(summary.title, "display", true, false, "title")
   addTo(column, self.title_text)
@@ -254,11 +233,11 @@ function BookDetailDialog:init()
   else
     self.subtitle_text = nil
   end
-  -- the author and the series sit right under the title, in the plain body size; each opens a
-  -- search, which is not marked with an underline (an underline alone does not read as a link)
+  -- the author and the series sit right under the title, plain text (the owner: not tappable)
   if summary.authors then
     self.authors_text = wrapped(summary.authors, "small")
-    addTo(column, tappable("author_tap", self.authors_text, self.on_author, summary.first_author, "bottom"))
+    addTo(column, Theme.span("xs"))
+    addTo(column, self.authors_text)
   else
     self.authors_text = nil
   end
@@ -266,10 +245,12 @@ function BookDetailDialog:init()
   self.status_text = nil
   if summary.series then
     self.series_text = wrapped(summary.series, "small", false, true)
-    addTo(column, tappable("series_tap", self.series_text, self.on_series, summary.series_title, "top"))
+    addTo(column, Theme.span("xs"))
+    addTo(column, self.series_text)
   end
   if summary.facts then
     self.facts_text = wrapped(summary.facts, "small", false, true)
+    addTo(column, Theme.span("s"))
     addTo(column, self.facts_text)
   else
     self.facts_text = nil
