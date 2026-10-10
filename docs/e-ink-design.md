@@ -55,22 +55,25 @@ Settled, with the date and where it is built. If something here disagrees with a
 | Lato (Medium and Black) is the typeface, **titles included: no serif** (owner, 10 Oct). | Shipped and copied into KOReader's fonts folder; components fall back to KOReader's font until it is there. Whether Medium reads better than Regular is still judged on a device. | PR 4, `Theme.mmdText` |
 | Long screens scroll with one control: a bar over a double-line track with a triangle at each end; a dotted triangle is that end reached. | On the eight scrolling screens, by whole rows. | PR 2 (`components/scroll_control.lua`) |
 | Settings is a flat list with real switches, chevrons and dotted dividers; the Sync and Account tiles are the first two rows; the back arrow goes up a level. | | PR 5 |
-| Book details uses fixed-size blocks (clamped About with Read more, 3 genres plus "+N more", 5 detail rows plus "All details", series and Similar-to carousels). Reviews is one scrolling list of fixed-height cards, summary first, a Load more button last. | In progress. | PR 7 |
+| Book details is a stack of fixed-size blocks, compact like the owner's prototype (10 Oct): a thumbnail cover, then the title, author and series right under it (small, plain; the author and the series each open a search, with no underline); Shelf (filled) over Reviews; "Your rating" as five stars; About clamped to 5 lines with Read more; the first genres on one line with "+N more" (moods and content warnings are in what it opens); series and Similar-to carousels; five detail rows plus All details. Sections are a dotted rule and a small Black label. No stats strip, no status pill. Reviews is one scrolling list of fixed-height cards, summary first, with Load more. | Read more, +N more and All details open screens of their own (`text_screen.lua`, `details_screen.lua`); the page paces by block. | `book_detail_dialog.lua`, `reviews_dialog.lua`, `clamp.lua` |
 
 ## Still open
 
 - **Compact button heights.** Used so far: 56 for a primary or full-width button, 40 for a small one (Sync now, Read more), 64 in sheets and dialogs; touch areas are never under 48. Not signed off.
 - **Overlay rule order.** The 2 white band sits above the 3 black rule in every overlay; unchecked against the appendix.
 - **Lato on a device.** Medium vs Regular, and whether the plugin can write to KOReader's fonts folder on a Kobo and a Kindle.
+- **The main button on book details.** Today it is always "Shelf: <status>" (or "Add to shelf"). The owner asked what it should be on a book that is not being read: proposed Add to shelf / Start reading (Want to read) / Update progress (Currently reading, needs a progress screen) / Shelf: Read otherwise, with Change shelf reachable another way. Undecided.
 - **The Lists tab's rows** (the shelf icon, "7 books · ranked") have no mock of their own.
 
 ## Known deviations from the rules above
+
+- Book details: the status pill and the stats strip (rating, readers, reviews) are gone, so tapping the status to open that shelf no longer exists on the page (the Library tab has it); the figures are on the Reviews screen. The page lists three genres; moods and content warnings are only behind "+N more".
 
 - Hold-only actions: unlink a book (`hardcover_menu.lua`, the "Linked book" row), discard all queued changes (hold on Sync now; per-change cancel is visible in `pending_changes_dialog.lua`), and the compatibility-mode help text.
 - Grey fills and lines in the charts: levels down to 0xBB, a 0xD8 gridline, 0x88 dashes (`chart_widgets.lua`, `charts.lua`). Allowed (see the decisions), to be polished.
 - `Theme.hatchRect` paints at 40% opacity, so its stripes anti-alias to grey; nothing calls it yet.
 - `Theme.rule` hairlines and `Theme.button`'s disabled look use `DARK_GREY`.
-- Screens not yet moved to the new components: book details (in progress), shelves and their sort menu, goals, stats, the dialogs and the reader panel.
+- Screens not yet moved to the new components: shelves and their sort menu, goals, stats, the dialogs and the reader panel.
 
 ## MMD component metrics
 
