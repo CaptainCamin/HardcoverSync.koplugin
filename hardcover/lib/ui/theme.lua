@@ -282,7 +282,7 @@ function Theme.rule(width, firm)
 end
 
 --
--- A dotted horizontal rule `width` wide: one hairline of black dashes, each as long as the gap after it. The
+-- A dotted horizontal rule `width` wide: one hairline of black dots. The
 -- divider between list rows; a solid rule is for structure. Built when first drawn, so the module
 -- loads without it.
 --
@@ -293,8 +293,10 @@ function Theme.dottedRule(width)
   function rule:getSize() return self.dimen end
   function rule:paintTo(bb, x, y)
     self.dimen.x, self.dimen.y = x, y
-    for dx = 0, width - 1, 4 * t do
-      bb:paintRect(x + dx, y, math.min(2 * t, width - dx), t, Theme.BLACK)
+    -- dots a hairline across with a gap of two, so it reads as dots and not as a faint solid line
+    local pitch = t * 3
+    for dx = 0, width - t, pitch do
+      bb:paintRect(x + dx, y, t, t, Theme.BLACK)
     end
   end
   return rule
