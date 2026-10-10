@@ -136,6 +136,36 @@ function Theme.face(size_name)
 end
 
 --
+-- MMD type for the components: "text" is Lato Medium and "strong" is Lato Black, sizes in the
+-- appendix's design px. Lato is used when it is installed; until then KOReader's UI font stands in,
+-- with `strong` as bold. Returns the face and whether the widget still has to ask for bold.
+--
+local MMD_FONT = { text = "Lato-Medium.ttf", strong = "Lato-Black.ttf" }
+local mmd_missing = {} -- fonts KOReader could not load: asked once, since it logs an error each time
+function Theme.mmdFace(kind, size)
+  local name = MMD_FONT[kind] or MMD_FONT.text
+  if not mmd_missing[name] then
+    local ok, face = pcall(Font.getFace, Font, name, size)
+    if ok and face then return face, false end
+    mmd_missing[name] = true
+  end
+  return Font:getFace("cfont", size), kind == "strong"
+end
+
+-- One line of MMD type. opts { width (cut with an ellipsis), secondary, color }.
+function Theme.mmdText(str, kind, size, opts)
+  opts = opts or {}
+  local face, bold = Theme.mmdFace(kind, size)
+  return TextWidget:new {
+    text = tostring(str),
+    face = face,
+    bold = bold,
+    max_width = opts.width,
+    fgcolor = opts.color or (opts.secondary and Theme.secondary() or Theme.BLACK),
+  }
+end
+
+--
 -- The serif face for titles and headings (KOReader ships Noto Serif, so it needs no
 -- bundling). Falls back to the UI face where it is not installed. The file is a real
 -- bold, so do not also ask the widget for bold.
@@ -252,7 +282,7 @@ function Theme.rule(width, firm)
 end
 
 --
--- A dotted horizontal rule `width` wide: one hairline of black dots, as many gaps as dots. The
+-- A dotted horizontal rule `width` wide: one hairline of black dashes, each as long as the gap after it. The
 -- divider between list rows; a solid rule is for structure. Built when first drawn, so the module
 -- loads without it.
 --
@@ -263,8 +293,8 @@ function Theme.dottedRule(width)
   function rule:getSize() return self.dimen end
   function rule:paintTo(bb, x, y)
     self.dimen.x, self.dimen.y = x, y
-    for dx = 0, width - 1, 2 * t do
-      bb:paintRect(x + dx, y, math.min(t, width - dx), t, Theme.BLACK)
+    for dx = 0, width - 1, 4 * t do
+      bb:paintRect(x + dx, y, math.min(2 * t, width - dx), t, Theme.BLACK)
     end
   end
   return rule
