@@ -1,42 +1,39 @@
 -- The plugin's settings, as a screen of their own.
 --
--- The settings live in the reader / file browser menu; the home screen (which can
--- be launched from another plugin) needs a way in too. This shows the same item
--- tables as a page in the family's style: two tiles at the top (Sync and the
--- Account, when the menu has them), then each option as a boxed row with a tick
--- box at its right (a "›" for a submenu, nothing for a plain action, the row
--- dimmed when it is disabled) and a first "Back" row inside a submenu. Back (or
--- the close icon) leaves the screen; the Back row goes up one level.
+-- The settings live in the reader / file browser menu; the home screen (which can be launched from
+-- another plugin) needs a way in too. This shows the same item tables as a flat list in the MMD style:
+-- a top bar with a back arrow (up one level inside a submenu, out of the screen at the top), then one
+-- row per option with a real switch for an option that is on or off, a chevron for a submenu and
+-- nothing for a plain action. The Sync and Account tiles at the head of the menu become the first two
+-- rows, with their status as the supporting line. An unavailable option shows a hollow-knob switch (or a
+-- plain label), never grey alone, and does nothing when tapped. Dotted dividers, one fixed height per
+-- kind of row.
 --
--- Not a Menu: rows are laid out whole and the page scrolls only when it is
--- taller than the screen, in which case every tappable row is clipped to what
--- the scroll area shows (see viewport.lua).
+-- Not a Menu: rows are laid out whole and the page scrolls only when it is taller than the screen, by
+-- pages that land on row edges with the scroll control (see components/scroll_control.lua), every
+-- tappable row clipped to what the scroll area shows (see viewport.lua).
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
-local HorizontalGroup = require("ui/widget/horizontalgroup")
 local InputContainer = require("ui/widget/container/inputcontainer")
-local LeftContainer = require("ui/widget/container/leftcontainer")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
-local ScrollControl = require("hardcover/lib/ui/components/scroll_control")
-local TextBoxWidget = require("ui/widget/textboxwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
 
+local Draw = require("hardcover/lib/ui/components/draw")
+local ListItem = require("hardcover/lib/ui/components/list_item")
 local Refresh = require("hardcover/lib/ui/refresh")
+local ScrollControl = require("hardcover/lib/ui/components/scroll_control")
 local SettingsItems = require("hardcover/lib/settings_items")
-local TapRow = require("hardcover/lib/ui/tap_row")
+local Switch = require("hardcover/lib/ui/components/switch")
 local Theme = require("hardcover/lib/ui/theme")
+local TopBar = require("hardcover/lib/ui/components/top_bar")
 local Viewport = require("hardcover/lib/ui/viewport")
 
 local Screen = Device.screen
-
-local CHECK = "\226\156\147" -- check mark
-local CHEVRON = "\226\128\186" -- single right angle quote
-local BACK_ARROW = "\226\128\185" -- single left angle quote
 
 local SettingsScreen = InputContainer:extend {
   name = "hardcover_settings",
@@ -51,148 +48,51 @@ function SettingsScreen:init()
   self:render()
 end
 
-local text = Theme.text
-
--- the tick box at the right of an option: ticked or empty
-local function tickBox(checked)
-  local size = Screen:scaleBySize(24)
-  return Theme.box(size, size, checked and text(CHECK, "body", { bold = true }) or Theme.hspan(1), { radius = 4 })
-end
-
--- A boxed row: its words at the left, `right` (a widget) at the end.
+-- One option as a list item: its words, and at the end a switch, a chevron or nothing.
 function SettingsScreen:buildRow(row, width, viewport)
-  local h = Screen:scaleBySize(50)
-  local inner = width - 2 * Theme.line.firm
-  local pad = Theme.space.m
-  local right
-  if row.back then
-    right = nil
-  elseif row.checkable then
-    right = tickBox(row.checked)
-  elseif row.submenu then
-    right = text(CHEVRON, "title", { bold = true })
+  -- a menu label that ends in its value's colon ("Track progress settings: ") reads as a dangling
+  -- colon here
+  local label = (row.text:gsub("[:%s]+$", ""))
+  local support
+  if row.tile then
+    -- "Account: Signed in" under an "Account" label says the label twice
+    local prefix = row.tile .. ": "
+    support = row.text:sub(1, #prefix) == prefix and row.text:sub(#prefix + 1) or row.text
+    label = row.tile
   end
-  local right_w = right and (right:getSize().w + pad) or 0
-  -- a menu label that ends in its value's colon ("Track progress settings: ")
-  -- reads as a dangling colon here
-  local label = text((row.text:gsub("[:%s]+$", "")), "body", {
-    bold = not row.dim,
-    grey = row.dim,
-    width = inner - 2 * pad - right_w,
-  })
-  local content = HorizontalGroup:new { align = "center", Theme.hspan(pad), label }
-  if right then
-    local gap = math.max(0, inner - 2 * pad - label:getSize().w - right:getSize().w)
-    table.insert(content, Theme.hspan(gap))
-    table.insert(content, right)
+  local trailing
+  if row.checkable then
+    trailing = Switch.new { on = row.checked, unavailable = row.dim and not row.checked }
+  elseif row.submenu or row.tile then
+    trailing = Draw.chevron("right")
   end
-  local box = FrameContainer:new {
-    bordersize = Theme.line.firm,
-    radius = Screen:scaleBySize(10),
-    padding = 0,
-    margin = 0,
+  local item = ListItem.new {
     width = width,
-    height = h,
-    color = row.dim and Theme.DARK_GREY or Theme.BLACK,
-    background = Theme.WHITE,
-    LeftContainer:new {
-      dimen = Geom:new { w = inner, h = h - 2 * Theme.line.firm },
-      content,
-    },
-  }
-  local tap = TapRow:new {
+    label = label,
+    support = support,
+    trailing = trailing,
+    divider = "dotted",
+    dim = row.dim,
     callback = row.choose,
     hold_callback = row.hold,
     viewport = viewport,
-    box,
   }
-  tap.text = row.text
-  self.taps[#self.taps + 1] = { tap = tap, shows = row.text .. "|" .. tostring(row.checked) .. "|" .. tostring(row.dim) }
-  return tap
-end
-
--- One of the two header tiles: what it is (small, grey), then what it says
--- (wrapping, so a long status is not cut). `height` is the tallest tile's, so
--- the pair is level.
-function SettingsScreen:buildTile(row, width, height, viewport)
-  local inner = width - 2 * Theme.line.firm
-  local value = row.text
-  -- "Account: Signed in" under an "Account" label says the label twice
-  local prefix = row.tile .. ": "
-  if value:sub(1, #prefix) == prefix then value = value:sub(#prefix + 1) end
-  local text_w = inner - 2 * Theme.space.m
-  local content = VerticalGroup:new {
-    align = "left",
-    text(row.tile, "small", { grey = true, width = text_w }),
-    TextBoxWidget:new {
-      text = value,
-      face = Theme.face("title"),
-      bold = true,
-      width = text_w,
-      fgcolor = row.dim and Theme.DARK_GREY or Theme.BLACK,
-    },
-  }
-  local h = height or (content:getSize().h + 2 * Theme.space.m)
-  local box = FrameContainer:new {
-    bordersize = Theme.line.firm,
-    radius = Screen:scaleBySize(10),
-    padding = 0,
-    margin = 0,
-    width = width,
-    height = h,
-    color = row.dim and Theme.DARK_GREY or Theme.BLACK,
-    background = Theme.WHITE,
-    LeftContainer:new {
-      dimen = Geom:new { w = inner, h = h - 2 * Theme.line.firm },
-      HorizontalGroup:new { Theme.hspan("m"), content },
-    },
-  }
-  local tap = TapRow:new {
-    callback = row.choose,
-    hold_callback = row.hold,
-    viewport = viewport,
-    box,
-  }
-  tap.text = value
-  tap.content_h = content:getSize().h + 2 * Theme.space.m
-  if height then -- the measuring pass builds these too, and is not drawn
-    self.taps[#self.taps + 1] = { tap = tap, shows = value .. "|" .. tostring(row.dim) }
-  end
-  return tap
+  item.text = row.text
+  self.taps[#self.taps + 1] = { tap = item, shows = row.text .. "|" .. tostring(row.checked) .. "|" .. tostring(row.dim) }
+  return item
 end
 
 -- The page's content for `rows`, laid out in `width`.
 function SettingsScreen:buildContent(rows, width, viewport)
   local content = VerticalGroup:new { align = "left" }
-  local gap = Theme.space.s + Theme.space.xs
-
-  -- the tiles, side by side
-  local tiles = {}
+  -- the Sync and Account tiles first, in the order the menu gives them
   for _, row in ipairs(rows) do
-    if row.tile then tiles[#tiles + 1] = row end
+    if row.tile then table.insert(content, self:buildRow(row, width, viewport)) end
   end
-  local tile_w = math.floor((width - Theme.space.m) / 2)
-  if #tiles > 0 then
-    -- measure first, then build them all as tall as the tallest
-    local tallest = Screen:scaleBySize(60)
-    for _, row in ipairs(tiles) do
-      tallest = math.max(tallest, self:buildTile(row, tile_w, nil, nil).content_h)
-    end
-    local line = HorizontalGroup:new {}
-    for i, row in ipairs(tiles) do
-      if i > 1 then table.insert(line, Theme.hspan("m")) end
-      table.insert(line, self:buildTile(row, tile_w, tallest, viewport))
-    end
-    table.insert(content, line)
-    table.insert(content, Theme.span("m"))
-    table.insert(content, Theme.sectionHeader(_("Options"), width))
-    table.insert(content, Theme.span("m"))
-  end
-
   for _, row in ipairs(rows) do
     if not row.tile then
       table.insert(content, self:buildRow(row, width, viewport))
-      table.insert(content, Theme.span(row.separator and "m" or gap))
+      if row.separator then table.insert(content, Theme.span("m")) end
     end
   end
   table.insert(content, Theme.span("l"))
@@ -267,36 +167,23 @@ function SettingsScreen:render(keep)
     self:render(true)
   end)
 
-  if #self.stack > 0 then
-    table.insert(rows, 1, {
-      text = BACK_ARROW .. " " .. _("Back"),
-      back = true,
-      choose = function()
-        self.current = table.remove(self.stack)
-        self:render()
-      end,
-    })
-  end
-
   local screen_w, screen_h = Screen:getWidth(), Screen:getHeight()
-  local M = Theme.margin
-  local title_bar = Theme.titleBar {
+  local title_bar = TopBar.new {
+    width = screen_w,
     title = (current.title:gsub("[:%s]+$", "")),
-    close_callback = function() self:onClose() end,
-    show_parent = self,
+    on_back = function() self:goBack() end,
   }
   self.title_bar = title_bar
   local room = screen_h - title_bar:getSize().h
 
-  -- first at full width; if that is taller than the screen, again narrower (to
-  -- leave the scroll bar its gutter) inside a scrolling container
-  local width = screen_w - 2 * M
+  -- first at full width; if that is taller than the screen, again narrower (to leave the scroll
+  -- control its gutter) inside a scrolling container
+  local width = screen_w
   local content = self:buildContent(rows, width, nil)
   local body
   self.scroll = nil
-  if content:getSize().h + Theme.space.m > room then
-    local gutter = ScrollControl.gutter()
-    width = screen_w - 2 * M - gutter
+  if content:getSize().h > room then
+    width = screen_w - ScrollControl.gutter()
     self.scroll = ScrollableContainer:new {
       dimen = Geom:new { x = 0, y = 0, w = screen_w, h = room },
       show_parent = self,
@@ -304,10 +191,10 @@ function SettingsScreen:render(keep)
     local scroll = self.scroll
     self.taps = {} -- the first pass's rows are not the ones drawn
     content = self:buildContent(rows, width, function() return scroll.dimen end)
-    scroll[1] = HorizontalGroup:new { Theme.hspan(M), content }
+    scroll[1] = content
     body = ScrollControl.wrap(scroll, content)
   else
-    body = HorizontalGroup:new { Theme.hspan(M), content }
+    body = content
   end
   self.content_width = width
 
@@ -318,7 +205,7 @@ function SettingsScreen:render(keep)
     bordersize = 0,
     padding = 0,
     margin = 0,
-    VerticalGroup:new { align = "left", title_bar, Theme.span("m"), body },
+    VerticalGroup:new { align = "left", title_bar, body },
   }
   self[1] = self.frame
 
@@ -343,6 +230,16 @@ end
 -- leaving the screen must repaint what was under it
 function SettingsScreen:onCloseWidget()
   UIManager:setDirty(nil, "ui")
+end
+
+-- The top bar's back arrow: up one level inside a submenu, out of the screen at the top.
+function SettingsScreen:goBack()
+  if #self.stack > 0 then
+    self.current = table.remove(self.stack)
+    self:render()
+    return true
+  end
+  return self:onClose()
 end
 
 function SettingsScreen:onCloseSettings()

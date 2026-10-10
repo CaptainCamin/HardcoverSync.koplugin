@@ -32,8 +32,10 @@ end
 
 -- opts { width, label, support, trailing (a drawn widget: switch, radio, chevron...), lead (a
 -- widget before the label), divider ("dotted" | "solid" | nil), divider_x (where the divider starts,
--- default the side padding), h (default H, or H_SINGLE with no supporting line), callback, viewport,
--- strong (label in Black, default true; false for a choice list's plain labels) }
+-- default the side padding), h (default H, or H_SINGLE with no supporting line), callback, hold_callback (a shortcut only: the
+-- same action must be reachable another way), viewport, strong (label in Black, default true; false
+-- for a choice list's plain labels), dim (unavailable: Medium and secondary, never grey alone, so give
+-- the trailing control a dotted look or say why in `support`) }
 function ListItem.new(opts)
   local h = opts.h or (opts.support and ListItem.H or ListItem.H_SINGLE)
   local rule = divider(opts.divider, opts.width)
@@ -45,7 +47,8 @@ function ListItem.new(opts)
   local label_w = opts.width - 2 * ListItem.PAD - trailing_w - gap - lead_w
 
   local block = VerticalGroup:new { align = "left",
-    Theme.mmdText(opts.label, opts.strong == false and "text" or "strong", 21, { width = label_w }) }
+    Theme.mmdText(opts.label, (opts.strong == false or opts.dim) and "text" or "strong", 21,
+      { width = label_w, secondary = opts.dim }) }
   if opts.support then
     block[#block + 1] = Theme.span(Theme.mmd.row.gap)
     block[#block + 1] = Theme.mmdText(opts.support, "text", 18, { secondary = true, width = label_w })
@@ -68,7 +71,7 @@ function ListItem.new(opts)
     local from = opts.divider_x or ListItem.PAD
     column[#column + 1] = HorizontalGroup:new { Theme.hspan(from), divider(opts.divider, opts.width - from) }
   end
-  return TapRow:new { callback = opts.callback, viewport = opts.viewport, column }
+  return TapRow:new { callback = opts.callback, hold_callback = opts.hold_callback, viewport = opts.viewport, column }
 end
 
 -- A section heading above a group of rows: Black 15 capitals, 20 above and 6 below.
