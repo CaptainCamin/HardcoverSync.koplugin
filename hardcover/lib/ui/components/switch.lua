@@ -1,6 +1,6 @@
 -- Switch (MMD): a track 48 x 30 with a 20 knob. On = black track and a white knob at the right; off =
--- an outlined track and a black knob at the left. `dotted` draws the off outline dotted for a
--- switch that is unavailable, so that state never rests on grey. The touch area (56) belongs to the
+-- an outlined track and a black knob at the left. `unavailable` draws the knob hollow (a ring), so
+-- that state shows without grey and without a broken-looking outline. The touch area (56) belongs to the
 -- row that hosts it (see list_item), not to the switch.
 
 local Blitbuffer = require("ffi/blitbuffer")
@@ -12,7 +12,7 @@ local BLACK, WHITE = Blitbuffer.COLOR_BLACK, Blitbuffer.COLOR_WHITE
 
 local Switch = {}
 
--- opts { on, dotted }
+-- opts { on, unavailable }
 function Switch.new(opts)
   opts = opts or {}
   local m = Theme.mmd.switch
@@ -26,13 +26,10 @@ function Switch.new(opts)
       bb:paintCircle(x + w - half, cy, math.floor(d / 2), WHITE)
       return
     end
-    if opts.dotted then
-      Draw.dottedBorder(bb, x, y, w, h, half, t, Theme.px(2), Theme.px(2))
-    else
-      bb:paintRoundedRect(x, y, w, h, BLACK, half)
-      bb:paintRoundedRect(x + t, y + t, w - 2 * t, h - 2 * t, WHITE, math.floor((h - 2 * t) / 2))
-    end
+    bb:paintRoundedRect(x, y, w, h, BLACK, half)
+    bb:paintRoundedRect(x + t, y + t, w - 2 * t, h - 2 * t, WHITE, math.floor((h - 2 * t) / 2))
     bb:paintCircle(x + half, cy, math.floor(d / 2), BLACK)
+    if opts.unavailable then bb:paintCircle(x + half, cy, math.floor(d / 2) - t, WHITE) end
   end)
 end
 

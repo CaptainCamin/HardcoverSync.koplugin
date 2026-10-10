@@ -60,7 +60,7 @@ return {
       body[#body + 1] = ListItem.new { width = SW, label = "Show covers in lists", support = "Uses more battery",
         trailing = Switch.new { on = state.covers }, divider = "dotted", callback = function() state.covers = not state.covers end }
       body[#body + 1] = ListItem.new { width = SW, label = "Automatic linking", support = "Not available offline",
-        trailing = Switch.new { dotted = true }, divider = "dotted" }
+        trailing = Switch.new { unavailable = true }, divider = "dotted" }
       body[#body + 1] = ListItem.new { width = SW, label = "Link by ISBN",
         trailing = Checkbox.new { checked = state.link }, divider = "dotted", callback = function() state.link = not state.link end }
       body[#body + 1] = ListItem.new { width = SW, label = "Sort by", support = "Title",
