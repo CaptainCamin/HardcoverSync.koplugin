@@ -68,6 +68,39 @@ function ReviewsDialog:init()
   self:refresh()
 end
 
+-- The model: one item per review, then the Load more item when there is more. What a tap on a card
+-- does is picked from here (the cards' buttons call onSelectItem with their item).
+function ReviewsDialog:buildItems()
+  local items = {}
+  if self.message then
+    items[1] = { text = self.message, message = true }
+    return items
+  end
+  for _, review in ipairs(self.reviews) do
+    local text, action = Reviews.rowText(review, self.revealed[review.id or review])
+    items[#items + 1] = { text = text, review = review, action = action }
+  end
+  if self.has_more then
+    items[#items + 1] = {
+      text = self.loading and _("Loading reviews\226\128\166") or _(Reviews.LOAD_MORE),
+      action = "more",
+    }
+  end
+  return items
+end
+
+function ReviewsDialog:onSelectItem(item)
+  if not item or self.message then return end
+  if item.action == "more" then
+    self:loadMore()
+  elseif item.action == "reveal" then
+    self.revealed[item.review.id or item.review] = true
+    self:refresh()
+  elseif item.action == "full" then
+    self:showFull(item.review)
+  end
+end
+
 local text = Theme.text
 
 local function rowOf(left, right, width)
@@ -274,6 +307,7 @@ end
 
 -- Rebuild everything from the current state, staying where the page was scrolled to.
 function ReviewsDialog:refresh()
+  self.items = self:buildItems()
   local offset = self.scroll and self.scroll:getScrolledOffset()
   if self[1] and type(self[1].free) == "function" then pcall(function() self[1]:free() end) end
   self[1] = nil
