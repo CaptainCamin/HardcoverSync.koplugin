@@ -67,7 +67,7 @@ return {
     emu:expectText("The Left Hand of Darkness")
     go(false) -- the connection drops with the book already open
 
-    -- the third figure on the stats strip is the reader's own rating: "4"
+    -- "Your rating" is a row of five stars: the whole row is the tap
     emu:screenNodes()
     local d = dialog.rating_tap and dialog.rating_tap.dimen
     assert(d and d.w > 0, "the rating figure is not tappable")
@@ -94,7 +94,6 @@ return {
     assert(#writes("updateRating") == 0, "an offline rating was sent")
     assert(queue:get(9103) == 4.5, "the rating was not kept: " .. tostring(queue:get(9103)))
     assert(dialog.detail.user_rating == 4.5, "the screen did not take the new rating")
-    emu:expectText("4.5")
     emu:shot("book_rating_offline")
 
     -- reopening the book shows the waiting rating, not the one on record

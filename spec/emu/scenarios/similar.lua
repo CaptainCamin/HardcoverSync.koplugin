@@ -116,7 +116,18 @@ return {
       emu:expectText(expected)
     end
     -- a swipe along a strip turns its page (like the arrows); a vertical swipe scrolls the page
+    -- (taps and swipes are only answered where the page is showing: bring the strip into view)
+    local function show(strip)
+      for ratio = 1, 0, -0.05 do
+        details.scroll:scrollToRatio(0, ratio)
+        emu:screenNodes()
+        local d, v = strip.holder.dimen, details.scroll.dimen
+        if d and d.y and d.y >= v.y and d.y + d.h <= v.y + v.h then return end
+      end
+      error("could not bring the strip into view")
+    end
     local function swipe(strip, direction)
+      show(strip)
       local d = strip.holder.dimen
       local Time = require("ui/time")
       local gesture = { ges = "swipe", direction = direction, time = Time.now(),
@@ -150,20 +161,24 @@ return {
     local sim_first = details.similar_carousel.first
     local ser_first = details.carousel.first
     local function centre(w) return w.dimen.x + math.floor(w.dimen.w / 2), w.dimen.y + math.floor(w.dimen.h / 2) end
+    show(details.similar_carousel)
     emu:tap(centre(details.similar_carousel.next))
     emu:pump()
     assert(details.similar_carousel.first > sim_first, "the similar strip did not turn")
     assert(details.carousel.first == ser_first, "turning the similar strip turned the series strip")
+    show(details.carousel)
     emu:tap(centre(details.carousel.next))
     emu:pump()
     assert(details.carousel.first > ser_first, "the series strip did not turn")
     -- a similar cover opens a similar book, a series cover opens a series book
+    show(details.similar_carousel)
     emu:tap(centre(details.similar_carousel.targets[1]))
     emu:pump()
     local first_open = top()
     assert(first_open ~= details and first_open.name == "hardcover_book_detail", "a similar cover did not open")
     UIManager:close(first_open)
     emu:pump()
+    show(details.carousel)
     emu:tap(centre(details.carousel.targets[1]))
     emu:pump()
     assert(top() ~= details and top().name == "hardcover_book_detail", "a series cover did not open")

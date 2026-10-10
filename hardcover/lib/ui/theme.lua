@@ -336,29 +336,6 @@ function Theme.sectionHeader(text, width, right)
 end
 
 --
--- A key figure over its label ("129" / "Want to Read"): the number big and
--- bold, the label small beneath. For counts and ratings.
---
-function Theme.stat(value, label, width)
-  return VerticalGroup:new {
-    align = "center",
-    TextWidget:new {
-      text = tostring(value),
-      face = (Theme.title("display")),
-      bold = select(2, Theme.title("display")),
-      max_width = width,
-      fgcolor = Theme.BLACK,
-    },
-    TextWidget:new {
-      text = label,
-      face = Theme.face("small"),
-      max_width = width,
-      fgcolor = Theme.secondary(),
-    },
-  }
-end
-
---
 -- A small rounded label with a border: a status ("Currently Reading"), a
 -- series ("Hainish Cycle #4"). Informational, so it is not a button: pass
 -- `filled` for the selected/active look (black with white text).

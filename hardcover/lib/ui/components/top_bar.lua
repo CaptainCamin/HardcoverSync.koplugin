@@ -1,7 +1,7 @@
 -- Top bar (MMD): 67 tall, the last 3 a black rule. A back arrow (touch 48) when you can go back, a
 -- left-aligned Black 25 title, and one to three icon actions (touch 48) at the right; 16 at the sides.
 -- An icon alone is mistaken for another without colour, so keep to the familiar ones (search, sort,
--- close) and label anything risky.
+-- close) and label anything risky. The bar keeps its cells: `back_button` and `action_buttons`.
 
 local Blitbuffer = require("ffi/blitbuffer")
 local CenterContainer = require("ui/widget/container/centercontainer")
@@ -36,9 +36,17 @@ function TopBar.new(opts)
   local inner_h = m.h - rule
 
   local left = HorizontalGroup:new { align = "center", Theme.hspan(m.side - Theme.px(8)) }
-  if opts.on_back then left[#left + 1] = touch("back", opts.on_back) end
+  local back
+  if opts.on_back then
+    back = touch("back", opts.on_back)
+    left[#left + 1] = back
+  end
   local right = HorizontalGroup:new { align = "center" }
-  for _, action in ipairs(opts.actions or {}) do right[#right + 1] = touch(action.icon, action.callback) end
+  local buttons = {}
+  for _, action in ipairs(opts.actions or {}) do
+    buttons[#buttons + 1] = touch(action.icon, action.callback)
+    right[#right + 1] = buttons[#buttons]
+  end
   right[#right + 1] = Theme.hspan(m.side - Theme.px(8))
 
   local room = opts.width - left:getSize().w - right:getSize().w - Theme.px(8)
@@ -49,10 +57,14 @@ function TopBar.new(opts)
       HorizontalGroup:new { Theme.hspan(opts.on_back and Theme.px(4) or Theme.px(8)), title } },
     right,
   }
-  return VerticalGroup:new { align = "left",
+  local bar = VerticalGroup:new { align = "left",
     LeftContainer:new { dimen = Geom:new { w = opts.width, h = inner_h }, row },
     Draw.drawn(opts.width, rule, function(bb, x, y, w, h) bb:paintRect(x, y, w, h, BLACK) end),
   }
+  -- the touch cells, for a screen that puts them in its focus order or taps one by position
+  bar.back_button = back
+  bar.action_buttons = buttons
+  return bar
 end
 
 return TopBar

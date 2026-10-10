@@ -46,14 +46,13 @@ return {
     emu:expectText("Reviews")
     emu:shot("zlibrary_button")
 
-    -- it is the third button of the action bar, after Shelf and Reviews
-    local bar = dialog.action_bar
-    local buttons = {}
-    for _, child in ipairs(bar) do if child.callback then buttons[#buttons + 1] = child end end
-    assert(#buttons == 3 and buttons[1] == dialog.shelf_button and buttons[2] == dialog.reviews_button
-      and buttons[3] == dialog.zlibrary_button, "Z-library is not the third action-bar button")
+    -- it is below Shelf and Reviews, in the row of small buttons
+    emu:screenNodes()
+    local at = function(name) return dialog[name].dimen end
+    assert(at("shelf_button").y < at("reviews_button").y and at("reviews_button").y < at("zlibrary_button").y,
+      "Z-library is not below Shelf and Reviews")
 
-    -- three buttons share the bar, all inside the margins
+    -- all three are inside the margins
     local M = require("hardcover/lib/ui/theme").margin
     for _, name in ipairs({ "shelf_button", "reviews_button", "zlibrary_button" }) do
       local d = dialog[name].dimen
