@@ -184,7 +184,7 @@ print("\n== the body is built whole ==")
 
 check("a book with no subtitle still shows its details and description (the status is the Shelf label)", function()
   local d = BookDetailDialog:new { detail = detail({ title = "T", description = "About it.", publisher = { name = "P" } }) }
-  assert(d.status_text == nil and d.shelf_button.text == "Shelf: Currently Reading", "the status is not the Shelf button's label")
+  assert(d.status_text and d.status_text[1].text == "Currently Reading" and d.shelf_button.text == "Change shelf", "the status is not the pill and the Shelf button's label")
   assert(deep(d.content_group, d.description_text), "description missing: " .. table.concat(kinds(d.content_group), ","))
   assert(#d.meta_rows == 1 and deep(d.content_group, d.meta_rows[1]), "details missing")
 end)
@@ -207,7 +207,7 @@ check("what the book has appears, what it lacks does not", function()
   assert(d.authors_text and d.series_text and d.facts_text, "header lines missing")
   local bare = BookDetailDialog:new { detail = { book = { title = "T" } } }
   assert(bare.authors_text == nil and bare.series_text == nil and bare.facts_text == nil
-    and bare.status_text == nil and bare.description_text == nil,
+    and bare.description_text == nil,
     "invented a line for a field the book does not have")
   assert(#bare.meta_rows == 0, "invented detail rows")
 end)
@@ -909,7 +909,7 @@ check("Your rating is five stars, the whole row a tap to rate", function()
 end)
 
 check("its label says where the book is, or invites adding it", function()
-  assert(BookDetailDialog:new { detail = detail(FULL) }.shelf_button.text == "Shelf: Currently Reading")
+  assert(BookDetailDialog:new { detail = detail(FULL) }.shelf_button.text == "Change shelf")
   local bare = BookDetailDialog:new { detail = { book = FULL } }
   assert(bare.shelf_button.text == "Add to shelf", bare.shelf_button.text)
 end)
@@ -925,23 +925,23 @@ end)
 check("setStatus updates the label, and keeps the cover", function()
   local loader = fakeLoader()
   local d = BookDetailDialog:new { detail = { book = FULL }, image_loader = loader }
-  assert(d.status_text == nil)
+  assert(d.status_text[1].text == "Not on a shelf" and d.status_text.background == Theme.WHITE, "an outlined pill when not on a shelf")
   local fetches = #loader.batches
   local picture = { fake = true }
   d.cover_bb = picture
   d:setStatus(1, 55)
-  assert(d.shelf_button.text == "Shelf: Want to Read", d.shelf_button.text)
+  assert(d.shelf_button.text == "Change shelf" and d.status_text[1].text == "Want to Read", d.status_text[1].text)
   assert(d.detail.user_book_id == 55 and d.detail.status_id == 1)
   assert(d.cover_bb == picture, "the cover was thrown away")
   assert(#loader.batches == fetches, "the cover was fetched again")
   d:setStatus(3, 55)
-  assert(d.shelf_button.text == "Shelf: Read")
+  assert(d.shelf_button.text == "Change shelf" and d.status_text[1].text == "Read")
 end)
 
 check("setStatus(nil) after a removal clears status, rating and the record", function()
   local d = BookDetailDialog:new { detail = { book = FULL, status_id = 3, user_book_id = 9, user_rating = 4 } }
   d:setStatus(nil, nil)
-  assert(d.shelf_button.text == "Add to shelf" and d.status_text == nil, "label or status line kept")
+  assert(d.shelf_button.text == "Add to shelf" and d.status_text[1].text == "Not on a shelf", "label or status line kept")
   assert(d.detail.user_book_id == nil and d.detail.user_rating == nil)
 end)
 

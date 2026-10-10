@@ -115,7 +115,7 @@ return {
     assert(count("updateUserBook") == 1, "no request was made")
     local sent = lastCall("updateUserBook")
     assert(sent.book_id == 108 and sent.status_id == 1, "sent the wrong status: " .. tostring(sent.status_id))
-    emu:expectText("Shelf: Want to Read")
+    emu:expectText("Change shelf")
     emu:expectText("Want to Read")
     assert(not screenHas("Add to shelf"), "the button still says Add to shelf")
     assert(dialog.detail.status_id == 1 and dialog.detail.user_book_id == 9108)
@@ -135,7 +135,7 @@ return {
     tapText("Read")
     assert(count("updateUserBook") == 2 and lastCall("updateUserBook").status_id == 3,
       "Read was not sent as status 3")
-    emu:expectText("Shelf: Read")
+    emu:expectText("Change shelf")
     assert(cache:get(USER, 3) == nil, "the Read shelf was left stale")
     emu:shot("add_to_shelf_read")
 
@@ -155,7 +155,7 @@ return {
     emu:shot("add_to_shelf_remove_confirm")
     tapText("Cancel")
     assert(count("removeUserBook") == 0, "Cancel removed the book")
-    emu:expectText("Shelf: Read")
+    emu:expectText("Change shelf")
 
     tapButton(dialog.shelf_button)
     tapText("Remove from library")
@@ -163,7 +163,8 @@ return {
     assert(count("removeUserBook") == 1, "the removal was not requested")
     assert(lastCall("removeUserBook").user_book_id == 9108, "removed the wrong record")
     emu:expectText("Add to shelf")
-    assert(not screenHas("Shelf: Read"), "the label was not updated")
+    emu:expectText("Not on a shelf")
+    assert(not screenHas("Change shelf"), "the label was not updated")
     assert(dialog.detail.user_book_id == nil and dialog.detail.status_id == nil)
     emu:shot("add_to_shelf_removed")
 

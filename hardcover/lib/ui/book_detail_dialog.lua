@@ -242,12 +242,19 @@ function BookDetailDialog:init()
     self.authors_text = nil
   end
   self.series_text = nil
-  self.status_text = nil
   if summary.series then
     self.series_text = wrapped(summary.series, "small", false, true)
     addTo(column, Theme.span("xs"))
     addTo(column, self.series_text)
   end
+  -- where the book is on your shelves: a filled pill with the status, or an outlined "Not on a shelf"
+  -- so the line is there for every book (not tappable; the Shelf button below is how it changes)
+  local status_id = (self.detail or {}).status_id
+  self.status_text = Theme.pill(status_id and Shelf.statusLabel(status_id) or _("Not on a shelf"), {
+    filled = status_id ~= nil, max_width = text_width - 2 * Theme.space.m,
+  })
+  addTo(column, Theme.span("s"))
+  addTo(column, self.status_text)
   if summary.facts then
     self.facts_text = wrapped(summary.facts, "small", false, true)
     addTo(column, Theme.span("s"))
