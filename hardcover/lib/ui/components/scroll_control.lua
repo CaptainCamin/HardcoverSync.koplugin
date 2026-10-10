@@ -154,11 +154,11 @@ function ScrollControl.wrap(scroll, rows)
     init_state(self)
     self._v_scroll_bar = nil
   end
-  if rows then
-    local grid = ScrollControl.grid(rows)
-    if grid then scroll.step_scroll_grid_func = function() return grid end end
-  end
+  -- Work out the container's state first, then give it the row grid: with a grid in place initState
+  -- snaps to a row, which queues a refresh of the whole scroll area, and a screen redrawn in place
+  -- (an option ticked) must not cost that.
   scroll:initState()
+  if rows then scroll.step_scroll_grid = ScrollControl.grid(rows) end
 
   local control = ScrollControl:new { scroll = scroll, width = gutter, height = total_h }
   control.overlap_offset = { total_w - gutter, 0 }
