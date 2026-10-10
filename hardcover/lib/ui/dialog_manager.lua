@@ -643,6 +643,10 @@ function DialogManager:showOldHome(host)
     open_book_cb = function(book_id)
       self:showBookDetail(book_id)
     end,
+    -- the card's Open book: the file, or the details when it is not on this device
+    read_cb = function(book_id)
+      self:readBook(book_id)
+    end,
     settings_cb = function()
       self:showSettings()
     end,

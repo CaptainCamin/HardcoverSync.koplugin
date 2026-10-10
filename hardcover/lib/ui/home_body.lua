@@ -32,6 +32,7 @@ local HomeDialog = require("hardcover/lib/ui/home_dialog")
 local Hosted = require("hardcover/lib/ui/hosted")
 local ListItem = require("hardcover/lib/ui/components/list_item")
 local Note = require("hardcover/lib/ui/components/note")
+local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
 
 local px = Theme.px
@@ -40,6 +41,7 @@ local HomeBody = HomeDialog:extend {
   name = "hardcover_home_body",
   pending_fn = nil, -- returns how many changes are waiting to sync
   sync_cb = nil,    -- Sync now
+  read_cb = nil,    -- the card's Open book button: the file itself (the card's tile opens the details)
 }
 
 function HomeBody:init()
@@ -64,7 +66,9 @@ function HomeBody:readingCard(card, width)
   local inner = width - 2 * pad - 2 * border
   local cw, ch = px(84), px(126)
   local gap = px(14)
-  local text_w = inner - cw - gap
+  local chev = Draw.chevron("right")
+  local chev_gap = px(10)
+  local text_w = inner - cw - gap - chev:getSize().w - chev_gap
   local face, bold = Theme.title(25)
   local info = VerticalGroup:new { align = "left",
     TextBoxWidget:new { text = card.title, face = face, bold = bold, width = text_w,
@@ -87,10 +91,16 @@ function HomeBody:readingCard(card, width)
     info[#info + 1] = Theme.span(px(6))
     info[#info + 1] = Theme.mmdText(line, "text", 18, { secondary = true, width = text_w })
   end
-  local top = HorizontalGroup:new { align = "top",
-    self:coverCell(card, cw, ch), Theme.hspan(gap), info }
+  -- the tile (cover and text) opens the book's details; the small chevron says so
+  local top = TapRow:new {
+    callback = function() if self.open_book_cb then self.open_book_cb(card.book_id) end end,
+    HorizontalGroup:new { align = "top",
+      self:coverCell(card, cw, ch), Theme.hspan(gap), info, Theme.hspan(chev_gap),
+      VerticalGroup:new { align = "left", Theme.span(math.floor((ch - chev:getSize().h) / 2)), chev } },
+  }
+  self.tile = top
   local open = Button.new { label = _("Open book"), w = inner, h = px(56), primary = true,
-    callback = function() if self.open_book_cb then self.open_book_cb(card.book_id) end end }
+    callback = function() if self.read_cb then self.read_cb(card.book_id) end end }
   self.open_button = open
   return FrameContainer:new { bordersize = border, radius = px(12), padding = pad, margin = 0,
     color = Theme.BLACK, background = Theme.WHITE,

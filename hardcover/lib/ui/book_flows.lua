@@ -210,6 +210,16 @@ function Flows:deviceFile(book_id)
   return OnDevice.file(books, book_id, function(file) return lfs.attributes(file, "mode") == "file" end)
 end
 
+-- Home's Open book: straight into the file when the plugin knows it, and the details screen
+-- (where Find on device lives) when it does not.
+function Flows:readBook(book_id)
+  local file = self:deviceFile(book_id)
+  if not file then return self:showBookDetail(book_id) end
+  local shell = self:screens():open("shell")
+  if shell then UIManager:close(shell) end
+  OnDevice.open(self.ui, file)
+end
+
 function Flows:openOnDevice(dialog, file)
   if dialog then UIManager:close(dialog) end
   OnDevice.open(self.ui, file)
