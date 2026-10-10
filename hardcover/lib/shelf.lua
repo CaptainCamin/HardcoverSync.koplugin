@@ -203,11 +203,11 @@ function Shelf.statusChoices()
   return choices
 end
 
--- The label of the details screen's shelf button: where the book is now, or the
--- invitation to put it somewhere when it is not in the library.
+-- The label of the details screen's shelf button: the invitation to put the book somewhere when it is
+-- not in the library, otherwise to move it (where it is now is the status pill above).
 function Shelf.shelfButtonText(status_id)
   if status_id then
-    return "Shelf: " .. Shelf.statusLabel(status_id)
+    return "Change shelf"
   end
   return "Add to shelf"
 end
