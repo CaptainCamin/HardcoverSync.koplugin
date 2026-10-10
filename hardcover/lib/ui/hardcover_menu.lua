@@ -195,10 +195,9 @@ function HardcoverMenu:showReaderPanel()
     local read = reads and reads[#reads]
     local pages = self.settings:pages()
     if linked and pages then
-      bits[#bits + 1] = T(_("Page %1 of %2"), read and read.progress_pages or 0, pages)
-    end
-    if status.rating then
-      bits[#bits + 1] = T(_("Rated %1"), tostring(status.rating))
+      local page = read and read.progress_pages or 0
+      bits[#bits + 1] = T(_("Page %1 of %2"), page, pages)
+      bits[#bits + 1] = T(_("%1%"), math.floor(100 * page / pages + 0.5))
     end
 
     local actions = {}
@@ -223,12 +222,8 @@ function HardcoverMenu:showReaderPanel()
     else
       add(_("Link this book"), link_item)
     end
-    -- status, note, reviews, edition, settings, unlink, sync now...
-    add(_("More"), {
-      enabled_func = function() return true end,
-      text = _("Hardcover"),
-      sub_item_table_func = function() return self:getSubMenuItems(true) end,
-    })
+    -- the mock has nothing else; status, note, reviews, edition and settings are on the book page
+    -- and in the Hardcover menu
 
     return {
       title = title,

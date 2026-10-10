@@ -78,20 +78,13 @@ return {
 
     -- the panel is the three mid-book actions, More and Cancel; the mock has nothing else
     local nodes = emu:screenText()
-    for _, gone in ipairs({ "Add a note", "Reviews", "Change edition" }) do
-      assert(not nodes:find(gone, 1, true), gone .. " should be under More, not on the panel")
+    for _, gone in ipairs({ "Add a note", "Reviews", "Change edition", "More" }) do
+      assert(not nodes:find(gone, 1, true), gone .. " is not on the panel in the mock")
     end
     emu:expectText("Rate this book")
     tapText("Open book page")
     assert(calls.details == 328491, "Open book page did not open the book")
 
-    -- More: the reader's full tracking menu (unlink, remove, sync...) as a list over the panel
-    tapText("More")
-    emu:expectText("Linked book")
-    emu:expectText("Update status")
-    emu:shot("reader_panel_more")
-    emu:press("Back")
-    assert(panel_is_top(), "Back from More did not return to the panel")
 
     tapText("Update progress")
     emu:shot("reader_panel_set_page")

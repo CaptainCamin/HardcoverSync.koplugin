@@ -105,11 +105,11 @@ function ReaderPanel:render()
   -- the actions, two to a row; an action that cannot be used right now keeps its place, in
   -- secondary text and without a tap
   table.insert(content, Theme.span(Theme.px(14)))
-  -- two to a row and compact, so most of the page stays in view
-  local gap = Theme.px(12)
-  local cols = 2
+  -- stacked as in the mock; two to a row only when the screen is wider than it is tall
+  local gap = Theme.px(16)
+  local cols = landscape and 2 or 1
   local cell = math.floor((width - (cols - 1) * gap) / cols)
-  local bh = Theme.px(52)
+  local bh = nil
   local function button(action, w)
     local enabled = action.enabled ~= false
     return Button.new { label = action.text, w = w, h = bh, primary = action.primary and enabled,
@@ -131,7 +131,7 @@ function ReaderPanel:render()
       end
       table.insert(content, row)
     end
-    table.insert(content, Theme.span(Theme.px(12)))
+    table.insert(content, Theme.span(Theme.px(16)))
   end
   table.insert(content, Button.new { label = _("Cancel"), w = width, h = bh, primary = true,
     callback = function() self:onClose() end })
