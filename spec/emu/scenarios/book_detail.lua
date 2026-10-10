@@ -313,14 +313,14 @@ return {
     --[[--
     A description long enough that the page scrolls vertically. That is the case
     where the vertical scroll bar narrows the viewport, so the content has to
-    leave room for it. The assertion on the vertical bar makes sure this really
+    leave room for it. The assertion on the scroll state makes sure this really
     is the scrolling case and not a page that happens to fit.
     ]]
     local _, long = build_detail(emu, { book_id = 109, edition_id = 10901 })
     emu:pump()
     emu:expectText("A Book With A Very Long Description")
     emu:shot("book_detail_long")
-    assert(long.scroll._v_scroll_bar, "the long description did not make the page scroll; lengthen the fixture")
+    assert(long.scroll._is_scrollable and long.scroll._max_scroll_offset_y > 0, "the long description did not make the page scroll; lengthen the fixture")
     assert_no_sideways_scroll(long, "the long-description book")
 
     --[[--
