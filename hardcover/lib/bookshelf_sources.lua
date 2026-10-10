@@ -18,7 +18,13 @@ local UIManager = require("ui/uimanager")
 local Sources = {}
 local WANT_TO_READ_ID = "hardcover_wtr"
 local LISTS_ID = "hardcover_lists"
-local wtr_entries = {}
+local SHELF_SOURCES = {
+  { id = WANT_TO_READ_ID, label = "Hardcover: Want to Read", status = HARDCOVER.STATUS.TO_READ },
+  { id = "hardcover_reading", label = "Hardcover: Currently Reading", status = HARDCOVER.STATUS.READING },
+  { id = "hardcover_read", label = "Hardcover: Read", status = HARDCOVER.STATUS.FINISHED },
+  { id = "hardcover_dnf", label = "Hardcover: Did Not Finish", status = HARDCOVER.STATUS.DNF },
+}
+local shelf_entries = {}
 local list_entries = {}
 local in_flight = {}
 local retry_after = {}
@@ -35,10 +41,14 @@ local function hasCredentials(app)
     and app.auth.config.token ~= ""
 end
 
-local function wtrKey(user_id)
-  -- The current session has one signed-in account. Keep this stable while the
-  -- first request resolves User:getId(), so redraws cannot launch duplicates.
-  return "wtr"
+local function shelfKey(user_id, status_id)
+  return table.concat({ "shelf", tostring(user_id), tostring(status_id) }, ":")
+end
+
+local function shelfRequestKey(status_id)
+  -- One Hardcover account is active per KOReader session. Keep the request
+  -- key stable while the first request resolves User:getId().
+  return "shelf-fetch:" .. tostring(status_id)
 end
 
 local function listKey(user_id, source, list_id)
@@ -79,6 +89,11 @@ local function toBooks(entries, status_id)
       if status_id == HARDCOVER.STATUS.TO_READ then
         record.status, record.read_status = "unread", "unread"
         record.book_pct, record.percent_finished = 0, 0
+      elseif status_id == HARDCOVER.STATUS.READING then
+        record.status, record.read_status = "reading", "reading"
+      elseif status_id == HARDCOVER.STATUS.FINISHED then
+        record.status, record.read_status = "finished", "finished"
+        record.book_pct, record.percent_finished = 1, 1
       end
       if type(entry.cached_image) == "table" then
         record.hardcover_cover_url = entry.cached_image.url
@@ -100,8 +115,8 @@ local function slice(items, offset, limit)
   return out
 end
 
-local function shelfPage(user_id, offset, limit)
-  local state = wtr_entries[user_id]
+local function shelfPage(user_id, status_id, offset, limit)
+  local state = shelf_entries[shelfKey(user_id, status_id)]
   if not state then return {}, nil end
   return slice(state.entries, offset, limit), state.complete and #state.entries or nil
 end
@@ -140,13 +155,14 @@ local function startLoad(key, force, loader, app, done)
   end)
 end
 
-local function loadWantToRead(app, force, done)
+local function loadShelf(app, shelf, force, done)
+  local status_id = shelf.status
   local known_id = app.settings:readSetting(SETTING.USER_ID)
-  local key = wtrKey(known_id or "unknown")
+  local key = shelfRequestKey(status_id)
   if known_id and not force then
-    local saved = app.shelf_cache:get(known_id, HARDCOVER.STATUS.TO_READ)
+    local saved = app.shelf_cache:get(known_id, status_id)
     if saved and saved.complete then
-      wtr_entries[known_id] = { entries = saved.entries, complete = true }
+      shelf_entries[shelfKey(known_id, status_id)] = { entries = saved.entries, complete = true }
       if done then done() end
       return
     end
@@ -158,9 +174,11 @@ local function loadWantToRead(app, force, done)
       return
     end
     local user_id = known_id or User:getId()
-    local saved = app.shelf_cache:get(user_id, HARDCOVER.STATUS.TO_READ)
+    local saved = app.shelf_cache:get(user_id, status_id)
     if saved and not force then
-      wtr_entries[user_id] = { entries = saved.entries, complete = saved.complete == true }
+      shelf_entries[shelfKey(user_id, status_id)] = {
+        entries = saved.entries, complete = saved.complete == true,
+      }
       if saved.complete then return end
     end
 
@@ -170,21 +188,23 @@ local function loadWantToRead(app, force, done)
     end
     local result = ShelfLoader.load {
       fetch = function(offset, limit)
-        return Api:getShelf(user_id, HARDCOVER.STATUS.TO_READ, offset, limit)
+        return Api:getShelf(user_id, status_id, offset, limit)
       end,
       network = Network,
       dedupe = true,
       alive = function() return true end,
       sleep = Background.sleep,
       on_page = function(entries)
-        wtr_entries[user_id] = { entries = entries, complete = false }
-        changed(app, WANT_TO_READ_ID)
+        shelf_entries[shelfKey(user_id, status_id)] = { entries = entries, complete = false }
+        changed(app, shelf.id)
       end,
     }
     if result then
-      wtr_entries[user_id] = { entries = result.entries, complete = result.complete == true }
-      app.shelf_cache:put(user_id, HARDCOVER.STATUS.TO_READ, result.entries, result.complete)
-      changed(app, WANT_TO_READ_ID)
+      shelf_entries[shelfKey(user_id, status_id)] = {
+        entries = result.entries, complete = result.complete == true,
+      }
+      app.shelf_cache:put(user_id, status_id, result.entries, result.complete)
+      changed(app, shelf.id)
       if result.complete then retry_after[key] = nil
       else retry_after[key] = os.time() + 30 end
     else
@@ -302,32 +322,44 @@ function Sources.register(app)
     return false
   end
 
-  local wtr = remoteSpec(app, WANT_TO_READ_ID)
-  wtr.label = function() return _("Hardcover: Want to Read") end
-  wtr.available = function() return hasCredentials(app) end
-  -- Hardcover shelves are server-backed and can be large. Fetch mode lets
-  -- Bookshelf build only the page being shown instead of mapping, sorting and
-  -- filtering the entire shelf on every redraw.
-  wtr.fetch = function(_source, _drill, offset, limit)
-    local user_id = app.settings:readSetting(SETTING.USER_ID)
-    if not user_id then
-      loadWantToRead(app, false)
-      return {}, nil
-    end
-    if not wtr_entries[user_id] then
-      local saved = app.shelf_cache:get(user_id, HARDCOVER.STATUS.TO_READ)
-      if saved then
-        wtr_entries[user_id] = { entries = saved.entries, complete = saved.complete == true }
+  -- Hardcover shelves are server-backed and can be large. Fetch mode keeps
+  -- each redraw to the page being shown instead of rebuilding and sorting the
+  -- whole shelf synchronously.
+  local ok_shelves = true
+  for _, shelf in ipairs(SHELF_SOURCES) do
+    local spec = remoteSpec(app, shelf.id)
+    local shelf_spec = shelf
+    local shelf_id, status_id, label = shelf.id, shelf.status, _(shelf.label)
+    spec.label = function() return label end
+    spec.available = function() return hasCredentials(app) end
+    spec.fetch = function(_source, _drill, offset, limit)
+      local user_id = app.settings:readSetting(SETTING.USER_ID)
+      if not user_id then
+        loadShelf(app, shelf_spec, false)
+        return {}, nil
       end
+      local cache_key = shelfKey(user_id, status_id)
+      local state = shelf_entries[cache_key]
+      local saved
+      if not state then
+        saved = app.shelf_cache:get(user_id, status_id)
+        if saved then
+          state = { entries = saved.entries, complete = saved.complete == true }
+          shelf_entries[cache_key] = state
+        end
+      end
+      if not (state and state.complete) then
+        loadShelf(app, shelf_spec, false)
+      end
+      local entries, total = shelfPage(user_id, status_id, offset, limit)
+      return toBooks(entries, status_id), total
     end
-    if not (app.shelf_cache:get(user_id, HARDCOVER.STATUS.TO_READ) or {}).complete then
-      loadWantToRead(app, false)
+    spec.refresh = function(_source, _drill, done)
+      loadShelf(app, shelf_spec, true, done)
     end
-    local entries, total = shelfPage(user_id, offset, limit)
-    return toBooks(entries, HARDCOVER.STATUS.TO_READ), total
-  end
-  wtr.refresh = function(_source, _drill, done)
-    loadWantToRead(app, true, done)
+    local ok, why = bookshelf:registerSource(shelf_id, spec)
+    if not ok then logger.warn("Hardcover shelf source refused:", shelf_id, tostring(why)) end
+    ok_shelves = ok_shelves and ok
   end
 
   local lists = remoteSpec(app, LISTS_ID)
@@ -423,28 +455,30 @@ function Sources.register(app)
     loadList(app, source, true, done)
   end
 
-  local ok_wtr, why_wtr = bookshelf:registerSource(WANT_TO_READ_ID, wtr)
   local ok_lists, why_lists = bookshelf:registerSource(LISTS_ID, lists)
-  if not ok_wtr then logger.warn("Hardcover Want to Read source refused:", tostring(why_wtr)) end
   if not ok_lists then logger.warn("Hardcover lists source refused:", tostring(why_lists)) end
-  return ok_wtr and ok_lists
+  return ok_shelves and ok_lists
 end
 
 function Sources.changed(app)
   app = app or registered_app
-  retry_after["wtr"] = nil
+  for _, shelf in ipairs(SHELF_SOURCES) do retry_after[shelfRequestKey(shelf.status)] = nil end
   for key in pairs(retry_after) do
     if key:match("^list%-fetch:") then retry_after[key] = nil end
   end
-  changed(app, WANT_TO_READ_ID)
+  for _, shelf in ipairs(SHELF_SOURCES) do changed(app, shelf.id) end
   changed(app, LISTS_ID)
 end
 
 function Sources.invalidate(app)
   app = app or registered_app
   local user_id = app and app.settings and app.settings:readSetting(SETTING.USER_ID)
-  if user_id then wtr_entries[user_id] = nil end
-  changed(app, WANT_TO_READ_ID)
+  if user_id then
+    for _, shelf in ipairs(SHELF_SOURCES) do
+      shelf_entries[shelfKey(user_id, shelf.status)] = nil
+    end
+  end
+  for _, shelf in ipairs(SHELF_SOURCES) do changed(app, shelf.id) end
 end
 
 return Sources
