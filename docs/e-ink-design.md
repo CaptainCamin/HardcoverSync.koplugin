@@ -55,7 +55,7 @@ Settled, with the date and where it is built. If something here disagrees with a
 | Lato (Medium and Black) is the typeface, **titles included: no serif** (owner, 10 Oct). | Shipped and copied into KOReader's fonts folder; components fall back to KOReader's font until it is there. Whether Medium reads better than Regular is still judged on a device. | PR 4, `Theme.mmdText` |
 | Long screens scroll with one control: a bar over a double-line track with a triangle at each end; a dotted triangle is that end reached. | On the eight scrolling screens, by whole rows. | PR 2 (`components/scroll_control.lua`) |
 | Settings is a flat list with real switches, chevrons and dotted dividers; the Sync and Account tiles are the first two rows; the back arrow goes up a level. | | PR 5 |
-| Book details uses fixed-size blocks (clamped About with Read more, 3 genres plus "+N more", 5 detail rows plus "All details", series and Similar-to carousels). Reviews is one scrolling list of fixed-height cards, summary first, a Load more button last. | In progress. | PR 7 |
+| Book details is a stack of fixed-size blocks, compact like the owner's prototype (10 Oct): a thumbnail cover, then the title, author and series right under it (small, plain text, not tappable); one slot of buttons, no main button: Open (filled) when the book is on this device (a file the plugin has linked to it, found in its own table; no guessing from file names), otherwise Find on device and Z-library (outlined, when available) to get it; then Reviews; then Change shelf (or Add to shelf) and Lists in a row; "Your rating" as five stars; About clamped to 5 lines with Read more; the first genres on one line with "+N more" (moods and content warnings are in what it opens); series and Similar-to carousels; five detail rows plus All details. Sections are a dotted rule and a small Black label. A status pill sits between the series and the facts: filled with the status ("Currently Reading"), or outlined "Not on a shelf", so the line is there for every book; the shelf button says "Change shelf" or "Add to shelf". No stats strip. Reviews is one scrolling list of fixed-height cards, summary first, with Load more. | Read more, +N more and All details open screens of their own (`text_screen.lua`, `details_screen.lua`); the page paces by block. | `book_detail_dialog.lua`, `reviews_dialog.lua`, `clamp.lua` |
 
 ## Still open
 
@@ -66,11 +66,13 @@ Settled, with the date and where it is built. If something here disagrees with a
 
 ## Known deviations from the rules above
 
+- Book details: Open only finds books the plugin has linked to a file (history, not the folder tree), so a book never opened here shows Find on device; the stats strip (rating, readers, reviews) is gone, and the author, the series and the status pill are not tappable (no search or shelf from the page; the owner's call); the figures are on the Reviews screen. The page lists three genres; moods and content warnings are only behind "+N more".
+
 - Hold-only actions: unlink a book (`hardcover_menu.lua`, the "Linked book" row), discard all queued changes (hold on Sync now; per-change cancel is visible in `pending_changes_dialog.lua`), and the compatibility-mode help text.
 - Grey fills and lines in the charts: levels down to 0xBB, a 0xD8 gridline, 0x88 dashes (`chart_widgets.lua`, `charts.lua`). Allowed (see the decisions), to be polished.
 - `Theme.hatchRect` paints at 40% opacity, so its stripes anti-alias to grey; nothing calls it yet.
 - `Theme.rule` hairlines and `Theme.button`'s disabled look use `DARK_GREY`.
-- Screens not yet moved to the new components: book details (in progress), shelves and their sort menu, goals, stats, the dialogs and the reader panel.
+- Screens not yet moved to the new components: shelves and their sort menu, goals, stats, the dialogs and the reader panel.
 
 ## MMD component metrics
 

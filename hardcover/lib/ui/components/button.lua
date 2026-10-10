@@ -21,7 +21,8 @@ function Button.new(opts)
     { color = opts.primary and WHITE or BLACK, width = w - 2 * (t + Theme.px(8)) })
   -- a real container tree (not a painted bitmap), so the label is on screen as text
   local box = Theme.box(w, h, label, { filled = opts.primary, border = t, radius = 8 })
-  return TapRow:new { callback = opts.callback, viewport = opts.viewport, box }
+  -- the label and width ride on the result, where a screen's focus order and its tests look for them
+  return TapRow:new { callback = opts.callback, viewport = opts.viewport, text = opts.label, width = w, box }
 end
 
 return Button

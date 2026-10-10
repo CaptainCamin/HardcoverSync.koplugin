@@ -85,15 +85,17 @@ return {
     assert(dialog and dialog.name == "hardcover_book_detail", "the details did not open")
     emu:expectText("The Left Hand of Darkness")
 
-    -- the bar: four buttons in order, inside the margins, none on another
+    -- the buttons: Shelf over Reviews, then Lists and Z-library in one row below, inside the
+    -- margins, none on another
     assert(dialog.lists_button, "no Lists button for an OAuth sign-in")
-    local buttons = {}
-    for _, child in ipairs(dialog.action_bar) do if child.callback then buttons[#buttons + 1] = child end end
-    assert(#buttons == 4 and buttons[1] == dialog.shelf_button and buttons[2] == dialog.lists_button
-      and buttons[3] == dialog.reviews_button and buttons[4] == dialog.zlibrary_button, "the bar is not Shelf | Lists | Reviews | Z-library")
     emu:expectText("Lists")
     local M = require("hardcover/lib/ui/theme").margin
     UIManager:_repaint()
+    local at = function(name) return dialog[name].dimen end
+    assert(at("zlibrary_button").y < at("reviews_button").y and at("reviews_button").y < at("shelf_button").y,
+      "the buttons are not Z-library, Reviews, then Shelf")
+    assert(at("shelf_button").y == at("lists_button").y and at("shelf_button").x < at("lists_button").x,
+      "Shelf and Lists are not one row, Shelf first")
     for _, name in ipairs({ "shelf_button", "lists_button", "reviews_button", "zlibrary_button" }) do
       local d = dialog[name].dimen
       assert(d and d.x >= M and d.x + d.w <= emu.Screen:getWidth() - M, name .. " is outside the margins")

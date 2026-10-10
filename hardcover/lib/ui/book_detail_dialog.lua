@@ -24,16 +24,28 @@ local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
-local VerticalSpan = require("ui/widget/verticalspan")
 local _ = require("gettext")
 
+local Button = require("hardcover/lib/ui/components/button")
+local Clamp = require("hardcover/lib/ui/clamp")
+local DetailsScreen = require("hardcover/lib/ui/details_screen")
+local Draw = require("hardcover/lib/ui/components/draw")
 local Lists = require("hardcover/lib/lists")
 local Refresh = require("hardcover/lib/ui/refresh")
 local Shelf = require("hardcover/lib/shelf")
 local SeriesCarousel = require("hardcover/lib/ui/series_carousel")
+local TapRow = require("hardcover/lib/ui/tap_row")
+local TextScreen = require("hardcover/lib/ui/text_screen")
 local Theme = require("hardcover/lib/ui/theme")
+local TopBar = require("hardcover/lib/ui/components/top_bar")
 
 local Screen = Device.screen
+
+-- the page is the same size for every book: About is cut to this many lines, the genres to this
+-- many names, and Details lists this many rows, with a Read more / +N more / All details for the rest
+local ABOUT_LINES = 5
+local TAGS_SHOWN = 3
+local DETAIL_ROWS = 5
 
 --[[--
 The width the page's content may use, on a screen `screen_w` wide.
@@ -50,6 +62,17 @@ local function contentWidth(screen_w)
   return screen_w - 2 * Theme.margin - gutter
 end
 
+-- A section's start: a dotted rule and a small Black label, tight. (The heavy rule under a heading is
+-- for screens of their own.) The page is a stack of these, each one block for the scroll control.
+local function section(label, width)
+  local group = VerticalGroup:new { align = "left", Theme.span("s"), Theme.dottedRule(width), Theme.span("s") }
+  if label then
+    table.insert(group, Theme.mmdText(label, "strong", 18, { width = width }))
+    table.insert(group, Theme.span("xs"))
+  end
+  return group
+end
+
 local BookDetailDialog = FocusManager:extend {
   name = "hardcover_book_detail",
   title = _("Book details"),
@@ -60,19 +83,16 @@ local BookDetailDialog = FocusManager:extend {
   -- no callback, no button
   on_lists = nil,
   on_refresh = nil, -- the title bar's reload icon; nil hides it
-  -- called with the dialog when On device is tapped (look for the book among the files
-  -- on this device); no callback, no button
+  -- called with the dialog when Open is tapped (the book is on this device: a file the plugin linked
+  -- to it); no callback, no button
+  on_open = nil,
+  -- called with the dialog when Find on device is tapped (look for the book among the files on this
+  -- device); no callback, no button. Offered only when the book is not already on it.
   on_find = nil,
   -- present only when the Z-library plugin is installed (see hardcover/lib/zlibrary.lua)
   on_zlibrary = nil,
-  -- tapping the series pill, the status pill or the author: called with the
-  -- dialog and what to look for (the series' name, the status id, the author's
-  -- name). No callback, nothing tappable.
-  on_series = nil,
-  on_status = nil,
   -- tapping your rating: called with the dialog. No callback, not tappable.
   on_rating = nil,
-  on_author = nil,
   width = nil,
   height = nil,
 }
@@ -83,8 +103,11 @@ local BookDetailDialog = FocusManager:extend {
 -- and loadCover asks the image service for a picture of exactly this size, so the two
 -- cannot drift apart. A plain function (no dialog), so the emulator fixtures can use it.
 --
+-- the cover's share of the page's width: a thumbnail, so the title and the buttons are on the first screen
+BookDetailDialog.COVER_SHARE = 0.27
+
 function BookDetailDialog.coverBox(screen_w)
-  local cover_width = math.floor(contentWidth(screen_w) * 0.34)
+  local cover_width = math.floor(contentWidth(screen_w) * BookDetailDialog.COVER_SHARE)
   return cover_width, math.floor(cover_width * 1.5)
 end
 
@@ -100,18 +123,17 @@ function BookDetailDialog:init()
   -- with no way out.
   self.key_events.CloseDetail = { { "Back" } }
 
-  -- the family's title bar; its X is the Close button (the loading screen has
-  -- one too, so a slow fetch can always be left)
-  local title_bar = Theme.titleBar {
+  -- the MMD top bar: back (it is the Close button, and the loading screen has one too, so a slow
+  -- fetch can always be left) and the reload icon when the details can be fetched again (they may
+  -- be shown from the device)
+  local title_bar = TopBar.new {
+    width = screen_w,
     title = self.title,
-    close_callback = function() self:onCloseDetail() end,
-    -- the reload icon: fetch everything again (the details may be shown from the device)
-    left_icon = self.on_refresh and "cre.render.reload" or nil,
-    left_callback = self.on_refresh and function() self.on_refresh(self) end or nil,
-    show_parent = self,
+    on_back = function() self:onCloseDetail() end,
+    actions = self.on_refresh and { { icon = "sync", callback = function() self.on_refresh(self) end } } or nil,
   }
   self.title_bar = title_bar
-  self.close_button = title_bar.right_button
+  self.close_button = title_bar.back_button
 
   --[[--
   Loading state.
@@ -177,12 +199,19 @@ function BookDetailDialog:init()
   local text_width = width - cover_width - 2 * cover_border - cover_gap
 
   -- TextWidget is one line and reads max_width, not width; anything that may be
-  -- long (a title, an author list) is a TextBoxWidget, which wraps to width.
-  local function wrapped(text, size, bold, grey)
+  -- long (a title, an author list) is a TextBoxWidget, which wraps to width. `title` is Lato
+  -- Black (Theme.title), `strong` too at the body size.
+  local function wrapped(text, size, bold, grey, kind)
+    local face, ask_bold = Theme.face(size), bold
+    if kind == "title" then
+      face, ask_bold = Theme.title(size)
+    elseif kind == "strong" then
+      face, ask_bold = Theme.mmdFace("strong", Theme.type[size] or size)
+    end
     return TextBoxWidget:new {
       text = text,
-      face = Theme.face(size),
-      bold = bold,
+      face = face,
+      bold = ask_bold,
       width = text_width,
       alignment = "left",
       fgcolor = grey and Theme.secondary() or Theme.BLACK,
@@ -197,15 +226,8 @@ function BookDetailDialog:init()
   -- the header scrolls with the page, so taps are cut to what is showing (see
   -- viewport.lua)
   local viewport = function() return self.scroll and self.scroll.dimen end
-  -- `widget` made tappable when there is a handler and something to hand it
-  local function tappable(field, widget, handler, arg)
-    self[field] = nil
-    if not (handler and arg) then return widget end
-    self[field] = Theme.touchable(widget, text_width, function() handler(self, arg) end, viewport)
-    return self[field]
-  end
 
-  self.title_text = wrapped(summary.title, "display", true)
+  self.title_text = wrapped(summary.title, "display", true, false, "title")
   addTo(column, self.title_text)
   if summary.subtitle then
     self.subtitle_text = wrapped(summary.subtitle, "body", false, true)
@@ -214,44 +236,34 @@ function BookDetailDialog:init()
   else
     self.subtitle_text = nil
   end
+  -- the author and the series sit right under the title, plain text (the owner: not tappable)
   if summary.authors then
-    self.authors_text = wrapped(summary.authors, "title")
-    addTo(column, Theme.span("s"))
-    -- tappable: a hairline under the name says so, quietly
-    local author = self.authors_text
-    if self.on_author and summary.first_author then
-      author = VerticalGroup:new {
-        align = "left",
-        self.authors_text,
-        Theme.span("xs"),
-        Theme.rule(text_width, false),
-      }
-    end
-    addTo(column, tappable("author_tap", author, self.on_author, summary.first_author))
+    self.authors_text = wrapped(summary.authors, "small")
+    addTo(column, Theme.span("xs"))
+    addTo(column, self.authors_text)
   else
     self.authors_text = nil
   end
+  self.series_text = nil
+  if summary.series then
+    self.series_text = wrapped(summary.series, "small", false, true)
+    addTo(column, Theme.span("xs"))
+    addTo(column, self.series_text)
+  end
+  -- where the book is on your shelves: a filled pill with the status, or an outlined "Not on a shelf"
+  -- so the line is there for every book (not tappable; the Shelf button below is how it changes)
+  local status_id = (self.detail or {}).status_id
+  self.status_text = Theme.pill(status_id and Shelf.statusLabel(status_id) or _("Not on a shelf"), {
+    filled = status_id ~= nil, max_width = text_width - 2 * Theme.space.m,
+  })
+  addTo(column, Theme.span("s"))
+  addTo(column, self.status_text)
   if summary.facts then
     self.facts_text = wrapped(summary.facts, "small", false, true)
-    addTo(column, Theme.span("xs"))
+    addTo(column, Theme.span("s"))
     addTo(column, self.facts_text)
   else
     self.facts_text = nil
-  end
-
-  -- the series and where the book is on your shelves: pills, the current status
-  -- filled; each opens the search for that series / the shelf for that status
-  self.series_text = nil
-  self.status_text = nil
-  if summary.series then
-    self.series_text = Theme.pill(summary.series, { max_width = text_width - 2 * Theme.space.m })
-    addTo(column, Theme.span("s"))
-    addTo(column, tappable("series_tap", self.series_text, self.on_series, summary.series_title))
-  end
-  local status_id = (self.detail or {}).status_id
-  if status_id then
-    self.status_text = Theme.pill(Shelf.statusLabel(status_id), { filled = true, max_width = text_width - 2 * Theme.space.m })
-    addTo(column, tappable("status_tap", self.status_text, self.on_status, status_id))
   end
 
   -- which of your lists the book is on, once that is known (the lists picker
@@ -283,171 +295,129 @@ function BookDetailDialog:init()
     column,
   }
 
-  -- what everyone makes of it, then what you make of it: three figures between
-  -- hairlines
-  local cell_w = math.floor(width / 3)
-  local cells = HorizontalGroup:new {}
-  self.rating_tap = nil
-  for i, stat in ipairs(Shelf.detailStats(self.detail)) do
-    local cell = CenterContainer:new {
-      dimen = Geom:new { w = cell_w, h = Screen:scaleBySize(78) },
-      Theme.stat(stat[1], stat[2], cell_w),
-    }
-    -- the third figure is yours: tap it to rate the book
-    if i == 3 and self.on_rating then
-      cell = require("hardcover/lib/ui/tap_row"):new {
-        callback = function() self:on_rating() end,
-        viewport = viewport,
-        cell,
-      }
-      self.rating_tap = cell
-    end
-    table.insert(cells, cell)
-  end
-  self.stats_strip = VerticalGroup:new {
-    align = "left",
-    Theme.rule(width, false),
-    cells,
-    Theme.rule(width, false),
-  }
-
-  local function heading(text, right)
-    return Theme.sectionHeader(text, width, right)
-  end
-
-  -- description: a heading, then the whole text. It is not clipped to a height
-  -- (a TextBoxWidget given one hides the rest, and the scroll container around
-  -- it cannot reveal it); it is as tall as the text and the body scrolls.
-  self.description_text = nil
-  if summary.description then
-    self.description_text = TextBoxWidget:new {
-      text = summary.description,
-      face = Theme.face("body"),
-      width = width,
-      alignment = "left",
-    }
-  end
-
-  --[[--
-  Details: what the header does not already say, as a two column grid.
-
-  A fixed label column, so the values line up whatever the labels say: the label
-  sits in a container of set width instead of sizing the column to its own text.
-  The value wraps, so a long value stays on screen.
-  ]]
-  self.meta_rows = {}
-  local label_width = math.floor(width * 0.32)
-  for _, row in ipairs(Shelf.extraRows(book)) do
-    local label = TextWidget:new {
-      text = row.label,
-      face = Theme.face("small"),
-      max_width = label_width,
-      fgcolor = Theme.secondary(),
-    }
-    local label_cell = LeftContainer:new {
-      dimen = Geom:new { w = label_width, h = label:getSize().h },
-      label,
-    }
-    local value = TextBoxWidget:new {
-      text = tostring(row.value),
-      face = Theme.face("small"),
-      width = width - label_width - Theme.space.m,
-      alignment = "left",
-    }
-    table.insert(self.meta_rows, HorizontalGroup:new {
-      align = "top",
-      label_cell,
-      HorizontalSpan:new { width = Theme.space.m },
-      value,
+  -- what you make of it: five visible stars (half ones too), the whole row a tap to rate
+  local mine = tonumber((self.detail or {}).user_rating) or 0
+  local star_cell = Theme.TOUCH_MIN
+  local stars = HorizontalGroup:new { align = "center" }
+  for i = 1, 5 do
+    local name = mine >= i and "star-filled" or (mine >= i - 0.5 and "star-half" or "star")
+    table.insert(stars, CenterContainer:new {
+      dimen = Geom:new { w = star_cell, h = star_cell },
+      Theme.icon(name, Theme.px(28)),
     })
   end
+  local rating_row = HorizontalGroup:new {
+    align = "center",
+    LeftContainer:new {
+      dimen = Geom:new { w = width - 5 * star_cell, h = star_cell },
+      Theme.mmdText(_("Your rating"), "strong", 21, { width = width - 5 * star_cell }),
+    },
+    stars,
+  }
+  self.rating_tap = nil
+  if self.on_rating then
+    rating_row = TapRow:new { callback = function() self:on_rating() end, viewport = viewport, rating_row }
+    self.rating_tap = rating_row
+  end
 
-  -- The action bar: Shelf (filled, the main one), then Lists, Reviews and On device, then
-  -- Z-library when that plugin is there, sharing the width equally. They scroll with the
-  -- page, so each tap is cut to the visible area (see viewport.lua) or one
-  -- scrolled away could catch a tap meant for what is over it.
-  local labels = { { "shelf_button", Shelf.shelfButtonText((self.detail or {}).status_id), "on_shelf", true } }
-  self.shelf_button, self.lists_button, self.reviews_button, self.zlibrary_button = nil, nil, nil, nil
-  self.find_button = nil
-  if self.on_lists then
-    labels[#labels + 1] = { "lists_button", _("Lists"), "on_lists" }
-  end
-  if self.on_reviews then
-    labels[#labels + 1] = { "reviews_button", _("Reviews"), "on_reviews" }
-  end
-  if self.on_find then
-    labels[#labels + 1] = { "find_button", _("On device"), "on_find" }
-  end
-  if self.on_zlibrary then
-    labels[#labels + 1] = { "zlibrary_button", _("Z-library"), "on_zlibrary" }
-  end
-  local gap = Theme.space.s
-  -- equal shares, except that Shelf (the longest label, "Shelf: Currently
-  -- Reading") takes what its words need, up to half the bar, and the rest
-  -- share what is left
-  local n = #labels
-  local widths = {}
-  local equal = math.floor((width - (n - 1) * gap) / n)
-  local shelf_w = equal
-  if n > 1 then
-    local words = TextWidget:new { text = labels[1][2], face = Theme.face("small"), bold = true }
-    local need = words:getSize().w + 2 * Theme.space.l
-    words:free()
-    shelf_w = math.min(math.max(equal, need), math.floor(width / 2))
-  end
-  widths[1] = shelf_w
-  for i = 2, n do
-    widths[i] = math.floor((width - shelf_w - (n - 1) * gap) / (n - 1))
-  end
-  local action_bar = HorizontalGroup:new {}
-  for i, spec in ipairs(labels) do
-    local field, text, handler, primary = spec[1], spec[2], spec[3], spec[4]
-    local button = Theme.button(text, widths[i], {
-      filled = primary,
+  -- the buttons, one slot after another: Open (filled) when the book is on this device, else Find on
+  -- device and Z-library (outlined, side by side) to get it; Reviews; then Shelf and Lists in a row.
+  -- There is no one main button. They scroll with the page, so each tap is cut to the visible area
+  -- (see viewport.lua) or one scrolled away could catch a tap meant for what is over it.
+  self.open_button, self.find_button, self.zlibrary_button = nil, nil, nil
+  self.reviews_button, self.shelf_button, self.lists_button = nil, nil, nil
+  local function button(field, text, handler, opts)
+    local b = Button.new {
+      label = text, w = opts.w, h = Theme.TOUCH_MIN, size = 19, primary = opts.primary,
       viewport = viewport,
       callback = function()
         local fn = self[handler]
         if fn then fn(self) end
       end,
-    })
-    self[field] = button
-    if i > 1 then table.insert(action_bar, HorizontalSpan:new { width = gap }) end
-    table.insert(action_bar, button)
+    }
+    self[field] = b
+    return b
   end
+  local action_bar = VerticalGroup:new { align = "left" }
+  local action_rows = {} -- the buttons of each row, for the focus order
+  -- `specs`: { field, label, handler, primary }, sharing the width equally
+  local function add_row(specs)
+    if #specs == 0 then return end
+    if #action_bar > 0 then table.insert(action_bar, Theme.span("s")) end
+    local gap = Theme.space.s
+    local each = math.floor((width - (#specs - 1) * gap) / #specs)
+    local row = HorizontalGroup:new { align = "top" }
+    local fields = {}
+    for i, spec in ipairs(specs) do
+      if i > 1 then table.insert(row, HorizontalSpan:new { width = gap }) end
+      table.insert(row, button(spec[1], spec[2], spec[3], { w = each, primary = spec[4] }))
+      fields[#fields + 1] = spec[1]
+    end
+    table.insert(action_bar, row)
+    table.insert(action_rows, fields)
+  end
+  if self.on_open then
+    add_row({ { "open_button", _("Open"), "on_open", true } })
+  else
+    local get = {}
+    if self.on_find then get[#get + 1] = { "find_button", _("Find on device"), "on_find" } end
+    if self.on_zlibrary then get[#get + 1] = { "zlibrary_button", _("Z-library"), "on_zlibrary" } end
+    add_row(get)
+  end
+  if self.on_reviews then add_row({ { "reviews_button", _("Reviews"), "on_reviews" } }) end
+  local manage = { { "shelf_button", Shelf.shelfButtonText((self.detail or {}).status_id), "on_shelf" } }
+  if self.on_lists then manage[#manage + 1] = { "lists_button", _("Lists"), "on_lists" } end
+  add_row(manage)
   self.action_bar = action_bar
+
+  -- About: five lines at most, so the block is the same height for every book; a Read more opens
+  -- the whole synopsis on a screen of its own
+  self.description_text, self.about_more = nil, nil
+  local about
+  if summary.description then
+    local clamped, cut = Clamp.text {
+      text = summary.description, face = Theme.face("small"), width = width, lines = ABOUT_LINES,
+    }
+    self.description_text = clamped
+    about = section(_("About"), width)
+    table.insert(about, clamped)
+    if cut then
+      local more_w = Screen:scaleBySize(140)
+      self.about_more = Button.new {
+        label = _("Read more"), w = more_w, h = Theme.px(48), size = 18, viewport = viewport,
+        callback = function()
+          UIManager:show(TextScreen:new { title = _("About"), heading = summary.title, text = summary.description })
+        end,
+      }
+      table.insert(about, Theme.span("s"))
+      table.insert(about, HorizontalGroup:new { HorizontalSpan:new { width = width - more_w }, self.about_more })
+    end
+  end
+
+  -- the genres, one line, with "+N more" for the rest (and the moods and content warnings)
+  local tags = self:tagsBlock(width, viewport, summary.title)
 
   -- Built by appending, never as one table constructor: most things here are
   -- optional, and a nil in the middle of a constructor is a hole that
   -- VerticalGroup's ipairs stops at, so everything after it silently vanished.
+  -- Each block carries its own space above it, so the scroll control's pages land on a block's
+  -- edge and never between a gap and what follows it.
   local content = VerticalGroup:new { align = "left" }
   local function add(widget)
     if widget then table.insert(content, widget) end
   end
   self.content_group = content
 
-  add(header)
-  add(Theme.span("l"))
-  add(self.stats_strip)
-  add(Theme.span("m"))
-  add(action_bar)
-
-  if self.description_text then
-    add(Theme.span("l"))
-    add(heading(_("About")))
-    add(Theme.span("s"))
-    add(self.description_text)
-  end
-
-  -- what other readers say: how they rated it, and what they tagged it with
-  local community = self:communitySections(width)
-  if community then
-    add(Theme.span("l"))
-    add(community)
-  end
+  add(VerticalGroup:new { align = "left", Theme.span("s"), header })
+  add(VerticalGroup:new { align = "left", Theme.span("s"), action_bar })
+  add(VerticalGroup:new { align = "left", Theme.span("xs"), rating_row })
+  add(about)
+  add(tags)
 
   -- Strips of covers, paged with arrows; tapping one opens that book. Below About, so
   -- the book itself comes first: "More in this series", then "Similar to <title>".
   self.carousel, self.similar_carousel = nil, nil
+  self.carousel_block, self.similar_block = nil, nil
   local function strip(card, on_open)
     return SeriesCarousel:new {
       card = card,
@@ -473,25 +443,63 @@ function BookDetailDialog:init()
   self.build_strip = strip -- setSimilar swaps the "Similar to" strip in place with it
   if self.series_card then
     self.carousel = strip(self.series_card, self.on_open_book)
-    add(Theme.span("l"))
-    add(self.carousel.widget)
+    self.carousel_block = section(nil, width)
+    table.insert(self.carousel_block, self.carousel.widget)
+    add(self.carousel_block)
   end
   if self.similar_card then
     self.similar_carousel = strip(self.similar_card, self.on_open_similar)
-    add(Theme.span("l"))
-    add(self.similar_carousel.widget)
+    self.similar_block = section(nil, width)
+    table.insert(self.similar_block, self.similar_carousel.widget)
+    add(self.similar_block)
   end
 
-  if #self.meta_rows > 0 then
-    add(Theme.span("l"))
-    add(heading(_("Details")))
-    add(Theme.span("xs"))
-    for _, row in ipairs(self.meta_rows) do
-      add(Theme.span("xs"))
-      add(row)
-      add(Theme.span("xs"))
-      add(Theme.rule(width, false))
+  -- Details: the first five rows, each the same height with a dotted rule, then All details for
+  -- the rest
+  self.meta_rows, self.all_details = {}, nil
+  local extra = Shelf.extraRows(book)
+  if #extra > 0 then
+    local label_width = math.floor(width * 0.32)
+    local value_width = width - label_width - Theme.space.m
+    local row_h = Theme.px(56)
+    local details = section(_("Details"), width)
+    for i = 1, math.min(#extra, DETAIL_ROWS) do
+      local row = extra[i]
+      local line = HorizontalGroup:new {
+        align = "center",
+        LeftContainer:new {
+          dimen = Geom:new { w = label_width, h = row_h },
+          TextWidget:new { text = row.label, face = Theme.face("small"), max_width = label_width, fgcolor = Theme.secondary() },
+        },
+        HorizontalSpan:new { width = Theme.space.m },
+        LeftContainer:new {
+          dimen = Geom:new { w = value_width, h = row_h },
+          TextWidget:new { text = tostring(row.value), face = Theme.face("small"), max_width = value_width },
+        },
+      }
+      local entry = VerticalGroup:new { align = "left", line, Theme.dottedRule(width) }
+      table.insert(self.meta_rows, entry)
+      table.insert(details, entry)
     end
+    if #extra > DETAIL_ROWS then
+      local row = HorizontalGroup:new {
+        align = "center",
+        LeftContainer:new {
+          dimen = Geom:new { w = width - Theme.TOUCH_MIN, h = Theme.px(64) },
+          Theme.mmdText(_("All details"), "strong", 21, { width = width - Theme.TOUCH_MIN }),
+        },
+        CenterContainer:new { dimen = Geom:new { w = Theme.TOUCH_MIN, h = Theme.px(64) }, Draw.chevron("right") },
+      }
+      self.all_details = TapRow:new {
+        viewport = viewport,
+        callback = function()
+          UIManager:show(DetailsScreen:new { title = _("All details"), rows = extra })
+        end,
+        row,
+      }
+      table.insert(details, self.all_details)
+    end
+    add(details)
   end
 
   add(Theme.span("xl"))
@@ -532,13 +540,14 @@ function BookDetailDialog:init()
     VerticalGroup:new { align = "left", title_bar, self.scroll_body },
   }
 
-  -- keyboard / d-pad focus: the action bar, the carousel's arrows (when it
-  -- pages), then Close
+  -- keyboard / d-pad focus: the buttons, the carousel's arrows (when it pages), then Close
   self.layout = {}
-  local actions = {}
-  for _, spec in ipairs(labels) do actions[#actions + 1] = self[spec[1]] end
-  table.insert(self.layout, actions)
-  for _, strip in ipairs({ self.carousel or false, self.similar_carousel or false }) do
+  for _i, fields in ipairs(action_rows) do
+    local row = {}
+    for _j, field in ipairs(fields) do row[#row + 1] = self[field] end
+    table.insert(self.layout, row)
+  end
+  for _i, strip in ipairs({ self.carousel or false, self.similar_carousel or false }) do
     if strip and strip.paged then
       table.insert(self.layout, { strip.prev, strip.next })
     end
@@ -558,30 +567,67 @@ function BookDetailDialog:init()
 end
 
 --
--- "Readers say": the book's genres, moods and content warnings as pills (the breakdown of
--- its ratings is on the reviews screen). nil when Hardcover has none.
+-- The genres as one line with "+N more", under a Genres heading. Moods and content warnings
+-- are in what "+N more" opens (a book with no genres leads with its moods, then its warnings).
+-- nil when Hardcover has no tags for the book.
 --
-function BookDetailDialog:communitySections(width)
+function BookDetailDialog:tagsBlock(width, viewport, title)
+  self.tags_more = nil
   local book = self.detail and self.detail.book
   if not book then return nil end
   local Community = require("hardcover/lib/community")
-  local ChartWidgets = require("hardcover/lib/ui/chart_widgets")
-
-  local group = VerticalGroup:new { align = "left" }
   local tags = Community.tags(book)
+  local sections = {}
   for _i, spec in ipairs({
     { tags.genres, _("Genres") }, { tags.moods, _("Moods") }, { tags.warnings, _("Content warnings") },
   }) do
     if #spec[1] > 0 then
-      if #group > 0 then table.insert(group, Theme.span("l")) end
-      table.insert(group, Theme.sectionHeader(spec[2], width))
-      table.insert(group, Theme.span("s"))
       local labels = {}
       for i, t in ipairs(spec[1]) do labels[i] = t.tag end
-      table.insert(group, ChartWidgets.pills { width = width, labels = labels })
+      sections[#sections + 1] = { name = spec[2], labels = labels }
     end
   end
-  return #group > 0 and group or nil
+  if #sections == 0 then return nil end
+
+  local lead = sections[1]
+  local shown = math.min(#lead.labels, TAGS_SHOWN)
+  local total = 0
+  for _i, s in ipairs(sections) do total = total + #s.labels end
+  local hidden = total - shown
+
+  local block = section(lead.name, width)
+  local line_w = width
+  local more
+  if hidden > 0 then
+    local more_w = Screen:scaleBySize(130)
+    more = Button.new {
+      label = string.format(_("+%d more"), hidden), w = more_w, h = Theme.px(48), size = 18, viewport = viewport,
+      callback = function()
+        local parts = {}
+        for _i, s in ipairs(sections) do
+          parts[#parts + 1] = s.name .. "\n" .. table.concat(s.labels, " · ")
+        end
+        UIManager:show(TextScreen:new { title = _("Tags"), heading = title, text = table.concat(parts, "\n\n") })
+      end,
+    }
+    self.tags_more = more
+    line_w = width - more_w - Theme.space.m
+  end
+  local names = {}
+  for i = 1, shown do names[i] = lead.labels[i] end
+  local line = HorizontalGroup:new {
+    align = "center",
+    LeftContainer:new {
+      dimen = Geom:new { w = line_w, h = Theme.TOUCH_MIN },
+      TextWidget:new { text = table.concat(names, " · "), face = Theme.face("small"), max_width = line_w },
+    },
+  }
+  if more then
+    table.insert(line, HorizontalSpan:new { width = Theme.space.m })
+    table.insert(line, more)
+  end
+  table.insert(block, line)
+  return block
 end
 
 --
@@ -684,11 +730,11 @@ function BookDetailDialog:setSimilar(card, on_open)
 
   -- The books arriving where the loading placeholder is: the same size, so swap the strip
   -- in place and redraw just its box, not the whole panel.
-  if old and card and not card.loading and old.card.loading and self.content_group then
-    for i, child in ipairs(self.content_group) do
+  if old and card and not card.loading and old.card.loading and self.similar_block then
+    for i, child in ipairs(self.similar_block) do
       if child == old.widget then
         local strip = self.build_strip(card, on_open)
-        self.content_group[i] = strip.widget
+        self.similar_block[i] = strip.widget
         -- the strip's rectangle: its covers' box (the only part with a position) and the
         -- heading above it, which is the rest of the strip's height
         local holder = old.holder.dimen
