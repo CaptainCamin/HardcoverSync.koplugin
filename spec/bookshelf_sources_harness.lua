@@ -128,7 +128,7 @@ local shelf = specs.hardcover_shelf
 local source = { kind = "hardcover_shelf", status_id = 1, sort_key = "title" }
 local books, total = shelf.fetch(source, nil, 0, 10)
 r.check("a saved complete shelf pages at once", #books == 4 and total == 4)
-r.check("sorted by title", books[1].title == "Alpha" and books[3].title == "Zed")
+r.check("sorted by title", books[1].title == "Alpha" and books[4].title == "Zed")
 r.check("records are remote and unread for Want to Read",
   books[1].filepath == "hardcover://book/2" and books[1].status == "unread")
 r.check("cover path comes from the cache", books[1].cover_image_path == "/cache/2.jpg"
@@ -140,7 +140,7 @@ r.check("a cut synopsis keeps its text and adds the note",
   books[2].title == "Cut" and books[2].description:find("^Begins here")
   and books[2].description:find("Open this book", 1, true) ~= nil)
 local page = shelf.fetch(source, nil, 1, 1)
-r.check("offset and limit slice the sorted shelf", #page == 1 and page[1].title == "Mid")
+r.check("offset and limit slice the sorted shelf", #page == 1 and page[1].title == "Cut")
 r.check("a complete saved shelf starts no request", #ticks == 0 and Api.shelf_calls == 0)
 r.check("an unknown shelf is empty", select(1, shelf.fetch({ status_id = 99 }, nil, 0, 5))[1] == nil)
 
