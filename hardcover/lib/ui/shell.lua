@@ -85,7 +85,16 @@ function Shell:build()
     }
   end
   local nav = NavBar.new { width = sw, items = items }
-  local top = TopBar.new { width = sw, title = tab.title or tab.label, actions = tab.actions }
+  -- MMD top bar: a back arrow where you can go back (any tab but the first goes to the first), and
+  -- on the first tab a close, the last of its actions, so a device with no Back key can leave
+  local actions, on_back = {}, nil
+  for _, a in ipairs(tab.actions or {}) do actions[#actions + 1] = a end
+  if self.active == self.tabs[1].id then
+    actions[#actions + 1] = { icon = "close", callback = function() self:onClose() end }
+  else
+    on_back = function() self:setTab(self.tabs[1].id) end
+  end
+  local top = TopBar.new { width = sw, title = tab.title or tab.label, actions = actions, on_back = on_back }
 
   self.body_w = sw
   self.body_h = sh - top:getSize().h - nav:getSize().h

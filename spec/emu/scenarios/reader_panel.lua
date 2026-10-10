@@ -44,11 +44,10 @@ return {
     menu:showReaderPanel()
     emu:pump()
     emu:expectText("The Dispossessed")
-    emu:expectText("Currently Reading")
     emu:expectText("Page 142 of 387")
     emu:expectText("Update Hardcover as I read")
-    emu:expectText("Set page")
-    emu:expectText("Reviews")
+    emu:expectText("Update progress")
+    emu:expectText("Open book page")
     emu:shot("reader_panel")
     emu:closeAll()
 

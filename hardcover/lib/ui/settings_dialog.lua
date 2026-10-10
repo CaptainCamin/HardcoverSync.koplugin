@@ -53,7 +53,7 @@ function SettingsScreen:buildRow(row, width, viewport)
   -- a menu label that ends in its value's colon ("Track progress settings: ") reads as a dangling
   -- colon here
   local label = (row.text:gsub("[:%s]+$", ""))
-  local support
+  local support = row.support
   if row.tile then
     -- "Account: Signed in" under an "Account" label says the label twice
     local prefix = row.tile .. ": "

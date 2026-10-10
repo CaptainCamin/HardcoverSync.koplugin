@@ -141,8 +141,12 @@ return {
 
     tapButton(dialog.shelf_button)
     emu:expectText("Remove from library")
-    -- the bullet-marked current choice closes the picker without a request
-    local current = emu:expectText("\226\128\162 Read")
+    -- the radio-marked current choice closes the picker without a request
+    local current
+    for _, node in ipairs(emu:screenNodes()) do
+      if node.text == "Read" then current = node end
+    end
+    assert(current, "no Read row")
     emu:tapExpecting(current.x + 5, current.y + 5)
     emu:pump()
     assert(count("updateUserBook") == 2, "choosing the current status made a request")

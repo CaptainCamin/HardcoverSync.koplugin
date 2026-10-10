@@ -12,9 +12,8 @@ local NetworkManager = require("ui/network/manager")
 local Trapper = require("ui/trapper")
 local UIManager = require("ui/uimanager")
 
-local ConfirmBox = require("ui/widget/confirmbox")
+local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 local Event = require("ui/event")
-local InfoMessage = require("ui/widget/infomessage")
 local Notification = require("ui/widget/notification")
 
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
@@ -178,10 +177,7 @@ function HardcoverApp:init()
 
     if err == HARDCOVER.ERROR.TOKEN or _t.dig(err, "extensions", "code") == HARDCOVER.ERROR.JWT or (err.message and string.find(err.message, "JWT")) then
       self:disable()
-      UIManager:show(InfoMessage:new {
-        text = "Your Hardcover API key is not valid or has expired. Please update it and restart",
-        icon = "notice-warning",
-      })
+      StatusDialogs.error("Your Hardcover API key is not valid or has expired. Please update it and restart")
     end
   end
 
@@ -292,11 +288,7 @@ function HardcoverApp:signIn()
   end
 
   if not NetworkManager:isConnected() then
-    UIManager:show(InfoMessage:new {
-      text = _("Connect to the internet to sign in"),
-      icon = "notice-warning",
-      timeout = 3,
-    })
+    StatusDialogs.error(_("Connect to the internet to sign in"), 3)
     return
   end
 
@@ -307,11 +299,7 @@ function HardcoverApp:signIn()
   -- which on e-ink looks identical to a refresh failure. The indicator means
   -- there is always something on screen, and it is replaced by the code entry
   -- dialog or by an error.
-  local working = UIManager:show(InfoMessage:new {
-    text = _("Contacting Hardcover\u{2026}"),
-    icon = "handshake",
-    timeout = nil,
-  })
+  local working = StatusDialogs.loading(_("Contacting Hardcover\u{2026}"))
 
   -- UIManager:show only queues the widget; nothing is drawn until the event
   -- loop runs, which the blocking call below prevents. Paint it now.
@@ -319,7 +307,7 @@ function HardcoverApp:signIn()
 
   local device, err = self.auth:beginDeviceFlow()
 
-  UIManager:close(working)
+  StatusDialogs.close(working)
 
   if not device then
     local message = "Could not start sign in"
@@ -327,11 +315,7 @@ function HardcoverApp:signIn()
       message = "Sign in timed out. Please try again."
     end
 
-    UIManager:show(InfoMessage:new {
-      text = _(message),
-      icon = "notice-warning",
-      timeout = 3,
-    })
+    StatusDialogs.error(_(message), 3)
     return
   end
 
@@ -427,10 +411,7 @@ function HardcoverApp:onHardcoverUpdateProgress()
     end
 
     local error_message = error and "Unable to update reading progress: " .. error or "Unable to update reading progress"
-    UIManager:show(InfoMessage:new {
-      text = error_message,
-      icon = "notice-warning",
-    })
+    StatusDialogs.error(error_message)
   end
 end
 
@@ -720,33 +701,20 @@ function HardcoverApp:on_flush_sync_queue()
     + (self.rating_queue and self.rating_queue:count() or 0)
 
   if pending == 0 then
-    UIManager:show(InfoMessage:new {
-      text = _("Nothing to sync"),
-      timeout = 2,
-    })
+    StatusDialogs.info(_("Nothing to sync"), 2)
     return
   end
 
   if not NetworkManager:isConnected() then
-    UIManager:show(InfoMessage:new {
-      text = T(_("%1 change(s) saved. They will sync when you are online."), pending),
-      timeout = 3,
-    })
+    StatusDialogs.info(T(_("%1 change(s) saved. They will sync when you are online."), pending), 3)
     return
   end
 
   local done = function(success)
     if success then
-      UIManager:show(InfoMessage:new {
-        text = _("Progress synced"),
-        timeout = 2,
-      })
+      StatusDialogs.info(_("Progress synced"), 2)
     else
-      UIManager:show(InfoMessage:new {
-        text = _("Sync failed. Changes are saved and will retry."),
-        icon = "notice-warning",
-        timeout = 3,
-      })
+      StatusDialogs.error(_("Sync failed. Changes are saved and will retry."), 3)
     end
   end
 
@@ -794,10 +762,7 @@ function HardcoverApp:_noticeSyncConflicts()
   if not self.sync_queue.conflictCount then return end
   local count = self.sync_queue:conflictCount()
   if count > 0 and count ~= self.noticed_conflicts then
-    UIManager:show(InfoMessage:new {
-      text = SyncConflicts.notice(count),
-      timeout = 5,
-    })
+    StatusDialogs.info(SyncConflicts.notice(count), 5)
   end
   self.noticed_conflicts = count
 end
@@ -813,13 +778,15 @@ function HardcoverApp:askAboutOpenBook()
   local function offer_jump()
     local target = SyncConflicts.documentPage(resume, self.settings:pages(), self.ui.document:getPageCount())
     if not target then return end
-    UIManager:show(ConfirmBox:new {
-      text = T(_("Hardcover is at page %1. Jump there?"), resume),
+    StatusDialogs.confirm {
+      title = T(_("Jump to page %1?"), resume),
+      text = _("Hardcover is further along than this device."),
       ok_text = _("Jump"),
+      cancel_text = _("Stay here"),
       ok_callback = function()
         self.ui:handleEvent(Event:new("GotoPage", target))
       end,
-    })
+    }
   end
 
   local entry = self.sync_queue:get(file)
@@ -853,10 +820,7 @@ function HardcoverApp:_flushGoals()
   self.dialog_manager:goalsFlushed(sent, archived)
 
   if result.held > 0 and result.held ~= self.noticed_held_goals then
-    UIManager:show(InfoMessage:new {
-      text = _("A goal change could not be sent. Open Goals to see which, or sign out and back in if it asks."),
-      timeout = 5,
-    })
+    StatusDialogs.info(_("A goal change could not be sent. Open Goals to see which, or sign out and back in if it asks."), 5)
   end
   self.noticed_held_goals = result.held
   return not result.stopped and result.waiting == result.held
@@ -969,10 +933,7 @@ function HardcoverApp:onEndOfBook()
     end)
   else
     marker()
-    UIManager:show(InfoMessage:new {
-      text = _("Hardcover status saved"),
-      timeout = 2
-    })
+    StatusDialogs.info(_("Hardcover status saved"), 2)
   end
 end
 
@@ -996,10 +957,7 @@ function HardcoverApp:onDocSettingsItemsChanged(file, doc_settings)
     Background.run(function()
       self.cache:updateBookStatus(file, status)
     end)
-    UIManager:show(InfoMessage:new {
-      text = _("Hardcover status saved"),
-      timeout = 2
-    })
+    StatusDialogs.info(_("Hardcover status saved"), 2)
   end
 end
 
