@@ -92,10 +92,10 @@ return {
     local M = require("hardcover/lib/ui/theme").margin
     UIManager:_repaint()
     local at = function(name) return dialog[name].dimen end
-    assert(at("shelf_button").y < at("reviews_button").y and at("reviews_button").y < at("lists_button").y,
-      "the buttons are not Shelf, Reviews, then the small row")
-    assert(at("lists_button").y == at("zlibrary_button").y and at("lists_button").x < at("zlibrary_button").x,
-      "Lists and Z-library are not one row, Lists first")
+    assert(at("zlibrary_button").y < at("reviews_button").y and at("reviews_button").y < at("shelf_button").y,
+      "the buttons are not Z-library, Reviews, then Shelf")
+    assert(at("shelf_button").y == at("lists_button").y and at("shelf_button").x < at("lists_button").x,
+      "Shelf and Lists are not one row, Shelf first")
     for _, name in ipairs({ "shelf_button", "lists_button", "reviews_button", "zlibrary_button" }) do
       local d = dialog[name].dimen
       assert(d and d.x >= M and d.x + d.w <= emu.Screen:getWidth() - M, name .. " is outside the margins")

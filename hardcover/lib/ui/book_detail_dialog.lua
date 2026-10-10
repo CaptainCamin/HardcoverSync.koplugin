@@ -83,8 +83,11 @@ local BookDetailDialog = FocusManager:extend {
   -- no callback, no button
   on_lists = nil,
   on_refresh = nil, -- the title bar's reload icon; nil hides it
-  -- called with the dialog when On device is tapped (look for the book among the files
-  -- on this device); no callback, no button
+  -- called with the dialog when Open is tapped (the book is on this device: a file the plugin linked
+  -- to it); no callback, no button
+  on_open = nil,
+  -- called with the dialog when Find on device is tapped (look for the book among the files on this
+  -- device); no callback, no button. Offered only when the book is not already on it.
   on_find = nil,
   -- present only when the Z-library plugin is installed (see hardcover/lib/zlibrary.lua)
   on_zlibrary = nil,
@@ -317,16 +320,15 @@ function BookDetailDialog:init()
     self.rating_tap = rating_row
   end
 
-  -- the buttons: Shelf (filled, the one main action, and where the book is on your shelves) over
-  -- Reviews, both the width of the page; then Lists, On device and Z-library (when that plugin is
-  -- there) as one row of smaller ones. They scroll with the page, so each tap is cut to the
-  -- visible area (see viewport.lua) or one scrolled away could catch a tap meant for what is over it.
-  self.shelf_button, self.lists_button, self.reviews_button, self.zlibrary_button = nil, nil, nil, nil
-  self.find_button = nil
+  -- the buttons, one slot after another: Open (filled) when the book is on this device, else Find on
+  -- device and Z-library (outlined, side by side) to get it; Reviews; then Shelf and Lists in a row.
+  -- There is no one main button. They scroll with the page, so each tap is cut to the visible area
+  -- (see viewport.lua) or one scrolled away could catch a tap meant for what is over it.
+  self.open_button, self.find_button, self.zlibrary_button = nil, nil, nil
+  self.reviews_button, self.shelf_button, self.lists_button = nil, nil, nil
   local function button(field, text, handler, opts)
-    opts = opts or {}
     local b = Button.new {
-      label = text, w = opts.w or width, h = opts.h or Theme.TOUCH_MIN, size = opts.size or 19, primary = opts.primary,
+      label = text, w = opts.w, h = Theme.TOUCH_MIN, size = 19, primary = opts.primary,
       viewport = viewport,
       callback = function()
         local fn = self[handler]
@@ -337,28 +339,35 @@ function BookDetailDialog:init()
     return b
   end
   local action_bar = VerticalGroup:new { align = "left" }
-  table.insert(action_bar, button("shelf_button", Shelf.shelfButtonText((self.detail or {}).status_id), "on_shelf",
-    { primary = true }))
-  if self.on_reviews then
-    table.insert(action_bar, Theme.span("s"))
-    table.insert(action_bar, button("reviews_button", _("Reviews"), "on_reviews"))
-  end
-  local small = {}
-  if self.on_lists then small[#small + 1] = { "lists_button", _("Lists"), "on_lists" } end
-  if self.on_find then small[#small + 1] = { "find_button", _("On device"), "on_find" } end
-  if self.on_zlibrary then small[#small + 1] = { "zlibrary_button", _("Z-library"), "on_zlibrary" } end
-  local small_row
-  if #small > 0 then
+  local action_rows = {} -- the buttons of each row, for the focus order
+  -- `specs`: { field, label, handler, primary }, sharing the width equally
+  local function add_row(specs)
+    if #specs == 0 then return end
+    if #action_bar > 0 then table.insert(action_bar, Theme.span("s")) end
     local gap = Theme.space.s
-    local each = math.floor((width - (#small - 1) * gap) / #small)
-    small_row = HorizontalGroup:new { align = "top" }
-    for i, spec in ipairs(small) do
-      if i > 1 then table.insert(small_row, HorizontalSpan:new { width = gap }) end
-      table.insert(small_row, button(spec[1], spec[2], spec[3], { w = each, h = Theme.px(48), size = 18 }))
+    local each = math.floor((width - (#specs - 1) * gap) / #specs)
+    local row = HorizontalGroup:new { align = "top" }
+    local fields = {}
+    for i, spec in ipairs(specs) do
+      if i > 1 then table.insert(row, HorizontalSpan:new { width = gap }) end
+      table.insert(row, button(spec[1], spec[2], spec[3], { w = each, primary = spec[4] }))
+      fields[#fields + 1] = spec[1]
     end
-    table.insert(action_bar, Theme.span("s"))
-    table.insert(action_bar, small_row)
+    table.insert(action_bar, row)
+    table.insert(action_rows, fields)
   end
+  if self.on_open then
+    add_row({ { "open_button", _("Open"), "on_open", true } })
+  else
+    local get = {}
+    if self.on_find then get[#get + 1] = { "find_button", _("Find on device"), "on_find" } end
+    if self.on_zlibrary then get[#get + 1] = { "zlibrary_button", _("Z-library"), "on_zlibrary" } end
+    add_row(get)
+  end
+  if self.on_reviews then add_row({ { "reviews_button", _("Reviews"), "on_reviews" } }) end
+  local manage = { { "shelf_button", Shelf.shelfButtonText((self.detail or {}).status_id), "on_shelf" } }
+  if self.on_lists then manage[#manage + 1] = { "lists_button", _("Lists"), "on_lists" } end
+  add_row(manage)
   self.action_bar = action_bar
 
   -- About: five lines at most, so the block is the same height for every book; a Read more opens
@@ -533,11 +542,11 @@ function BookDetailDialog:init()
 
   -- keyboard / d-pad focus: the buttons, the carousel's arrows (when it pages), then Close
   self.layout = {}
-  table.insert(self.layout, { self.shelf_button })
-  if self.reviews_button then table.insert(self.layout, { self.reviews_button }) end
-  local smalls = {}
-  for _i, spec in ipairs(small) do smalls[#smalls + 1] = self[spec[1]] end
-  if #smalls > 0 then table.insert(self.layout, smalls) end
+  for _i, fields in ipairs(action_rows) do
+    local row = {}
+    for _j, field in ipairs(fields) do row[#row + 1] = self[field] end
+    table.insert(self.layout, row)
+  end
   for _i, strip in ipairs({ self.carousel or false, self.similar_carousel or false }) do
     if strip and strip.paged then
       table.insert(self.layout, { strip.prev, strip.next })
