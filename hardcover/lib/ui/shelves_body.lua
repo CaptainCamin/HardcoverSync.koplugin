@@ -43,7 +43,7 @@ function ShelvesBody:build()
     local count = type(row.count) == "number"
       and (row.count == 1 and _("1 book") or string.format(_("%d books"), row.count)) or nil
     group[#group + 1] = ListItem.new {
-      width = w, label = row.title, support = count, lead = Theme.icon("shelves", icon),
+      width = w, label = row.title, support = count, lead = Theme.icon("shelf", icon),
       trailing = Draw.chevron("right"),
       divider = i < #rows and "dotted" or nil, divider_x = divider_x,
       callback = function() if self.select_cb then self.select_cb(row) end end,

@@ -205,5 +205,7 @@ return {
     emu:pump()
     assert(UIManager:getTopmostVisibleWidget() ~= shell, "Back on the first tab did not leave")
     assert(not require("hardcover/lib/ui/live").shown(body), "the body is still live after its shell left")
+    -- the emulator keeps its settings between scenes: leave the beta off for the ones that follow
+    settings:updateSetting(SETTING.NEW_NAVIGATION, false)
   end,
 }

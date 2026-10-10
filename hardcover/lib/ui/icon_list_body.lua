@@ -1,10 +1,11 @@
--- The Vibes tab of the Library (mock 2v): one icon to a row instead of covers (a sparkle for For
--- you, a ranked list for Hardcover's own vibes, a lock for private ones), which also saves fetching
--- covers. For you is simply the first row, with no heading of its own; "From Hardcover" and "Made
--- by you" are group heads on the same dotted line the rows use; dividers start after the icon.
+-- A list of rows with one icon each instead of covers, in two groups: the Library's Vibes tab (mock 2v:
+-- a sparkle for For you, a ranked list for Hardcover's own vibes, a lock for private ones) and its Lists
+-- tab (the shelf icon, the same as the Shelves tab, for "Your lists" and "Following"). No covers also
+-- means no cover fetches. A For you row is simply the first row, with no heading of its own; the group
+-- heads sit on the same dotted line the rows use; dividers start after the icon.
 --
 -- It takes the same data as the lists screen it replaces in the Library (setLists, setMessage), so
--- DialogManager:showVibes feeds either.
+-- DialogManager:showVibes and showLists feed either.
 
 local Blitbuffer = require("ffi/blitbuffer")
 local CenterContainer = require("ui/widget/container/centercontainer")
@@ -25,8 +26,12 @@ local ListItem = require("hardcover/lib/ui/components/list_item")
 local ScrollControl = require("hardcover/lib/ui/components/scroll_control")
 local Theme = require("hardcover/lib/ui/theme")
 
-local VibesBody = InputContainer:extend {
-  name = "hardcover_vibes_body",
+local IconListBody = InputContainer:extend {
+  name = "hardcover_icon_list",
+  first_title = nil,  -- the first group's head (default "From Hardcover")
+  second_title = nil, -- the second group's head (default "Made by you")
+  icon_for = nil,     -- function(row) -> the icon's name (default: by the kind of vibe)
+  empty_title = nil,
   system = nil,   -- rows (Vibes.rows): Hardcover's own, "For you" first when it is on
   mine = nil,     -- rows: made by you
   message = nil,  -- shown instead of the rows ("Loading your vibes…")
@@ -37,14 +42,14 @@ local VibesBody = InputContainer:extend {
   parent = nil,
 }
 
-function VibesBody:init()
+function IconListBody:init()
   local w, h = Hosted.size(self)
   self.dimen = Geom:new { x = 0, y = 0, w = w, h = h }
   self:build()
 end
 
 -- the icon a row gets: what kind of vibe it is
-local function iconFor(row)
+local function vibeIcon(row)
   if row.for_you then return "sparkle" end
   if row.private then return "lock" end
   return "ranked"
@@ -64,7 +69,7 @@ local function groupHead(title, count, width)
   }
 end
 
-function VibesBody:rows(width)
+function IconListBody:rows(width)
   local group = VerticalGroup:new { align = "left" }
   local icon = Theme.px(30)
   local divider_x = ListItem.PAD + icon + Theme.px(16)
@@ -73,7 +78,7 @@ function VibesBody:rows(width)
       group[#group + 1] = ListItem.new {
         width = width, label = row.name,
         support = row.for_you and _("Based on what you read") or Lists.subtitle(row),
-        lead = Theme.icon(iconFor(row), icon), trailing = Draw.chevron("right"),
+        lead = Theme.icon((self.icon_for or vibeIcon)(row), icon), trailing = Draw.chevron("right"),
         divider = "dotted", divider_x = divider_x,
         callback = function() if self.select_cb then self.select_cb(row) end end,
       }
@@ -86,17 +91,17 @@ function VibesBody:rows(width)
   local hardcover = {}
   for i = #first + 1, #system do hardcover[#hardcover + 1] = system[i] end
   if #hardcover > 0 then
-    group[#group + 1] = groupHead(_("From Hardcover"), #hardcover, width)
+    group[#group + 1] = groupHead(self.first_title or _("From Hardcover"), #hardcover, width)
     add(hardcover)
   end
   if self.mine and #self.mine > 0 then
-    group[#group + 1] = groupHead(_("Made by you"), #self.mine, width)
+    group[#group + 1] = groupHead(self.second_title or _("Made by you"), #self.mine, width)
     add(self.mine)
   end
   return group
 end
 
-function VibesBody:build()
+function IconListBody:build()
   local w, h = Hosted.size(self)
   local body
   self.scroll = nil
@@ -120,7 +125,7 @@ function VibesBody:build()
     bordersize = 0, padding = 0, margin = 0, body }
 end
 
-function VibesBody:rebuild()
+function IconListBody:rebuild()
   local offset = self.scroll and self.scroll:getScrolledOffset()
   if self[1] and type(self[1].free) == "function" then pcall(function() self[1]:free() end) end
   self[1] = nil
@@ -129,16 +134,16 @@ function VibesBody:rebuild()
   Hosted.dirty(self)
 end
 
-function VibesBody:setLists(system, mine, message)
+function IconListBody:setLists(system, mine, message)
   self.system, self.mine, self.message = system, mine, message
   self:rebuild()
 end
 
-function VibesBody:setMessage(message)
+function IconListBody:setMessage(message)
   self.message = message
   self:rebuild()
 end
 
-function VibesBody:onClose() return true end
+function IconListBody:onClose() return true end
 
-return VibesBody
+return IconListBody

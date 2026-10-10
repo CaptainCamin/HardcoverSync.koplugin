@@ -1207,7 +1207,7 @@ function DialogManager:showVibes(host)
   self:screens():discard("vibes")
 
   -- in the Library it is the icon list of mock 2v; on its own, the lists screen with covers
-  local dialog = require(host and "hardcover/lib/ui/vibes_body" or "hardcover/lib/ui/lists_dialog"):new {
+  local dialog = require(host and "hardcover/lib/ui/icon_list_body" or "hardcover/lib/ui/lists_dialog"):new {
     shell = host and host.shell, width = host and host.width, height = host and host.height,
     parent = host and host.parent,
     title = _("Vibes"),
