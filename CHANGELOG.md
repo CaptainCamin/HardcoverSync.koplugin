@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Long screens have a visible scroll control.** Settings, Home, a book's details, Goals, a goal, Stats and Lists show a triangle at each end of a slim bar. Tap the bottom one for the next page and the top one to go back; the page moves by whole rows. A triangle with dots means you are at that end. Swiping still works.
+
 ## 1.7.0
 
 ### Added
