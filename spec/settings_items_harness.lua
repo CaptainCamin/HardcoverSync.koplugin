@@ -16,6 +16,11 @@ local function noop() end
 
 print("\n== rows ==")
 
+check("an option's help text is a visible line under it, not a long press", function()
+  local rows = SettingsItems.rows({ { text = "Beta", callback = function() end, help = "What it does" } }, noop, noop)
+  assert(rows[1].support == "What it does")
+end)
+
 check("a ticked option shows a tick, an unticked one does not", function()
   local rows = SettingsItems.rows({
     { text = "On", checked_func = function() return true end, callback = noop },

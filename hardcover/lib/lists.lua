@@ -190,10 +190,9 @@ function Lists.onNames(rows)
   return #names > 0 and table.concat(names, ", ") or nil
 end
 
--- A picker row: a box ticked when the book is on the list, the name, and how many
--- books it holds. "..." while a change is on its way.
+-- A picker row: the name and how many books the list holds (the tick box is the row's own). "..." while a change is on its way.
 function Lists.pickerLabel(r)
-  local text = string.format("%s  %s (%d)", r.on and "\226\152\145" or "\226\152\144", r.name, r.count or 0)
+  local text = string.format("%s (%d)", r.name, r.count or 0)
   if r.ranked then text = text .. DOT .. "ranked" end
   if r.busy then text = text .. " \226\128\166" end
   return text

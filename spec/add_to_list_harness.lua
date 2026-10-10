@@ -58,21 +58,27 @@ package.preload["hardcover_version"] = function() return { "0", "0", "0", "spec"
 package.preload["logger"] = function()
   return { dbg = function() end, info = function() end, warn = function() end, err = function() end }
 end
--- a ButtonDialog whose buttons can be read, changed and tapped like the real ones
-package.preload["ui/widget/buttondialog"] = function()
-  return { new = function(_, o)
+-- the sheet's rows, readable and tappable like the real ones; `buttons` is the old view of them
+package.preload["hardcover/lib/ui/picker"] = function()
+  local M = {}
+  function M.new(o)
     o.is_picker = true
-    for _, row in ipairs(o.buttons) do
-      local b = row[1]
-      b.width, b.enabled = 100, true
-      b.setText = function(self, text) self.text = text end
-      b.enableDisable = function(self, on) self.enabled = on end
-    end
-    o.getButtonById = function(self, id)
-      for _, row in ipairs(self.buttons) do if row[1].id == id then return row[1] end end
+    o.buttons = {}
+    for _, row in ipairs(o.rows) do
+      row.enabled = true
+      o.buttons[#o.buttons + 1] = { row }
     end
     return o
-  end }
+  end
+  function M.setRow(picker, id, text, enabled, checked)
+    for _, row in ipairs(picker.rows) do
+      if row.id == id then
+        row.text, row.enabled = text, enabled ~= false
+        if checked ~= nil then row.checked = checked end
+      end
+    end
+  end
+  return M
 end
 local real_require = require
 _G.require = function(name)
@@ -141,10 +147,10 @@ end)
 
 check("a picker row shows the tick, the name, the size, ranked, and ... while saving", function()
   local rows = Lists.membership(me)
-  assert(Lists.pickerLabel(rows[1]) == "\226\152\145  To Read - SciFi (7) \194\183 ranked", Lists.pickerLabel(rows[1]))
-  assert(Lists.pickerLabel(rows[2]) == "\226\152\144  Grin (4)", Lists.pickerLabel(rows[2]))
+  assert(Lists.pickerLabel(rows[1]) == "To Read - SciFi (7) \194\183 ranked", Lists.pickerLabel(rows[1]))
+  assert(Lists.pickerLabel(rows[2]) == "Grin (4)", Lists.pickerLabel(rows[2]))
   rows[2].busy = true
-  assert(Lists.pickerLabel(rows[2]) == "\226\152\144  Grin (4) \226\128\166")
+  assert(Lists.pickerLabel(rows[2]) == "Grin (4) \226\128\166")
 end)
 
 check("adding and removing move the tick, the id and the count (never below 0)", function()
@@ -433,8 +439,8 @@ check("the picker shows each list ticked or not, then Done", function()
   local m = newManager()
   local p = open(m, detailScreen(rowsFor()))
   assert(#p.buttons == 4, "rows: " .. #p.buttons)
-  assert(p.buttons[1][1].text:find("\226\152\145  To Read - SciFi", 1, true))
-  assert(p.buttons[2][1].text:find("\226\152\144  Grin", 1, true))
+  assert(p.buttons[1][1].text:find("To Read - SciFi", 1, true) and p.buttons[1][1].checked == true)
+  assert(p.buttons[2][1].text:find("Grin", 1, true) and p.buttons[2][1].checked == false)
   assert(p.buttons[4][1].text == "Done")
 end)
 
@@ -457,7 +463,7 @@ check("the answer ticks the row, counts it, keeps the id, and updates the lists 
   tap(p, "Grin")
   answerLast({ id = 900 })
   local b = button(p, "Grin")
-  assert(b.text == "\226\152\145  Grin (5)" and b.enabled, "label: " .. b.text)
+  assert(b.text == "Grin (5)" and b.checked and b.enabled, "label: " .. b.text)
   assert(d.detail.lists[2].on and d.detail.lists[2].list_book_id == 900 and d.detail.lists[2].count == 5)
   assert(lists_screen.mine[2].count == 5 and lists_screen.rebuilt == 1, "lists screen not refreshed")
   assert(#d.synced == 0, "rebuilt the details behind the open picker")
@@ -470,7 +476,7 @@ check("unticking sends the delete with the list_books id and the tick goes", fun
   tap(p, "To Read")
   assert(#calls == 1 and calls[1].name == "removeFromList" and calls[1].args[1] == 501, "no delete of 501")
   answerLast({ id = 501 })
-  assert(button(p, "To Read").text == "\226\152\144  To Read - SciFi (6) \194\183 ranked", button(p, "To Read").text)
+  assert(button(p, "To Read").text == "To Read - SciFi (6) \194\183 ranked" and button(p, "To Read").checked == false, button(p, "To Read").text)
   assert(not d.detail.lists[1].on and d.detail.lists[1].list_book_id == nil)
   assert(lists_screen.mine[1].count == 6)
 end)
@@ -482,7 +488,7 @@ check("a failed add puts the tick back, says why, and allows another try", funct
   tap(p, "Grin")
   answerLast(nil, "List not found")
   local b = button(p, "Grin")
-  assert(b.text == "\226\152\144  Grin (4)" and b.enabled, "label: " .. b.text)
+  assert(b.text == "Grin (4)" and b.checked == false and b.enabled, "label: " .. b.text)
   assert(not d.detail.lists[2].on and d.detail.lists[2].count == 4)
   assert(#errors == 1 and errors[1]:find("Grin", 1, true) and errors[1]:find("List not found", 1, true), tostring(errors[1]))
   assert(lists_screen.rebuilt == 0, "the lists screen changed for a change that did not happen")
@@ -496,7 +502,7 @@ check("a failed remove keeps the tick", function()
   local p = open(m, d)
   tap(p, "Research")
   answerLast(nil, { completed = false })
-  assert(button(p, "Research").text:find("\226\152\145", 1, true), "tick lost")
+  assert(button(p, "Research").checked, "tick lost")
   assert(d.detail.lists[3].on and d.detail.lists[3].list_book_id == 502 and d.detail.lists[3].count == 1)
   assert(#errors == 1)
 end)
@@ -507,7 +513,7 @@ check("an insufficient_scope answer gives the sign-in message, not a failure rep
   tap(p, "Grin")
   answerLast(nil, { errors = { "insufficient_scope" }, status = 403 })
   assert(#errors == 0 and #infos == 1 and infos[1]:find("Sign out and back in", 1, true), "wrong message")
-  assert(button(p, "Grin").text == "\226\152\144  Grin (4)", "tick not restored")
+  assert(button(p, "Grin").checked == false, "tick not restored")
 end)
 
 check("offline at the tap sends nothing and leaves the row alone", function()
@@ -517,7 +523,7 @@ check("offline at the tap sends nothing and leaves the row alone", function()
   tap(p, "Grin")
   online = true
   assert(#calls == 0 and #infos == 1 and infos[1]:lower():find("offline"))
-  assert(button(p, "Grin").enabled and button(p, "Grin").text == "\226\152\144  Grin (4)")
+  assert(button(p, "Grin").enabled and button(p, "Grin").checked == false)
 end)
 
 check("Done closes the picker and the details name the lists once", function()
@@ -535,7 +541,7 @@ check("dismissing the picker by a tap outside also updates the details, once", f
   local m = newManager()
   local d = detailScreen(rowsFor())
   local p = open(m, d)
-  p.tap_close_callback()
+  p.close_callback()
   assert(#d.synced == 1)
 end)
 
@@ -586,7 +592,7 @@ check("the lookup failing restores the tick", function()
   answerLast({})
   tap(p, "Grin")
   answerLast(nil, { completed = false })
-  assert(d.detail.lists[2].on and button(p, "Grin").text:find("\226\152\145", 1, true) and #errors == 1)
+  assert(d.detail.lists[2].on and button(p, "Grin").checked and #errors == 1)
 end)
 
 check("the Lists button is offered only to an OAuth sign-in that is still good", function()

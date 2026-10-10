@@ -7,4 +7,4 @@ Design material for the MMD-based overhaul. Not shipped code.
 - `proto_b2/`: emulator renders of the component prototypes (settings, scroll control, sheets, tabs, chips)
   at appendix metrics, plus `contact_sheet.html`. The scenes and widget library live on branch
   `claude/mmd-prototypes` (`spec/emu/scenarios/proto_*.lua`, `spec/emu/proto/widgets.lua`).
-- Implementation order and the open gates: see the plan, `docs/e-ink-design.md` and `docs/components.md`.
+- Open gates and rules: `docs/e-ink-design.md`. Components: `docs/components.md` (added with the components PR).

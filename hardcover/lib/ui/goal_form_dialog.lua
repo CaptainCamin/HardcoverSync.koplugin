@@ -9,7 +9,7 @@
 -- connection, a refusal) keeps what was typed, with the reason shown at the top.
 
 local Blitbuffer = require("ffi/blitbuffer")
-local ConfirmBox = require("ui/widget/confirmbox")
+local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 local DateTimeWidget = require("ui/widget/datetimewidget")
 local Device = require("device")
 local FrameContainer = require("ui/widget/container/framecontainer")
@@ -26,14 +26,17 @@ local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
 
 local Goals = require("hardcover/lib/goals")
+local Button = require("hardcover/lib/ui/components/button")
+local Draw = require("hardcover/lib/ui/components/draw")
+local ListItem = require("hardcover/lib/ui/components/list_item")
 local Picker = require("hardcover/lib/ui/picker")
+local TopBar = require("hardcover/lib/ui/components/top_bar")
 local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
 
 local Screen = Device.screen
 
 local CHEVRON = "\226\128\186"
-local CHECK = "\226\156\147"
 
 local GoalFormDialog = InputContainer:extend {
   name = "hardcover_goal_form",
@@ -85,89 +88,53 @@ function GoalFormDialog:rows()
   }
 end
 
-function GoalFormDialog:buildRow(row, width, viewport)
-  local h = Screen:scaleBySize(70)
-  local inner = width - 2 * Theme.line.firm
-  local pad = Theme.space.m
-  local chevron = text(CHEVRON, "title", { bold = true })
-  local value_w = inner - 2 * pad - chevron:getSize().w - Theme.space.s
-  local info = VerticalGroup:new {
-    align = "left",
-    text(row.label, "small", { grey = true, width = value_w }),
-    text(row.value, "body", { bold = true, width = value_w }),
-  }
-  local content = HorizontalGroup:new {
-    align = "center",
-    Theme.hspan(pad),
-    info,
-    Theme.hspan(math.max(0, value_w - info:getSize().w + Theme.space.s)),
-    chevron,
-  }
-  local box = FrameContainer:new {
-    bordersize = Theme.line.firm,
-    radius = Screen:scaleBySize(10),
-    padding = 0,
-    margin = 0,
-    width = width,
-    height = h,
-    color = Theme.BLACK,
-    background = Theme.WHITE,
-    LeftContainer:new {
-      dimen = Geom:new { w = inner, h = h - 2 * Theme.line.firm },
-      content,
-    },
-  }
-  local tap = TapRow:new {
+-- One field as a list row: its name over what it holds, a chevron, a dotted divider under it.
+function GoalFormDialog:buildRow(row, width, viewport, last)
+  local item = ListItem.new {
+    width = width, label = row.label, support = row.value, trailing = Draw.chevron("right"),
+    divider = (not last) and "dotted" or nil, viewport = viewport,
     callback = function() if not self.busy then row.edit() end end,
-    viewport = viewport,
-    box,
   }
-  tap.text = row.label
-  self.row_taps[row.key] = tap
-  return tap
+  item.text = row.label
+  self.row_taps[row.key] = item
+  return item
 end
 
 function GoalFormDialog:buildContent(width, viewport)
   self.row_taps = {}
   local c = VerticalGroup:new { align = "left" }
-  table.insert(c, Theme.span("m"))
+  table.insert(c, Theme.span("s"))
 
   if self.message then
-    table.insert(c, FrameContainer:new {
-      bordersize = Theme.line.firm, color = Theme.BLACK, radius = Theme.px(8),
-      padding = Theme.space.s, margin = 0, background = Blitbuffer.COLOR_WHITE,
-      TextBoxWidget:new { text = self.message, face = Theme.face("small"), bold = true,
-        width = width - 2 * Theme.space.s - 2 * Theme.line.firm },
-    })
-    table.insert(c, Theme.span("m"))
-  end
-
-  for _i, row in ipairs(self:rows()) do
-    table.insert(c, self:buildRow(row, width, viewport))
+    -- the reason, whole: it can be a sentence long
+    local face, bold = Theme.mmdFace("text", 18)
+    table.insert(c, Theme.mmdText(_("Not saved"), "strong", 21, { width = width }))
+    table.insert(c, Theme.span(Theme.px(4)))
+    table.insert(c, TextBoxWidget:new { text = self.message, face = face, bold = bold, width = width,
+      fgcolor = Theme.secondary() })
     table.insert(c, Theme.span("s"))
+    table.insert(c, Theme.dottedRule(width))
   end
-  table.insert(c, Theme.span("m"))
 
-  local half = math.floor((width - Theme.space.m) / 2)
-  self.save_button = Theme.button(self.busy and _("Saving\226\128\166") or _("Save"), half, {
-    filled = true, size = "body", enabled = not self.busy, viewport = viewport,
-    callback = function() self:save() end,
-  })
-  self.cancel_button = Theme.button(_("Cancel"), half, {
-    size = "body", enabled = not self.busy, viewport = viewport,
-    callback = function() self:cancel() end,
-  })
-  table.insert(c, HorizontalGroup:new { self.save_button, Theme.hspan("m"), self.cancel_button })
+  local rows = self:rows()
+  for i, row in ipairs(rows) do
+    table.insert(c, self:buildRow(row, width, viewport, i == #rows))
+  end
+  table.insert(c, Theme.span("l"))
+
+  self.save_button = Button.new { label = self.busy and _("Saving\226\128\166") or _("Save"), w = width,
+    primary = true, viewport = viewport, enabled = not self.busy,
+    callback = (not self.busy) and function() self:save() end or nil }
+  table.insert(c, self.save_button)
 
   if self.goal and self.on_archive then
-    table.insert(c, Theme.span("l"))
-    self.archive_button = Theme.button(_("Archive this goal"), width, {
-      size = "small", enabled = not self.busy, viewport = viewport,
-      callback = function() self:archive() end,
-    })
+    table.insert(c, Theme.span(Theme.px(16)))
+    self.archive_button = Button.new { label = _("Archive this goal"), w = width, viewport = viewport,
+      enabled = not self.busy, callback = (not self.busy) and function() self:archive() end or nil }
     table.insert(c, self.archive_button)
     table.insert(c, Theme.span("xs"))
-    table.insert(c, text(_("It stays on Hardcover, hidden. Bring it back from the website."), "small", { grey = true, width = width }))
+    table.insert(c, Theme.mmdText(_("It stays on Hardcover, hidden. Bring it back from the website."), "text", 18,
+      { secondary = true, width = width }))
   end
   table.insert(c, Theme.span("l"))
   return c
@@ -176,11 +143,9 @@ end
 function GoalFormDialog:build()
   local screen_w, screen_h = Screen:getWidth(), Screen:getHeight()
   local M = Theme.margin
-  local title_bar = Theme.titleBar {
-    title = self.goal and _("Edit goal") or _("New goal"),
-    close_callback = function() self:cancel() end,
-    show_parent = self,
-  }
+  -- the back arrow is Cancel (it asks first when something was changed)
+  local title_bar = TopBar.new { width = screen_w, title = self.goal and _("Edit goal") or _("New goal"),
+    on_back = function() self:cancel() end }
   local room = screen_h - title_bar:getSize().h
 
   local width = screen_w - 2 * M
@@ -272,8 +237,8 @@ function GoalFormDialog:choose(title, choices, on_choose)
   local rows = {}
   for _i, choice in ipairs(choices) do
     rows[#rows + 1] = {
-      text = (choice.current and (CHECK .. " ") or "") .. choice.text,
-      current = choice.current,
+      text = choice.text,
+      current = choice.current and true or false,
       callback = function()
         UIManager:close(picker)
         on_choose(choice.value)
@@ -380,13 +345,14 @@ end
 
 function GoalFormDialog:archive()
   if self.busy then return end
-  UIManager:show(ConfirmBox:new {
-    text = _("Archive this goal? It stays on Hardcover, hidden, and you can bring it back from the website."),
+  StatusDialogs.confirm {
+    title = _("Archive this goal?"),
+    text = _("It stays on Hardcover, hidden, and you can bring it back from the website."),
     ok_text = _("Archive"),
     ok_callback = function()
       if self.on_archive then self.on_archive() end
     end,
-  })
+  }
 end
 
 -- the manager shows the progress of a save, and what went wrong
@@ -403,11 +369,12 @@ end
 function GoalFormDialog:cancel()
   if self.busy then return true end
   if not self:dirty() then return self:onClose() end
-  UIManager:show(ConfirmBox:new {
-    text = _("Discard your changes?"),
+  StatusDialogs.confirm {
+    title = _("Discard your changes?"),
     ok_text = _("Discard"),
+    cancel_text = _("Keep editing"),
     ok_callback = function() self:onClose() end,
-  })
+  }
   return true
 end
 

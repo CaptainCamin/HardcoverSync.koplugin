@@ -105,6 +105,7 @@ User.getId = function() return 1 end
 
 local infos
 StatusDialogs.info = function(text) infos[#infos + 1] = text end
+StatusDialogs.confirm = function(o) o.kind = "confirm"; dialogs[#dialogs + 1] = o; return o end
 
 print("\n== the plan ==")
 
@@ -193,7 +194,7 @@ check("it asks first, with how many and about how much, then keeps them all", fu
   seen["small:https://assets.hardcover.app/3.jpg"] = "img" -- seen before: copied, not downloaded
   assert(m:coversMenuText() == "Download covers for offline (3 missing)", m:coversMenuText())
   m:downloadCoversForOffline()
-  assert(dialogs[1].kind == "confirm" and dialogs[1].text:find("Keep 3 covers for offline"), dialogs[1].text)
+  assert(dialogs[1].kind == "confirm" and dialogs[1].title:find("Keep covers for offline") and dialogs[1].text:find("3 covers, about"), dialogs[1].text)
   confirm()
   assert(#fetched == 2, "downloaded " .. #fetched .. " (a seen cover was downloaded again?)")
   assert(infos[#infos] == "Every cover is kept for offline (3).", tostring(infos[#infos]))

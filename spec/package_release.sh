@@ -89,7 +89,7 @@ mkdir -p "$STAGE/$PLUGIN_DIR"
 # Only what ships. The config example must be included: it is the template a
 # user copies to create their own config, and without it they have no way to
 # learn the key names.
-for item in _meta.lua main.lua hardcover icons hardcover_version.lua \
+for item in _meta.lua main.lua hardcover icons fonts hardcover_version.lua \
             hardcover_config.example.lua LICENSE README.md CHANGELOG.md; do
   if [ -e "$ROOT/$item" ]; then
     cp -R "$ROOT/$item" "$STAGE/$PLUGIN_DIR/"
