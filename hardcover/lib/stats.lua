@@ -121,7 +121,8 @@ end
 --   undated   (books with no finish date, counted in all time only),
 --   by_year   { {year, count}... } oldest first, every year between the first and last,
 --   months    { 12 counts } (a year only), month_unknown (finishes known to the year only),
---   best_month { month, count } (a year only),
+--   best_month { month, count }, last_month (the latest month with a finish) (a year only),
+--   page_list (the page counts, smallest first),
 --   ratings   { counts = {10}, rated, average }, authors { {name, count}... },
 --   lengths   { {label, count}... }, average_pages, longest, shortest { title, pages },
 -- }
@@ -131,7 +132,7 @@ function Stats.compute(rows, opts)
   local year = opts.year
   local out = {
     year = year, books = 0, pages = 0, pages_books = 0, audio_seconds = 0, audio_books = 0,
-    undated = 0, by_year = {}, months = {}, month_unknown = 0,
+    undated = 0, by_year = {}, months = {}, month_unknown = 0, page_list = {},
     ratings = { counts = {}, rated = 0, average = nil }, authors = {}, lengths = {},
   }
   for m = 1, 12 do out.months[m] = 0 end
@@ -162,6 +163,7 @@ function Stats.compute(rows, opts)
       if row.pages then
         out.pages = out.pages + row.pages
         out.pages_books = out.pages_books + 1
+        out.page_list[#out.page_list + 1] = row.pages
         for i, bucket in ipairs(Stats.LENGTHS) do
           if row.pages < bucket.under then out.lengths[i].count = out.lengths[i].count + 1; break end
         end
@@ -188,6 +190,7 @@ function Stats.compute(rows, opts)
       out.by_year[#out.by_year + 1] = { year = y, count = per_year[y] or 0 }
     end
   end
+  table.sort(out.page_list)
   if out.ratings.rated > 0 then out.ratings.average = rating_sum / out.ratings.rated end
   if out.pages_books > 0 then out.average_pages = math.floor(out.pages / out.pages_books + 0.5) end
 
@@ -196,6 +199,7 @@ function Stats.compute(rows, opts)
       if out.months[m] > 0 and (not out.best_month or out.months[m] > out.best_month.count) then
         out.best_month = { month = m, count = out.months[m] }
       end
+      if out.months[m] > 0 then out.last_month = m end
     end
   end
 
