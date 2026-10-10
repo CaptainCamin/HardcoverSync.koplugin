@@ -10,6 +10,7 @@ local Background = require("hardcover/lib/background")
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local Network = require("hardcover/lib/network")
 local ShelfLoader = require("hardcover/lib/shelf_loader")
+local ShelfSort = require("hardcover/lib/shelf_sort")
 local User = require("hardcover/lib/user")
 local SETTING = require("hardcover/lib/constants/settings")
 
@@ -83,6 +84,10 @@ local function toBooks(entries, status_id)
         series = entry.series,
         pages = entry.pages,
         rating = tonumber(entry.user_rating),
+        user_rating = tonumber(entry.user_rating),
+        release_year = tonumber(entry.release_year),
+        users_count = tonumber(entry.users_count),
+        community_rating = tonumber(entry.community_rating),
         status_id = status_id or tonumber(entry.status_id),
         added_time = dateTime(entry.date_added),
         hardcover_book_id = book_id,
@@ -117,10 +122,70 @@ local function slice(items, offset, limit)
   return out
 end
 
-local function shelfPage(user_id, status_id, offset, limit)
+local function shelfPage(user_id, status_id, offset, limit, sort_key)
   local state = shelf_entries[shelfKey(user_id, status_id)]
   if not state then return {}, nil end
-  return slice(state.entries, offset, limit), state.complete and #state.entries or nil
+  local entries = toBooks(state.entries, status_id)
+  entries = ShelfSort.sort(entries, sort_key)
+  return slice(entries, offset, limit), state.complete and #state.entries or nil
+end
+
+local function addCovers(spec, books)
+  if type(spec.cover) ~= "function" then return books end
+  for _, book in ipairs(books) do
+    if not book.cover_image_path and not book.cover_bb then
+      local ok, bb, width, height = pcall(spec.cover, book)
+      if ok and bb then
+        book.cover_bb, book.cover_w, book.cover_h = bb, width, height
+        book.has_cover = true
+      end
+    end
+  end
+  return books
+end
+
+local function sortRows()
+  return {
+    {
+      {
+        text = function(draft)
+          return _("Sort") .. ": " .. _(ShelfSort.label(draft.source.sort_key))
+        end,
+        callback = function(draft, done)
+          local Picker = require("hardcover/lib/ui/picker")
+          local picker_widget
+          local finished = false
+          local function cancel()
+            if finished then return end
+            finished = true
+            done()
+          end
+          local rows = {}
+          for _, option in ipairs(ShelfSort.OPTIONS) do
+            local key = option.key
+            rows[#rows + 1] = {
+              text = (draft.source.sort_key or ShelfSort.DEFAULT) == key
+                and ("• " .. _(option.label)) or _(option.label),
+              id = "hardcover_sort_" .. key,
+              callback = function()
+                if finished then return end
+                finished = true
+                UIManager:close(picker_widget)
+                draft.source.sort_key = key
+                done()
+              end,
+            }
+          end
+          picker_widget = Picker.new {
+            title = _("Sort Hardcover books"),
+            rows = rows,
+            close_callback = cancel,
+          }
+          UIManager:show(picker_widget)
+        end,
+      },
+    },
+  }
 end
 
 local function changed(app, id)
@@ -196,6 +261,9 @@ local function loadShelf(app, shelf, force, done)
       return
     end
     local result = ShelfLoader.load {
+      -- Read shelves commonly span several hundred books. A moderately larger
+      -- page cuts round trips substantially while keeping each response bounded.
+      page_size = 250,
       fetch = function(offset, limit)
         return Api:getShelf(user_id, status_id, offset, limit)
       end,
@@ -236,6 +304,7 @@ local function shelfSource(app, id, fixed_shelf, picker)
   end
   spec.available = function() return hasCredentials(app) end
   spec.picker = picker == true
+  spec.editor_rows = sortRows
 
   if picker then
     spec.pick = function(draft, done)
@@ -288,8 +357,9 @@ local function shelfSource(app, id, fixed_shelf, picker)
       end
     end
     if not (state and state.complete) then loadShelf(app, shelf, false) end
-    local entries, total = shelfPage(user_id, shelf.status, offset, limit)
-    return toBooks(entries, shelf.status), total
+    local entries, total = shelfPage(user_id, shelf.status, offset, limit,
+      source and source.sort_key)
+    return addCovers(spec, entries), total
   end
   spec.refresh = function(source, _drill, done)
     local shelf = fixed_shelf or shelfForStatus(source and source.status_id)
@@ -429,6 +499,7 @@ function Sources.register(app)
   lists.label = function() return _("Hardcover list") end
   lists.available = function() return hasCredentials(app) end
   lists.picker = true
+  lists.editor_rows = sortRows
   lists.pick = function(draft, done)
     if not Network.connected() then
       UIManager:show(require("ui/widget/infomessage"):new {
@@ -507,7 +578,8 @@ function Sources.register(app)
       return {}, nil
     end
     if not state.complete then loadList(app, source, false) end
-    return slice(toBooks(state.entries, nil), offset, limit), state.total
+    local books = ShelfSort.sort(toBooks(state.entries, nil), source.sort_key)
+    return addCovers(lists, slice(books, offset, limit)), state.total
   end
   lists.refresh = function(source, _drill, done)
     if not source.list_id then done(); return end
