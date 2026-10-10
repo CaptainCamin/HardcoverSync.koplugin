@@ -48,9 +48,29 @@ local function container_stub(name)
   return base
 end
 container_stub("ui/widget/container/centercontainer")
+container_stub("ui/widget/verticalgroup")
 container_stub("ui/widget/container/inputcontainer")
 support.preload_theme_stubs()
 package.preload["ui/widget/container/topcontainer"] = package.preload["ui/widget/linewidget"]
+container_stub("ui/widget/container/scrollablecontainer")
+container_stub("ui/widget/container/leftcontainer")
+-- the new screens and components are drawn on a real KOReader (spec/emu/scenarios/reviews.lua); here
+-- they are stand-ins that keep what they were given, so the dialog's state handling can be checked
+local function stand_in(name, build)
+  package.preload[name] = function()
+    local m = {}
+    m.__index = m
+    function m:new(o) return setmetatable(o or {}, m) end
+    if build then build(m) end
+    return m
+  end
+end
+stand_in("ui/widget/iconwidget", function(m) m.getSize = function() return { w = 1, h = 1 } end end)
+stand_in("hardcover/lib/ui/text_screen")
+stand_in("hardcover/lib/ui/components/scroll_control", function(m) m.wrap = function(scroll) return scroll end; m.gutter = function() return 0 end end)
+stand_in("hardcover/lib/ui/components/top_bar", function(m) m.new = function() return { getSize = function() return { w = 1, h = 1 } end } end end)
+stand_in("hardcover/lib/ui/components/button", function(m) m.new = function(o) return { getSize = function() return { w = o.w or 1, h = o.h or 1 } end } end end)
+stand_in("hardcover/lib/ui/clamp", function(m) m.text = function(o) return { getSize = function() return { w = 1, h = 1 } end }, false end end)
 
 package.preload["device"] = function()
   return { isTouchDevice = function() return false end, screen = {

@@ -32,6 +32,43 @@ local function tap_row(emu, dialog, needle)
   emu:pump()
 end
 
+-- does any widget under `widget` carry this text?
+local function has_text(widget, needle, seen)
+  if type(widget) ~= "table" or seen[widget] then return false end
+  seen[widget] = true
+  if type(widget.text) == "string" and widget.text:find(needle, 1, true) then return true end
+  for _, child in pairs(widget) do
+    if has_text(child, needle, seen) then return true end
+  end
+  return false
+end
+
+-- the painted button (a TapRow) whose label contains `needle`, found in the widget tree: a Button's
+-- label is a relative node on screen, so it cannot be located from the screen text
+local function find_tap(widget, needle, seen)
+  seen = seen or {}
+  if type(widget) ~= "table" or seen[widget] then return end
+  seen[widget] = true
+  if widget.callback and widget.dimen and widget.dimen.x and widget.dimen.y
+      and has_text(widget, needle, {}) then
+    return widget
+  end
+  for _, child in pairs(widget) do
+    local found = find_tap(child, needle, seen)
+    if found then return found end
+  end
+end
+
+local function tap_button(emu, dialog, needle)
+  emu:screenNodes() -- paint first: a tap range is only real once painted
+  local btn = find_tap(dialog, needle)
+  assert(btn, "no painted button containing " .. needle)
+  local d = btn.dimen
+  assert(d.y >= 0 and d.y + d.h <= emu.Screen:getHeight(), "button is off screen: " .. needle)
+  assert(emu:tap(d.x + math.floor(d.w / 2), d.y + math.floor(d.h / 2)), "tap on button " .. needle .. " was not handled")
+  emu:pump()
+end
+
 local function gone(emu, needle)
   for _, node in ipairs(emu:screenNodes()) do
     assert(not node.text:find(needle, 1, true), "should not be on screen: " .. needle)
@@ -63,12 +100,15 @@ local function scroll_to(emu, dialog, needle)
   local W, H = emu.Screen:getWidth(), emu.Screen:getHeight()
   for _ = 1, 30 do
     if find_node(emu, needle) then return end
+    local btn = find_tap(dialog, needle)
+    if btn and btn.dimen.y >= 0 and btn.dimen.y + btn.dimen.h <= H then return end
     local before = dialog.scroll and dialog.scroll:getScrolledOffset().y
     emu:tap(W - 10, H - 20)
     emu:pump()
     if dialog.scroll and dialog.scroll:getScrolledOffset().y == before then break end
   end
-  assert(find_node(emu, needle), "never found a row containing " .. needle .. " (offset " .. tostring(dialog.scroll and dialog.scroll:getScrolledOffset().y) .. ", max " .. tostring(dialog.scroll and dialog.scroll._max_scroll_offset_y) .. ")\n" .. emu:screenText())
+  local btn = find_tap(dialog, needle)
+  assert(find_node(emu, needle) or (btn and btn.dimen.y >= 0 and btn.dimen.y + btn.dimen.h <= H), "never found a row containing " .. needle .. " (offset " .. tostring(dialog.scroll and dialog.scroll:getScrolledOffset().y) .. ", max " .. tostring(dialog.scroll and dialog.scroll._max_scroll_offset_y) .. ")\n" .. emu:screenText())
 end
 
 -- back to the top, with the up triangle
@@ -76,6 +116,7 @@ local function scroll_top(emu, dialog)
   local W = emu.Screen:getWidth()
   for _ = 1, 30 do
     if not dialog.scroll or dialog.scroll:getScrolledOffset().y <= 0 then return end
+    emu:screenNodes()
     emu:tap(W - 10, dialog.scroll.dimen.y + 20)
     emu:pump()
   end
@@ -146,7 +187,7 @@ return {
     scroll_to(emu, dialog, "Contains spoilers")
     emu:expectText("Contains spoilers - tap to show")
     gone(emu, "turns out to have been dead")
-    tap_row(emu, dialog, "Contains spoilers")
+    tap_button(emu, dialog, "Contains spoilers")
     emu:expectText("turns out to have been dead")
     gone(emu, "Contains spoilers - tap to show")
     emu:shot("reviews_spoiler_shown")
@@ -155,7 +196,7 @@ return {
     -- a long review is cut in the list; the end of it is not drawn
     gone(emu, "(6)")
     assert(#review_calls() == 1, "tapping a row fetched something")
-    tap_row(emu, dialog, "Read more")
+    tap_button(emu, dialog, "Read more")
     local viewer = emu.UIManager:getTopmostVisibleWidget()
     assert(viewer ~= dialog, "Read more did not open the full review")
     emu:expectText("(6)")
@@ -166,7 +207,7 @@ return {
 
     -- Load more: the next ten, by offset
     scroll_to(emu, dialog, "Load more reviews")
-    tap_row(emu, dialog, "Load more reviews")
+    tap_button(emu, dialog, "Load more reviews")
     calls = review_calls()
     assert(#calls == 2 and calls[2].offset == 10 and calls[2].limit == 10,
       "Load more did not ask for the next ten")
@@ -177,7 +218,7 @@ return {
     -- a failed page offers a retry, and the retry fetches the same page
     fixtures.reviews_fail = 1
     scroll_to(emu, dialog, "Load more reviews")
-    tap_row(emu, dialog, "Load more reviews")
+    tap_button(emu, dialog, "Load more reviews")
     local box = emu.UIManager:getTopmostVisibleWidget()
     assert(box ~= dialog, "a failed page showed no retry")
     emu:expectText("Retry")
