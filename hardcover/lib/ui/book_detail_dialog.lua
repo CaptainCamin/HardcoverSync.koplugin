@@ -30,6 +30,7 @@ local Button = require("hardcover/lib/ui/components/button")
 local Clamp = require("hardcover/lib/ui/clamp")
 local DetailsScreen = require("hardcover/lib/ui/details_screen")
 local Draw = require("hardcover/lib/ui/components/draw")
+local Section = require("hardcover/lib/ui/components/section")
 local Lists = require("hardcover/lib/lists")
 local Refresh = require("hardcover/lib/ui/refresh")
 local Shelf = require("hardcover/lib/shelf")
@@ -62,16 +63,7 @@ local function contentWidth(screen_w)
   return screen_w - 2 * Theme.margin - gutter
 end
 
--- A section's start: a dotted rule and a small Black label, tight. (The heavy rule under a heading is
--- for screens of their own.) The page is a stack of these, each one block for the scroll control.
-local function section(label, width)
-  local group = VerticalGroup:new { align = "left", Theme.span("s"), Theme.dottedRule(width), Theme.span("s") }
-  if label then
-    table.insert(group, Theme.mmdText(label, "strong", 18, { width = width }))
-    table.insert(group, Theme.span("xs"))
-  end
-  return group
-end
+local section = Section.new
 
 local BookDetailDialog = FocusManager:extend {
   name = "hardcover_book_detail",
