@@ -95,8 +95,10 @@ end
 local app, specs, changes = fakeApp { user_id = 7, entries = {
   { book_id = 1, title = "Zed", authors = "A", date_added = "2026-01-02" },
   { book_id = 2, title = "Alpha", authors = "B", date_added = "2026-03-04",
-    cached_image = { url = "http://img/2.jpg" } },
+    description = "A whole synopsis.", cached_image = { url = "http://img/2.jpg" } },
   { book_id = 3, title = "Mid", authors = "C", date_added = "2026-02-01" },
+  { book_id = 4, title = "Cut", authors = "D", date_added = "2026-02-02",
+    description = "Begins here\226\128\166" },
 } }
 r.check("register succeeds", Sources.register(app) == true)
 for _, id in ipairs { "hardcover_wtr", "hardcover_reading", "hardcover_read",
@@ -125,12 +127,18 @@ ImageLoader.covers["http://img/2.jpg"] = "/cache/2.jpg"
 local shelf = specs.hardcover_shelf
 local source = { kind = "hardcover_shelf", status_id = 1, sort_key = "title" }
 local books, total = shelf.fetch(source, nil, 0, 10)
-r.check("a saved complete shelf pages at once", #books == 3 and total == 3)
+r.check("a saved complete shelf pages at once", #books == 4 and total == 4)
 r.check("sorted by title", books[1].title == "Alpha" and books[3].title == "Zed")
 r.check("records are remote and unread for Want to Read",
   books[1].filepath == "hardcover://book/2" and books[1].status == "unread")
 r.check("cover path comes from the cache", books[1].cover_image_path == "/cache/2.jpg"
   and books[2].cover_image_path == nil)
+r.check("a saved synopsis is the description", books[1].description == "A whole synopsis.")
+r.check("a book without one says to open it",
+  books[3].description:find("Open this book", 1, true) ~= nil)
+r.check("a cut synopsis keeps its text and adds the note",
+  books[2].title == "Cut" and books[2].description:find("^Begins here")
+  and books[2].description:find("Open this book", 1, true) ~= nil)
 local page = shelf.fetch(source, nil, 1, 1)
 r.check("offset and limit slice the sorted shelf", #page == 1 and page[1].title == "Mid")
 r.check("a complete saved shelf starts no request", #ticks == 0 and Api.shelf_calls == 0)

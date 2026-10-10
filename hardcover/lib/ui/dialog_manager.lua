@@ -427,7 +427,11 @@ function DialogManager:showSearchInput(initial)
     local query = BookSearch.normalize(input:getInputText())
     if not query then return end
     UIManager:close(input)
-    self:searchBooks(query)
+    -- Let the panel repaint without the box and keyboard before the loading
+    -- line goes up and the request starts; run in the same tick, the page
+    -- under them is never redrawn and the results appear over a stale screen.
+    UIManager:setDirty("all", "ui")
+    UIManager:nextTick(function() self:searchBooks(query) end)
   end
   input = require("ui/widget/inputdialog"):new {
     title = _("Search books"),
@@ -483,6 +487,14 @@ function DialogManager:showSearchResults(query, books)
     offset = #books,
     select_entry_cb = function(entry)
       self:showBookDetail(entry.book_id)
+    end,
+    -- closing returns to the screen beneath: forget this one and repaint what
+    -- it covered
+    close_callback = function()
+      if self.search_results_dialog == dialog then
+        self.search_results_dialog = nil
+      end
+      UIManager:setDirty("all", "ui")
     end,
   }
   self:screens():track("search_results", dialog)
