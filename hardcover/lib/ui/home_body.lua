@@ -1,27 +1,29 @@
--- Home as a tab of the shell: one fixed screen that never scrolls.
+-- Home as a tab of the shell: one fixed screen that never scrolls, as drawn in mock 1 / 1a.
 --
--- From the top: the search field, the "Currently reading" heading with the books being read as
--- cards, a quiet line about changes waiting to sync ("All synced" when there are none), and the
--- shelves as list rows. It fills the room it is given: the cards come first, as many as fit
--- (three at most); when even one card does not fit alongside the rest, the shelves are dropped,
--- then the sync line. The nav bar is not part of this body, so it can never be what gives way.
+-- Top to bottom: "Currently reading" with the book you read most recently as a bordered card (cover,
+-- serif title, author, a thick progress bar, "62% · page 186 of 300" and one filled Open book
+-- button); a box saying whether changes are waiting to sync (a sync icon, a count and Sync now) or
+-- all is well (a check, All synced, Sync now still there), both with a dotted outline, the same height either way so what
+-- is below never moves; then "Shelves" as two-line list rows with their counts. The other books
+-- being read are one tap away under Shelves > Currently reading.
 --
--- It is the old Home's data holder (HomeDialog: rows, entries, cards, cover cells, the loaders'
--- setRows / setReading / rebuildSoon) with a different layout and no scrolling. Goals, Stats, the
--- lists and the vibes are tabs of their own, so they are not on this page.
+-- It fills the room it is given: the card first, then the sync box, then as many shelf rows as fit.
+-- The nav bar is not part of this body, so it can never be what gives way.
+--
+-- It is the old Home's data holder (HomeDialog: rows, entries, cover cells, the loaders' setRows /
+-- setReading / rebuildSoon) with a different layout and no scrolling.
 
-local CenterContainer = require("ui/widget/container/centercontainer")
+local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
-local IconWidget = require("ui/widget/iconwidget")
-local LeftContainer = require("ui/widget/container/leftcontainer")
+local TextBoxWidget = require("ui/widget/textboxwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
-local Blitbuffer = require("ffi/blitbuffer")
 local _ = require("gettext")
 
+local Button = require("hardcover/lib/ui/components/button")
 local CoverCells = require("hardcover/lib/ui/cover_cells")
 local Draw = require("hardcover/lib/ui/components/draw")
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
@@ -29,15 +31,15 @@ local Home = require("hardcover/lib/home")
 local HomeDialog = require("hardcover/lib/ui/home_dialog")
 local Hosted = require("hardcover/lib/ui/hosted")
 local ListItem = require("hardcover/lib/ui/components/list_item")
-local TapRow = require("hardcover/lib/ui/tap_row")
+local Note = require("hardcover/lib/ui/components/note")
 local Theme = require("hardcover/lib/ui/theme")
 
-local Screen = Device.screen
+local px = Theme.px
 
 local HomeBody = HomeDialog:extend {
   name = "hardcover_home_body",
   pending_fn = nil, -- returns how many changes are waiting to sync
-  note_cb = nil,    -- the sync line was tapped
+  sync_cb = nil,    -- Sync now
 }
 
 function HomeBody:init()
@@ -51,78 +53,89 @@ function HomeBody:init()
   self:build()
 end
 
--- The search field: a rounded outline that reads as an input.
-function HomeBody:searchField(width)
-  local field_h = Screen:scaleBySize(52)
-  local icon = Screen:scaleBySize(26)
-  return TapRow:new {
-    callback = function() if self.search_cb then self.search_cb() end end,
-    Theme.box(width, field_h, LeftContainer:new {
-      dimen = Geom:new { w = width - 2 * Theme.line.firm, h = field_h - 2 * Theme.line.firm },
-      HorizontalGroup:new { align = "center", Theme.hspan("m"),
-        IconWidget:new { icon = "appbar.search", width = icon, height = icon },
-        Theme.hspan("s"),
-        Theme.mmdText(_("Search books on Hardcover"), "text", 18, { secondary = true, width = width - 4 * Theme.space.m }) },
-    }, { radius = 26 }),
-  }
+local function booksText(n)
+  if type(n) ~= "number" then return nil end
+  return n == 1 and _("1 book") or string.format(_("%d books"), n)
 end
 
--- "Currently reading", with how many, as the way into that shelf.
-function HomeBody:readingHeader(width, total)
-  local right = HorizontalGroup:new { align = "center" }
-  if total > 0 then
-    local count = total == 1 and _("1 book") or string.format(_("%d books"), total)
-    right[#right + 1] = Theme.mmdText(count, "text", 15, { secondary = true })
-    right[#right + 1] = Theme.hspan("s")
+-- The book being read, as a bordered card with one filled button.
+function HomeBody:readingCard(card, width)
+  local pad, border = px(14), px(3)
+  local inner = width - 2 * pad - 2 * border
+  local cw, ch = px(84), px(126)
+  local gap = px(14)
+  local text_w = inner - cw - gap
+  local face, bold = Theme.serif(25)
+  local info = VerticalGroup:new { align = "left",
+    TextBoxWidget:new { text = card.title, face = face, bold = bold, width = text_w,
+      height = 3 * (face.size * 1.3), height_adjust = true, height_overflow_show_ellipsis = true } }
+  if card.author and card.author ~= "" then
+    info[#info + 1] = Theme.span(px(6))
+    info[#info + 1] = Theme.mmdText(card.author, "text", 18, { secondary = true, width = text_w })
   end
-  right[#right + 1] = Draw.chevron("right")
-  return TapRow:new {
-    callback = function()
-      if self.select_cb then
-        self.select_cb({ status_id = HARDCOVER.STATUS.READING, title = _("Currently Reading") })
-      end
-    end,
-    Theme.sectionHeader(_("Currently reading"), width, right),
-  }
+  if card.fraction then
+    info[#info + 1] = Theme.span(px(14))
+    info[#info + 1] = Theme.progress { width = text_w, height = px(12), percentage = card.fraction }
+  end
+  local line
+  if card.fraction and card.current and card.total then
+    line = string.format(_("%d%% · page %d of %d"), math.floor(card.fraction * 100 + 0.5), card.current, card.total)
+  elseif card.total then
+    line = string.format(_("%d pages"), card.total)
+  end
+  if line then
+    info[#info + 1] = Theme.span(px(6))
+    info[#info + 1] = Theme.mmdText(line, "text", 18, { secondary = true, width = text_w })
+  end
+  local top = HorizontalGroup:new { align = "top",
+    self:coverCell(card, cw, ch), Theme.hspan(gap), info }
+  local open = Button.new { label = _("Open book"), w = inner, h = px(56), primary = true,
+    callback = function() if self.open_book_cb then self.open_book_cb(card.book_id) end end }
+  self.open_button = open
+  return FrameContainer:new { bordersize = border, radius = px(12), padding = pad, margin = 0,
+    color = Theme.BLACK, background = Theme.WHITE,
+    VerticalGroup:new { align = "left", top, Theme.span(px(14)), open } }
 end
 
--- One quiet line: nothing waiting, or how many changes are and a way to the screen that sends them.
+-- Nothing being read (or nothing loaded yet): say so, in the same box.
+function HomeBody:emptyCard(width)
+  local pad, border = px(14), px(3)
+  return FrameContainer:new { bordersize = border, radius = px(12), padding = pad, margin = 0,
+    color = Theme.BLACK, background = Theme.WHITE,
+    VerticalGroup:new { align = "left",
+      Theme.mmdText(_("Nothing to show yet"), "strong", 21, { width = width - 2 * pad - 2 * border }),
+      Theme.span(px(4)),
+      Theme.mmdText(_("Books you are reading will appear here."), "text", 18,
+        { secondary = true, width = width - 2 * pad - 2 * border }) } }
+end
+
+-- The sync box, dotted whether or not anything is waiting; the two states differ by icon and words,
+-- and are built at the taller one's height so switching between them moves nothing below.
 function HomeBody:syncNote(width)
   local waiting = self.pending_fn and self.pending_fn() or 0
-  local label = waiting == 0 and _("All synced")
-    or (waiting == 1 and _("1 change waiting to sync") or string.format(_("%d changes waiting to sync"), waiting))
-  local line = HorizontalGroup:new { align = "center",
-    Theme.mmdText(label, waiting == 0 and "text" or "strong", 18, { secondary = waiting == 0, width = width - Theme.space.xl }) }
-  if waiting > 0 then
-    line[#line + 1] = Theme.hspan("s")
-    line[#line + 1] = Draw.chevron("right")
+  local action = { label = _("Sync now"), callback = function() if self.sync_cb then self.sync_cb() end end }
+  local function make(count, h)
+    if count > 0 then
+      return Note.new { width = width, h = h, dotted = true, icon_name = "sync", action = action,
+        title = count == 1 and _("1 change waiting") or string.format(_("%d changes waiting"), count),
+        text = _("They sync when you are online.") }
+    end
+    return Note.new { width = width, h = h, dotted = true, icon_name = "check", action = action,
+      title = _("All synced"), text = _("Nothing is waiting to send.") }
   end
-  local row = LeftContainer:new { dimen = Geom:new { w = width, h = Theme.TOUCH_MIN }, line }
-  return waiting > 0 and TapRow:new { callback = function() if self.note_cb then self.note_cb() end end, row } or row
+  local probe = make(waiting > 0 and 0 or 1)
+  local h = math.max(probe:getSize().h, make(waiting):getSize().h)
+  probe:free()
+  return make(waiting, h)
 end
 
--- The shelves other than the one the heading opens, as rows with their counts.
-function HomeBody:shelfRows(width)
-  local group = VerticalGroup:new { align = "left" }
-  local shown = {}
-  for _i, row in ipairs(self.rows or {}) do
-    if row.status_id ~= HARDCOVER.STATUS.READING then shown[#shown + 1] = row end
-  end
-  for i, row in ipairs(shown) do
-    local trailing = HorizontalGroup:new { align = "center" }
-    local count = Home.countText(row.count)
-    if count ~= "" then
-      trailing[#trailing + 1] = Theme.mmdText(count, "text", 18, { secondary = true })
-      trailing[#trailing + 1] = Theme.hspan("s")
-    end
-    trailing[#trailing + 1] = Draw.chevron("right")
-    group[#group + 1] = ListItem.new {
-      width = width, label = row.title, trailing = trailing, strong = false,
-      divider = i < #shown and "dotted" or nil,
-      callback = function() if self.select_cb then self.select_cb(row) end end,
-    }
-  end
-  return group
+-- One shelf as a list row: its name, how many books, a chevron.
+function HomeBody:shelfRow(row, width, last)
+  return ListItem.new {
+    width = width, label = row.title, support = booksText(row.count),
+    trailing = Draw.chevron("right"), divider = (not last) and "dotted" or nil,
+    callback = function() if self.select_cb then self.select_cb(row) end end,
+  }
 end
 
 function HomeBody:build()
@@ -131,74 +144,56 @@ function HomeBody:build()
   self.built_entries = self.entries
 
   local w, h = Hosted.size(self)
-  local width = w - 2 * Theme.margin
-
+  local side = ListItem.PAD
+  local width = w - 2 * side
   local cards = Home.cards(self.entries)
-  local reading_total = #cards
-  for _i, row in ipairs(self.rows or {}) do
-    if row.status_id == HARDCOVER.STATUS.READING and type(row.count) == "number" and row.count >= #cards then
-      reading_total = row.count
-    end
-  end
+  local card = cards[1]
 
-  local field = self:searchField(width)
-  local header = self:readingHeader(width, reading_total)
-  self.search_button, self.reading_header = field, header
-  local note = self:syncNote(width)
-  local shelves = self:shelfRows(w)
-
-  -- what is fixed above the cards, in order: space, search, space, heading, space
-  local top_h = Theme.space.m * 3 + field:getSize().h + header:getSize().h
-  local card_h = #cards > 0 and self:buildCard(cards[1], width, nil):getSize().h or 0
-  local empty = #cards == 0 and Theme.mmdText(_("Nothing to show yet. Tap the heading to open the shelf."),
-    "text", 15, { secondary = true, width = width }) or nil
-  local empty_h = empty and (empty:getSize().h + Theme.space.l) or 0
-  local note_h, shelves_h = note:getSize().h, shelves:getSize().h
-
-  -- the cards first, down to one; then the shelves go, then the sync line
-  local show_note, show_shelves = true, true
-  local count = 0
-  if #cards > 0 then
-    local function fits(extra)
-      return math.floor((h - top_h - extra) / (card_h + Theme.space.m))
-    end
-    count = fits(note_h + shelves_h)
-    if count < 1 then
-      show_shelves = false
-      count = fits(note_h)
-    end
-    if count < 1 then
-      show_note = false
-      count = math.max(1, fits(0))
-    end
-    count = math.min(count, #cards, HomeDialog.MAX_CARDS)
-  end
-
-  -- the narrow parts sit inside the page margin; the shelf rows carry their own side padding
-  local function inset(widget) return HorizontalGroup:new { Theme.hspan(Theme.margin), widget } end
-  self.layout = { cards = count, note = show_note, shelves = show_shelves } -- what fitted
   local column = VerticalGroup:new { align = "left" }
-  column[#column + 1] = Theme.span("m")
-  column[#column + 1] = inset(field)
-  column[#column + 1] = Theme.span("m")
-  column[#column + 1] = inset(header)
-  column[#column + 1] = Theme.span("m")
-  if empty then
-    column[#column + 1] = inset(empty)
-    column[#column + 1] = Theme.span("l")
+  local function inset(widget) return HorizontalGroup:new { Theme.hspan(side), widget } end
+
+  column[#column + 1] = Theme.span(px(16))
+  column[#column + 1] = ListItem.section(_("Currently reading"), w, 0)
+  column[#column + 1] = inset(card and self:readingCard(card, width) or self:emptyCard(width))
+  column[#column + 1] = Theme.span(px(14))
+  local used = column:getSize().h
+
+  -- the sync box, if there is room for it under the card
+  local note = self:syncNote(width)
+  local shown_note = false
+  if used + note:getSize().h <= h then
+    column[#column + 1] = inset(note)
+    used = used + note:getSize().h
+    shown_note = true
   end
-  for i = 1, count do
-    column[#column + 1] = inset(self:buildCard(cards[i], width, nil))
-    column[#column + 1] = Theme.span("m")
+
+  -- then the shelves: the head and as many rows as fit
+  local rows = {}
+  for _i, row in ipairs(Home.listOrder(self.rows)) do rows[#rows + 1] = row end
+  local head = ListItem.section(_("Shelves"), w, px(6))
+  local shown_rows = 0
+  if shown_note then
+    local room = h - used - head:getSize().h
+    local items = {}
+    for i, row in ipairs(rows) do
+      local item = self:shelfRow(row, w, i == #rows)
+      if item:getSize().h > room then break end
+      room = room - item:getSize().h
+      items[#items + 1] = item
+    end
+    if #items > 0 then
+      column[#column + 1] = head
+      for _i, item in ipairs(items) do column[#column + 1] = item end
+      shown_rows = #items
+    end
   end
-  if show_note then column[#column + 1] = inset(note) end
-  if show_shelves then column[#column + 1] = shelves end
+  self.layout = { card = card ~= nil, note = shown_note, shelves = shown_rows } -- what fitted
+  self.search_button, self.reading_header = nil, nil
   column:resetLayout()
 
   self.frame = FrameContainer:new {
     width = w, height = h, background = Blitbuffer.COLOR_WHITE,
-    bordersize = 0, padding = 0, margin = 0,
-    column,
+    bordersize = 0, padding = 0, margin = 0, column,
   }
   self.dimen = Geom:new { x = 0, y = 0, w = w, h = h }
   self[1] = self.frame

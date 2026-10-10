@@ -537,8 +537,13 @@ function DialogManager:shellTabs()
   end
   return {
     { id = "home", label = _("Home"), icon_name = "home", make = host("home", self.showOldHome),
-      actions = { { icon = "settings", callback = function() self:showSettings() end } } },
-    { id = "library", label = _("Library"), icon_name = "shelves", make = function(shell, width, height)
+      actions = {
+        { icon = "search", callback = function() self:showSearchInput() end },
+        { icon = "settings", callback = function() self:showSettings() end },
+      } },
+    { id = "library", label = _("Library"), icon_name = "shelves",
+      actions = { { icon = "search", callback = function() self:showSearchInput() end } },
+      make = function(shell, width, height)
         return require("hardcover/lib/ui/library_body"):new {
           shell = shell, width = width, height = height, id = "library",
           subs = {
@@ -572,6 +577,23 @@ function DialogManager:showShelvesBody(host)
   }
   self:screens():track("shelves", body)
   return body
+end
+
+-- Sync now, as Settings > Sync does it (it finds a connection, or says it could not).
+function DialogManager:syncNow()
+  local items = self.settings_items and self.settings_items() or {}
+  for _i, item in ipairs(items) do
+    if item and item.tile == "Sync" and item.callback then
+      item.callback({ updateItems = function() end })
+      return
+    end
+  end
+end
+
+-- What is waiting to sync changed (a sync ran, a change was queued): Home's box says so.
+function DialogManager:queueChanged()
+  local home = self:screens():open("home")
+  if home and home.rebuild then home:rebuild() end
 end
 
 function DialogManager:showShell(active)
@@ -615,8 +637,8 @@ function DialogManager:showOldHome(host)
       return (self.sync_queue and self.sync_queue:pendingCount() or 0)
         + (self.goal_queue and self.goal_queue:count() or 0)
     end,
-    -- changes waiting: the settings screen, where Sync is the first row
-    note_cb = function() self:showSettings() end,
+    -- the sync box's Sync now: what Settings > Sync does
+    sync_cb = function() self:syncNow() end,
     rows = Home.rows(saved_counts),
     entries = shownReading(saved_reading),
     select_cb = function(row)
@@ -1184,7 +1206,8 @@ end
 function DialogManager:showVibes(host)
   self:screens():discard("vibes")
 
-  local dialog = require("hardcover/lib/ui/lists_dialog"):new {
+  -- in the Library it is the icon list of mock 2v; on its own, the lists screen with covers
+  local dialog = require(host and "hardcover/lib/ui/vibes_body" or "hardcover/lib/ui/lists_dialog"):new {
     shell = host and host.shell, width = host and host.width, height = host and host.height,
     parent = host and host.parent,
     title = _("Vibes"),

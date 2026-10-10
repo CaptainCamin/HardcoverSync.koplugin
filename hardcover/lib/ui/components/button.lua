@@ -13,11 +13,11 @@ local Button = {}
 
 Button.HEIGHT = Theme.px(64) -- dialog and sheet action buttons
 
--- opts { label, w, h (default HEIGHT), primary, callback, viewport }
+-- opts { label, w, h (default HEIGHT), primary, size (label size, default 21), callback, viewport }
 function Button.new(opts)
   local w, h = opts.w, opts.h or Button.HEIGHT
   local t = Theme.mmd.button.border
-  local label = Theme.mmdText(opts.label, "strong", 21,
+  local label = Theme.mmdText(opts.label, "strong", opts.size or 21,
     { color = opts.primary and WHITE or BLACK, width = w - 2 * (t + Theme.px(8)) })
   -- a real container tree (not a painted bitmap), so the label is on screen as text
   local box = Theme.box(w, h, label, { filled = opts.primary, border = t, radius = 8 })

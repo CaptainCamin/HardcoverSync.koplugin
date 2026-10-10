@@ -76,33 +76,45 @@ return {
     assert(shell.active == "home", "the shell should open on Home")
     emu:screenNodes()
     emu:shot("shell_home")
-    emu:expectText("Currently reading")
+    emu:expectText("CURRENTLY READING")
     emu:expectText("All synced")
+    emu:expectText("Sync now")
     local home = shell.bodies.home
     assert(home and home.shell == shell and not home.scroll, "Home must be a body that never scrolls")
     pending = 2
     home:rebuild()
     emu:pump()
-    emu:expectText("2 changes waiting to sync")
+    emu:expectText("2 changes waiting")
+    emu:expectText("Sync now")
     pending = 0
     home:rebuild()
 
-    -- books being read: the cards come first, as many as fit, and the page never scrolls; the
-    -- shelves go before the last card does, then the sync line
+    -- the book being read: one bordered card with a filled Open book; the page never scrolls, and
+    -- the shelves give way before the card does
     home:setReading(fixtures.currently_reading)
+    home:setRows(require("hardcover/lib/home").rows(fixtures.shelf_counts))
     home:rebuild()
     emu:pump()
     emu:expectText("The Dispossessed")
+    emu:expectText("Open book")
+    emu:expectText("35% · page 120 of 341")
     emu:shot("shell_home_cards")
     local L = home.layout
-    assert(not home.scroll, "Home scrolled with cards")
-    assert(L.cards >= 1, "Home dropped every card")
-    print(string.format("        home at %dx%d: %d cards, note=%s, shelves=%s", W, H, L.cards, tostring(L.note), tostring(L.shelves)))
-    if H < 900 or W > H then
-      assert(L.cards == 1 or not L.shelves, "a small screen kept the shelves over cards")
-    end
+    if L.shelves > 0 then emu:expectText("Want to Read") end
+    assert(not home.scroll, "Home scrolled with a card")
+    assert(L.card, "Home dropped the card")
+    if H > W or L.shelves > 0 then emu:expectText("books") end -- a shelf row shows its count
+    print(string.format("        home at %dx%d: note=%s, shelf rows=%d", W, H, tostring(L.note), L.shelves))
     local bottom = home.dimen.y + home.dimen.h
     assert(bottom <= H - require("hardcover/lib/ui/components/nav_bar").HEIGHT, "Home reaches into the nav bar")
+    -- Open book opens the book's details
+    emu:tapExpecting(home.open_button.dimen.x + 10, home.open_button.dimen.y + 10)
+    emu:pump()
+    local details = UIManager:getTopmostVisibleWidget()
+    assert(details and details.name == "hardcover_book_detail", "Open book did not open the details: " .. tostring(details and details.name))
+    UIManager:close(details)
+    emu:pump()
+    assert(UIManager:getTopmostVisibleWidget() == shell, "closing the details did not reveal the shell")
 
     -- to Goals: the saved copy is empty, so it loads; the answer comes in
     nav(3)
@@ -161,6 +173,19 @@ return {
     emu:shot("shell_library_lists")
     sub(3)
     assert(library.sub == "vibes" and library.bodies.vibes, "Vibes did not open inside the Library")
+    -- the icon rows of mock 2v: For you first with no heading, then the two groups
+    local Vibes = require("hardcover/lib/vibes")
+    local sys, mine = Vibes.rows({
+      { id = 1, title = "Top Picks", count = 6, ids = {}, system = true },
+      { id = 2, title = "Recommendations", count = 3, ids = {}, system = true },
+      { id = 3, title = "For Red Rising Withdrawl", count = 2, ids = {}, kind = "mine", private = true },
+    }, {})
+    table.insert(sys, 1, { name = "For you", for_you = true, covers = {} })
+    library.bodies.vibes:setLists(sys, mine)
+    emu:pump()
+    emu:expectText("For you")
+    emu:expectText("Based on what you read")
+    emu:expectText("Top Picks")
     emu:shot("shell_library_vibes")
     sub(1)
     assert(library.sub == "shelves")

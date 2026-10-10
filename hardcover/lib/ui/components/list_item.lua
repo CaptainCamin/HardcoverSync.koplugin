@@ -74,10 +74,10 @@ function ListItem.new(opts)
   return TapRow:new { callback = opts.callback, hold_callback = opts.hold_callback, viewport = opts.viewport, column }
 end
 
--- A section heading above a group of rows: Black 15 capitals, 20 above and 6 below.
-function ListItem.section(text, width)
+-- A section heading above a group of rows: Black 15 capitals, `top` (default 20) above and 6 below.
+function ListItem.section(text, width, top)
   return VerticalGroup:new { align = "left",
-    Theme.span(px(20)),
+    Theme.span(top or px(20)),
     HorizontalGroup:new { Theme.hspan(ListItem.PAD),
       Theme.mmdText(string.upper(text), "strong", 15, { width = width - 2 * ListItem.PAD }) },
     Theme.span(px(6)) }

@@ -899,6 +899,8 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
 
       self:_scheduleFlushRetry(success)
       self:_noticeSyncConflicts()
+      -- Home's sync box shows what is waiting
+      if self.dialog_manager and self.dialog_manager.queueChanged then self.dialog_manager:queueChanged() end
 
       if callback then
         callback(success)
