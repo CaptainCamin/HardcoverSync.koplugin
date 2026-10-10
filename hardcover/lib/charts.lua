@@ -5,6 +5,10 @@
 -- any library, large or small: scales that round to clean numbers, a tail of small slices
 -- folded into "Other", shares that add up to 100, grey steps that stay apart on a mono panel.
 
+-- math.atan2 is gone from Lua 5.3+, where math.atan takes (y, x); LuaJIT (KOReader) and 5.1 have
+-- only atan2, since there math.atan takes one argument.
+local atan2 = math.atan2 or math.atan
+
 local Charts = {}
 
 --
@@ -113,6 +117,51 @@ function Charts.slices(items, max, other_label)
 end
 
 --
+-- Where each slice of a ring starts and ends, as fractions of a turn from 12 o'clock clockwise
+-- (0..1). Adds `from` and `to` to each slice.
+--
+function Charts.arcs(slices)
+  local at = 0
+  for _, s in ipairs(slices) do
+    s.from, s.to = at, at + s.fraction
+    at = s.to
+  end
+  return slices
+end
+
+-- Which slice a point belongs to: (dx, dy) from the ring's centre, y down. nil outside the ring
+-- (`inner` and `outer` are radii) or past the last slice.
+function Charts.sliceAt(slices, dx, dy, inner, outer)
+  local d2 = dx * dx + dy * dy
+  if d2 > outer * outer or d2 < inner * inner then return nil end
+  -- a turn from 12 o'clock, clockwise: atan2(dx, -dy)
+  local turn = atan2(dx, -dy) / (2 * math.pi)
+  if turn < 0 then turn = turn + 1 end
+  for i, s in ipairs(slices) do
+    if turn >= s.from and turn < s.to then return i end
+  end
+  return #slices > 0 and #slices or nil
+end
+
+-- Like sliceAt, but a thin gap (`gap` px wide, in the surface colour) is left where two slices
+-- meet: nil for a pixel within gap/2 of a slice's edge. Only between slices: a single slice is
+-- a whole ring.
+function Charts.sliceAtGap(slices, dx, dy, inner, outer, gap)
+  local index = Charts.sliceAt(slices, dx, dy, inner, outer)
+  if not index or #slices < 2 or not gap or gap <= 0 then return index end
+  local turn = atan2(dx, -dy) / (2 * math.pi)
+  if turn < 0 then turn = turn + 1 end
+  local s = slices[index]
+  local r = math.sqrt(dx * dx + dy * dy)
+  local edge = math.min(math.abs(turn - s.from), math.abs(s.to - turn)) * 2 * math.pi * r
+  -- the first slice also meets the last across 12 o'clock
+  if index == 1 then edge = math.min(edge, (1 - slices[#slices].to + turn) * 2 * math.pi * r) end
+  if index == #slices then edge = math.min(edge, (1 - turn + slices[1].from) * 2 * math.pi * r) end
+  if edge < gap / 2 then return nil end
+  return index
+end
+
+--
 -- Grey levels (0 black .. 255 white) for bars that run from the biggest to the smallest, each a
 -- clear step lighter than the one before and none so light that it washes out against white paper.
 -- The first is black: the biggest is the headline. Past the last, the lightest repeats.
@@ -152,6 +201,63 @@ function Charts.columns(values, w, h, opts)
   local ticks = {}
   for v = 0, top, step do ticks[#ticks + 1] = { value = v, y = math.floor(v / top * h + 0.5) } end
   return cols, top, ticks
+end
+
+--
+-- A running total: { 3, 0, 2, 4 } -> { 3, 3, 5, 9 }, up to the `through`-th entry (default all of
+-- them). Junk counts as 0. A chart of the pace through a year stops at the month it has got to.
+--
+function Charts.cumulative(counts, through)
+  local out, sum = {}, 0
+  counts = type(counts) == "table" and counts or {}
+  for i = 1, math.min(tonumber(through) or #counts, #counts) do
+    sum = sum + (tonumber(counts[i]) or 0)
+    out[i] = sum
+  end
+  return out
+end
+
+--
+-- The quartiles of some numbers (any order, junk ignored): { low, middle, high }, the points a
+-- quarter, half and three quarters of the way up the sorted list, between neighbours when they fall
+-- between. nil when there are none. Half of the values lie between low and high.
+--
+function Charts.quartiles(values)
+  local sorted = {}
+  for _, v in ipairs(type(values) == "table" and values or {}) do
+    v = tonumber(v)
+    if v and v == v then sorted[#sorted + 1] = v end
+  end
+  if #sorted == 0 then return nil end
+  table.sort(sorted)
+  local function at(q)
+    local pos = 1 + (#sorted - 1) * q
+    local i = math.floor(pos)
+    local frac = pos - i
+    return sorted[i] + ((sorted[i + 1] or sorted[i]) - sorted[i]) * frac
+  end
+  return { at(0.25), at(0.5), at(0.75) }
+end
+
+--
+-- Where values fall along a strip `w` wide that runs from the smallest to the biggest of them:
+-- { positions, lo, hi }, each position in 0..w. All the same (or one value): the middle.
+-- `at` is a further value to place on the same strip (clamped to it), returned as the fourth result.
+--
+function Charts.positions(values, w, at)
+  local lo, hi
+  for _, v in ipairs(values or {}) do
+    v = tonumber(v)
+    if v and (not lo or v < lo) then lo = v end
+    if v and (not hi or v > hi) then hi = v end
+  end
+  local function place(v)
+    if not lo or hi == lo then return math.floor(w / 2) end
+    return math.floor((math.min(math.max(v, lo), hi) - lo) / (hi - lo) * w + 0.5)
+  end
+  local out = {}
+  for i, v in ipairs(values or {}) do out[i] = place(tonumber(v) or lo) end
+  return out, lo, hi, at and place(tonumber(at) or lo) or nil
 end
 
 --

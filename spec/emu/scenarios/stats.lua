@@ -62,6 +62,7 @@ return {
     emu:pump()
     assert(dialog.year == 2024, "the 2024 tab did not choose 2024: " .. tostring(dialog.year))
     emu:expectText("Books per month")
+    emu:expectText("Pace")
     emu:shot("stats_year")
     -- Earlier opens the picker with every year
     tab = dialog.tabs[4].dimen

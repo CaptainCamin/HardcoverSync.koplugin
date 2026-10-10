@@ -108,6 +108,14 @@ function StatsDialog:buildTabs(width)
   return Tabs.new { width = width, tabs = tabs }
 end
 
+-- How many months of the chosen year the pace line runs: all twelve for a year that is over, else up
+-- to this month (or the latest finish, if the clock and the data disagree).
+function StatsDialog:monthsThrough(s)
+  local now = os.date("*t")
+  local through = (self.year and self.year < now.year) and 12 or (self.year == now.year and now.month or 0)
+  return math.max(through, s.last_month or 0)
+end
+
 function StatsDialog:choosePeriod()
   local years = Stats.years(self.rows or {})
   if #years == 0 then return end
@@ -193,6 +201,19 @@ function StatsDialog:buildContent(width)
       self:caption(b, string.format(_("%s finished in an unknown month."), books(s.month_unknown)), width)
     end
     add(b)
+
+    -- the pace: the running total, up to where the year has got to
+    local through = self:monthsThrough(s)
+    if through >= 3 then
+      local labels = {}
+      for i, name in ipairs(MONTHS) do labels[i] = initial(_(name)) end
+      local pace = block(_("Pace"), string.format(_("%s by %s"), books(Charts.cumulative(s.months, through)[through]), _(MONTHS[through])))
+      table.insert(pace, ChartWidgets.line {
+        width = width, height = Theme.px(190), values = Charts.cumulative(s.months, through),
+        slots = 12, labels = labels,
+      })
+      add(pace)
+    end
   else
     local values, labels = {}, {}
     for i, y in ipairs(s.by_year) do values[i] = y.count; labels[i] = tostring(y.year) end
@@ -225,9 +246,11 @@ function StatsDialog:buildContent(width)
   if not self.year and self.genres and #self.genres > 0 then
     local slices = Charts.slices(self.genres, 5, _("Other"))
     local b = block(_("Genres"))
-    local rows = {}
-    for i, g in ipairs(slices) do rows[i] = { label = g.label, value = g.value, text = string.format("%d%%", g.percent) } end
-    table.insert(b, ChartWidgets.bars { width = width, rows = rows, tonal = true, label_fraction = 0.3 })
+    table.insert(b, ChartWidgets.donut {
+      width = width, slices = slices,
+      center = { top = string.format("%d%%", slices[1].percent), bottom = slices[1].label },
+    })
+    table.insert(b, Theme.span("s"))
     self:caption(b, _("Across your whole library, as Hardcover counts them."), width)
     add(b)
   end
@@ -243,19 +266,28 @@ function StatsDialog:buildContent(width)
 
   -- how long
   if s.pages_books > 0 then
-    local b = block(_("Book length"), s.average_pages and string.format(_("avg %s pages"), Charts.number(s.average_pages)) or nil)
+    local b = block(_("Book length"))
     local rows = {}
     for i, l in ipairs(s.lengths) do rows[i] = { label = _(l.label), value = l.count, text = tostring(l.count) } end
     table.insert(b, ChartWidgets.bars { width = width, rows = rows, label_fraction = 0.3 })
     table.insert(b, Theme.span("m"))
-    if s.longest then
-      table.insert(b, fact(_("Longest"), string.format(_("%s pages"), Charts.number(s.longest.pages)), width))
-      if s.longest.title then table.insert(b, text(s.longest.title, "small", { grey = true, width = width })) end
+    if #s.page_list >= 2 then
+      table.insert(b, ChartWidgets.spread {
+        width = width, values = s.page_list, average = s.average_pages, unit = _("pages"),
+        average_text = _("avg %s"),
+      })
+      local q = Charts.quartiles(s.page_list)
+      if q and math.floor(q[1] + 0.5) ~= math.floor(q[3] + 0.5) then
+        self:caption(b, string.format(_("Half of your books run %s to %s pages."),
+          Charts.number(q[1]), Charts.number(q[3])), width)
+      end
       table.insert(b, Theme.span("s"))
     end
-    if s.shortest and s.shortest.pages ~= (s.longest and s.longest.pages) then
-      table.insert(b, fact(_("Shortest"), string.format(_("%s pages"), Charts.number(s.shortest.pages)), width))
-      if s.shortest.title then table.insert(b, text(s.shortest.title, "small", { grey = true, width = width })) end
+    if s.shortest and s.shortest.title and s.shortest.pages ~= (s.longest and s.longest.pages) then
+      table.insert(b, text(string.format(_("Shortest: %s"), s.shortest.title), "small", { grey = true, width = width }))
+    end
+    if s.longest and s.longest.title then
+      table.insert(b, text(string.format(_("Longest: %s"), s.longest.title), "small", { grey = true, width = width }))
     end
     add(b)
   end
