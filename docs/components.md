@@ -13,7 +13,7 @@ checks the numbers.
 | Module | What | Mockup screen |
 |---|---|---|
 | `draw.lua` | pixel primitives: drawn widget, strokes, tick, chevrons, line icons, dotted border, raster | n/a |
-| `switch.lua` | track 48 x 30, knob 20; on = black, off = outlined, dotted = unavailable | 6 |
+| `switch.lua` | track 48 x 30, knob 20; on = black, off = outlined, unavailable = hollow knob | 6 |
 | `radio.lua` | circle 26, dot 14 | 3b |
 | `checkbox.lua` | square 28, checked = filled with a tick | 6 |
 | `list_item.lua` | label Black 21 / supporting Medium 18, whole-row tap, dotted divider; section heads | 6 |
