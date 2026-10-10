@@ -12,6 +12,7 @@ local _ = require("gettext")
 local logger = require("logger")
 
 local UIManager = require("ui/uimanager")
+local Live = require("hardcover/lib/ui/live")
 
 local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
@@ -146,7 +147,7 @@ function Flows:showBookDetail(book_id, edition_id, opts)
 
   Api:getBookDetailAsync(book_id, user_id, edition_id, function(detail)
     StatusDialogs.close(loading)
-    if not UIManager:isWidgetShown(dialog) then return end
+    if not Live.shown(dialog) then return end
 
     if not detail then
       if saved_detail() then
@@ -232,7 +233,7 @@ function Flows:showReviews(book_id, summary)
   -- one page, normalised; callback(rows, err, raw_count)
   local function fetch_page(offset, limit, callback)
     Api:getReviewsAsync(book_id, limit, offset, function(raw, err)
-      if not UIManager:isWidgetShown(dialog) then return end
+      if not Live.shown(dialog) then return end
 
       if not raw then
         StatusDialogs.retry(err, _("Loading reviews"),
@@ -402,7 +403,7 @@ function Flows:chooseLists(dialog)
   local loading = StatusDialogs.loading(_("Loading your lists\226\128\166"))
   Api:getBookListsAsync(detail.book.book_id, function(rows, err)
     StatusDialogs.close(loading)
-    if not UIManager:isWidgetShown(dialog) then return end
+    if not Live.shown(dialog) then return end
 
     if not rows then
       StatusDialogs.retry(err, _("Loading your lists"),
@@ -429,7 +430,7 @@ function Flows:showListsPicker(dialog)
 
   -- the details screen names the lists once the picker is done with them
   local function syncDetail()
-    if UIManager:isWidgetShown(dialog) then dialog:setLists(detail.lists) end
+    if Live.shown(dialog) then dialog:setLists(detail.lists) end
   end
   local function close()
     if not open then return end
@@ -565,7 +566,7 @@ function Flows:rateBook(dialog)
     -- 0 clears the rating
     callback = function(spin)
       queue:queue(detail.user_book_id, spin.value, detail.book.title)
-      if UIManager:isWidgetShown(dialog) then dialog:setRating(spin.value) end
+      if Live.shown(dialog) then dialog:setRating(spin.value) end
       if Network.connected() then
         if self.flush_goals then self.flush_goals() end
       else
@@ -604,7 +605,7 @@ function Flows:saveShelf(dialog, status_id)
 
       -- the change happened whether or not the screen is still there
       self:shelfChanged(request.book_id, old_status_id, status_id, user_book.id or detail.user_book_id)
-      if UIManager:isWidgetShown(dialog) then
+      if Live.shown(dialog) then
         dialog:setStatus(status_id, user_book.id or detail.user_book_id)
       end
     end)
@@ -629,7 +630,7 @@ function Flows:removeFromShelf(dialog)
     end
 
     self:shelfChanged(detail.book and detail.book.book_id, old_status_id, nil)
-    if UIManager:isWidgetShown(dialog) then
+    if Live.shown(dialog) then
       dialog:setStatus(nil, nil)
     end
   end)
@@ -674,7 +675,7 @@ function Flows:loadSeries(dialog, book, user_id, when_done, refresh)
   end
 
   local function show(series)
-    local card = series and UIManager:isWidgetShown(dialog) and Shelf.seriesCard(series, book.book_id)
+    local card = series and Live.shown(dialog) and Shelf.seriesCard(series, book.book_id)
     if card then
       dialog:setSeries(card, function(book_id)
         self:showBookDetail(book_id)
@@ -705,7 +706,7 @@ function Flows:loadSeries(dialog, book, user_id, when_done, refresh)
 
     -- failed, cancelled by a tap, or the screen was closed meanwhile: a saved copy will do
     show(series or (saved and withShelfStatuses(self, saved, user_id)))
-    if when_done and UIManager:isWidgetShown(dialog) then when_done() end
+    if when_done and Live.shown(dialog) then when_done() end
   end)
 end
 
@@ -765,13 +766,13 @@ function Flows:loadSimilar(dialog, book_id)
   local function attempt()
     tries = tries + 1
     Api:getSimilarBooksAsync(book_id, nil, User:getId(), function(entries, err, about)
-      if not UIManager:isWidgetShown(dialog) then return end
+      if not Live.shown(dialog) then return end
       if about then self:applyAbout(dialog, book_id, about) end
       if entries == nil then
         logger.warn("hardcover: similar books failed (try " .. tries .. ")", err)
         if Recommendations.retryPolicy(tries, err) == "retry" then
           UIManager:scheduleIn(2, function()
-            if not UIManager:isWidgetShown(dialog) then return end
+            if not Live.shown(dialog) then return end
             if Network.connected() then attempt() else dialog:setSimilar(nil) end
           end)
         else

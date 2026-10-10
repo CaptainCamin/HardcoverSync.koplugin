@@ -1406,6 +1406,20 @@ function HardcoverMenu:getSettingsSubMenuItems()
       end
     },
     {
+      text = _("New navigation bar (beta)"),
+      checked_func = function()
+        return self.settings:newNavigation()
+      end,
+      callback = function()
+        self.settings:updateSetting(SETTING.NEW_NAVIGATION, not self.settings:newNavigation())
+      end,
+      hold_callback = function()
+        UIManager:show(InfoMessage:new {
+          text = _("Open Hardcover to Home, Library, Goals and Stats tabs with a bar at the bottom. Takes effect the next time Hardcover opens."),
+        })
+      end,
+    },
+    {
       text = _("Pure black secondary text (beta)"),
       checked_func = function()
         return self.settings:pureBlackText()
