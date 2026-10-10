@@ -53,36 +53,52 @@ function Draw.dottedH(bb, x, y, w, t, on, off)
   end
 end
 
--- A dotted rounded outline: how an unavailable control is shown without grey.
+-- A dotted rounded outline `t` thick: round dots, evenly spaced all the way round, corners included.
+-- The path (straight sides and quarter circles) is measured first and the dots are spread over its
+-- whole length, so the spacing is the same on every side and at every corner, and a dot sits at the
+-- start of the path whatever the box's size. `pitch` is the distance from one dot to the next
+-- (default 2.5 dots); `on`/`off` are accepted for the old call and only their sum is used.
 function Draw.dottedBorder(bb, x, y, w, h, r, t, on, off)
-  on, off = on or px(2), off or px(2)
+  local pitch = (on and off) and (on + off) or math.floor(t * 2.5)
   local x0, y0 = x + t / 2, y + t / 2
   local w2, h2 = w - t, h - t
   local rr = math.max(0, math.min(r - t / 2, w2 / 2, h2 / 2))
-  local pts = {}
-  local function add(a, b) pts[#pts + 1] = { a, b } end
-  local function arc(cx, cy, a0, a1)
-    local steps = math.max(1, math.floor(rr * math.abs(a1 - a0)))
-    for i = 1, steps - 1 do
-      local a = a0 + (a1 - a0) * i / steps
-      add(cx + rr * math.cos(a), cy + rr * math.sin(a))
+  -- the path as segments: { length, point(s) } with s from 0 to length, clockwise from the top left
+  local straight_w, straight_h = w2 - 2 * rr, h2 - 2 * rr
+  local quarter = math.pi * rr / 2
+  local segs = {
+    { straight_w, function(s) return x0 + rr + s, y0 end },
+    { quarter, function(s) local a = -math.pi / 2 + (s / quarter) * math.pi / 2
+        return x0 + w2 - rr + rr * math.cos(a), y0 + rr + rr * math.sin(a) end },
+    { straight_h, function(s) return x0 + w2, y0 + rr + s end },
+    { quarter, function(s) local a = (s / quarter) * math.pi / 2
+        return x0 + w2 - rr + rr * math.cos(a), y0 + h2 - rr + rr * math.sin(a) end },
+    { straight_w, function(s) return x0 + w2 - rr - s, y0 + h2 end },
+    { quarter, function(s) local a = math.pi / 2 + (s / quarter) * math.pi / 2
+        return x0 + rr + rr * math.cos(a), y0 + h2 - rr + rr * math.sin(a) end },
+    { straight_h, function(s) return x0, y0 + h2 - rr - s end },
+    { quarter, function(s) local a = math.pi + (s / quarter) * math.pi / 2
+        return x0 + rr + rr * math.cos(a), y0 + rr + rr * math.sin(a) end },
+  }
+  local total = 0
+  for _, seg in ipairs(segs) do total = total + seg[1] end
+  if total <= 0 then return end
+  local count = math.max(4, round(total / pitch))
+  local step = total / count
+  local radius = math.max(1, math.floor(t / 2))
+  local at, seg_i, seg_start = 0, 1, 0
+  for i = 0, count - 1 do
+    local s = i * step
+    while seg_i < #segs and s > seg_start + segs[seg_i][1] do
+      seg_start = seg_start + segs[seg_i][1]
+      seg_i = seg_i + 1
     end
-  end
-  for xx = x0 + rr, x0 + w2 - rr do add(xx, y0) end
-  arc(x0 + w2 - rr, y0 + rr, -math.pi / 2, 0)
-  for yy = y0 + rr, y0 + h2 - rr do add(x0 + w2, yy) end
-  arc(x0 + w2 - rr, y0 + h2 - rr, 0, math.pi / 2)
-  for xx = x0 + w2 - rr, x0 + rr, -1 do add(xx, y0 + h2) end
-  arc(x0 + rr, y0 + h2 - rr, math.pi / 2, math.pi)
-  for yy = y0 + h2 - rr, y0 + rr, -1 do add(x0, yy) end
-  arc(x0 + rr, y0 + rr, math.pi, 3 * math.pi / 2)
-  local period = on + off
-  local count = math.max(1, round(#pts / period))
-  local p = #pts / count
-  local on_len = p * on / period
-  for i, pt in ipairs(pts) do
-    if ((i - 1) % p) < on_len then
-      bb:paintRect(round(pt[1] - t / 2), round(pt[2] - t / 2), t, t, BLACK)
+    local seg = segs[seg_i]
+    local px_, py_ = seg[2](math.min(seg[1], s - seg_start))
+    if t >= 3 then
+      bb:paintCircle(round(px_), round(py_), radius, BLACK)
+    else
+      bb:paintRect(round(px_ - t / 2), round(py_ - t / 2), t, t, BLACK)
     end
   end
 end

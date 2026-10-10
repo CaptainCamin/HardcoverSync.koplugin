@@ -56,7 +56,7 @@ function Note.new(opts)
   local t = Theme.line.firm
   local border = Draw.drawn(w, h, function(bb, x, y)
     if opts.dotted then
-      Draw.dottedBorder(bb, x, y, w, h, radius, t, px(2), px(2))
+      Draw.dottedBorder(bb, x, y, w, h, radius, t)
     else
       bb:paintRoundedRect(x, y, w, h, BLACK, radius)
       bb:paintRoundedRect(x + Theme.line.hair, y + Theme.line.hair, w - 2 * Theme.line.hair,
