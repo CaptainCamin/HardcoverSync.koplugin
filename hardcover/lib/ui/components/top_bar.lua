@@ -23,7 +23,9 @@ local function touch(icon_name, callback)
   local cell = Theme.TOUCH_MIN
   return TapRow:new {
     callback = callback,
-    CenterContainer:new { dimen = Geom:new { w = cell, h = cell }, Draw.icon(icon_name, size) },
+    CenterContainer:new { dimen = Geom:new { w = cell, h = cell },
+      -- a drawn icon of ours, or one of the plugin's SVGs (settings, plus, ...)
+      Draw.ICONS[icon_name] and Draw.icon(icon_name, size) or Theme.icon(icon_name, size) },
   }
 end
 

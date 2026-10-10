@@ -259,6 +259,11 @@ function HardcoverSettings:bookStatusFromSnapshot(filename)
   return book_status
 end
 
+-- beta: Home, Library, Goals and Stats as tabs of one screen with a navigation bar
+function HardcoverSettings:newNavigation()
+  return self.settings:readSetting(SETTING.NEW_NAVIGATION) == true
+end
+
 function HardcoverSettings:pureBlackText()
   return self.settings:readSetting(SETTING.PURE_BLACK_TEXT) == true
 end

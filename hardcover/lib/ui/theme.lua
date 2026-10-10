@@ -32,7 +32,8 @@
 --   * Say what happened. With no animation, acknowledge a tap with visible text
 --     ("Saved"). Underline alone does not read as a link: use a box or an icon.
 --
---   * Serif for titles, sans for the rest (Theme.serif). Pill-shaped buttons.
+--   * Titles in Lato Black, text in Lato Medium (Theme.title, Theme.mmdText); no serif. Buttons are
+--     rectangular with an 8 radius (components/button.lua); the older pill buttons are being moved over.
 --     Solid black progress bars (Theme.progress). Where a grey is wanted, hatch
 --     (Theme.hatch) rather than use a mid grey.
 --
@@ -166,16 +167,16 @@ function Theme.mmdText(str, kind, size, opts)
 end
 
 --
--- The serif face for titles and headings (KOReader ships Noto Serif, so it needs no
--- bundling). Falls back to the UI face where it is not installed. The file is a real
--- bold, so do not also ask the widget for bold.
+-- The face for titles and headings: Lato Black (MMD's type, the owner's call of 10 Oct 2026: no serif),
+-- or KOReader's UI font as bold where Lato is not installed. Returns the face and whether the widget
+-- still has to ask for bold. `size_name` is a Theme.type name or a size.
 --
-function Theme.serif(size_name)
+function Theme.title(size_name)
   local size = Theme.type[size_name] or size_name
-  local ok, face = pcall(Font.getFace, Font, "NotoSerif-Bold.ttf", size)
-  if ok and face then return face, false end
-  return Theme.face(size_name), true
+  return Theme.mmdFace("strong", size)
 end
+-- the old name, for callers not yet renamed
+Theme.serif = Theme.title
 
 --
 -- Hatching: a grey that stays crisp on e-ink (diagonal black lines at 40% opacity), the
@@ -282,7 +283,7 @@ function Theme.rule(width, firm)
 end
 
 --
--- A dotted horizontal rule `width` wide: one hairline of black dashes, each as long as the gap after it. The
+-- A dotted horizontal rule `width` wide: one hairline of black dots. The
 -- divider between list rows; a solid rule is for structure. Built when first drawn, so the module
 -- loads without it.
 --
@@ -293,8 +294,10 @@ function Theme.dottedRule(width)
   function rule:getSize() return self.dimen end
   function rule:paintTo(bb, x, y)
     self.dimen.x, self.dimen.y = x, y
-    for dx = 0, width - 1, 4 * t do
-      bb:paintRect(x + dx, y, math.min(2 * t, width - dx), t, Theme.BLACK)
+    -- dots a hairline across with a gap of two, so it reads as dots and not as a faint solid line
+    local pitch = t * 3
+    for dx = 0, width - t, pitch do
+      bb:paintRect(x + dx, y, t, t, Theme.BLACK)
     end
   end
   return rule
@@ -310,7 +313,7 @@ function Theme.sectionHeader(text, width, right)
   -- a long heading is cut short (with an ellipsis) rather than pushing what is at the
   -- end of the line past the edge
   local room = right and math.max(0, width - right:getSize().w - Theme.space.m) or width
-  local face, bold = Theme.serif("title")
+  local face, bold = Theme.title("title")
   local title = TextWidget:new {
     text = text,
     face = face,
@@ -341,8 +344,8 @@ function Theme.stat(value, label, width)
     align = "center",
     TextWidget:new {
       text = tostring(value),
-      face = (Theme.serif("display")),
-      bold = select(2, Theme.serif("display")),
+      face = (Theme.title("display")),
+      bold = select(2, Theme.title("display")),
       max_width = width,
       fgcolor = Theme.BLACK,
     },

@@ -35,7 +35,7 @@ figcaption b{display:block;font-size:15px}
 .screen *{font-family:inherit}
 .strong{font-weight:var(--w-strong)}
 .sec{color:var(--sec)}
-.serif{font-family:var(--serif)!important;font-weight:700}
+.serif{font-family:var(--sans)!important;font-weight:var(--w-strong)} /* no serif: titles are Lato Black (10 Oct) */
 svg{display:block}
 /* top bar */
 .top{height:67px;position:relative;display:flex;align-items:center;padding:0 16px;gap:10px;border-bottom:3px solid #000}
@@ -317,7 +317,7 @@ ${scrollctl(122, 14, 0, 48)}
 
 /* 4 BOOK DETAIL (from the real screen: stats, shelf, reviews, about, genres, series carousel, details) */
 const bookTop = `${tb('Book details', {back:true, actions:['sync']})}`;
-add('4  Book details (page 1)', 'Same content as today, restructured. Cover, serif title, authors, the edition line and the series. Three quiet stat cells (rating, readers, reviews). Your own rating is five visible stars, not a hidden number. One filled primary (Shelf), Reviews outlined. About and Genres below; the scroll control pages to the series and details.',
+add('4  Book details (page 1)', 'Same content as today, restructured. Cover, title, authors, the edition line and the series. Three quiet stat cells (rating, readers, reviews). Your own rating is five visible stars, not a hidden number. One filled primary (Shelf), Reviews outlined. About and Genres below; the scroll control pages to the series and details.',
 `${bookTop}
 <div style="padding:16px 34px 0 16px">
  <div style="display:flex;gap:16px">

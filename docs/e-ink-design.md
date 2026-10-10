@@ -38,43 +38,39 @@ and what is still open. The rules themselves live in the header of
 7. **Label high-stakes icons.** Pair an icon with text for rare or risky actions; icons alone are mistaken
    for each other without colour.
 
-## Known deviations (to fix once the open decisions below are made)
+## Decisions (the owner's calls, and what each one changed)
 
-- Eight screens scroll by swipe/pan only, with a thin bar and no tap controls: `ScrollableContainer` in
-  `book_detail_dialog.lua`, `home_dialog.lua`, `settings_dialog.lua`, `goals_dialog.lua`, `lists_dialog.lua`,
-  `stats_dialog.lua`, `goal_dialog.lua`, `goal_form_dialog.lua`. KOReader's `onScrollPageUp/Down` and
-  `step_scroll_grid` already do the paging; only the visible arrows are missing.
-- Hold-only actions: unlink a book (`hardcover_menu.lua`, the "Linked book" row), discard all queued
-  changes (hold on Sync now; per-change cancel is visible in `pending_changes_dialog.lua`), and the
-  compatibility-mode help text.
-- Grey fills and lines in the charts: levels down to 0xBB, a 0xD8 gridline, 0x88 dashes
-  (`chart_widgets.lua`, `charts.lua`).
-- `Theme.hatchRect` paints at 40% opacity, so its stripes anti-alias to grey rather than to a pure-black
-  raster, and nothing calls it yet. The "hatch, don't grey" line in older notes overstated it.
+Settled, with the date and where it is built. If something here disagrees with another note, this wins.
+
+| Decision | Result | Built in |
+|---|---|---|
+| Home is one fixed screen that never scrolls; mock 1 / 1a is the layout (one bordered reading card with a filled Open book, a sync box, Shelves as two-line rows). Open book opens the book's details. | Cards beyond the first are one tap away under Shelves > Currently Reading. Small screens drop the shelf rows, then the sync box; never the card or the nav bar. | PR 6 (`ui/home_body.lua`) |
+| Navigation: four tabs, Home, Library, Goals, Stats; Library is Shelves \| Lists \| Vibes (three tabs; the owner confirmed it on 10 Oct, an older two-tab mock is outdated). No chips, no "All books", no filters. | A bottom nav bar and one shell screen; a beta setting until verified on a device. | PR 6 (`ui/shell.lua`) |
+| Sync box is dotted in both states. | "N changes waiting" with a sync icon, or "All synced" with a check; Sync now in both; same height. | `components/note.lua` |
+| Dotted means evenly spaced round dots (outlines) and dots with a wide gap (dividers). | Dividers between rows are dotted; the earlier uneven dashes were wrong. | `Theme.dottedRule`, `Draw.dottedBorder` |
+| An unavailable switch has a hollow knob (the dotted switch was rejected). | State never rests on grey alone. | `components/switch.lua` |
+| Library rows are icon rows, not covers: the shelf icon for Shelves and Lists, a sparkle / ranked list / lock for Vibes. | No cover fetches on those tabs. | `ui/shelves_body.lua`, `ui/icon_list_body.lua` |
+| Sort is an anchored popover; choice sheets have radios and an X, no Cancel; action sheets have outlined buttons plus one filled Cancel. | Components exist; not yet used by the shelf screen. | `components/popover.lua`, `choice_sheet.lua`, `action_sheet.lua` |
+| Charts keep tonal greys. Secondary text is dark grey (0x55) by default, pure black as a beta setting. | `Theme.secondary()`; every grey text site goes through it. | PR 1 |
+| Lato (Medium and Black) is the typeface, **titles included: no serif** (owner, 10 Oct). | Shipped and copied into KOReader's fonts folder; components fall back to KOReader's font until it is there. Whether Medium reads better than Regular is still judged on a device. | PR 4, `Theme.mmdText` |
+| Long screens scroll with one control: a bar over a double-line track with a triangle at each end; a dotted triangle is that end reached. | On the eight scrolling screens, by whole rows. | PR 2 (`components/scroll_control.lua`) |
+| Settings is a flat list with real switches, chevrons and dotted dividers; the Sync and Account tiles are the first two rows; the back arrow goes up a level. | | PR 5 |
+| Book details uses fixed-size blocks (clamped About with Read more, 3 genres plus "+N more", 5 detail rows plus "All details", series and Similar-to carousels). Reviews is one scrolling list of fixed-height cards, summary first, a Load more button last. | In progress. | PR 7 |
+
+## Still open
+
+- **Compact button heights.** Used so far: 56 for a primary or full-width button, 40 for a small one (Sync now, Read more), 64 in sheets and dialogs; touch areas are never under 48. Not signed off.
+- **Overlay rule order.** The 2 white band sits above the 3 black rule in every overlay; unchecked against the appendix.
+- **Lato on a device.** Medium vs Regular, and whether the plugin can write to KOReader's fonts folder on a Kobo and a Kindle.
+- **The Lists tab's rows** (the shelf icon, "7 books · ranked") have no mock of their own.
+
+## Known deviations from the rules above
+
+- Hold-only actions: unlink a book (`hardcover_menu.lua`, the "Linked book" row), discard all queued changes (hold on Sync now; per-change cancel is visible in `pending_changes_dialog.lua`), and the compatibility-mode help text.
+- Grey fills and lines in the charts: levels down to 0xBB, a 0xD8 gridline, 0x88 dashes (`chart_widgets.lua`, `charts.lua`). Allowed (see the decisions), to be polished.
+- `Theme.hatchRect` paints at 40% opacity, so its stripes anti-alias to grey; nothing calls it yet.
 - `Theme.rule` hairlines and `Theme.button`'s disabled look use `DARK_GREY`.
-- Settings rows are each a bordered card; toggles use a tick glyph.
-
-## Open decisions (not settled; do not treat as rules)
-
-- **Grey policy** (owner's direction, 2026-10-10, not yet implemented): charts may keep tonal greys, so polish
-  them (rounded columns, a light hairline grid, black for the highlighted mark, tonal steps for categories)
-  instead of swapping in black patterns, which looked half-finished in the mockup. Pure-black secondary text
-  is wanted as a **beta setting**; `DARK_GREY` (0x55) stays the default. State still never rests on grey alone.
-- **Typeface** (owner likes Lato a lot): MMD uses Lato; we use KOReader's Noto Sans. The paper does not test
-  Lato. KOReader finds fonts only in its own font folders, so using Lato means the plugin installing it into
-  the user font folder (the owner is fine with this). **Lato Medium exists**: the "Lato 2 OFL" desktop
-  package (v2.015, Lato2OFL, 18 files) includes Lato-Medium.ttf; the prototypes now use real Medium + Black.
-  Whether Medium reads better than Regular is still judged on a device.
-- **Dividers**: MMD uses a 1px dotted line between list rows, a 3px black rule (with a 2px white gap) at the
-  top of overlays and under the top bar, and solid 1-4px for structure. Ours is a 2px firm rule and a 1px
-  hairline. Decide whether to move list dividers to dotted and overlays to the 3 + 2 rule.
-- **Lato weights**: matching the diagrams needs Medium and Black (both in the Lato 2 OFL package); Regular and Bold only if some text still wants them.
-- **Button and chip height**: MMD's 32 is its small size; the paper keeps touch areas at 48 or more. Visuals
-  can be compact if the tap area is not.
-- **Type weight**: the designers' diagrams use Lato **Medium** for text and Lato **Black** for emphasis
-  (list label "Black 21", supporting text "Medium 18", tab label 15, sheet title "Black 25"). The Android
-  library ships only Regular and Bold, so its code hides this. Compare against our Regular / Bold.
-- **Bottom navigation bar** instead of today's long Home page with a cog.
+- Screens not yet moved to the new components: book details (in progress), shelves and their sort menu, goals, stats, the dialogs and the reader panel.
 
 ## MMD component metrics
 
@@ -136,6 +132,8 @@ Still a conflict between sources: the docs say avoid greyed-out states on Switch
 the Kotlin greys disabled states. Prefer the docs.
 
 ## Prototypes
+
+The approved whole-UI mockup is `docs/redesign/index.html`; the build is judged against it screen by screen. Where the build and the mockup differ on purpose, the decisions table above says so; where they differ by accident, the build is wrong.
 
 Throwaway comparison scenes for the headless emulator (`spec/emu/scenarios/proto_*.lua`) live on branch
 `claude/mmd-prototypes`. They are for deciding, not shipping. The emulator cannot show ghosting or refresh

@@ -22,6 +22,7 @@ local _ = require("gettext")
 
 local GoalWidgets = require("hardcover/lib/ui/goal_widgets")
 local Goals = require("hardcover/lib/goals")
+local Hosted = require("hardcover/lib/ui/hosted")
 local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
 
@@ -37,15 +38,20 @@ local GoalsDialog = InputContainer:extend {
   note = nil,             -- "Offline. Showing your goals as of ..."
   message = nil,          -- shown instead of the goals
   open_cb = nil,          -- called with the chosen goal
-  new_cb = nil,           -- the "New goal" button appears when this is set
+  new_cb = nil,           -- the "New goal" button appears when this is set (not in the shell: its top bar has +)
   close_callback = nil,
+  -- as a tab of the shell (see hosted.lua): the shell, and the size it gives this body
+  shell = nil,
+  width = nil,
+  height = nil,
 }
 
 function GoalsDialog:init()
   self.title = self.title or _("Goals")
   self.today = self.today or Goals.today()
-  self.dimen = Geom:new { x = 0, y = 0, w = Screen:getWidth(), h = Screen:getHeight() }
-  self.key_events.CloseGoals = { { "Back" } }
+  local w, h = Hosted.size(self)
+  self.dimen = Geom:new { x = 0, y = 0, w = w, h = h }
+  if not self.shell then self.key_events.CloseGoals = { { "Back" } } end
   self:build()
 end
 
@@ -90,7 +96,8 @@ function GoalsDialog:buildContent(width, viewport)
     table.insert(content, Theme.span("m"))
   end
 
-  if self.new_cb then
+  -- in the shell the top bar's + does this
+  if self.new_cb and not self.shell then
     table.insert(content, Theme.button(_("New goal"), width, {
       size = "body", viewport = viewport,
       callback = function() self.new_cb() end,
@@ -125,14 +132,15 @@ function GoalsDialog:buildContent(width, viewport)
 end
 
 function GoalsDialog:build()
-  local screen_w, screen_h = Screen:getWidth(), Screen:getHeight()
+  local screen_w, screen_h = Hosted.size(self)
   local M = Theme.margin
-  local title_bar = Theme.titleBar {
+  -- on its own it has a title bar and a close; in the shell it has neither
+  local title_bar = not self.shell and Theme.titleBar {
     title = self.title,
     close_callback = function() self:onClose() end,
     show_parent = self,
-  }
-  local room = screen_h - title_bar:getSize().h
+  } or nil
+  local room = screen_h - (title_bar and title_bar:getSize().h or 0)
 
   local width = screen_w - 2 * M
   local content = self:buildContent(width, nil)
@@ -143,7 +151,7 @@ function GoalsDialog:build()
     width = screen_w - 2 * M - gutter
     self.scroll = ScrollableContainer:new {
       dimen = Geom:new { x = 0, y = 0, w = screen_w, h = room },
-      show_parent = self,
+      show_parent = Hosted.window(self),
     }
     local scroll = self.scroll
     content = self:buildContent(width, function() return scroll.dimen end)
@@ -157,7 +165,7 @@ function GoalsDialog:build()
   self.frame = FrameContainer:new {
     width = screen_w, height = screen_h, background = Blitbuffer.COLOR_WHITE,
     bordersize = 0, padding = 0, margin = 0,
-    VerticalGroup:new { align = "left", title_bar, body },
+    title_bar and VerticalGroup:new { align = "left", title_bar, body } or body,
   }
   self[1] = self.frame
 end
@@ -168,7 +176,7 @@ function GoalsDialog:rebuild()
   end
   self[1] = nil
   self:build()
-  UIManager:setDirty(self, "ui")
+  Hosted.dirty(self)
 end
 
 -- fresh (or saved) goals have arrived
@@ -187,7 +195,7 @@ function GoalsDialog:setMessage(message, note)
 end
 
 function GoalsDialog:onCloseWidget()
-  UIManager:setDirty(nil, "ui")
+  if not self.shell then UIManager:setDirty(nil, "ui") end
 end
 
 function GoalsDialog:onCloseGoals()
@@ -195,6 +203,7 @@ function GoalsDialog:onCloseGoals()
 end
 
 function GoalsDialog:onClose()
+  if self.shell then return true end -- the shell leaves, not a tab
   UIManager:close(self)
   if self.close_callback then self.close_callback() end
   return true
