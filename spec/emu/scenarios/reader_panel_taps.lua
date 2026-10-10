@@ -76,41 +76,24 @@ return {
     assert(calls.sync == false, "the tick did not turn tracking off")
     assert(panel_is_top())
 
-    -- Status: a list of the statuses opens over the panel; Back returns to it
-    tapText("Status")
-    emu:expectText("Want To Read")
-    emu:expectText("Currently Reading")
-    emu:expectText("Remove")
+    -- the panel is the three mid-book actions, More and Cancel; the mock has nothing else
     local nodes = emu:screenText()
-    assert(not nodes:find("Add a note", 1, true), "the status list should not repeat the panel's other buttons")
-    emu:shot("reader_panel_status")
-    emu:press("Back")
-    assert(panel_is_top(), "Back from the status list did not return to the panel")
-
-    -- Status > Want To Read asks for confirmation (maybeConfirm is the menu's own path)
-    tapText("Status")
-    tapText("Want To Read")
-    assert(calls.confirm and calls.confirm:find("Want To Read"), "choosing a status did not ask to confirm")
-    emu:press("Back")
-    assert(panel_is_top(), "Back after choosing a status did not return to the panel")
-
-    -- the rest
-    tapText("Add a note")
-    assert(calls.note, "Add a note did not open the note form")
-
-    tapText("Details")
-    assert(calls.details == 328491, "Details did not open the book")
-    tapText("Reviews")
-    assert(calls.reviews == 328491, "Reviews did not open the book's reviews")
+    for _, gone in ipairs({ "Add a note", "Reviews", "Change edition" }) do
+      assert(not nodes:find(gone, 1, true), gone .. " should be under More, not on the panel")
+    end
+    emu:expectText("Rate this book")
+    tapText("Open book page")
+    assert(calls.details == 328491, "Open book page did not open the book")
 
     -- More: the reader's full tracking menu (unlink, remove, sync...) as a list over the panel
     tapText("More")
     emu:expectText("Linked book")
+    emu:expectText("Update status")
     emu:shot("reader_panel_more")
     emu:press("Back")
     assert(panel_is_top(), "Back from More did not return to the panel")
 
-    tapText("Set page")
+    tapText("Update progress")
     emu:shot("reader_panel_set_page")
     emu:closeAll()
     -- closeAll also removed the panel; reopen for the dismissal check

@@ -15,7 +15,6 @@
 
 local UIManager = require("ui/uimanager")
 local InfoMessage = require("ui/widget/infomessage")
-local ConfirmBox = require("ui/widget/confirmbox")
 local _ = require("gettext")
 
 local SD = {}
@@ -57,49 +56,44 @@ function SD.close(message)
   end
 end
 
--- A failure the user must notice. The icon is the point: Ui.showErrorMessage's
--- branch without a manager to hand it to, which is the one actually taken here,
--- so without it every error in the plugin rendered as an ordinary notice while
--- the code claimed otherwise.
+-- A failure the user must notice. A snackbar (MMD): a short line along the bottom edge after
+-- something the reader did, that goes away on its own.
 function SD.error(text, timeout)
-  local message = InfoMessage:new{
-    text = text,
-    icon = "notice-warning",
-    timeout = timeout or 5,
-  }
-  UIManager:show(message)
-  return message
+  require("hardcover/lib/ui/components/snackbar").show { message = text, timeout = timeout or 5 }
 end
 
--- Something that worked, or a neutral notice. No icon, shorter timeout: a success
--- message that lingers reads as a warning the user cannot clear.
+-- Something that worked, or a neutral notice. Same snackbar, a little shorter.
 function SD.info(text, timeout)
-  local message = InfoMessage:new{
-    text = text,
-    timeout = timeout or 3,
-  }
-  UIManager:show(message)
-  return message
+  require("hardcover/lib/ui/components/snackbar").show { message = text, timeout = timeout or 3 }
 end
 
--- A yes/no question.
+-- A yes/no question, as an MMD dialog: a title that says what it is about, one short text, the
+-- other button outlined on the left and the answer filled on the right.
 --
--- ConfirmBox closes ITSELF from its own callbacks -- OK, Cancel and any
--- other_buttons all end in UIManager:close(self) -- and none of those paths goes
--- through the caller. So do not treat the returned widget as owned by the caller,
--- and do not try to close it after a callback; it is already gone.
+-- options { title, text, ok_text, ok_callback, cancel_text, cancel_callback }. With no cancel_text
+-- the dialog has one button, for a notice that only needs acknowledging. Both callbacks run after the
+-- dialog has closed, so the caller never closes it.
 function SD.confirm(options)
   options = options or {}
-  local box = ConfirmBox:new{
-    text = options.text or "",
-    title = options.title,
-    ok_text = options.ok_text or _("OK"),
-    ok_callback = options.ok_callback,
-    cancel_text = options.cancel_text or _("Cancel"),
-    cancel_callback = options.cancel_callback,
+  local buttons = {}
+  if options.cancel_text ~= false then
+    buttons[#buttons + 1] = { label = options.cancel_text or _("Cancel"), callback = options.cancel_callback }
+  end
+  buttons[#buttons + 1] = { label = options.ok_text or _("OK"), primary = true, callback = options.ok_callback }
+  local title, text = options.title, options.text
+  if not title then
+    if text and #text <= 60 and not text:find("\n") then
+      title, text = text, nil -- "Sign out of Hardcover?" says it all
+    else
+      title = options.ok_text or _("Are you sure?")
+    end
+  end
+  return require("hardcover/lib/ui/components/dialog").show {
+    title = title,
+    text = text,
+    buttons = buttons,
+    on_dismiss = options.cancel_callback,
   }
-  UIManager:show(box)
-  return box
 end
 
 -- Offer to try a failed operation again.
@@ -135,6 +129,7 @@ end
 
 function SD.retry(err, operation_name, retry_callback, cancel_callback)
   return SD.confirm{
+    title = _("Something went wrong"),
     text = string.format(
       _("Could not complete \"%s\": %s Would you like to retry?"),
       tostring(operation_name), SD.describe(err)),

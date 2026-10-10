@@ -9,7 +9,7 @@
 -- connection, a refusal) keeps what was typed, with the reason shown at the top.
 
 local Blitbuffer = require("ffi/blitbuffer")
-local ConfirmBox = require("ui/widget/confirmbox")
+local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 local DateTimeWidget = require("ui/widget/datetimewidget")
 local Device = require("device")
 local FrameContainer = require("ui/widget/container/framecontainer")
@@ -380,13 +380,14 @@ end
 
 function GoalFormDialog:archive()
   if self.busy then return end
-  UIManager:show(ConfirmBox:new {
-    text = _("Archive this goal? It stays on Hardcover, hidden, and you can bring it back from the website."),
+  StatusDialogs.confirm {
+    title = _("Archive this goal?"),
+    text = _("It stays on Hardcover, hidden, and you can bring it back from the website."),
     ok_text = _("Archive"),
     ok_callback = function()
       if self.on_archive then self.on_archive() end
     end,
-  })
+  }
 end
 
 -- the manager shows the progress of a save, and what went wrong
@@ -403,11 +404,12 @@ end
 function GoalFormDialog:cancel()
   if self.busy then return true end
   if not self:dirty() then return self:onClose() end
-  UIManager:show(ConfirmBox:new {
-    text = _("Discard your changes?"),
+  StatusDialogs.confirm {
+    title = _("Discard your changes?"),
     ok_text = _("Discard"),
+    cancel_text = _("Keep editing"),
     ok_callback = function() self:onClose() end,
-  })
+  }
   return true
 end
 

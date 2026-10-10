@@ -78,7 +78,7 @@ Settled, with the date and where it is built. If something here disagrees with a
 - Grey fills and lines in the charts: levels down to 0xBB, a 0xD8 gridline, 0x88 dashes (`chart_widgets.lua`, `charts.lua`). Allowed (see the decisions), to be polished.
 - `Theme.hatchRect` paints at 40% opacity, so its stripes anti-alias to grey; nothing calls it yet.
 - `Theme.rule` hairlines and `Theme.button`'s disabled look use `DARK_GREY`.
-- Screens not yet moved to the new components: the dialogs (the goal form, status dialogs, pickers) and the reader panel.
+- Screens not yet moved to the new components: the goal form and the pickers.
 
 ## MMD component metrics
 

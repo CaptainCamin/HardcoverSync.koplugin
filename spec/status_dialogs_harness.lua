@@ -58,6 +58,15 @@ package.preload["ui/widget/confirmbox"] = function()
   return M
 end
 
+-- the MMD dialog and snackbar: record what they were asked to show
+local dialogs, snacks = {}, {}
+package.preload["hardcover/lib/ui/components/dialog"] = function()
+  return { show = function(o) dialogs[#dialogs + 1] = o; return o end }
+end
+package.preload["hardcover/lib/ui/components/snackbar"] = function()
+  return { show = function(o) snacks[#snacks + 1] = o; return o end }
+end
+
 package.preload["logger"] = function()
   return { dbg = function() end, info = function() end,
            warn = function() end, err = function() end }
@@ -114,52 +123,46 @@ r.check("close falls back to UIManager:close", #closed == before2 + 1
         "a widget without close() was not passed to UIManager:close")
 
 -- ---------------------------------------------------------------- error
-shown = {}
 SD.error("Could not load your list")
-local err = last_shown()
-r.check("error shows an InfoMessage", err and err.__widget == "InfoMessage")
--- Without the icon every error renders as an ordinary notice, which is the
--- whole difference between "your list failed" and a passing notice.
-r.check("error carries the warning icon", err.icon == "notice-warning",
-        "icon was " .. tostring(err.icon))
-r.check("error has a timeout", type(err.timeout) == "number" and err.timeout > 0,
-        "timeout was " .. tostring(err.timeout))
+r.check("error is a snackbar", #snacks == 1 and snacks[1].message == "Could not load your list")
+r.check("error stays longer than a notice", snacks[1].timeout > 3, "timeout was " .. tostring(snacks[1].timeout))
 
 -- ---------------------------------------------------------------- info
-shown = {}
 SD.info("Saved")
-local info = last_shown()
-r.check("info shows without an icon", info and info.icon == nil,
-        "a plain notice should not claim to be a warning")
-r.check("info has a timeout", type(info.timeout) == "number" and info.timeout > 0)
+r.check("info is a snackbar", #snacks == 2 and snacks[2].message == "Saved")
+r.check("info has a timeout", type(snacks[2].timeout) == "number" and snacks[2].timeout > 0)
 
 -- ---------------------------------------------------------------- confirm
-shown = {}
 local retried, cancelled = false, false
 SD.confirm{
   text = "Are you sure",
   ok_callback = function() retried = true end,
   cancel_callback = function() cancelled = true end,
 }
-local box = last_shown()
-r.check("confirm shows a ConfirmBox", box and box.__widget == "ConfirmBox")
-r.check("confirm defaults ok_text", box.ok_text == "OK", "ok_text was " .. tostring(box.ok_text))
-r.check("confirm defaults cancel_text", box.cancel_text == "Cancel",
-        "cancel_text was " .. tostring(box.cancel_text))
-box.ok_callback()
-box.cancel_callback()
+local box = dialogs[#dialogs]
+r.check("confirm shows a dialog with two buttons", box and #box.buttons == 2)
+r.check("a short question becomes the title", box.title == "Are you sure" and box.text == nil,
+        "title was " .. tostring(box.title))
+r.check("the answer is filled, the other button is not", box.buttons[2].primary and not box.buttons[1].primary)
+r.check("confirm defaults the labels", box.buttons[2].label == "OK" and box.buttons[1].label == "Cancel")
+box.buttons[2].callback()
+box.buttons[1].callback()
 r.check("confirm ok_callback runs", retried)
 r.check("confirm cancel_callback runs", cancelled)
+r.check("leaving without choosing counts as cancelling", box.on_dismiss ~= nil)
+
+SD.confirm{ title = "Archive this goal?", text = "It stays on Hardcover.", ok_text = "Archive", cancel_text = false }
+local one = dialogs[#dialogs]
+r.check("without a cancel button there is one", #one.buttons == 1 and one.title == "Archive this goal?")
 
 -- ---------------------------------------------------------------- retry
-shown = {}
 local again = false
 SD.retry("network unreachable", "Loading your shelf", function() again = true end,
          function() end)
-local rb = last_shown()
-r.check("retry shows a ConfirmBox", rb and rb.__widget == "ConfirmBox")
-r.check("retry offers a Retry button", rb.ok_text == "Retry",
-        "ok_text was " .. tostring(rb.ok_text))
+local rb = dialogs[#dialogs]
+
+r.check("retry offers a Retry button", rb.buttons[2].label == "Retry",
+        "label was " .. tostring(rb.buttons[2].label))
 -- The operation name is interpolated as an object, never as a subject: a
 -- translated sentence that makes it the subject disagrees in most languages
 -- ("Kommentare ist fehlgeschlagen"), which is how ten of z-library's fourteen
@@ -171,7 +174,7 @@ r.check("retry carries the underlying error",
         rb.text:find("network unreachable", 1, true) ~= nil,
         "the error text was dropped, so every failure reads the same")
 r.check("retry runs the retry callback", (function()
-  rb.ok_callback()
+  rb.buttons[2].callback()
   return again
 end)())
 
