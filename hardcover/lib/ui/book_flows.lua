@@ -12,6 +12,7 @@ local _ = require("gettext")
 local logger = require("logger")
 
 local UIManager = require("ui/uimanager")
+local Live = require("hardcover/lib/ui/live")
 
 local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
@@ -20,6 +21,7 @@ local DeviceSearch = require("hardcover/lib/device_search")
 local Home = require("hardcover/lib/home")
 local Lists = require("hardcover/lib/lists")
 local Network = require("hardcover/lib/network")
+local OnDevice = require("hardcover/lib/on_device")
 local Recommendations = require("hardcover/lib/recommendations")
 local Reviews = require("hardcover/lib/reviews")
 local Shelf = require("hardcover/lib/shelf")
@@ -45,24 +47,24 @@ local Flows = {}
 function Flows:showBookDetail(book_id, edition_id, opts)
   opts = opts or {}
   local dialog
+  local on_device_file = self:deviceFile(book_id)
   dialog = require("hardcover/lib/ui/book_detail_dialog"):new {
     detail = nil,
     loading = true,
     -- the details on screen go along, so the reviews can say which book and how it is rated
     on_reviews = function(d) self:showReviews(book_id, Reviews.summary(d and d.detail)) end,
+    -- the book is on this device (a file the plugin linked to it): Open. Otherwise the file search
+    -- below, which is for looking further.
+    on_open = on_device_file and function(d) self:openOnDevice(d, on_device_file) end or nil,
     -- KOReader's file search, with the title filled in (it is in the file manager and the reader)
-    on_find = DeviceSearch.available(self.ui) and function(d) self:findOnDevice(d) end or nil,
+    on_find = not on_device_file and DeviceSearch.available(self.ui) and function(d) self:findOnDevice(d) end or nil,
     -- only when the Z-library plugin is there: no button that does nothing
-    on_zlibrary = Zlibrary.available(self.ui) and function(d) self:searchZlibrary(d) end or nil,
+    on_zlibrary = not on_device_file and Zlibrary.available(self.ui) and function(d) self:searchZlibrary(d) end or nil,
     on_shelf = function(d) self:chooseShelf(d) end,
     -- tapping your rating: works offline, the rating waits to be sent
     on_rating = function(d) self:rateBook(d) end,
     -- only when signed in with OAuth (the write scope is an OAuth thing)
     on_lists = self:canChooseLists() and function(d) self:chooseLists(d) end or nil,
-    -- these open on top of the details, so closing them comes back here
-    on_series = function(_, name) self:searchBooks(name) end,
-    on_author = function(_, name) self:searchBooks(name) end,
-    on_status = function(_, status_id) self:showShelf(status_id, Shelf.statusLabel(status_id)) end,
     -- the reload icon: everything fetched again, the escape hatch for anything kept that
     -- has gone out of date
     on_refresh = function()
@@ -146,7 +148,7 @@ function Flows:showBookDetail(book_id, edition_id, opts)
 
   Api:getBookDetailAsync(book_id, user_id, edition_id, function(detail)
     StatusDialogs.close(loading)
-    if not UIManager:isWidgetShown(dialog) then return end
+    if not Live.shown(dialog) then return end
 
     if not detail then
       if saved_detail() then
@@ -200,6 +202,19 @@ end
 
 -- Look for the book on screen among the files on this device: KOReader's file search
 -- opens on top of this screen with the title filled in, and the reader picks the folder.
+-- The file of this book on the device (see on_device.lua), or nil.
+function Flows:deviceFile(book_id)
+  local ok, books = pcall(function() return self.settings and self.settings:readSetting("books") end)
+  if not ok then return nil end
+  local lfs = require("libs/libkoreader-lfs")
+  return OnDevice.file(books, book_id, function(file) return lfs.attributes(file, "mode") == "file" end)
+end
+
+function Flows:openOnDevice(dialog, file)
+  if dialog then UIManager:close(dialog) end
+  OnDevice.open(self.ui, file)
+end
+
 function Flows:findOnDevice(dialog)
   local detail = dialog and dialog.detail
   local summary = detail and detail.book and Shelf.detailSummary(detail) or {}
@@ -232,7 +247,7 @@ function Flows:showReviews(book_id, summary)
   -- one page, normalised; callback(rows, err, raw_count)
   local function fetch_page(offset, limit, callback)
     Api:getReviewsAsync(book_id, limit, offset, function(raw, err)
-      if not UIManager:isWidgetShown(dialog) then return end
+      if not Live.shown(dialog) then return end
 
       if not raw then
         StatusDialogs.retry(err, _("Loading reviews"),
@@ -402,7 +417,7 @@ function Flows:chooseLists(dialog)
   local loading = StatusDialogs.loading(_("Loading your lists\226\128\166"))
   Api:getBookListsAsync(detail.book.book_id, function(rows, err)
     StatusDialogs.close(loading)
-    if not UIManager:isWidgetShown(dialog) then return end
+    if not Live.shown(dialog) then return end
 
     if not rows then
       StatusDialogs.retry(err, _("Loading your lists"),
@@ -429,7 +444,7 @@ function Flows:showListsPicker(dialog)
 
   -- the details screen names the lists once the picker is done with them
   local function syncDetail()
-    if UIManager:isWidgetShown(dialog) then dialog:setLists(detail.lists) end
+    if Live.shown(dialog) then dialog:setLists(detail.lists) end
   end
   local function close()
     if not open then return end
@@ -565,7 +580,7 @@ function Flows:rateBook(dialog)
     -- 0 clears the rating
     callback = function(spin)
       queue:queue(detail.user_book_id, spin.value, detail.book.title)
-      if UIManager:isWidgetShown(dialog) then dialog:setRating(spin.value) end
+      if Live.shown(dialog) then dialog:setRating(spin.value) end
       if Network.connected() then
         if self.flush_goals then self.flush_goals() end
       else
@@ -604,7 +619,7 @@ function Flows:saveShelf(dialog, status_id)
 
       -- the change happened whether or not the screen is still there
       self:shelfChanged(request.book_id, old_status_id, status_id, user_book.id or detail.user_book_id)
-      if UIManager:isWidgetShown(dialog) then
+      if Live.shown(dialog) then
         dialog:setStatus(status_id, user_book.id or detail.user_book_id)
       end
     end)
@@ -629,7 +644,7 @@ function Flows:removeFromShelf(dialog)
     end
 
     self:shelfChanged(detail.book and detail.book.book_id, old_status_id, nil)
-    if UIManager:isWidgetShown(dialog) then
+    if Live.shown(dialog) then
       dialog:setStatus(nil, nil)
     end
   end)
@@ -674,7 +689,7 @@ function Flows:loadSeries(dialog, book, user_id, when_done, refresh)
   end
 
   local function show(series)
-    local card = series and UIManager:isWidgetShown(dialog) and Shelf.seriesCard(series, book.book_id)
+    local card = series and Live.shown(dialog) and Shelf.seriesCard(series, book.book_id)
     if card then
       dialog:setSeries(card, function(book_id)
         self:showBookDetail(book_id)
@@ -705,7 +720,7 @@ function Flows:loadSeries(dialog, book, user_id, when_done, refresh)
 
     -- failed, cancelled by a tap, or the screen was closed meanwhile: a saved copy will do
     show(series or (saved and withShelfStatuses(self, saved, user_id)))
-    if when_done and UIManager:isWidgetShown(dialog) then when_done() end
+    if when_done and Live.shown(dialog) then when_done() end
   end)
 end
 
@@ -765,13 +780,13 @@ function Flows:loadSimilar(dialog, book_id)
   local function attempt()
     tries = tries + 1
     Api:getSimilarBooksAsync(book_id, nil, User:getId(), function(entries, err, about)
-      if not UIManager:isWidgetShown(dialog) then return end
+      if not Live.shown(dialog) then return end
       if about then self:applyAbout(dialog, book_id, about) end
       if entries == nil then
         logger.warn("hardcover: similar books failed (try " .. tries .. ")", err)
         if Recommendations.retryPolicy(tries, err) == "retry" then
           UIManager:scheduleIn(2, function()
-            if not UIManager:isWidgetShown(dialog) then return end
+            if not Live.shown(dialog) then return end
             if Network.connected() then attempt() else dialog:setSimilar(nil) end
           end)
         else

@@ -177,7 +177,7 @@ function SeriesCarousel:build()
     text = self.card.subtitle,
     face = Theme.face("small"),
     max_width = width,
-    fgcolor = Theme.DARK_GREY,
+    fgcolor = Theme.secondary(),
   }))
   table.insert(self.widget, Theme.span("m"))
   table.insert(self.widget, self.swipe_area)

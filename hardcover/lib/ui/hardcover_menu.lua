@@ -1406,6 +1406,34 @@ function HardcoverMenu:getSettingsSubMenuItems()
       end
     },
     {
+      text = _("New navigation bar (beta)"),
+      checked_func = function()
+        return self.settings:newNavigation()
+      end,
+      callback = function()
+        self.settings:updateSetting(SETTING.NEW_NAVIGATION, not self.settings:newNavigation())
+      end,
+      hold_callback = function()
+        UIManager:show(InfoMessage:new {
+          text = _("Open Hardcover to Home, Library, Goals and Stats tabs with a bar at the bottom. Takes effect the next time Hardcover opens."),
+        })
+      end,
+    },
+    {
+      text = _("Pure black secondary text (beta)"),
+      checked_func = function()
+        return self.settings:pureBlackText()
+      end,
+      callback = function()
+        self.settings:updateSetting(SETTING.PURE_BLACK_TEXT, not self.settings:pureBlackText())
+      end,
+      hold_callback = function()
+        UIManager:show(InfoMessage:new {
+          text = _("Draw author lines, captions and hints in pure black instead of dark grey. Screens already open change the next time they open."),
+        })
+      end,
+    },
+    {
       text = "Compatibility mode",
       checked_func = function()
         return self.settings:compatibilityMode()
@@ -1416,7 +1444,7 @@ function HardcoverMenu:getSettingsSubMenuItems()
       end,
       hold_callback = function()
         UIManager:show(InfoMessage:new {
-          text = [[Disable fancy menu for book and edition search results.
+          text = [[Disable the fancy list in the pickers that link a book or choose an edition.
 
 May improve compatibility for some versions of KOReader]],
         })

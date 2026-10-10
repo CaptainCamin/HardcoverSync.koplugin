@@ -3,6 +3,8 @@ local T = require("ffi/util").template
 local json = require("json")
 
 local UIManager = require("ui/uimanager")
+local Hosted = require("hardcover/lib/ui/hosted")
+local Live = require("hardcover/lib/ui/live")
 local Network = require("hardcover/lib/network")
 local Notification = require("ui/widget/notification")
 
@@ -58,8 +60,11 @@ require("hardcover/lib/ui/cover_flows").install(DialogManager)
 function DialogManager:screens()
   if not self._screens then
     self._screens = ScreenRegistry.new(self, {
-      is_shown = function(widget) return UIManager:isWidgetShown(widget) end,
-      close = function(widget) UIManager:close(widget) end,
+      is_shown = function(widget) return Live.shown(widget) end,
+      -- a screen mounted in the shell is taken out of it; any other is closed
+      close = function(widget)
+        if widget.shell then widget.shell:unmount(widget) else UIManager:close(widget) end
+      end,
     })
   end
   return self._screens
@@ -109,7 +114,7 @@ end
 -- (which can prompt to turn wifi off) is not fired for a replacement.
 local function discard(dialog)
   if not dialog then return end
-  if UIManager:isWidgetShown(dialog) then
+  if Live.shown(dialog) then
     UIManager:close(dialog)
   end
   dialog:free()
@@ -181,7 +186,7 @@ function DialogManager:buildLoadingSearchDialog(title, fetch, active_item, book_
 
   fetch(function(items, err)
     StatusDialogs.close(loading)
-    if not UIManager:isWidgetShown(self.search_dialog) then return end
+    if not Live.shown(self.search_dialog) then return end
 
     if err or not items then
       StatusDialogs.retry(err or _("no response"), _("Loading the list"),
@@ -243,7 +248,7 @@ function DialogManager:updateSearchResults(search)
 
   Api:findBooksAsync(search, nil, User:getId(), function(books, err)
     StatusDialogs.close(loading)
-    if not UIManager:isWidgetShown(self.search_dialog) then return end
+    if not Live.shown(self.search_dialog) then return end
 
     if err or not books then
       -- Keep the previous rows. Clearing them turns a transient failure into
@@ -372,7 +377,7 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
     if not edition_id and settings.book_id then
       Api:findDefaultEditionAsync(settings.book_id, User:getId(), function(edition)
         if not edition then return end
-        if not UIManager:isWidgetShown(dialog) then return end
+        if not Live.shown(dialog) then return end
         dialog:setEdition(
           edition.id,
           Book:editionFormatName(edition.edition_format, edition.reading_format_id),
@@ -511,7 +516,102 @@ function DialogManager:checkForUpdate()
   end, beta, true)
 end
 
+--
+-- The shell: Home, Library, Goals and Stats as tabs of one screen (ui/shell.lua). A tab's body is
+-- built the first time it is opened. Tabs not yet moved into the shell show a plain placeholder.
+--
+function DialogManager:shellTabs()
+  local function placeholder(label)
+    return function(_, width, height)
+      local CenterContainer = require("ui/widget/container/centercontainer")
+      local Geom = require("ui/geometry")
+      local Theme = require("hardcover/lib/ui/theme")
+      return CenterContainer:new { dimen = Geom:new { w = width, h = height },
+        Theme.mmdText(label, "text", 21, { secondary = true }) }
+    end
+  end
+  local function host(id, show)
+    return function(shell, width, height)
+      return show(self, { shell = shell, width = width, height = height, id = id })
+    end
+  end
+  return {
+    { id = "home", label = _("Home"), icon_name = "home", make = host("home", self.showOldHome),
+      actions = {
+        { icon = "search", callback = function() self:showSearchInput() end },
+        { icon = "settings", callback = function() self:showSettings() end },
+      } },
+    { id = "library", label = _("Library"), icon_name = "shelves",
+      actions = { { icon = "search", callback = function() self:showSearchInput() end } },
+      make = function(shell, width, height)
+        return require("hardcover/lib/ui/library_body"):new {
+          shell = shell, width = width, height = height, id = "library",
+          subs = {
+            { id = "shelves", label = _("Shelves"), make = function(sh, w, h, parent)
+                return self:showShelvesBody({ shell = sh, width = w, height = h, id = "shelves", parent = parent })
+              end },
+            { id = "lists", label = _("Lists"), make = function(sh, w, h, parent)
+                return self:showLists({ shell = sh, width = w, height = h, id = "lists", parent = parent })
+              end },
+            { id = "vibes", label = _("Vibes"), make = function(sh, w, h, parent)
+                return self:showVibes({ shell = sh, width = w, height = h, id = "vibes", parent = parent })
+              end },
+          },
+        }
+      end },
+    { id = "goals", label = _("Goals"), icon_name = "goals", make = host("goals", self.showGoals),
+      actions = { { icon = "plus", callback = function() self:showGoalForm(nil) end } } },
+    { id = "stats", label = _("Stats"), icon_name = "stats", make = host("stats", self.showStats) },
+  }
+end
+
+-- The Library's Shelves tab: the shelves and their counts, from what is saved.
+function DialogManager:showShelvesBody(host)
+  self:screens():discard("shelves")
+  local cache = self.shelf_cache
+  local counts = cache and cache:counts(User:getId(), Home.statusIds()) or {}
+  local body = require("hardcover/lib/ui/shelves_body"):new {
+    shell = host.shell, width = host.width, height = host.height, parent = host.parent,
+    rows = Home.rows(counts),
+    select_cb = function(row) self:showShelf(row.status_id, row.title) end,
+  }
+  self:screens():track("shelves", body)
+  return body
+end
+
+-- Sync now, as Settings > Sync does it (it finds a connection, or says it could not).
+function DialogManager:syncNow()
+  local items = self.settings_items and self.settings_items() or {}
+  for _i, item in ipairs(items) do
+    if item and item.tile == "Sync" and item.callback then
+      item.callback({ updateItems = function() end })
+      return
+    end
+  end
+end
+
+-- What is waiting to sync changed (a sync ran, a change was queued): Home's box says so.
+function DialogManager:queueChanged()
+  local home = self:screens():open("home")
+  if home and home.rebuild then home:rebuild() end
+end
+
+function DialogManager:showShell(active)
+  self:screens():discard("shell")
+  local shell = require("hardcover/lib/ui/shell"):new { tabs = self:shellTabs(), active = active }
+  self:screens():track("shell", shell)
+  UIManager:show(shell)
+  return shell
+end
+
 function DialogManager:showHome()
+  local settings = self.settings
+  if settings.newNavigation and settings:newNavigation() then return self:showShell("home") end
+  return self:showOldHome()
+end
+
+-- `host` ({ shell, width, height }) builds Home as the shell's first tab (ui/home_body.lua).
+function DialogManager:showOldHome(host)
   local user_id = User:getId()
   local cache = self.shelf_cache
   local ids = Home.statusIds()
@@ -530,7 +630,15 @@ function DialogManager:showHome()
     end)
   end
 
-  local dialog = require("hardcover/lib/ui/home_dialog"):new {
+  local dialog = require(host and "hardcover/lib/ui/home_body" or "hardcover/lib/ui/home_dialog"):new {
+    shell = host and host.shell, width = host and host.width, height = host and host.height,
+    parent = host and host.parent,
+    pending_fn = function()
+      return (self.sync_queue and self.sync_queue:pendingCount() or 0)
+        + (self.goal_queue and self.goal_queue:count() or 0)
+    end,
+    -- the sync box's Sync now: what Settings > Sync does
+    sync_cb = function() self:syncNow() end,
     rows = Home.rows(saved_counts),
     entries = shownReading(saved_reading),
     select_cb = function(row)
@@ -571,11 +679,11 @@ function DialogManager:showHome()
   }
   self:screens():track("home", dialog)
 
-  UIManager:show(dialog)
+  if not host then UIManager:show(dialog) end
   self:checkForUpdate()
 
   if not Network.connected() then
-    return
+    return dialog
   end
 
   -- the account line in Settings names who is signed in: found out here if it is not known yet
@@ -587,7 +695,7 @@ function DialogManager:showHome()
     HomeLoader.refresh {
       api = Api,
       cache = cache,
-      alive = function() return UIManager:isWidgetShown(dialog) end,
+      alive = function() return Live.shown(dialog) end,
       sleep = Background.sleep,
       user_id = user_id,
       status_ids = ids,
@@ -596,6 +704,9 @@ function DialogManager:showHome()
       shown_reading = shownReading,
       on_counts = function(counts)
         dialog:setRows(Home.rows(counts), true)
+        -- the Library's Shelves tab shows the same counts
+        local shelves = self:screens():open("shelves")
+        if shelves then shelves:setRows(Home.rows(counts)) end
       end,
       on_prints = function(prints)
         shelf_prints = prints
@@ -625,6 +736,7 @@ function DialogManager:showHome()
       self:checkShelves(shelf_prints)
     end
   end)
+  return dialog
 end
 
 -- The shelf loader owns the paging rules; list screens page by the same size.
@@ -669,7 +781,9 @@ function DialogManager:goalsFlushed(sent_goals, archived_keys)
   self:applyGoals(GoalActions.afterFlush(self:savedGoals(), sent_goals, archived_keys))
 end
 
-function DialogManager:showGoals()
+-- `host` ({ shell, width, height }) builds the screen as a tab's body in the shell instead of
+-- showing it over the page; the body is returned for the shell to mount.
+function DialogManager:showGoals(host)
   local user_id = User:getId()
   local cache = self.shelf_cache
   local cached, saved_at = cache and cache:goals(user_id)
@@ -682,6 +796,8 @@ function DialogManager:showGoals()
   if start == "saved_offline" then note = goalsNote(saved_at, _("Offline.")) end
 
   local dialog = require("hardcover/lib/ui/goals_dialog"):new {
+    shell = host and host.shell, width = host and host.width, height = host and host.height,
+    parent = host and host.parent,
     goals = self:shownGoals(cached),
     finished_offline = self:finishedOffline(),
     note = note,
@@ -699,11 +815,11 @@ function DialogManager:showGoals()
     dialog.message = _("No goals yet. Tap New goal to set one.")
   end
   self:screens():track("goals", dialog)
-  UIManager:show(dialog)
-  if not online then return end
+  if not host then UIManager:show(dialog) elseif host.remount then Hosted.remount(host, dialog) end
+  if not online then return dialog end
 
   Api:getGoalsAsync(function(goals, err)
-    if not UIManager:isWidgetShown(dialog) then return end
+    if not Live.shown(dialog) then return end
     local outcome = ScreenLoad.finish(goals, cached)
     if outcome == "fresh" then
       if cache then cache:putGoals(user_id, goals) end
@@ -713,10 +829,15 @@ function DialogManager:showGoals()
       dialog:setGoals(self:shownGoals(cached), goalsNote(saved_at, _("Couldn't refresh.")), self:finishedOffline())
     else
       StatusDialogs.retry(err, _("Loading your goals"),
-        function() self:showGoals() end,
-        function() UIManager:close(dialog) end)
+        function()
+          -- a retry makes a new screen; in the shell the tab takes it over
+          self:showGoals(host and { shell = host.shell, width = host.width, height = host.height,
+            id = host.id, parent = host.parent, remount = true })
+        end,
+        function() if not host then UIManager:close(dialog) end end)
     end
   end)
+  return dialog
 end
 
 local function statsNote(saved_at, why)
@@ -729,7 +850,7 @@ end
 -- Saved stats are reloaded at least this often, whatever the Read shelf says.
 local STATS_FRESH_FOR = 7 * 24 * 3600
 
-function DialogManager:showStats()
+function DialogManager:showStats(host)
   local user_id = User:getId()
   local cache = self.shelf_cache
   local saved = cache and cache:stats(user_id)
@@ -739,6 +860,8 @@ function DialogManager:showStats()
   local online = Network.connected()
   local start = ScreenLoad.start(saved, online)
   local dialog = require("hardcover/lib/ui/stats_dialog"):new {
+    shell = host and host.shell, width = host and host.width, height = host and host.height,
+    parent = host and host.parent,
   }
   if saved then
     dialog.rows, dialog.genres, dialog.complete = saved.rows, saved.genres, saved.complete ~= false
@@ -750,8 +873,8 @@ function DialogManager:showStats()
     dialog.message = _("Stats need an internet connection the first time.")
   end
   self:screens():track("stats", dialog)
-  UIManager:show(dialog)
-  if not online then return end
+  if not host then UIManager:show(dialog) elseif host.remount then Hosted.remount(host, dialog) end
+  if not online then return dialog end
 
   -- The saved stats are still right while the Read shelf has not changed (its
   -- fingerprint), no change made here marked them stale, and they are under a week old
@@ -765,7 +888,7 @@ function DialogManager:showStats()
 
   local function load(fingerprint)
     Api:getStatsAsync(user_id, function(stats, err)
-      if not UIManager:isWidgetShown(dialog) then return end
+      if not Live.shown(dialog) then return end
       local outcome = ScreenLoad.finish(stats, saved)
       if outcome == "fresh" then
         if cache then cache:putStats(user_id, stats, fingerprint) end
@@ -774,8 +897,11 @@ function DialogManager:showStats()
         dialog:setStats(saved, statsNote(saved.saved_at, _("Couldn't refresh.")))
       else
         StatusDialogs.retry(err, _("Loading your stats"),
-          function() self:showStats() end,
-          function() UIManager:close(dialog) end)
+          function()
+            self:showStats(host and { shell = host.shell, width = host.width, height = host.height,
+              id = host.id, parent = host.parent, remount = true })
+          end,
+          function() if not host then UIManager:close(dialog) end end)
       end
     end)
   end
@@ -784,15 +910,16 @@ function DialogManager:showStats()
   local fresh = self:freshPrints()
   if fresh then
     if not unchanged(fresh[FINISHED]) then load(fresh[FINISHED]) end
-    return
+    return dialog
   end
   -- otherwise one small request says whether Read changed
   Api:getShelfCountsAsync(user_id, { FINISHED }, function(_counts, _err, prints)
-    if not UIManager:isWidgetShown(dialog) then return end
+    if not Live.shown(dialog) then return end
     local fingerprint = prints and prints[FINISHED]
     if fingerprint and unchanged(fingerprint) then return end
     load(fingerprint)
   end)
+  return dialog
 end
 
 -- One goal, big. `note` is the saved-copy note when the goals shown are not fresh.
@@ -915,7 +1042,7 @@ function DialogManager:saveGoal(dialog, form, on_saved)
     if saved then
       self:applyGoals(Goals.upsert(self:savedGoals(), saved), saved)
     end
-    if not UIManager:isWidgetShown(dialog) then return end
+    if not Live.shown(dialog) then return end
     if not saved then
       dialog:setBusy(false)
       dialog:setMessage(string.format(_("Couldn't save the goal: %s Your changes are kept."), GoalActions.problem(err)))
@@ -959,7 +1086,7 @@ function DialogManager:archiveGoal(dialog, goal, on_saved)
     if done then
       self:applyGoals(Goals.remove(self:savedGoals(), goal.id))
     end
-    if not UIManager:isWidgetShown(dialog) then return end
+    if not Live.shown(dialog) then return end
     if not done then
       dialog:setBusy(false)
       dialog:setMessage(string.format(_("Couldn't archive the goal: %s"), GoalActions.problem(err)))
@@ -1029,7 +1156,7 @@ function DialogManager:showForYou()
   local function load()
     Api:getForYouAsync(function(entries, err, note)
       if loading then StatusDialogs.close(loading) end
-      if not UIManager:isWidgetShown(dialog) then return end
+      if not Live.shown(dialog) then return end
 
       if entries == nil then
         if saved and #saved > 0 then return end -- keep the saved picks
@@ -1060,7 +1187,7 @@ function DialogManager:showForYou()
   end
   -- otherwise one small request for the shelves' fingerprints
   Api:getShelfCountsAsync(user_id, Home.statusIds(), function(_counts, _err, prints)
-    if not UIManager:isWidgetShown(dialog) then
+    if not Live.shown(dialog) then
       if loading then StatusDialogs.close(loading) end
       return
     end
@@ -1076,40 +1203,46 @@ end
 -- screen in its own ranking (showVibe). Needs the read:vibes permission, which a sign-in from
 -- before it was asked for lacks.
 --
-function DialogManager:showVibes()
+function DialogManager:showVibes(host)
   self:screens():discard("vibes")
 
-  local dialog = require("hardcover/lib/ui/lists_dialog"):new {
+  -- in the Library it is the icon list of mock 2v; on its own, the lists screen with covers
+  local dialog = require(host and "hardcover/lib/ui/icon_list_body" or "hardcover/lib/ui/lists_dialog"):new {
+    shell = host and host.shell, width = host and host.width, height = host and host.height,
+    parent = host and host.parent,
     title = _("Vibes"),
     mine_title = _("From Hardcover"),
     following_title = _("Made by you"),
     message = _("Loading your vibes\226\128\166"),
     select_cb = function(row)
-      self:showVibe(row.vibe)
+      if row.for_you then self:showForYou() else self:showVibe(row.vibe) end
     end,
   }
   self:screens():track("vibes", dialog)
-  UIManager:show(dialog)
+  if not host then UIManager:show(dialog) elseif host.remount then Hosted.remount(host, dialog) end
 
   if scopeMissing(Vibes.SCOPE) then
     dialog:setMessage(_("Sign out and back in (Settings > Account) to see your vibes."))
-    return
+    return dialog
   end
   if not Network.connected() then
     dialog:setMessage(_("Vibes need an internet connection."))
-    return
+    return dialog
   end
 
   Api:getVibesAsync(User:getId(), function(vibes, covers_or_err)
-    if not UIManager:isWidgetShown(dialog) then return end
+    if not Live.shown(dialog) then return end
     if not vibes then
       if Vibes.isScopeError(covers_or_err) then
         dialog:setMessage(_("Sign out and back in (Settings > Account) to see your vibes."))
         return
       end
       StatusDialogs.retry(covers_or_err, _("Loading your vibes"),
-        function() self:showVibes() end,
-        function() UIManager:close(dialog) end)
+        function()
+          self:showVibes(host and { shell = host.shell, width = host.width, height = host.height,
+            id = host.id, parent = host.parent, remount = true })
+        end,
+        function() if not host then UIManager:close(dialog) end end)
       return
     end
     if #vibes == 0 then
@@ -1117,8 +1250,13 @@ function DialogManager:showVibes()
       return
     end
     local system, mine = Vibes.rows(vibes, covers_or_err)
+    -- "For you" (books suggested from your ratings) is the first vibe, unless it is turned off
+    if self.settings:readSetting(SETTING.SHOW_FOR_YOU) ~= false then
+      table.insert(system, 1, { name = _("For you"), for_you = true, covers = {} })
+    end
     dialog:setLists(system, mine)
   end)
+  return dialog
 end
 
 -- One vibe's books in its ranking, in the shelf screen, a page at a time as you page on.
@@ -1127,7 +1265,7 @@ function DialogManager:showVibe(vibe)
   local dialog
   local function fetch_page(offset, limit, callback)
     Api:getBooksByIdsAsync(Vibes.page(vibe, offset, limit), function(entries, err)
-      if not UIManager:isWidgetShown(dialog) then return end
+      if not Live.shown(dialog) then return end
       callback(entries, err, offset + (limit or PAGE) < #vibe.ids)
     end)
   end
@@ -1155,7 +1293,7 @@ function DialogManager:showVibe(vibe)
   local loading = StatusDialogs.loading(_("Loading the books\226\128\166"))
   Api:getBooksByIdsAsync(Vibes.page(vibe, 0, PAGE), function(entries, err)
     StatusDialogs.close(loading)
-    if not UIManager:isWidgetShown(dialog) then return end
+    if not Live.shown(dialog) then return end
     if not entries then
       StatusDialogs.retry(err, _("Loading the vibe"),
         function()

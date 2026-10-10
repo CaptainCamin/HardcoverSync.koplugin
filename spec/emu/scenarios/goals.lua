@@ -110,7 +110,7 @@ return {
     scroll_bottom(emu, home)
     emu:expectText("Goals")
     emu:expectText("Year Reading Goal")
-    emu:expectText("/ 70 books")
+    emu:expectText("/ 70 books") -- (Home's card)
     for _, node in ipairs(emu:screenNodes()) do
       assert(not node.text:find("/ 30 books", 1, true), "Home showed the goal that is already done")
     end
@@ -134,15 +134,23 @@ return {
     tap_widget(emu, find_tap(home, "Goals"))
     local screen = UIManager:getTopmostVisibleWidget()
     assert(screen and screen.name == "hardcover_goals", "the heading did not open the goals: " .. tostring(screen and screen.name))
-    emu:expectText("Current")
     emu:expectText("Pages this month")
-    emu:expectText("/ 3000 pages")
-    emu:expectText("Past goals")
+    emu:expectText("of 3000 pages")
+    emu:expectText("Behind")
+    emu:expectText("On track")
+    for _, node in ipairs(emu:screenNodes()) do
+      assert(not node.text:find("Last Year Reading Goal", 1, true), "a past goal was on the Current tab")
+    end
+    emu:shot("goals_screen")
+    -- the Past tab: ended goals as rows; archived ones absent
+    assert(screen.tabs, "the goals screen has no tabs")
+    tap_widget(emu, screen.tabs[2])
     emu:expectText("Last Year Reading Goal")
     for _, node in ipairs(emu:screenNodes()) do
       assert(not node.text:find("archived goal", 1, true), "an archived goal was shown")
+      assert(not node.text:find("Pages this month", 1, true), "a current goal was on the Past tab")
     end
-    emu:shot("goals_screen")
+    emu:shot("goals_past")
     screen:onClose()
     emu:pump()
     home:onClose()

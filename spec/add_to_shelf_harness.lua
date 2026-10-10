@@ -110,8 +110,8 @@ end)
 
 check("the shelf button says where the book is, or invites adding it", function()
   assert(Shelf.shelfButtonText(nil) == "Add to shelf")
-  assert(Shelf.shelfButtonText(1) == "Shelf: Want to Read")
-  assert(Shelf.shelfButtonText(5) == "Shelf: Did Not Finish")
+  assert(Shelf.shelfButtonText(1) == "Change shelf")
+  assert(Shelf.shelfButtonText(5) == "Change shelf")
 end)
 
 -- ------------------------------------------------------------ cache

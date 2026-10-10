@@ -42,7 +42,7 @@ return {
     for _ = 1, 6 do emu:pump() end
     local dialog = manager.stats_dialog
     assert(dialog and dialog.rows and #dialog.rows == 105, "the stats did not load")
-    for _, expected in ipairs({ "Stats", "Period: All time", "Books per year", "Your ratings", "Genres", "Most read authors", "Book length" }) do
+    for _, expected in ipairs({ "Stats", "Books per year", "Your ratings", "Genres", "Most read authors", "Book length" }) do
       emu:expectText(expected)
     end
     emu:shot("stats_all")
@@ -54,12 +54,22 @@ return {
     emu:pump()
     emu:shot("stats_all_3")
 
-    -- one year
-    dialog.year = 2024
-    dialog:rebuild()
+    -- one year, from its tab: All time, the two latest years, Earlier
+    assert(dialog.tabs and #dialog.tabs == 4, "expected four period tabs, got " .. tostring(dialog.tabs and #dialog.tabs))
+    emu:screenNodes() -- paint: tap ranges are only real once painted
+    local tab = dialog.tabs[3].dimen
+    emu:tapExpecting(tab.x + math.floor(tab.w / 2), tab.y + math.floor(tab.h / 2))
     emu:pump()
+    assert(dialog.year == 2024, "the 2024 tab did not choose 2024: " .. tostring(dialog.year))
     emu:expectText("Books per month")
+    emu:expectText("Pace")
     emu:shot("stats_year")
+    -- Earlier opens the picker with every year
+    tab = dialog.tabs[4].dimen
+    emu:tapExpecting(tab.x + math.floor(tab.w / 2), tab.y + math.floor(tab.h / 2))
+    emu:pump()
+    emu:expectText("Period")
+    emu:expectText("2023")
     emu:closeAll()
 
     -- offline: the saved copy, with its note

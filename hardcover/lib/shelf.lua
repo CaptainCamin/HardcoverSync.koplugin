@@ -203,11 +203,11 @@ function Shelf.statusChoices()
   return choices
 end
 
--- The label of the details screen's shelf button: where the book is now, or the
--- invitation to put it somewhere when it is not in the library.
+-- The label of the details screen's shelf button: the invitation to put the book somewhere when it is
+-- not in the library, otherwise to move it (where it is now is the status pill above).
 function Shelf.shelfButtonText(status_id)
   if status_id then
-    return "Shelf: " .. Shelf.statusLabel(status_id)
+    return "Change shelf"
   end
   return "Add to shelf"
 end
@@ -355,49 +355,6 @@ function Shelf.detailSummary(detail)
   summary.cover = Shelf.coverOf(book)
 
   return summary
-end
-
---
--- The three figures under a book's header, as { value, label } pairs: the
--- community rating (with how many rated it), how many readers have it, and
--- your own rating. A figure that is not known is an en dash, so the strip is
--- always three cells wide and a missing rating never reads as a zero.
---
-function Shelf.detailStats(detail)
-  detail = detail or {}
-  local book = detail.book or {}
-  local NONE = "\226\128\147"
-
-  local rating = tonumber(book.rating)
-  local count = tonumber(book.ratings_count)
-  local community
-  if rating and rating > 0 then
-    local label = "rating"
-    if count and count > 0 then
-      label = count == 1 and "1 rating" or (withCommas(count) .. " ratings")
-    end
-    community = { string.format("%.1f", rating), label }
-  else
-    community = { NONE, "no ratings" }
-  end
-
-  local readers = tonumber(book.users_count)
-  local reading
-  if readers and readers > 0 then
-    reading = { withCommas(readers), readers == 1 and "reader" or "readers" }
-  else
-    reading = { NONE, "readers" }
-  end
-
-  local mine = tonumber(detail.user_rating)
-  local yours
-  if mine and mine > 0 then
-    yours = { mine % 1 == 0 and string.format("%d", mine) or string.format("%.1f", mine), "your rating" }
-  else
-    yours = { NONE, "your rating" }
-  end
-
-  return { community, reading, yours }
 end
 
 --

@@ -78,7 +78,7 @@ check("nothing, zeros and junk give no slices", function()
   assert(#s == 1 and s[1].percent == 100 and s[1].fraction == 1)
 end)
 
-print("\n== a ring ==")
+print("\n== rings ==")
 
 check("arcs run clockwise from 12 o'clock and meet at a full turn", function()
   local s = Charts.arcs(Charts.slices({ { label = "a", value = 1 }, { label = "b", value = 3 } }, 5))
@@ -109,12 +109,47 @@ check("a thin gap is left between slices, and none for a single slice", function
   assert(Charts.sliceAtGap(one, 0, -40, 20, 60, 4) == 1, "a single slice is a whole ring")
 end)
 
-check("grey levels are far apart, none near white, and repeat after five", function()
-  for i = 1, #Charts.LEVELS do
-    assert(Charts.shade(i) <= 0xBB, "too light to see")
-    for j = i + 1, #Charts.LEVELS do assert(math.abs(Charts.shade(i) - Charts.shade(j)) >= 0x20, "two greys too alike") end
+check("a running total stops where it is told and treats junk as nothing", function()
+  local c = Charts.cumulative({ 3, 0, 2, 4, 1 })
+  assert(#c == 5 and c[1] == 3 and c[2] == 3 and c[3] == 5 and c[5] == 10)
+  local t = Charts.cumulative({ 3, 0, 2, 4, 1 }, 3)
+  assert(#t == 3 and t[3] == 5)
+  assert(#Charts.cumulative({ 1, 1 }, 9) == 2 and #Charts.cumulative(nil) == 0)
+  assert(Charts.cumulative({ "x", 2 })[2] == 2)
+end)
+
+check("quartiles sit a quarter, half and three quarters of the way up, between neighbours when need be", function()
+  local q = Charts.quartiles({ 5, 1, 3, 2, 4 })
+  assert(q[1] == 2 and q[2] == 3 and q[3] == 4)
+  local e = Charts.quartiles({ 10, 20 })
+  assert(e[1] == 12.5 and e[2] == 15 and e[3] == 17.5)
+  local one = Charts.quartiles({ 7 })
+  assert(one[1] == 7 and one[3] == 7)
+  assert(Charts.quartiles({}) == nil and Charts.quartiles(nil) == nil and Charts.quartiles({ "x" }) == nil)
+end)
+
+check("a strip places values between the smallest and biggest, and the odd cases stay in it", function()
+  local at, lo, hi, avg = Charts.positions({ 100, 300, 200 }, 200, 250)
+  assert(lo == 100 and hi == 300 and at[1] == 0 and at[2] == 200 and at[3] == 100 and avg == 150)
+  local same, l2, h2 = Charts.positions({ 5, 5 }, 100)
+  assert(same[1] == 50 and l2 == 5 and h2 == 5)
+  local one = Charts.positions({ 7 }, 100)
+  assert(one[1] == 50)
+  local none, lo3 = Charts.positions({}, 100)
+  assert(#none == 0 and lo3 == nil)
+  local _, _, _, clamped = Charts.positions({ 1, 3 }, 100, 99)
+  assert(clamped == 100, "the average is kept on the strip")
+end)
+
+print("\n== grey steps ==")
+
+check("grey steps run from black to light, each clearly lighter, none near white", function()
+  assert(Charts.ramp(1) == 0)
+  for i = 2, #Charts.RAMP do
+    assert(Charts.ramp(i) - Charts.ramp(i - 1) >= 0x20, "two greys too alike")
   end
-  assert(Charts.shade(1) == 0 and Charts.shade(6) == Charts.shade(1))
+  assert(Charts.ramp(#Charts.RAMP) <= 0xBB, "too light to see")
+  assert(Charts.ramp(99) == Charts.ramp(#Charts.RAMP) and Charts.ramp(0) == 0, "out of range stays on the ramp")
 end)
 
 print("\n== columns and bars ==")

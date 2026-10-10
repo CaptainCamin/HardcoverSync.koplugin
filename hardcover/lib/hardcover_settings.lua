@@ -3,6 +3,7 @@ local LuaSettings = require("luasettings")
 
 local _t = require("hardcover/lib/table_util")
 local SETTING = require("hardcover/lib/constants/settings")
+local UiPrefs = require("hardcover/lib/ui_prefs")
 
 local HardcoverSettings = {}
 HardcoverSettings.__index = HardcoverSettings
@@ -16,6 +17,7 @@ function HardcoverSettings:new(path, ui)
   o.settings = LuaSettings:open(path)
   o.ui = ui
   o.subscribers = {}
+  UiPrefs.pure_black_text = o.settings:readSetting(SETTING.PURE_BLACK_TEXT) == true
 
   if KoreaderVersion:getNormalizedCurrentVersion() < 202403010000 then
     if o.settings:readSetting(SETTING.COMPATIBILITY_MODE) == nil then
@@ -75,6 +77,7 @@ end
 function HardcoverSettings:updateSetting(key, value)
   local original_value = self.settings:readSetting(key)
   self.settings:saveSetting(key, value)
+  if key == SETTING.PURE_BLACK_TEXT then UiPrefs.pure_black_text = value == true end
 
   self.settings:flush()
 
@@ -254,6 +257,15 @@ function HardcoverSettings:bookStatusFromSnapshot(filename)
   end
 
   return book_status
+end
+
+-- beta: Home, Library, Goals and Stats as tabs of one screen with a navigation bar
+function HardcoverSettings:newNavigation()
+  return self.settings:readSetting(SETTING.NEW_NAVIGATION) == true
+end
+
+function HardcoverSettings:pureBlackText()
+  return self.settings:readSetting(SETTING.PURE_BLACK_TEXT) == true
 end
 
 function HardcoverSettings:compatibilityMode()

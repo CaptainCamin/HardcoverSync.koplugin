@@ -13,6 +13,8 @@ local _ = require("gettext")
 local T = require("ffi/util").template
 
 local UIManager = require("ui/uimanager")
+local Hosted = require("hardcover/lib/ui/hosted")
+local Live = require("hardcover/lib/ui/live")
 
 local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
@@ -154,7 +156,7 @@ end
 -- with a note saying when it is from); online it is checked and, if it changed, replaced.
 -- A list opens in the shelf screen (showList).
 --
-function Flows:showLists()
+function Flows:showLists(host)
   self:screens():discard("lists")
 
   local user_id = User:getId()
@@ -162,7 +164,13 @@ function Flows:showLists()
   local saved = store and store:index(user_id)
   local online = Network.connected()
 
-  local dialog = require("hardcover/lib/ui/lists_dialog"):new {
+  -- in the Library it is the icon list (the shelf icon, as on the Shelves tab); on its own, the lists
+  -- screen with covers
+  local dialog = require(host and "hardcover/lib/ui/icon_list_body" or "hardcover/lib/ui/lists_dialog"):new {
+    shell = host and host.shell, width = host and host.width, height = host and host.height,
+    parent = host and host.parent,
+    first_title = host and _("Your lists") or nil, second_title = host and _("Following") or nil,
+    icon_for = host and function() return "shelf" end or nil,
     mine = saved and saved.mine or nil,
     following = saved and saved.following or nil,
     message = not saved and (online and _("Loading your lists\226\128\166")
@@ -172,7 +180,7 @@ function Flows:showLists()
     end,
   }
   self:screens():track("lists", dialog)
-  UIManager:show(dialog)
+  if not host then UIManager:show(dialog) elseif host.remount then Hosted.remount(host, dialog) end
 
   if saved and #saved.mine == 0 and #saved.following == 0 then
     dialog:setMessage(noLists())
@@ -182,24 +190,27 @@ function Flows:showLists()
     if saved then
       StatusDialogs.info(T(_("Offline: showing your lists as of %1."), savedDate(saved)))
     end
-    return
+    return dialog
   end
 
   -- Home asked a moment ago: nothing to ask again (any list not yet saved is fetched)
   if saved and ListsSync.indexFresh(saved, store.now()) then
     self:queueStaleLists(saved)
-    return
+    return dialog
   end
 
   self:refreshLists(function(result)
-    if not UIManager:isWidgetShown(dialog) then return end
+    if not Live.shown(dialog) then return end
     local lists = result and result.lists
     if not lists then
       -- the saved lists are still there: failing to check them is not worth interrupting for
       if saved then return end
       StatusDialogs.retry(result and result.failure, _("Loading your lists"),
-        function() self:showLists() end,
-        function() UIManager:close(dialog) end)
+        function()
+          self:showLists(host and { shell = host.shell, width = host.width, height = host.height,
+            id = host.id, parent = host.parent, remount = true })
+        end,
+        function() if not host then UIManager:close(dialog) end end)
       return
     end
     if #lists.mine == 0 and #lists.following == 0 then
@@ -211,6 +222,7 @@ function Flows:showLists()
     end
     dialog:setLists(lists.mine, lists.following)
   end)
+  return dialog
 end
 
 --
@@ -287,7 +299,7 @@ function Flows:showList(row)
       force = true,
       on_done = function(result)
         StatusDialogs.close(loading)
-        if not UIManager:isWidgetShown(dialog) then return end
+        if not Live.shown(dialog) then return end
         if result and result.complete then
           show(result.entries, true)
         else
@@ -329,14 +341,14 @@ function Flows:showList(row)
     -- rows appear as pages arrive when there is nothing saved to show
     on_page = not saved and function(fresh)
       stopLoading()
-      if UIManager:isWidgetShown(dialog) then
+      if Live.shown(dialog) then
         dialog.offset = #fresh
         dialog:setEntries(fresh, true, true)
       end
     end or nil,
     on_done = function(result)
       stopLoading()
-      if not UIManager:isWidgetShown(dialog) then return end
+      if not Live.shown(dialog) then return end
       if result and result.complete then
         show(result.entries, true)
         return
