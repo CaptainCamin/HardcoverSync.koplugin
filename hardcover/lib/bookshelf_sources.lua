@@ -17,12 +17,13 @@ local UIManager = require("ui/uimanager")
 
 local Sources = {}
 local WANT_TO_READ_ID = "hardcover_wtr"
+local SHELVES_ID = "hardcover_shelf"
 local LISTS_ID = "hardcover_lists"
 local SHELF_SOURCES = {
-  { id = WANT_TO_READ_ID, label = "Hardcover: Want to Read", status = HARDCOVER.STATUS.TO_READ },
-  { id = "hardcover_reading", label = "Hardcover: Currently Reading", status = HARDCOVER.STATUS.READING },
-  { id = "hardcover_read", label = "Hardcover: Read", status = HARDCOVER.STATUS.FINISHED },
-  { id = "hardcover_dnf", label = "Hardcover: Did Not Finish", status = HARDCOVER.STATUS.DNF },
+  { id = WANT_TO_READ_ID, label = "Hardcover: Want to Read", choice = "Want to Read", status = HARDCOVER.STATUS.TO_READ },
+  { id = "hardcover_reading", label = "Hardcover: Currently Reading", choice = "Currently Reading", status = HARDCOVER.STATUS.READING },
+  { id = "hardcover_read", label = "Hardcover: Read", choice = "Read", status = HARDCOVER.STATUS.FINISHED },
+  { id = "hardcover_dnf", label = "Hardcover: Did Not Finish", choice = "Did Not Finish", status = HARDCOVER.STATUS.DNF },
 }
 local shelf_entries = {}
 local list_entries = {}
@@ -128,6 +129,13 @@ local function changed(app, id)
   end
 end
 
+local function changedShelf(app, status_id)
+  changed(app, SHELVES_ID)
+  for _, shelf in ipairs(SHELF_SOURCES) do
+    if shelf.status == status_id then changed(app, shelf.id) end
+  end
+end
+
 local function startLoad(key, force, loader, app, done)
   if in_flight[key] then
     if done then
@@ -196,7 +204,7 @@ local function loadShelf(app, shelf, force, done)
       sleep = Background.sleep,
       on_page = function(entries)
         shelf_entries[shelfKey(user_id, status_id)] = { entries = entries, complete = false }
-        changed(app, shelf.id)
+        changedShelf(app, status_id)
       end,
     }
     if result then
@@ -204,13 +212,90 @@ local function loadShelf(app, shelf, force, done)
         entries = result.entries, complete = result.complete == true,
       }
       app.shelf_cache:put(user_id, status_id, result.entries, result.complete)
-      changed(app, shelf.id)
+      changedShelf(app, status_id)
       if result.complete then retry_after[key] = nil
       else retry_after[key] = os.time() + 30 end
     else
       retry_after[key] = os.time() + 30
     end
   end, app, done)
+end
+
+local function shelfForStatus(status_id)
+  status_id = tonumber(status_id)
+  for _, shelf in ipairs(SHELF_SOURCES) do
+    if shelf.status == status_id then return shelf end
+  end
+end
+
+local function shelfSource(app, id, fixed_shelf, picker)
+  local spec = remoteSpec(app, id)
+  spec.label = function()
+    return picker and _("Hardcover shelf") or _(fixed_shelf.label)
+  end
+  spec.available = function() return hasCredentials(app) end
+  spec.picker = picker == true
+
+  if picker then
+    spec.pick = function(draft, done)
+      local Picker = require("hardcover/lib/ui/picker")
+      local picker_widget
+      local finished = false
+      local function cancel()
+        if finished then return end
+        finished = true
+        done(false)
+      end
+      local buttons = {}
+      for index, shelf in ipairs(SHELF_SOURCES) do
+        local shelf_spec = shelf
+        buttons[index] = {
+          text = _(shelf.choice),
+          id = "hardcover_shelf_" .. tostring(index),
+          callback = function()
+            if finished then return end
+            finished = true
+            UIManager:close(picker_widget)
+            draft.source.status_id = shelf_spec.status
+            draft.source.shelf_name = shelf_spec.choice
+            draft.label = _(shelf_spec.label)
+            done()
+          end,
+        }
+      end
+      picker_widget = Picker.new { title = _("Choose a Hardcover shelf"), rows = buttons,
+        close_callback = cancel }
+      UIManager:show(picker_widget)
+    end
+  end
+
+  spec.fetch = function(source, _drill, offset, limit)
+    local shelf = fixed_shelf or shelfForStatus(source and source.status_id)
+    if not shelf then return {}, 0 end
+    local user_id = app.settings:readSetting(SETTING.USER_ID)
+    if not user_id then
+      loadShelf(app, shelf, false)
+      return {}, nil
+    end
+    local key = shelfKey(user_id, shelf.status)
+    local state = shelf_entries[key]
+    if not state then
+      local saved = app.shelf_cache:get(user_id, shelf.status)
+      if saved then
+        state = { entries = saved.entries, complete = saved.complete == true }
+        shelf_entries[key] = state
+      end
+    end
+    if not (state and state.complete) then loadShelf(app, shelf, false) end
+    local entries, total = shelfPage(user_id, shelf.status, offset, limit)
+    return toBooks(entries, shelf.status), total
+  end
+  spec.refresh = function(source, _drill, done)
+    local shelf = fixed_shelf or shelfForStatus(source and source.status_id)
+    if not shelf then done(); return end
+    loadShelf(app, shelf, true, done)
+  end
+  return spec
 end
 
 local function loadList(app, source, force, done)
@@ -322,48 +407,25 @@ function Sources.register(app)
     return false
   end
 
-  -- Hardcover shelves are server-backed and can be large. Fetch mode keeps
-  -- each redraw to the page being shown instead of rebuilding and sorting the
-  -- whole shelf synchronously.
+  -- Preserve source IDs already saved on Bookshelf shelves. Keep those legacy
+  -- entries out of the picker; new shelves use the single picker below.
   local ok_shelves = true
   for _, shelf in ipairs(SHELF_SOURCES) do
-    local spec = remoteSpec(app, shelf.id)
-    local shelf_spec = shelf
-    local shelf_id, status_id, label = shelf.id, shelf.status, _(shelf.label)
-    spec.label = function() return label end
-    spec.available = function() return hasCredentials(app) end
-    spec.fetch = function(_source, _drill, offset, limit)
-      local user_id = app.settings:readSetting(SETTING.USER_ID)
-      if not user_id then
-        loadShelf(app, shelf_spec, false)
-        return {}, nil
-      end
-      local cache_key = shelfKey(user_id, status_id)
-      local state = shelf_entries[cache_key]
-      local saved
-      if not state then
-        saved = app.shelf_cache:get(user_id, status_id)
-        if saved then
-          state = { entries = saved.entries, complete = saved.complete == true }
-          shelf_entries[cache_key] = state
-        end
-      end
-      if not (state and state.complete) then
-        loadShelf(app, shelf_spec, false)
-      end
-      local entries, total = shelfPage(user_id, status_id, offset, limit)
-      return toBooks(entries, status_id), total
-    end
-    spec.refresh = function(_source, _drill, done)
-      loadShelf(app, shelf_spec, true, done)
-    end
-    local ok, why = bookshelf:registerSource(shelf_id, spec)
-    if not ok then logger.warn("Hardcover shelf source refused:", shelf_id, tostring(why)) end
+    local spec = shelfSource(app, shelf.id, shelf, false)
+    spec.picker = false
+    local ok, why = bookshelf:registerSource(shelf.id, spec)
+    if not ok then logger.warn("Hardcover shelf source refused:", shelf.id, tostring(why)) end
     ok_shelves = ok_shelves and ok
   end
 
+  local shelves = shelfSource(app, SHELVES_ID, nil, true)
+  local ok_shelves_picker, why_shelves_picker = bookshelf:registerSource(SHELVES_ID, shelves)
+  if not ok_shelves_picker then
+    logger.warn("Hardcover shelf picker source refused:", tostring(why_shelves_picker))
+  end
+
   local lists = remoteSpec(app, LISTS_ID)
-  lists.label = function() return _("Hardcover lists") end
+  lists.label = function() return _("Hardcover list") end
   lists.available = function() return hasCredentials(app) end
   lists.picker = true
   lists.pick = function(draft, done)
@@ -457,7 +519,7 @@ function Sources.register(app)
 
   local ok_lists, why_lists = bookshelf:registerSource(LISTS_ID, lists)
   if not ok_lists then logger.warn("Hardcover lists source refused:", tostring(why_lists)) end
-  return ok_shelves and ok_lists
+  return ok_shelves and ok_shelves_picker and ok_lists
 end
 
 function Sources.changed(app)
@@ -467,6 +529,7 @@ function Sources.changed(app)
     if key:match("^list%-fetch:") then retry_after[key] = nil end
   end
   for _, shelf in ipairs(SHELF_SOURCES) do changed(app, shelf.id) end
+  changed(app, SHELVES_ID)
   changed(app, LISTS_ID)
 end
 
@@ -479,6 +542,7 @@ function Sources.invalidate(app)
     end
   end
   for _, shelf in ipairs(SHELF_SOURCES) do changed(app, shelf.id) end
+  changed(app, SHELVES_ID)
 end
 
 return Sources
