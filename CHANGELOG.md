@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.7.1-beta.8
+
+### Fixed
+
+- Covers now appear on Hardcover shelf and list sources in Bookshelf. Fetch-mode sources bypassed Bookshelf's documented cover hook, so Hardcover now attaches covers to the visible page itself.
+
+### Added
+
+- Hardcover shelf and list sources now offer a sort picker in the Bookshelf shelf editor, with the existing Hardcover sort choices.
+
+### Changed
+
+- Hardcover shelves request up to 250 books per page while filling the local cache, reducing round trips for large shelves such as Read.
+
 ## 1.7.0
 
 ### Added
