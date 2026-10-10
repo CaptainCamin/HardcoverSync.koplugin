@@ -93,13 +93,13 @@ return {
     assert(results and UIManager:isWidgetShown(results), "submitting did not show results")
     emu:expectText("A Wizard of Earthsea")
     emu:expectText("Ursula K. Le Guin")
-    local items = results.menu.item_table
+    local items = results.items
     assert(#items == 1, "expected 1 result, got " .. #items)
     for i, item in ipairs(items) do
-      assert(item.file, "row " .. i .. " has no file marker")
-      assert(item.mandatory == "", "row " .. i .. " right-hand column is not the empty string")
+      assert(item.row.title and item.row.title ~= "", "row " .. i .. " has no title")
+      assert(item.rating == nil and item.rank == nil, "row " .. i .. " shows a rating or a rank it does not have")
     end
-    assert(results.menu.perpage == 5, "results are not five rows a page")
+    assert(results.sort_button == nil, "search results have a sort button (they are in relevance order)")
     emu:shot("search_results")
 
     -- tapping a row opens its details
@@ -114,8 +114,9 @@ return {
     assert(topmost() == results, "closing the details did not return to the results")
 
     -- Close returns to home
-    local close = results.menu.title_bar.right_button
-    assert(close and close.dimen, "results have no close button")
+    emu:screenNodes()
+    local close = results.close_button
+    assert(close and close.dimen, "results have no back button")
     emu:tapExpecting(close.dimen.x + 5, close.dimen.y + 5)
     emu:pump()
     assert(not UIManager:isWidgetShown(results), "Close left the results open")

@@ -340,7 +340,7 @@ soon as you press them. Enable this setting to display a confirmation prompt bef
 
 ### Compatibility mode
 
-When enabled, book and edition searches will be displayed in a simplified list with minimal data. This mode is the
+When enabled, the pickers that link a book or choose an edition are displayed in a simplified list with minimal data. (Shelves, lists and search results are not affected.) This mode is the
 default for KOReader versions prior to v2024.07
 
 ## Development

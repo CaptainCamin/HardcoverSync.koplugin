@@ -180,4 +180,20 @@ function ScrollControl.wrap(scroll, rows)
   }
 end
 
+-- The control for a list shown one page at a time (a shelf): the same bar and triangles, the bar
+-- standing for the page. `opts` { height, pages = function() -> count, page = function() -> current
+-- (1-based), go = function(page) }. The triangles step a page through `go`; with a single page the
+-- control draws nothing. Returns the control, to be placed gutter() wide at the right edge.
+function ScrollControl.paged(opts)
+  local pager = { _is_scrollable = true, _crop_h = 1 }
+  setmetatable(pager, { __index = function(_, key)
+    if key == "_scroll_offset_y" then return opts.page() - 1 end
+    if key == "_max_scroll_offset_y" then return opts.pages() - 1 end
+  end })
+  function pager.onScrollPageUp() opts.go(opts.page() - 1) end
+  function pager.onScrollPageDown() opts.go(opts.page() + 1) end
+  pager.dimen = Geom:new { x = 0, y = 0, w = 0, h = 0 }
+  return ScrollControl:new { scroll = pager, width = ScrollControl.gutter(), height = opts.height }
+end
+
 return ScrollControl

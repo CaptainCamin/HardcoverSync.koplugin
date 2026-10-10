@@ -53,11 +53,11 @@ return {
     probe:reset()
     manager:showShelf(HARDCOVER.STATUS.TO_READ, "Want to Read")
     perf.run_loop()
-    results.shelf = probe:report("shelf: open (5 rows of covers)")
+    results.shelf = probe:report("shelf: open (a page of rows with covers)")
     print("        small: " .. perf.small_regions(results.shelf))
-    local menu = manager.shelf_dialog.menu
+    local shelf = manager.shelf_dialog
     probe:reset()
-    menu:onNextPage()
+    shelf:onNextPage()
     perf.run_loop()
     results.shelf_page = probe:report("shelf: one page turn")
     print("        small: " .. perf.small_regions(results.shelf_page))
