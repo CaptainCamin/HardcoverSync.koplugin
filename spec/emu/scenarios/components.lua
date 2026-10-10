@@ -123,8 +123,9 @@ return {
     -- a tap outside a sheet dismisses it without choosing
     got.choice = nil
     tapText("Sort by")
-    emu:tapExpecting(SW / 2, Theme.px(300))
-    assert(got.choice == nil, "tap outside chose something")
+    emu:screenNodes() -- paint: tap ranges are only real once painted
+    emu:tapExpecting(SW / 2, Theme.px(40))
+    assert(got.choice == nil, "tap outside chose " .. tostring(got.choice))
     assert(UIManager:getTopmostVisibleWidget() == page, "tap outside did not dismiss the sheet")
 
     -- action sheet
