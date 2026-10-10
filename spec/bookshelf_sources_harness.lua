@@ -133,10 +133,12 @@ r.check("records are remote and unread for Want to Read",
   books[1].filepath == "hardcover://book/2" and books[1].status == "unread")
 r.check("cover path comes from the cache", books[1].cover_image_path == "/cache/2.jpg"
   and books[2].cover_image_path == nil)
-r.check("a saved synopsis is the description", books[1].description == "A whole synopsis.")
+r.check("a saved synopsis comes first, then the note",
+  books[1].description:find("^A whole synopsis%.") ~= nil
+  and books[1].description:find("Open this book", 1, true) ~= nil)
 r.check("a book without one says to open it",
   books[3].description:find("Open this book", 1, true) ~= nil)
-r.check("a cut synopsis keeps its text and adds the note",
+r.check("a cut synopsis keeps its text and has the note",
   books[2].title == "Cut" and books[2].description:find("^Begins here")
   and books[2].description:find("Open this book", 1, true) ~= nil)
 local page = shelf.fetch(source, nil, 1, 1)

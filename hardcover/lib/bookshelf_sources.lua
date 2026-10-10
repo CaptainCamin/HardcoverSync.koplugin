@@ -71,15 +71,13 @@ local function dateTime(value)
     hour = 12 }
 end
 
--- What the hero's description box shows. A saved synopsis is shown as it is;
--- one that is empty or ends in an ellipsis (the old saved shelves kept
--- 600 characters) says where the whole text is.
+-- What the hero's description box shows: the saved synopsis, if any, then a
+-- line saying the whole text is on Hardcover's page for the book.
 local function descriptionOf(entry)
   local note = _("Open this book to read the full description on Hardcover.")
   local text = type(entry.description) == "string" and entry.description or ""
   if text == "" then return note end
-  if text:sub(-3) == "\226\128\166" then return text .. "\n\n" .. note end
-  return text
+  return text .. "\n\n" .. note
 end
 
 local function toBooks(entries, status_id)
