@@ -21,6 +21,7 @@ checks the numbers.
 | `top_bar.lua` | 67 tall with a 3px rule, back, title, 1-3 icon actions | most |
 | `tabs.lua` | 50 tall, thick underline on the active tab, tap only | 2 |
 | `nav_bar.lua` | 57 tall, indicator above the active destination | 1 |
+| `note.lua` | info box: icon, title, text and one small button, dotted or solid outline | 1, 1a |
 | `overlay.lua` | base of every overlay: places one child, refreshes only its box; `top_rule` | n/a |
 | `popover.lua` | anchored menu under its icon, dotted dividers, tick on the current choice | sort |
 | `choice_sheet.lua` | radio list with an X, no Cancel | sort |
@@ -32,5 +33,5 @@ checks the numbers.
 Text uses `Theme.mmdText(str, "text" | "strong", size)`: Lato Medium and Black when installed, KOReader's
 UI font (strong as bold) until then.
 
-Open gates (owner's): divider weight (these use dotted), compact button heights, whether the overlay's white
-band goes above or below the 3px rule (above, here).
+What is decided and what is still open is in `e-ink-design.md` (Decisions, Still open). The screens built from these
+are described in `shell.md`.
