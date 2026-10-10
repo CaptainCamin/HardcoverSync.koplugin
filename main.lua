@@ -14,7 +14,6 @@ local UIManager = require("ui/uimanager")
 
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 local Event = require("ui/event")
-local InfoMessage = require("ui/widget/infomessage")
 local Notification = require("ui/widget/notification")
 
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
@@ -300,11 +299,7 @@ function HardcoverApp:signIn()
   -- which on e-ink looks identical to a refresh failure. The indicator means
   -- there is always something on screen, and it is replaced by the code entry
   -- dialog or by an error.
-  local working = UIManager:show(InfoMessage:new {
-    text = _("Contacting Hardcover\u{2026}"),
-    icon = "handshake",
-    timeout = nil,
-  })
+  local working = StatusDialogs.loading(_("Contacting Hardcover\u{2026}"))
 
   -- UIManager:show only queues the widget; nothing is drawn until the event
   -- loop runs, which the blocking call below prevents. Paint it now.
@@ -312,7 +307,7 @@ function HardcoverApp:signIn()
 
   local device, err = self.auth:beginDeviceFlow()
 
-  UIManager:close(working)
+  StatusDialogs.close(working)
 
   if not device then
     local message = "Could not start sign in"

@@ -92,11 +92,11 @@ check("the About callback does not block on the release check", function()
   if not cb then error("the About entry has no callback") end
   local chunk = stripComments(bodyFrom(stripComments(menu:sub(cb)), "callback = function()")) or ""
 
-  local show_at = chunk:find("UIManager:show", 1, true)
+  local show_at = chunk:find("show(nil, true)", 1, true) -- the box, before the question
   local block_at = chunk:find("[%.:]newestRelease%(%)", 1)
 
   if not show_at then
-    error("the About entry never calls UIManager:show")
+    error("the About entry never shows its box")
   end
   if block_at and block_at < show_at then
     error("Github:newestRelease() runs before UIManager:show -- the screen waits on the network")
@@ -136,11 +136,11 @@ check("signIn displays an indicator before beginDeviceFlow", function()
   local body = bodyFrom(stripComments(main), "function HardcoverApp:signIn()")
   if not body then error("could not find HardcoverApp:signIn") end
 
-  local show_at = body:find("UIManager:show", 1, true)
+  local show_at = body:find("StatusDialogs.loading", 1, true)
   local block_at = body:find("[%.:]beginDeviceFlow%(%s*%)", 1)
 
   if not show_at then
-    error("signIn never calls UIManager:show")
+    error("signIn never shows its indicator")
   end
   if not block_at then
     error("beginDeviceFlow is gone -- update this guard")

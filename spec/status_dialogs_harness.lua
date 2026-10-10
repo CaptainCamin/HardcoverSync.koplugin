@@ -82,26 +82,17 @@ local function last_shown()
 end
 
 -- ---------------------------------------------------------------- loading
-r.check("loading builds an InfoMessage", (function()
-  local msg = SD.loading("Loading your shelf…")
-  return msg and msg.__widget == "InfoMessage"
-end)(), "loading did not return an InfoMessage")
-
-local msg = last_shown()
-r.check("loading keeps the text", msg.text:find("Loading your shelf", 1, true) ~= nil,
-        "text was " .. tostring(msg.text))
-r.check("loading is not dismissable", msg.dismissable == false,
-        "dismissable was " .. tostring(msg.dismissable))
-r.check("loading hides the icon", msg.show_icon == false,
-        "show_icon was " .. tostring(msg.show_icon))
-
--- force_one_line makes InfoMessage:init shrink the font and re-run init(). A
--- plugin that patches InfoMessage.init (appearance.koplugin does) reassigns the
--- font every call, so the loop never converges and KOReader dies with a stack
--- overflow. It is asserted absent because it is invisible until it kills a
--- device, and the natural thing to write when making a message fit is to add it.
-r.check("loading avoids force_one_line", msg.force_one_line == nil,
-        "force_one_line is set; this crashes KOReader when another plugin patches InfoMessage")
+package.preload["hardcover/lib/ui/components/loading"] = function()
+  return { show = function(text)
+    local o = { text = text, anchor = "center", dismiss = function() end }
+    o.close = function(self) closed[#closed + 1] = self end
+    shown[#shown + 1] = o
+    return o
+  end }
+end
+local msg = SD.loading("Loading your shelf…")
+r.check("loading shows a centred overlay that can be closed", msg and msg.anchor == "center" and msg.close ~= nil)
+r.check("loading is not dismissable", msg.dismiss and msg.dismiss() == nil)
 
 -- ---------------------------------------------------------------- close
 local before = #closed

@@ -13,7 +13,6 @@ local NetworkMgr = require("ui/network/manager")
 local logger = require("logger")
 
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
-local InfoMessage = require("ui/widget/infomessage")
 local SpinWidget = require("ui/widget/spinwidget")
 
 local Api = require("hardcover/lib/hardcover_api")
@@ -423,11 +422,10 @@ function HardcoverMenu:installUpdate(release)
     StatusDialogs.info(_("Can't tell where the plugin is installed."))
     return
   end
-  local progress = InfoMessage:new { text = _("Downloading the update…"), timeout = 120 }
-  UIManager:show(progress)
+  local progress = StatusDialogs.loading(_("Downloading the update…"))
   UIManager:nextTick(function()
     local ok, installed, err = pcall(Updater.install, release, dir)
-    UIManager:close(progress)
+    StatusDialogs.close(progress)
     if not ok then installed, err = false, installed end
     if not installed then
       StatusDialogs.info(T(_("The update failed: %1"), tostring(err)))
@@ -474,10 +472,9 @@ function HardcoverMenu:getUpdateMenuItems()
         return _("Check for updates")
       end,
       callback = function()
-        local checking = InfoMessage:new { text = _("Checking for updates…"), timeout = 10 }
-        UIManager:show(checking)
+        local checking = StatusDialogs.loading(_("Checking for updates…"))
         Github:latestReleaseAsync(function(release, why)
-          UIManager:close(checking)
+          StatusDialogs.close(checking)
           if not release then
             local message = _("Couldn't reach GitHub. Try again when you're online.")
             if why == "limited" then
@@ -540,51 +537,27 @@ function HardcoverMenu:getAboutMenuItem()
       -- indistinguishable on e-ink from a screen that failed to refresh.
       -- Showing first and asking second makes the screen's appearance
       -- independent of the network.
-      local LATEST_MARK = " \u{25CB} checking for a newer release\u{2026}"
-
-      local function about_text(latest)
-        local new_release_str = ""
-        if latest then
-          new_release_str = " (latest v" .. latest .. ")"
-        end
-
-        return [[
-Hardcover plugin
-v]] .. version .. new_release_str .. [[
-
-
-Updates book progress and status on Hardcover.app
-
-Project:
-github.com/CaptainCamin/HardcoverSync.koplugin
-(a fork of github.com/billiam/hardcoverapp.koplugin)
-
-Settings:
-]] .. settings_file
+      local Dialog = require("hardcover/lib/ui/components/dialog")
+      local box
+      -- latest: nil = not known; checking: the question is still out
+      local function show(latest, checking)
+        local line = "v" .. version
+        if latest then line = line .. T(_(" (latest v%1)"), latest)
+        elseif checking then line = line .. _(" \u{25CB} checking for a newer release\u{2026}") end
+        if box and not box.closed then box:close() end
+        box = Dialog.show {
+          title = _("Hardcover Sync"),
+          text = line .. "\n\n" .. _("Updates book progress and status on Hardcover.app.") .. "\n\n"
+            .. "github.com/CaptainCamin/HardcoverSync.koplugin\n"
+            .. _("(a fork of github.com/billiam/hardcoverapp.koplugin)") .. "\n\n" .. _("Settings:") .. "\n" .. settings_file,
+          buttons = { { label = _("Close"), primary = true } },
+        }
       end
-
-      local message = InfoMessage:new {
-        text = about_text(nil),
-        face = Font:getFace("cfont", 18),
-        show_icon = false,
-      }
-
-      UIManager:show(message)
+      show(nil, true)
 
       -- Update in place once the answer arrives, if the box is still up.
       Github:newestReleaseAsync(function(new_release)
-        if not new_release then
-          if message.text and message.text:find(LATEST_MARK, 1, true) then
-            message.text = message.text:gsub(LATEST_MARK:gsub("(%W)", "%%%1"), "")
-          end
-          return
-        end
-
-        if message.text and message.text:find(LATEST_MARK, 1, true) then
-          message.text = message.text:gsub(LATEST_MARK:gsub("(%W)", "%%%1"),
-            " (latest v" .. new_release .. ")")
-          UIManager:setDirty(message, "ui")
-        end
+        if box and not box.closed then show(new_release, false) end
       end, self.settings:readSetting(SETTING.UPDATE_BETA) == true)
     end,
     keep_menu_open = true

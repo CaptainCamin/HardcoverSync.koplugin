@@ -14,36 +14,19 @@
 -- zlibrary/dialog_manager.lua showErrorMessage's icon and self-closing widgets.
 
 local UIManager = require("ui/uimanager")
-local InfoMessage = require("ui/widget/infomessage")
 local _ = require("gettext")
 
 local SD = {}
 
--- A loading indicator. Deliberately an InfoMessage and not a spinner widget: it
--- is one line of code and cannot fail to construct on an older KOReader.
---
--- No force_one_line, deliberately. To fit a single line, InfoMessage shrinks its
--- font and re-runs init(); a plugin that patches InfoMessage.init to impose its
--- own font (appearance.koplugin does) resets that font on every re-run, so the
--- loop never converges and KOReader dies with a stack overflow. Wrapping onto a
--- second line needs no re-run.
---
--- The hourglass is a text glyph rather than an icon because show_icon = false
--- already; naming it inline keeps the message readable in a text dump.
+-- A loading indicator: a small box in the middle of the screen with one line, drawn by the plugin
+-- (an Overlay, so it is dismissed with SD.close or message:close() like any other).
 function SD.loading(text)
-  local message = InfoMessage:new{
-    text = string.format("\u{23f3}  %s", text),
-    dismissable = false,
-    show_icon = false,
-  }
-  UIManager:show(message)
-  return message
+  return require("hardcover/lib/ui/components/loading").show(text)
 end
 
 -- Close a message this module returned.
 --
--- Prefers the widget's own close() because that is what dismisses an InfoMessage
--- correctly and fires its dismiss_callback; UIManager:close is the fallback for
+-- Prefers the widget's own close(); UIManager:close is the fallback for
 -- anything without one. The "full" setDirty afterwards is not decoration: after
 -- the panel has been covered by a message. (No forced full-panel flash here: it
 -- would black out the screen on every "Loading..." that closes.)
