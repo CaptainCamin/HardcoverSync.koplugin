@@ -19,6 +19,7 @@ local ImageWidget = require("ui/widget/imagewidget")
 local LeftContainer = require("ui/widget/container/leftcontainer")
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
+local ScrollControl = require("hardcover/lib/ui/components/scroll_control")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
@@ -45,7 +46,7 @@ gutter. Everything on the page is laid out in this width, which leaves it free;
 the left margin is added by an inset around the whole column.
 ]]
 local function contentWidth(screen_w)
-  local gutter = 3 * (ScrollableContainer.scroll_bar_width or Screen:scaleBySize(6))
+  local gutter = ScrollControl.gutter()
   return screen_w - 2 * Theme.margin - gutter
 end
 
@@ -517,6 +518,7 @@ function BookDetailDialog:init()
   }
 
   self.scroll = scroll
+  self.scroll_body = ScrollControl.wrap(scroll, content)
 
   -- a fullscreen white frame: a bare container would let the reader UI show
   -- through behind the page
@@ -527,7 +529,7 @@ function BookDetailDialog:init()
     bordersize = 0,
     padding = 0,
     margin = 0,
-    VerticalGroup:new { align = "left", title_bar, scroll },
+    VerticalGroup:new { align = "left", title_bar, self.scroll_body },
   }
 
   -- keyboard / d-pad focus: the action bar, the carousel's arrows (when it

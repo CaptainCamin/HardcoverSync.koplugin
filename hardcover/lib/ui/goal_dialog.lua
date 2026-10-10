@@ -9,6 +9,7 @@ local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
+local ScrollControl = require("hardcover/lib/ui/components/scroll_control")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
@@ -109,12 +110,13 @@ function GoalDialog:build()
   local body
   self.scroll = nil
   if content:getSize().h + Theme.space.m > room then
-    local gutter = 3 * (ScrollableContainer.scroll_bar_width or Screen:scaleBySize(6))
+    local gutter = ScrollControl.gutter()
     width = screen_w - 2 * M - gutter
     self.scroll = ScrollableContainer:new { dimen = Geom:new { x = 0, y = 0, w = screen_w, h = room }, show_parent = self }
     local scroll = self.scroll
-    scroll[1] = HorizontalGroup:new { Theme.hspan(M), self:buildContent(width, function() return scroll.dimen end) }
-    body = scroll
+    local rows = self:buildContent(width, function() return scroll.dimen end)
+    scroll[1] = HorizontalGroup:new { Theme.hspan(M), rows }
+    body = ScrollControl.wrap(scroll, rows)
   else
     body = HorizontalGroup:new { Theme.hspan(M), content }
   end
