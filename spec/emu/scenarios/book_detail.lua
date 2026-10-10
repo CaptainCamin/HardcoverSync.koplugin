@@ -207,52 +207,10 @@ return {
       assert(b.dimen.h >= emu.Screen:scaleBySize(48), name .. " is under 48 units tall")
     end
 
-    --[[--
-    The series and the author open a search for the series and a search for the author,
-    on top of this screen. Real taps at the painted spot; closing what opened comes back
-    here. (The fixture book is "Currently Reading", which is the Shelf button's label.)
-    ]]
-    local BookSearch = require("hardcover/lib/book_search")
-    local Api = require("hardcover/lib/hardcover_api")
-    local asked = {}
-    local find_books = Api.findBooks
-    Api.findBooks = function(self, title, ...)
-      asked[#asked + 1] = title
-      return find_books(self, title, ...)
-    end
-
-    -- the words are on screen, and the tap lands in the middle of their touch
-    -- cell (taller than the words), where it was painted
-    local function tap_on(text, row)
-      emu:expectText(text)
-      local d = row and row.dimen
-      assert(d and d.x and d.w > 0, text .. " is not tappable")
-      assert(d.h >= Theme.TOUCH_MIN, text .. " is under " .. Theme.TOUCH_MIN .. "px tall to touch")
-      emu:tapExpecting(d.x + math.floor(d.w / 2), d.y + math.floor(d.h / 2))
-      emu:pump()
-    end
-    local function back_on_details(what)
-      emu.UIManager:close(emu.UIManager:getTopmostVisibleWidget())
-      emu:pump()
-      assert(emu.UIManager:getTopmostVisibleWidget() == typical, what .. ": closing did not come back to the details")
-    end
-
-    tap_on("Hainish Cycle #4", typical.series_tap)
-    assert(asked[#asked] == "Hainish Cycle", "the series search asked for " .. tostring(asked[#asked]))
-    local results = typical_manager.search_results_dialog
-    assert(results and emu.UIManager:getTopmostVisibleWidget() == results, "tapping the series did not open the results")
-    emu:expectText(BookSearch.title("Hainish Cycle"))
-    emu:shot("book_detail_series_search")
-    back_on_details("series search")
-
-    tap_on("Ursula K. Le Guin", typical.author_tap)
-    assert(asked[#asked] == "Ursula K. Le Guin", "the author search asked for " .. tostring(asked[#asked]))
-    results = typical_manager.search_results_dialog
-    assert(results and emu.UIManager:getTopmostVisibleWidget() == results, "tapping the author did not open the results")
-    emu:expectText(BookSearch.title("Ursula K. Le Guin"))
-    back_on_details("author search")
-
-    Api.findBooks = find_books
+    -- the author and the series are plain text under the title (not links)
+    emu:expectText("Ursula K. Le Guin")
+    emu:expectText("Hainish Cycle #4")
+    assert(typical.author_tap == nil and typical.series_tap == nil, "the author or the series is tappable")
 
     -- the page is the same size for every book: About is cut and Read more opens the whole
     -- synopsis on a screen of its own
