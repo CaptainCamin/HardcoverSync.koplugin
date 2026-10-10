@@ -31,6 +31,7 @@ local in_flight = {}
 local retry_after = {}
 local cover_in_flight = {}
 local registered_app
+local remoteSpec
 
 local function hasCredentials(app)
   if not app or not app.enabled or not app.auth then return false end
@@ -352,7 +353,7 @@ local function bookDetail(app, book)
   end
 end
 
-local function remoteSpec(app, id)
+remoteSpec = function(app, id)
   return {
     api = 1,
     remote_prefix = "hardcover://",
