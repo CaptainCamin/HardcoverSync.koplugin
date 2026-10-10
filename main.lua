@@ -34,6 +34,7 @@ local ListStore = require("hardcover/lib/list_store")
 local PageMapper = require("hardcover/lib/page_mapper")
 local Scheduler = require("hardcover/lib/scheduler")
 local ShelfCache = require("hardcover/lib/shelf_cache")
+local BookshelfSources = require("hardcover/lib/bookshelf_sources")
 local ShelfStore = require("hardcover/lib/shelf_store")
 local SqliteStore = require("hardcover/lib/sqlite_store")
 local SyncQueue = require("hardcover/lib/sync_queue")
@@ -250,8 +251,14 @@ function HardcoverApp:init()
       self.shelf_cache:clear()
       self.book_store:clear()
       self.auth:signOut()
+      BookshelfSources.changed(self)
     end,
   }
+
+  -- Register optional Bookshelf sources when its source API is available.
+  if not BookshelfSources.register(self) then
+    UIManager:nextTick(function() BookshelfSources.register(self) end)
+  end
 
   self:onDispatcherRegisterActions()
   self:initializePageUpdate()
@@ -345,6 +352,7 @@ function HardcoverApp:signIn()
   -- on success, clear any cached user id: a different account may be signed in
   dialog.success_callback = function()
     User:forget()
+    BookshelfSources.changed(self)
   end
 
   -- onShowSignIn shows the dialog and starts polling, so do not show it here as
@@ -437,6 +445,9 @@ end
 function HardcoverApp:onSettingsChanged(field, change, original_value)
   if field == SETTING.BOOKS then
     local book_settings = change.config
+    if self:_bookSettingChanged(book_settings, "status_id") then
+      BookshelfSources.invalidate(self)
+    end
     if self:_bookSettingChanged(book_settings, "sync") then
       if book_settings.sync then
         if not self.state.book_status.id then

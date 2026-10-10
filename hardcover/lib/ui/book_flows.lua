@@ -526,8 +526,10 @@ end
 
 -- The saved shelves and counts that a change of status makes wrong.
 function Flows:forgetShelves(old_status_id, new_status_id)
-  if not self.shelf_cache then return end
-  self.shelf_cache:invalidate(User:getId(), BookActions.staleShelves(old_status_id, new_status_id))
+  if self.shelf_cache then
+    self.shelf_cache:invalidate(User:getId(), BookActions.staleShelves(old_status_id, new_status_id))
+  end
+  require("hardcover/lib/bookshelf_sources").invalidate()
 end
 
 -- A rating set offline and not yet sent shows in place of the one on record.
