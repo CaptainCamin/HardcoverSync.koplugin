@@ -266,8 +266,11 @@ local function remoteSpec(app, id)
       local url = book and book.hardcover_cover_url
       if type(url) ~= "string" or url == "" then return nil end
       local ImageLoader = require("hardcover/lib/ui/image_loader")
-      local cache = ImageLoader:getCache()
-      local content = cache and cache:get(url)
+      local cache_key = ImageLoader:fetchUrl(url, "small")
+      local content = ImageLoader:lookup(cache_key)
+      -- Older cache entries, and pinned originals from before sized covers,
+      -- may still use the uploaded URL itself.
+      if not content and cache_key ~= url then content = ImageLoader:lookup(url) end
       if not content then
         local pending = cover_in_flight[url]
         if not pending or os.time() - pending.started_at > 60 then
