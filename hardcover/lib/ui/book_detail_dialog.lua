@@ -7,6 +7,7 @@
 -- and Back handled through FocusManager's key_events.
 
 local Blitbuffer = require("ffi/blitbuffer")
+local BottomContainer = require("ui/widget/container/bottomcontainer")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
 local FocusManager = require("ui/widget/focusmanager")
@@ -21,6 +22,7 @@ local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
 local ScrollControl = require("hardcover/lib/ui/components/scroll_control")
 local TextBoxWidget = require("ui/widget/textboxwidget")
+local TopContainer = require("ui/widget/container/topcontainer")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
@@ -228,10 +230,18 @@ function BookDetailDialog:init()
   -- viewport.lua)
   local viewport = function() return self.scroll and self.scroll.dimen end
   -- `widget` made tappable when there is a handler and something to hand it
-  local function tappable(field, widget, handler, arg)
+  -- `edge` puts the words at the "bottom" or "top" of their touch cell (at least 48 tall), so two links
+  -- one above the other (the author, the series) can sit as close as lines of text while each keeps
+  -- its own full-size target
+  local function tappable(field, widget, handler, arg, edge)
     self[field] = nil
     if not (handler and arg) then return widget end
-    self[field] = Theme.touchable(widget, text_width, function() handler(self, arg) end, viewport)
+    local cell = Geom:new { w = text_width, h = math.max(widget:getSize().h, Theme.TOUCH_MIN) }
+    local Holder = edge == "bottom" and BottomContainer or (edge == "top" and TopContainer or LeftContainer)
+    self[field] = TapRow:new {
+      callback = function() handler(self, arg) end, viewport = viewport,
+      Holder:new { dimen = cell, widget },
+    }
     return self[field]
   end
 
@@ -247,22 +257,19 @@ function BookDetailDialog:init()
   -- the author and the series sit right under the title, in the plain body size; each opens a
   -- search, which is not marked with an underline (an underline alone does not read as a link)
   if summary.authors then
-    self.authors_text = wrapped(summary.authors, "body")
-    addTo(column, Theme.span("xs"))
-    addTo(column, tappable("author_tap", self.authors_text, self.on_author, summary.first_author))
+    self.authors_text = wrapped(summary.authors, "small")
+    addTo(column, tappable("author_tap", self.authors_text, self.on_author, summary.first_author, "bottom"))
   else
     self.authors_text = nil
   end
   self.series_text = nil
   self.status_text = nil
   if summary.series then
-    self.series_text = wrapped(summary.series, "body", false, true)
-    addTo(column, Theme.span("xs"))
-    addTo(column, tappable("series_tap", self.series_text, self.on_series, summary.series_title))
+    self.series_text = wrapped(summary.series, "small", false, true)
+    addTo(column, tappable("series_tap", self.series_text, self.on_series, summary.series_title, "top"))
   end
   if summary.facts then
     self.facts_text = wrapped(summary.facts, "small", false, true)
-    addTo(column, Theme.span("s"))
     addTo(column, self.facts_text)
   else
     self.facts_text = nil
@@ -372,7 +379,7 @@ function BookDetailDialog:init()
   local about
   if summary.description then
     local clamped, cut = Clamp.text {
-      text = summary.description, face = Theme.face("body"), width = width, lines = ABOUT_LINES,
+      text = summary.description, face = Theme.face("small"), width = width, lines = ABOUT_LINES,
     }
     self.description_text = clamped
     about = section(_("About"), width)
@@ -614,8 +621,8 @@ function BookDetailDialog:tagsBlock(width, viewport, title)
   local line = HorizontalGroup:new {
     align = "center",
     LeftContainer:new {
-      dimen = Geom:new { w = line_w, h = Theme.px(56) },
-      TextWidget:new { text = table.concat(names, " · "), face = Theme.face("body"), max_width = line_w },
+      dimen = Geom:new { w = line_w, h = Theme.TOUCH_MIN },
+      TextWidget:new { text = table.concat(names, " · "), face = Theme.face("small"), max_width = line_w },
     },
   }
   if more then
