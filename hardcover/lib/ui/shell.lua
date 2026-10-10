@@ -67,7 +67,10 @@ function Shell:body(id)
 end
 
 function Shell:isActive(body)
-  return self.bodies[self.active] == body
+  local active = self.bodies[self.active]
+  if body == active then return true end
+  -- an inner body of the Library tab is on screen while its tab is and it is the one shown
+  return body.parent ~= nil and body.parent == active and active:isCurrent(body)
 end
 
 function Shell:build()
@@ -107,6 +110,7 @@ end
 -- A screen taken out of the shell (the registry discards it before building its replacement):
 -- forget it, so the tab builds a new one when it is next shown.
 function Shell:unmount(body)
+  if body.parent then return body.parent:unmount(body) end
   for id, b in pairs(self.bodies) do
     if b == body then
       release(body)

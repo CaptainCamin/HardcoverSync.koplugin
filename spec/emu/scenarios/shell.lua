@@ -1,6 +1,6 @@
 --[[--
 The shell: Home, Library, Goals and Stats as tabs of one screen with a navigation bar. Home (fixed, never
-scrolls) and Goals are hosted bodies (Library and Stats are still placeholders). Checked for real:
+scrolls) and Goals are hosted bodies ; Library (Shelves | Lists | Vibes) and Stats are hosted too. Checked for real:
 tapping the bar changes the tab; a tab keeps its body (so its scroll position) when left and
 reopened; an answer that arrives for a hidden tab is on screen when the tab is opened; a goal opened
 from the Goals tab stacks over the shell and closing it reveals the shell, live; Back goes to the
@@ -142,6 +142,35 @@ return {
     emu:pump()
     assert(UIManager:getTopmostVisibleWidget() == shell, "closing the goal did not reveal the shell")
     assert(require("hardcover/lib/ui/live").shown(body), "the body is not live after a screen closed over it")
+
+    -- Library: Shelves | Lists | Vibes under a tab row, each built when first opened
+    nav(2)
+    assert(shell.active == "library", "the Library tab did not open")
+    local library = shell.bodies.library
+    emu:pump()
+    emu:expectText("Want to Read")
+    emu:shot("shell_library_shelves")
+    assert(library.bodies.shelves and library.bodies.shelves.parent == library, "Shelves is not an inner body")
+    local function sub(i)
+      emu:screenNodes()
+      emu:tapExpecting(math.floor((i - 0.5) * W / 3), Device.screen:scaleBySize(67 + 25))
+      emu:pump()
+    end
+    sub(2)
+    assert(library.sub == "lists" and library.bodies.lists and library.bodies.lists.shell == shell, "Lists did not open inside the Library")
+    emu:shot("shell_library_lists")
+    sub(3)
+    assert(library.sub == "vibes" and library.bodies.vibes, "Vibes did not open inside the Library")
+    emu:shot("shell_library_vibes")
+    sub(1)
+    assert(library.sub == "shelves")
+    assert(shell.bodies.library == library, "the Library body was rebuilt")
+
+    -- Stats
+    nav(4)
+    assert(shell.active == "stats" and shell.bodies.stats and shell.bodies.stats.shell == shell, "Stats is not hosted")
+    emu:pump()
+    emu:shot("shell_stats")
 
     -- Back: a tab goes to the first tab, the first tab leaves
     shell:onBack()
