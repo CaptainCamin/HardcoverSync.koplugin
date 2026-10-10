@@ -132,6 +132,12 @@ function HardcoverApp:init()
   )
   self.settings:subscribe(function(field, change, original_value) self:onSettingsChanged(field, change, original_value) end)
 
+  -- Lato for the redesigned screens, copied into KOReader's fonts folder once (nothing happens after
+  -- that). Off the startup path, and it cannot fail the plugin: without it the screens use KOReader's font.
+  UIManager:nextTick(function()
+    pcall(function() require("hardcover/lib/font_install").run() end)
+  end)
+
   -- OAuth when hardcover_config.lua supplies a client_id; otherwise the
   -- static token in that same file is used, as before.
   self.auth = Auth:new {

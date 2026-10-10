@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- The plugin ships the Lato typeface (Medium and Black, SIL Open Font License) and copies it into KOReader's fonts folder the first time it runs, so the redesigned screens can use it. Lato then also shows in KOReader's font menu after a restart.
+
 ## 1.7.0
 
 ### Added
