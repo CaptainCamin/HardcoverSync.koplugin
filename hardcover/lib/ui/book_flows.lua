@@ -63,7 +63,6 @@ function Flows:showBookDetail(book_id, edition_id, opts)
     -- these open on top of the details, so closing them comes back here
     on_series = function(_, name) self:searchBooks(name) end,
     on_author = function(_, name) self:searchBooks(name) end,
-    on_status = function(_, status_id) self:showShelf(status_id, Shelf.statusLabel(status_id)) end,
     -- the reload icon: everything fetched again, the escape hatch for anything kept that
     -- has gone out of date
     on_refresh = function()

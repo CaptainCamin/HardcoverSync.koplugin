@@ -137,8 +137,10 @@ return {
     for _, node in ipairs(emu:screenNodes()) do
       if not node.relative and node.x and node.y then
         checked = checked + 1
-        -- (a row that starts below the screen is further down a page that scrolls)
-        assert(node.y >= H or node.y + node.h <= H + 1, string.format(
+        -- (a row that starts below the screen is further down a page that scrolls, and a block
+        -- cut by the bottom edge of a page that scrolls is the next block coming into view)
+        local scrolls = dialog.scroll and dialog.scroll._max_scroll_offset_y and dialog.scroll._max_scroll_offset_y > 0
+        assert(scrolls or node.y >= H or node.y + node.h <= H + 1, string.format(
           "text %q runs past the bottom edge (%d+%d > %d)", node.text, node.y, node.h, H))
         assert(node.x >= 0, string.format(
           "text %q drawn at negative x (%d)", node.text, node.x))
@@ -206,10 +208,9 @@ return {
     end
 
     --[[--
-    The series pill, the status pill and the author open a search for the series,
-    the shelf for that status, and a search for the author, on top of this screen.
-    Real taps at the painted spot; closing what opened comes back here. The
-    fixture book is "Currently Reading" (status 2).
+    The series and the author open a search for the series and a search for the author,
+    on top of this screen. Real taps at the painted spot; closing what opened comes back
+    here. (The fixture book is "Currently Reading", which is the Shelf button's label.)
     ]]
     local BookSearch = require("hardcover/lib/book_search")
     local Api = require("hardcover/lib/hardcover_api")
@@ -251,20 +252,54 @@ return {
     emu:expectText(BookSearch.title("Ursula K. Le Guin"))
     back_on_details("author search")
 
-    tap_on("Currently Reading", typical.status_tap)
-    local shelf = typical_manager.shelf_dialog
-    assert(shelf and emu.UIManager:getTopmostVisibleWidget() == shelf, "tapping the status did not open the shelf")
-    assert(shelf.status_id == 2, "the shelf is for status " .. tostring(shelf.status_id))
-    emu:shot("book_detail_status_shelf")
-    back_on_details("status shelf")
     Api.findBooks = find_books
 
-    -- what other readers say: the tags
-    typical.scroll:scrollToRatio(0, 0.4)
-    emu:pump()
-    emu:expectText("Moods")
-    emu:expectText("Reflective")
-    emu:shot("book_detail_community")
+    -- the page is the same size for every book: About is cut and Read more opens the whole
+    -- synopsis on a screen of its own
+    emu:expectText("Shelf: Currently Reading")
+    local function open_and_close(button, expect, shot)
+      emu:screenNodes() -- paint first: a tap range is only real once painted
+      local d = button.dimen
+      assert(d and d.w > 0, "the button is not painted")
+      local top = emu.UIManager:getTopmostVisibleWidget()
+      assert(emu:tap(d.x + math.floor(d.w / 2), d.y + math.floor(d.h / 2)), "the tap was not handled")
+      emu:pump()
+      local opened = emu.UIManager:getTopmostVisibleWidget()
+      assert(opened ~= top, "tapping the button opened nothing")
+      for _, text in ipairs(expect) do emu:expectText(text) end
+      if shot then emu:shot(shot) end
+      emu.UIManager:close(opened)
+      emu:pump()
+      assert(emu.UIManager:getTopmostVisibleWidget() == top, "closing did not come back to the details")
+    end
+    -- the page scrolls by blocks with the scroll control; step down to a button and tap it
+    local function reach(button)
+      for _ = 1, 30 do
+        emu:screenNodes()
+        local d = button.dimen
+        if d and d.y and d.y >= typical.scroll.dimen.y and d.y + d.h <= emu.Screen:getHeight() then return end
+        emu:tap(emu.Screen:getWidth() - 10, emu.Screen:getHeight() - 20)
+        emu:pump()
+      end
+      error("never scrolled to the button")
+    end
+    if typical.about_more then
+      reach(typical.about_more)
+      open_and_close(typical.about_more, { "About" }, "book_detail_about_full")
+    end
+
+    -- what other readers say: the genres in a line, and the rest behind +N more
+    assert(typical.tags_more, "no +N more beside the genres")
+    reach(typical.tags_more)
+    emu:expectText("Genres")
+    open_and_close(typical.tags_more, { "Moods", "Reflective" }, "book_detail_community")
+
+    -- Details: five rows, then All details for the rest
+    if typical.all_details then
+      reach(typical.all_details)
+      assert(#typical.meta_rows == 5, "the page shows " .. #typical.meta_rows .. " detail rows, not five")
+      open_and_close(typical.all_details, { "All details" }, "book_detail_all_details")
+    end
 
     -- the strip is below the first screenful now: scroll to it (taps are only
     -- answered where the page is showing)
@@ -272,6 +307,17 @@ return {
     emu:shot("book_detail_typical_end")
 
     local function centre(w) return w.dimen.x + math.floor(w.dimen.w / 2), w.dimen.y + math.floor(w.dimen.h / 2) end
+    -- the strip is not always in the last screenful (a short screen shows Details there): bring it into view
+    local function show_strip()
+      for ratio = 1, 0, -0.05 do
+        typical.scroll:scrollToRatio(0, ratio)
+        emu:screenNodes()
+        local d, v = carousel.holder.dimen, typical.scroll.dimen
+        if d and d.y and d.y >= v.y and d.y + d.h <= v.y + v.h then return end
+      end
+      error("could not bring the series strip into view")
+    end
+    show_strip()
 
     if carousel.paged then
       local before_first = carousel.first
@@ -289,6 +335,7 @@ return {
     -- the first other book's cover
     local target = carousel.targets and carousel.targets[1]
     assert(target, "the carousel has no tappable covers")
+    show_strip()
     emu:tap(centre(target))
     emu:pump()
     local sibling = emu.UIManager:getTopmostVisibleWidget()
