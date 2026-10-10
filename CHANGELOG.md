@@ -12,6 +12,10 @@
 - **Settings > Download covers for offline** keeps the cover of every book on your shelves and lists on the device, so a shelf browsed offline is not a page of blank boxes. It says first how many covers and about how much it will download, shows its progress with a Stop button, keeps the device from standby while it runs, and turns Wi-Fi on the way Sync does. Running it again carries on where it stopped. The item says how many covers are missing.
 - **Refresh** in a shelf's and a list's menu (top left), and a reload icon on a book's details, download them again in full if anything looks out of date.
 
+### Fixed
+
+- Hardcover could fail to initialize when Bookshelf was installed while registering its source pickers. The source helper now resolves the shared remote-book hooks correctly.
+
 ### Changed
 
 - **A shelf or list that has not changed costs nothing to open**: no request at all when Home checked a moment ago, or one small request otherwise. One that changed downloads only which books it holds and the books the device does not have yet. Finishing a book no longer reloads your whole Read shelf; a book added to a 25-book list costs about 3 KB instead of 32 KB. Each book is kept once, however many lists and shelves it is on.
