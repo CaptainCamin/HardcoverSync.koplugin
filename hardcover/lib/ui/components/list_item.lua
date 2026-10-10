@@ -71,7 +71,8 @@ function ListItem.new(opts)
     local from = opts.divider_x or ListItem.PAD
     column[#column + 1] = HorizontalGroup:new { Theme.hspan(from), divider(opts.divider, opts.width - from) }
   end
-  return TapRow:new { callback = opts.callback, hold_callback = opts.hold_callback, viewport = opts.viewport, column }
+  return TapRow:new { callback = opts.callback, hold_callback = opts.hold_callback, viewport = opts.viewport,
+    text = opts.label, column }
 end
 
 -- A section heading above a group of rows: Black 15 capitals, `top` (default 20) above and 6 below.

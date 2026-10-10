@@ -201,9 +201,16 @@ return {
     shell:onBack()
     assert(shell.active == "home", "Back from a tab did not go to the first tab")
     emu:pump()
-    shell:onBack()
+    nav(4)
+    -- another tab has a back arrow in the top bar; the first tab has a close
+    emu:screenNodes()
+    emu:tapExpecting(Device.screen:scaleBySize(30), Device.screen:scaleBySize(34))
     emu:pump()
-    assert(UIManager:getTopmostVisibleWidget() ~= shell, "Back on the first tab did not leave")
+    assert(shell.active == "home", "the back arrow in the top bar did not go to the first tab")
+    emu:screenNodes()
+    emu:tap(W - Device.screen:scaleBySize(28), Device.screen:scaleBySize(34))
+    emu:pump()
+    assert(UIManager:getTopmostVisibleWidget() ~= shell, "the close in the top bar did not leave")
     assert(not require("hardcover/lib/ui/live").shown(body), "the body is still live after its shell left")
     -- the emulator keeps its settings between scenes: leave the beta off for the ones that follow
     settings:updateSetting(SETTING.NEW_NAVIGATION, false)
