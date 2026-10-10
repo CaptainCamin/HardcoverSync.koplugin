@@ -319,8 +319,8 @@ function Flows:chooseShelf(dialog)
   for _i, choice in ipairs(Shelf.statusChoices()) do
     local current = detail.status_id == choice.status_id
     rows[#rows + 1] = {
-      -- a bullet marks where the book is now; choosing it again does nothing
-      text = (current and "\226\128\162 " or "") .. _(choice.label),
+      -- the radio marks where the book is now; choosing it again does nothing
+      text = _(choice.label),
       current = current,
       callback = function()
         UIManager:close(picker)
@@ -345,11 +345,6 @@ function Flows:chooseShelf(dialog)
       end,
     }
   end
-
-  rows[#rows + 1] = {
-    text = _("Cancel"),
-    callback = function() UIManager:close(picker) end,
-  }
 
   picker = require("hardcover/lib/ui/picker").new {
     title = detail.status_id and _("Move to shelf") or _("Add to shelf"),
@@ -454,7 +449,7 @@ function Flows:showListsPicker(dialog)
   end
 
   local function redraw(r)
-    require("hardcover/lib/ui/picker").setRow(picker, "list_" .. r.id, Lists.pickerLabel(r), not r.busy)
+    require("hardcover/lib/ui/picker").setRow(picker, "list_" .. r.id, Lists.pickerLabel(r), not r.busy, r.on and true or false)
   end
   local function changed(r)
     r.busy = nil
@@ -523,10 +518,11 @@ function Flows:showListsPicker(dialog)
     rows[#rows + 1] = {
       id = "list_" .. r.id,
       text = Lists.pickerLabel(r),
+      checked = r.on and true or false,
       callback = function() toggle(r) end,
     }
   end
-  rows[#rows + 1] = { text = _("Done"), callback = close }
+  rows[#rows + 1] = { text = _("Done"), primary = true, callback = close }
 
   picker = require("hardcover/lib/ui/picker").new {
     title = _("Add to lists"),

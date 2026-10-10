@@ -20,7 +20,7 @@ checks the numbers.
 | `button.lua` | rectangular (radius 8), 2px border; primary filled | 5 |
 | `top_bar.lua` | 67 tall with a 3px rule, back, title, 1-3 icon actions | most |
 | `tabs.lua` | 50 tall, thick underline on the active tab, tap only | 2 |
-| `nav_bar.lua` | 57 tall, indicator above the active destination | 1 |
+| `nav_bar.lua` | 57 tall, indicator under the active destination | 1 |
 | `note.lua` | info box: icon, title, text and one small button, dotted or solid outline | 1, 1a |
 | `overlay.lua` | base of every overlay: places one child, refreshes only its box; `top_rule` | n/a |
 | `popover.lua` | anchored menu under its icon, dotted dividers, tick on the current choice | sort (shelf screen) |

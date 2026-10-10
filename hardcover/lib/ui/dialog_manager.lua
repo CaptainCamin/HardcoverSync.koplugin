@@ -8,7 +8,6 @@ local Live = require("hardcover/lib/ui/live")
 local Network = require("hardcover/lib/network")
 local Notification = require("ui/widget/notification")
 
-local ConfirmBox = require("ui/widget/confirmbox")
 local InfoMessage = require("ui/widget/infomessage")
 
 local Api = require("hardcover/lib/hardcover_api")
@@ -208,9 +207,9 @@ function DialogManager:buildLoadingSearchDialog(title, fetch, active_item, book_
 end
 
 function DialogManager:confirm(options)
-  options.text = options.text or "Are you sure"
+  options.text = options.text or _("Are you sure?")
 
-  UIManager:show(ConfirmBox:new(options))
+  StatusDialogs.confirm(options)
 end
 
 function DialogManager:maybeConfirm(options)
@@ -508,10 +507,7 @@ function DialogManager:checkForUpdate()
     local before = Updater.available(self.settings, VERSION)
     Updater.remember(self.settings, release)
     if release.version and not (before and before.version == release.version) then
-      UIManager:show(InfoMessage:new {
-        text = T(_("Hardcover Sync %1 is available. Install it from Settings."), release.version),
-        timeout = 5,
-      })
+      StatusDialogs.info(T(_("Hardcover Sync %1 is available. Install it from Settings."), release.version), 5)
     end
   end, beta, true)
 end

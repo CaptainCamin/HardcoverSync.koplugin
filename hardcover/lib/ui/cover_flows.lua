@@ -162,12 +162,12 @@ function Flows:downloadCoversForOffline()
     return
   end
 
-  local ConfirmBox = require("ui/widget/confirmbox")
-  UIManager:show(ConfirmBox:new {
+  StatusDialogs.confirm {
+    title = _("Keep covers for offline?"),
     text = #plan.fetch == 0
-      and T(_("Keep %1 covers for offline? They are all on this device already, so nothing needs downloading."),
+      and T(_("%1 covers. They are all on this device already, so nothing needs downloading."),
         self._covers_missing)
-      or T(_("Keep %1 covers for offline? About %2 to download.\n\nYou can stop at any time; running it again carries on where it stopped."),
+      or T(_("%1 covers, about %2 to download.\n\nYou can stop at any time; running it again carries on where it stopped."),
         self._covers_missing, CoverDownload.size(CoverDownload.estimate(plan))),
     ok_text = _("Download"),
     ok_callback = function()
@@ -177,7 +177,7 @@ function Flows:downloadCoversForOffline()
         run(self, plan, false)
       end
     end,
-  })
+  }
 end
 
 -- Copy the flows onto the class.

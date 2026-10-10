@@ -65,11 +65,15 @@ return {
     assert(item, "no Download covers item")
     item.callback()
     emu:pump()
-    emu:expectText("Keep 3 covers for offline")
+    emu:expectText("3 covers")
     emu:shot("offline_covers_question")
 
-    local box = UIManager:getTopmostVisibleWidget()
-    box.ok_callback()
+    local download
+    for _, node in ipairs(emu:screenNodes()) do
+      if node.text == "Download" then download = node end
+    end
+    assert(download, "no Download button")
+    emu:tap(download.x + math.floor(download.w / 2), download.y + math.floor(download.h / 2))
     for _ = 1, 20 do emu:pump() end
     for i = 1, 3 do
       local key = loader:fetchUrl(fixtures.shelf_books[i].cached_image.url, "small")

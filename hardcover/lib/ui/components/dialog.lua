@@ -33,9 +33,11 @@ function Dialog.show(opts)
       Draw.ICONS.close(bb, x + o, y + o, Theme.px(28), Theme.px(2.5))
     end),
   }
-  local title = Theme.mmdText(opts.title, "strong", 25, { width = inner_w - Theme.TOUCH_MIN })
-  local col = VerticalGroup:new { align = "left", Overlay.top_rule(w), Theme.span(Theme.px(12)) }
-  col[#col + 1] = HorizontalGroup:new { align = "center", Theme.hspan(side), title,
+  local tface, tbold = Theme.mmdFace("strong", 25)
+  local title = TextBoxWidget:new { text = opts.title, face = tface, bold = tbold,
+    width = inner_w - Theme.TOUCH_MIN, fgcolor = Theme.BLACK }
+  local col = VerticalGroup:new { align = "left", Overlay.top_rule(w - 2 * Theme.line.firm), Theme.span(Theme.px(12)) }
+  col[#col + 1] = HorizontalGroup:new { align = "top", Theme.hspan(side), title,
     Theme.hspan(inner_w - title:getSize().w - Theme.TOUCH_MIN), close }
   if opts.text then
     local face, bold = Theme.mmdFace("text", 18)

@@ -183,6 +183,13 @@ package.preload["ui/uimanager"] = function()
   }
 end
 
+package.preload["hardcover/lib/ui/components/loading"] = function()
+  return { show = function(text)
+    local w = { text = text, close = function() end }
+    require("ui/uimanager"):show(w)
+    return w
+  end }
+end
 package.preload["ui/widget/infomessage"] = function()
   local M = {}
   M.new = function(_, o) o = o or {} setmetatable(o, M) o.close = function() end return o end

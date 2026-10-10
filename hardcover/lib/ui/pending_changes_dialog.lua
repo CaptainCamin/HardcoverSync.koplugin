@@ -4,7 +4,6 @@
 -- opts: queues ({ sync_queue, goal_queue, rating_queue }), on_cancel(row) after a change was
 -- cancelled (so the screens that showed it can show Hardcover's version again), on_send().
 
-local ConfirmBox = require("ui/widget/confirmbox")
 local UIManager = require("ui/uimanager")
 local _ = require("gettext")
 local T = require("ffi/util").template
@@ -30,8 +29,9 @@ function PendingChangesDialog.show(opts)
       items[#items + 1] = {
         text = PendingChanges.line(row),
         callback = function()
-          UIManager:show(ConfirmBox:new {
-            text = T(_("Cancel this change?\n\n%1\n\nHardcover keeps what it has now."), row.text),
+          StatusDialogs.confirm {
+            title = _("Cancel this change?"),
+            text = T(_("%1\n\nHardcover keeps what it has now."), row.text),
             ok_text = _("Cancel the change"),
             cancel_text = _("Keep it"),
             ok_callback = function()
@@ -40,7 +40,7 @@ function PendingChangesDialog.show(opts)
               if screen then UIManager:close(screen) end
               open() -- the list again, without it
             end,
-          })
+          }
         end,
       }
     end

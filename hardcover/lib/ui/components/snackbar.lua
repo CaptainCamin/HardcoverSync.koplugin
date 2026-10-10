@@ -11,6 +11,7 @@ local Device = require("device")
 local LeftContainer = require("ui/widget/container/leftcontainer")
 local Geom = require("ui/geometry")
 local UIManager = require("ui/uimanager")
+local TextBoxWidget = require("ui/widget/textboxwidget")
 local VerticalGroup = require("ui/widget/verticalgroup")
 
 local Draw = require("hardcover/lib/ui/components/draw")
@@ -47,9 +48,13 @@ function Snackbar.show(opts)
   end
   right[#right + 1] = close
   local room = sw - 2 * side - right:getSize().w
+  -- a long message makes the bar taller rather than running off it
+  local face, bold = Theme.mmdFace("text", 21)
+  local message = TextBoxWidget:new { text = opts.message, face = face, bold = bold,
+    width = room - Theme.px(8), fgcolor = Theme.BLACK }
+  local height = math.max(HEIGHT, message:getSize().h + 2 * Theme.px(14))
   local line = HorizontalGroup:new { align = "center", Theme.hspan(side),
-    LeftContainer:new { dimen = Geom:new { w = room, h = HEIGHT },
-      Theme.mmdText(opts.message, "text", 21, { width = room - Theme.px(8) }) },
+    LeftContainer:new { dimen = Geom:new { w = room, h = height }, message },
     right, Theme.hspan(side - Theme.px(4)) }
   local bar = FrameContainer:new { width = sw, bordersize = 0, padding = 0, margin = 0,
     background = Theme.WHITE, VerticalGroup:new { align = "left", Overlay.top_rule(sw), line } }

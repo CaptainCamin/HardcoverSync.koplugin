@@ -8,11 +8,11 @@ local T = require("ffi/util").template
 local LuaSettings = require("luasettings")
 local logger = require("logger")
 local _ = require("gettext")
+local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 
 local DataStorage = require("datastorage")
 local UIManager = require("ui/uimanager")
 
-local InfoMessage = require("ui/widget/infomessage")
 
 local OAuth = require("hardcover/lib/oauth")
 local OAuthClient = require("hardcover/lib/oauth_client")
@@ -335,10 +335,7 @@ function Auth:signOut()
 
   self:clear()
 
-  UIManager:show(InfoMessage:new {
-    text = _("Signed out of Hardcover"),
-    timeout = 2,
-  })
+  StatusDialogs.info(_("Signed out of Hardcover"), 2)
 end
 
 --

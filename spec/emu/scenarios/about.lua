@@ -30,7 +30,7 @@ return {
 
     about.callback({ updateItems = function() end })
     emu:pump()
-    emu:expectText("Hardcover plugin")
+    emu:expectText("Hardcover Sync")
     emu:expectText("HardcoverSync.koplugin")
     emu:shot("about")
     emu:closeAll()
