@@ -1,7 +1,7 @@
 -- Home as a tab of the shell: one fixed screen that never scrolls, as drawn in mock 1 / 1a.
 --
 -- Top to bottom: "Currently reading" with the book you read most recently as a bordered card (cover,
--- serif title, author, a thick progress bar, "62% · page 186 of 300" and one filled Open book
+-- title, author, a thick progress bar, "62% · page 186 of 300" and one filled Open book
 -- button); a box saying whether changes are waiting to sync (a sync icon, a count and Sync now) or
 -- all is well (a check, All synced, Sync now still there), both with a dotted outline, the same height either way so what
 -- is below never moves; then "Shelves" as two-line list rows with their counts. The other books
@@ -65,7 +65,7 @@ function HomeBody:readingCard(card, width)
   local cw, ch = px(84), px(126)
   local gap = px(14)
   local text_w = inner - cw - gap
-  local face, bold = Theme.serif(25)
+  local face, bold = Theme.title(25)
   local info = VerticalGroup:new { align = "left",
     TextBoxWidget:new { text = card.title, face = face, bold = bold, width = text_w,
       height = 3 * (face.size * 1.3), height_adjust = true, height_overflow_show_ellipsis = true } }
