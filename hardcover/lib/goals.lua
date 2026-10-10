@@ -165,6 +165,40 @@ function Goals.pace(goal, today, extra)
   return out
 end
 
+-- The word on a goal's chip and whether the chip is filled: filled is good news (on track, ahead,
+-- done), outlined is not (behind, ended short, not started). Never a grey state.
+function Goals.chip(p)
+  if p.done then return "Done", true end
+  if p.over then return "Ended", false end
+  if p.upcoming then return "Upcoming", false end
+  if p.delta <= -1 then return "Behind", false end
+  return "On track", true
+end
+
+-- The line beside the chip: how far from where you should be, and how long is left. "3 books ahead",
+-- "850 pages behind", "On pace"; a goal that is done, ended or not started says that instead.
+function Goals.paceText(p)
+  local n = math.floor(math.abs(p.delta))
+  local unit = n == 1 and p.unit:gsub("s$", "") or p.unit
+  local line
+  if p.done then
+    line = nil
+  elseif p.over or p.upcoming then
+    line = p.status
+  elseif p.delta >= 1 then
+    line = string.format("%d %s ahead", n, unit)
+  elseif p.delta <= -1 then
+    line = string.format("%d %s behind", n, unit)
+  else
+    line = "On pace"
+  end
+  local left = Goals.leftText(p)
+  if left ~= "" and not p.done and not p.over then
+    line = line and (line .. "  \194\183  " .. left) or left
+  end
+  return line
+end
+
 -- "91 days left", "1 day left", "Ended", "Done"
 function Goals.leftText(p)
   if p.over then return "Ended" end
