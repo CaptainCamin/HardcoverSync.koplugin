@@ -7,6 +7,9 @@
 --   Hosted.window(self)    what to hand UIManager / Refresh as the window to repaint
 --   Hosted.size(self)      the screen's size, whole or the body's share of it
 --   Hosted.dirty(self)     repaint this screen, in its own box (the whole panel when it is alone)
+--   Hosted.remount(host, screen)  a retry's new screen takes the old one's place
+--
+-- A screen inside the Library tab also has a `parent` (the Library body).
 
 local Hosted = {}
 
@@ -30,6 +33,12 @@ function Hosted.dirty(screen)
   if screen.shell:isActive(screen) then
     UIManager:setDirty(screen.shell, function() return "ui", screen.dimen end)
   end
+end
+
+-- A retry built a new screen for a tab that already had one: put it in the old one's place.
+-- `host` is what the screen was built with ({ shell, width, height, id, parent }).
+function Hosted.remount(host, screen)
+  (host.parent or host.shell):remount(host.id, screen)
 end
 
 return Hosted

@@ -13,6 +13,7 @@ local _ = require("gettext")
 local T = require("ffi/util").template
 
 local UIManager = require("ui/uimanager")
+local Hosted = require("hardcover/lib/ui/hosted")
 local Live = require("hardcover/lib/ui/live")
 
 local Api = require("hardcover/lib/hardcover_api")
@@ -165,6 +166,7 @@ function Flows:showLists(host)
 
   local dialog = require("hardcover/lib/ui/lists_dialog"):new {
     shell = host and host.shell, width = host and host.width, height = host and host.height,
+    parent = host and host.parent,
     mine = saved and saved.mine or nil,
     following = saved and saved.following or nil,
     message = not saved and (online and _("Loading your lists\226\128\166")
@@ -174,7 +176,7 @@ function Flows:showLists(host)
     end,
   }
   self:screens():track("lists", dialog)
-  if not host then UIManager:show(dialog) elseif host.remount then host.shell:remount(host.id, dialog) end
+  if not host then UIManager:show(dialog) elseif host.remount then Hosted.remount(host, dialog) end
 
   if saved and #saved.mine == 0 and #saved.following == 0 then
     dialog:setMessage(noLists())
@@ -202,7 +204,7 @@ function Flows:showLists(host)
       StatusDialogs.retry(result and result.failure, _("Loading your lists"),
         function()
           self:showLists(host and { shell = host.shell, width = host.width, height = host.height,
-            id = host.id, remount = true })
+            id = host.id, parent = host.parent, remount = true })
         end,
         function() if not host then UIManager:close(dialog) end end)
       return

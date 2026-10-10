@@ -3,6 +3,7 @@ local T = require("ffi/util").template
 local json = require("json")
 
 local UIManager = require("ui/uimanager")
+local Hosted = require("hardcover/lib/ui/hosted")
 local Live = require("hardcover/lib/ui/live")
 local Network = require("hardcover/lib/network")
 local Notification = require("ui/widget/notification")
@@ -537,11 +538,40 @@ function DialogManager:shellTabs()
   return {
     { id = "home", label = _("Home"), icon_name = "home", make = host("home", self.showOldHome),
       actions = { { icon = "settings", callback = function() self:showSettings() end } } },
-    { id = "library", label = _("Library"), icon_name = "shelves", make = placeholder(_("Library")) },
+    { id = "library", label = _("Library"), icon_name = "shelves", make = function(shell, width, height)
+        return require("hardcover/lib/ui/library_body"):new {
+          shell = shell, width = width, height = height, id = "library",
+          subs = {
+            { id = "shelves", label = _("Shelves"), make = function(sh, w, h, parent)
+                return self:showShelvesBody({ shell = sh, width = w, height = h, id = "shelves", parent = parent })
+              end },
+            { id = "lists", label = _("Lists"), make = function(sh, w, h, parent)
+                return self:showLists({ shell = sh, width = w, height = h, id = "lists", parent = parent })
+              end },
+            { id = "vibes", label = _("Vibes"), make = function(sh, w, h, parent)
+                return self:showVibes({ shell = sh, width = w, height = h, id = "vibes", parent = parent })
+              end },
+          },
+        }
+      end },
     { id = "goals", label = _("Goals"), icon_name = "goals", make = host("goals", self.showGoals),
       actions = { { icon = "plus", callback = function() self:showGoalForm(nil) end } } },
     { id = "stats", label = _("Stats"), icon_name = "stats", make = host("stats", self.showStats) },
   }
+end
+
+-- The Library's Shelves tab: the shelves and their counts, from what is saved.
+function DialogManager:showShelvesBody(host)
+  self:screens():discard("shelves")
+  local cache = self.shelf_cache
+  local counts = cache and cache:counts(User:getId(), Home.statusIds()) or {}
+  local body = require("hardcover/lib/ui/shelves_body"):new {
+    shell = host.shell, width = host.width, height = host.height, parent = host.parent,
+    rows = Home.rows(counts),
+    select_cb = function(row) self:showShelf(row.status_id, row.title) end,
+  }
+  self:screens():track("shelves", body)
+  return body
 end
 
 function DialogManager:showShell(active)
@@ -580,6 +610,7 @@ function DialogManager:showOldHome(host)
 
   local dialog = require(host and "hardcover/lib/ui/home_body" or "hardcover/lib/ui/home_dialog"):new {
     shell = host and host.shell, width = host and host.width, height = host and host.height,
+    parent = host and host.parent,
     pending_fn = function()
       return (self.sync_queue and self.sync_queue:pendingCount() or 0)
         + (self.goal_queue and self.goal_queue:count() or 0)
@@ -651,6 +682,9 @@ function DialogManager:showOldHome(host)
       shown_reading = shownReading,
       on_counts = function(counts)
         dialog:setRows(Home.rows(counts), true)
+        -- the Library's Shelves tab shows the same counts
+        local shelves = self:screens():open("shelves")
+        if shelves then shelves:setRows(Home.rows(counts)) end
       end,
       on_prints = function(prints)
         shelf_prints = prints
@@ -741,6 +775,7 @@ function DialogManager:showGoals(host)
 
   local dialog = require("hardcover/lib/ui/goals_dialog"):new {
     shell = host and host.shell, width = host and host.width, height = host and host.height,
+    parent = host and host.parent,
     goals = self:shownGoals(cached),
     finished_offline = self:finishedOffline(),
     note = note,
@@ -758,7 +793,7 @@ function DialogManager:showGoals(host)
     dialog.message = _("No goals yet. Tap New goal to set one.")
   end
   self:screens():track("goals", dialog)
-  if not host then UIManager:show(dialog) elseif host.remount then host.shell:remount(host.id, dialog) end
+  if not host then UIManager:show(dialog) elseif host.remount then Hosted.remount(host, dialog) end
   if not online then return dialog end
 
   Api:getGoalsAsync(function(goals, err)
@@ -775,7 +810,7 @@ function DialogManager:showGoals(host)
         function()
           -- a retry makes a new screen; in the shell the tab takes it over
           self:showGoals(host and { shell = host.shell, width = host.width, height = host.height,
-            id = host.id, remount = true })
+            id = host.id, parent = host.parent, remount = true })
         end,
         function() if not host then UIManager:close(dialog) end end)
     end
@@ -804,6 +839,7 @@ function DialogManager:showStats(host)
   local start = ScreenLoad.start(saved, online)
   local dialog = require("hardcover/lib/ui/stats_dialog"):new {
     shell = host and host.shell, width = host and host.width, height = host and host.height,
+    parent = host and host.parent,
   }
   if saved then
     dialog.rows, dialog.genres, dialog.complete = saved.rows, saved.genres, saved.complete ~= false
@@ -815,7 +851,7 @@ function DialogManager:showStats(host)
     dialog.message = _("Stats need an internet connection the first time.")
   end
   self:screens():track("stats", dialog)
-  if not host then UIManager:show(dialog) elseif host.remount then host.shell:remount(host.id, dialog) end
+  if not host then UIManager:show(dialog) elseif host.remount then Hosted.remount(host, dialog) end
   if not online then return dialog end
 
   -- The saved stats are still right while the Read shelf has not changed (its
@@ -841,7 +877,7 @@ function DialogManager:showStats(host)
         StatusDialogs.retry(err, _("Loading your stats"),
           function()
             self:showStats(host and { shell = host.shell, width = host.width, height = host.height,
-              id = host.id, remount = true })
+              id = host.id, parent = host.parent, remount = true })
           end,
           function() if not host then UIManager:close(dialog) end end)
       end
@@ -1145,28 +1181,30 @@ end
 -- screen in its own ranking (showVibe). Needs the read:vibes permission, which a sign-in from
 -- before it was asked for lacks.
 --
-function DialogManager:showVibes()
+function DialogManager:showVibes(host)
   self:screens():discard("vibes")
 
   local dialog = require("hardcover/lib/ui/lists_dialog"):new {
+    shell = host and host.shell, width = host and host.width, height = host and host.height,
+    parent = host and host.parent,
     title = _("Vibes"),
     mine_title = _("From Hardcover"),
     following_title = _("Made by you"),
     message = _("Loading your vibes\226\128\166"),
     select_cb = function(row)
-      self:showVibe(row.vibe)
+      if row.for_you then self:showForYou() else self:showVibe(row.vibe) end
     end,
   }
   self:screens():track("vibes", dialog)
-  UIManager:show(dialog)
+  if not host then UIManager:show(dialog) elseif host.remount then Hosted.remount(host, dialog) end
 
   if scopeMissing(Vibes.SCOPE) then
     dialog:setMessage(_("Sign out and back in (Settings > Account) to see your vibes."))
-    return
+    return dialog
   end
   if not Network.connected() then
     dialog:setMessage(_("Vibes need an internet connection."))
-    return
+    return dialog
   end
 
   Api:getVibesAsync(User:getId(), function(vibes, covers_or_err)
@@ -1177,8 +1215,11 @@ function DialogManager:showVibes()
         return
       end
       StatusDialogs.retry(covers_or_err, _("Loading your vibes"),
-        function() self:showVibes() end,
-        function() UIManager:close(dialog) end)
+        function()
+          self:showVibes(host and { shell = host.shell, width = host.width, height = host.height,
+            id = host.id, parent = host.parent, remount = true })
+        end,
+        function() if not host then UIManager:close(dialog) end end)
       return
     end
     if #vibes == 0 then
@@ -1186,8 +1227,13 @@ function DialogManager:showVibes()
       return
     end
     local system, mine = Vibes.rows(vibes, covers_or_err)
+    -- "For you" (books suggested from your ratings) is the first vibe, unless it is turned off
+    if self.settings:readSetting(SETTING.SHOW_FOR_YOU) ~= false then
+      table.insert(system, 1, { name = _("For you"), for_you = true, covers = {} })
+    end
     dialog:setLists(system, mine)
   end)
+  return dialog
 end
 
 -- One vibe's books in its ranking, in the shelf screen, a page at a time as you page on.
