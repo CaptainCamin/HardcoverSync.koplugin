@@ -100,6 +100,12 @@ local function slice(items, offset, limit)
   return out
 end
 
+local function shelfPage(user_id, offset, limit)
+  local state = wtr_entries[user_id]
+  if not state then return {}, nil end
+  return slice(state.entries, offset, limit), state.complete and #state.entries or nil
+end
+
 local function changed(app, id)
   local bookshelf = app and app.ui and app.ui.bookshelf
   if bookshelf and type(bookshelf.sourceChanged) == "function" then
@@ -140,7 +146,7 @@ local function loadWantToRead(app, force, done)
   if known_id and not force then
     local saved = app.shelf_cache:get(known_id, HARDCOVER.STATUS.TO_READ)
     if saved and saved.complete then
-      wtr_entries[known_id] = saved.entries
+      wtr_entries[known_id] = { entries = saved.entries, complete = true }
       if done then done() end
       return
     end
@@ -154,7 +160,7 @@ local function loadWantToRead(app, force, done)
     local user_id = known_id or User:getId()
     local saved = app.shelf_cache:get(user_id, HARDCOVER.STATUS.TO_READ)
     if saved and not force then
-      wtr_entries[user_id] = saved.entries
+      wtr_entries[user_id] = { entries = saved.entries, complete = saved.complete == true }
       if saved.complete then return end
     end
 
@@ -171,12 +177,12 @@ local function loadWantToRead(app, force, done)
       alive = function() return true end,
       sleep = Background.sleep,
       on_page = function(entries)
-        wtr_entries[user_id] = entries
+        wtr_entries[user_id] = { entries = entries, complete = false }
         changed(app, WANT_TO_READ_ID)
       end,
     }
     if result then
-      wtr_entries[user_id] = result.entries
+      wtr_entries[user_id] = { entries = result.entries, complete = result.complete == true }
       app.shelf_cache:put(user_id, HARDCOVER.STATUS.TO_READ, result.entries, result.complete)
       changed(app, WANT_TO_READ_ID)
       if result.complete then retry_after[key] = nil
@@ -296,23 +302,26 @@ function Sources.register(app)
   local wtr = remoteSpec(app, WANT_TO_READ_ID)
   wtr.label = function() return _("Hardcover: Want to Read") end
   wtr.available = function() return hasCredentials(app) end
-  wtr.sort_default = { { key = "added_time", reverse = true } }
-  wtr.list = function()
+  -- Hardcover shelves are server-backed and can be large. Fetch mode lets
+  -- Bookshelf build only the page being shown instead of mapping, sorting and
+  -- filtering the entire shelf on every redraw.
+  wtr.fetch = function(_source, _drill, offset, limit)
     local user_id = app.settings:readSetting(SETTING.USER_ID)
     if not user_id then
       loadWantToRead(app, false)
-      return {}
+      return {}, nil
     end
-    local entries = wtr_entries[user_id]
-    if not entries then
+    if not wtr_entries[user_id] then
       local saved = app.shelf_cache:get(user_id, HARDCOVER.STATUS.TO_READ)
-      entries = saved and saved.entries or {}
-      wtr_entries[user_id] = entries
+      if saved then
+        wtr_entries[user_id] = { entries = saved.entries, complete = saved.complete == true }
+      end
     end
     if not (app.shelf_cache:get(user_id, HARDCOVER.STATUS.TO_READ) or {}).complete then
       loadWantToRead(app, false)
     end
-    return toBooks(entries, HARDCOVER.STATUS.TO_READ)
+    local entries, total = shelfPage(user_id, offset, limit)
+    return toBooks(entries, HARDCOVER.STATUS.TO_READ), total
   end
   wtr.refresh = function(_source, _drill, done)
     loadWantToRead(app, true, done)
