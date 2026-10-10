@@ -44,6 +44,11 @@ check("rows say how to draw them: tick box, ticked or not, submenu arrow, tile",
   assert(rows[5].tile == "Sync" and rows[5].separator == true)
 end)
 
+check("an option keeps the group it names, for the settings screen to fold", function()
+  local rows = SettingsItems.rows({ { text = "A", section = "Tracking", callback = noop }, { text = "B", callback = noop } }, noop, noop)
+  assert(rows[1].section == "Tracking" and rows[2].section == nil)
+end)
+
 check("text_func is resolved", function()
   local rows = SettingsItems.rows({ { text_func = function() return "Dynamic" end, callback = noop } }, noop, noop)
   assert(rows[1].text == "Dynamic")
