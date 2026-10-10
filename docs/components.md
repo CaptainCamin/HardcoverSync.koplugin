@@ -28,6 +28,8 @@ checks the numbers.
 | `action_sheet.lua` | outlined buttons plus one filled Cancel | 10 |
 | `dialog.lua` | centred, title + text, one or two buttons | 5 |
 | `snackbar.lua` | bottom message with at most one action, closes itself | 5 |
+| `progress_bar.lua` | thin outlined track, thick black fill with round ends, an optional tick (where you should be) with a white edge; goals | 7 |
+| `section.lua` | a dotted rule and a small Black label, optional count at the right; one block of a page | 4, 7, 8 |
 | `scroll_control.lua` | bar over a double-line track, a triangle at each end; `wrap` for a scrolling container, `paged` for a list shown a page at a time | all |
 
 Text uses `Theme.mmdText(str, "text" | "strong", size)`: Lato Medium and Black when installed, KOReader's

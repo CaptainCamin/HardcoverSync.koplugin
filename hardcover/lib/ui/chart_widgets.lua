@@ -1,5 +1,5 @@
--- Charts for an e-ink page: columns, a histogram with a marker, horizontal bars, a donut with
--- its legend, and a row of key figures. Drawn straight onto the screen buffer from the
+-- Charts for an e-ink page: columns, a histogram with a marker, horizontal bars (black, or stepping
+-- from black to light), and a row of key figures. Drawn straight onto the screen buffer from the
 -- arithmetic in hardcover/lib/charts.lua.
 --
 -- What the drawing follows (it is a chart for a mono panel, and for any library):
@@ -15,16 +15,14 @@
 -- They are plain widgets (paintTo), so they scroll with the page they are in.
 
 local Blitbuffer = require("ffi/blitbuffer")
-local Device = require("device")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
+local OverlapGroup = require("ui/widget/overlapgroup")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local Widget = require("ui/widget/widget")
 
 local Charts = require("hardcover/lib/charts")
 local Theme = require("hardcover/lib/ui/theme")
-
-local Screen = Device.screen
 
 local ChartWidgets = {}
 
@@ -55,8 +53,12 @@ function Canvas:free()
   if self.on_free then self.on_free() end
 end
 
--- (the charts' own small type is the default)
-local function text(str, size, opts) return Theme.text(str, size or "label", opts) end
+-- (the charts' own small type is the default; Lato like the rest of the page, Black where bold)
+local function text(str, size, opts)
+  opts = opts or {}
+  return Theme.mmdText(str, opts.bold and "strong" or "text", Theme.type[size or "label"] or size,
+    { width = opts.width, secondary = opts.grey })
+end
 
 -- draw text at x (its left, or centred on x, or right-aligned to x), top at y
 local function put(bb, tw, x, y, align)
@@ -124,10 +126,14 @@ function ChartWidgets.columns(opts)
     cache[str] = cache[str] or text(str, small)
     return cache[str]
   end
-  local grey_text = {}
+  local grey_text, strong_text = {}, {}
   local function dim(str)
     grey_text[str] = grey_text[str] or text(str, small, { grey = true })
     return grey_text[str]
+  end
+  local function strong(str)
+    strong_text[str] = strong_text[str] or text(str, small, { bold = true })
+    return strong_text[str]
   end
 
   return Canvas:new {
@@ -171,7 +177,7 @@ function ChartWidgets.columns(opts)
         if opts.emphasis and opts.highlight and i ~= opts.highlight then level = 0x77 end
         if c.h > 0 then column(bb, plot_x + c.x, base_y, c.w, c.h, level) end
         if c.value > 0 and (i == peak or i == opts.highlight) then
-          local label = tw(show(c.value))
+          local label = (i == opts.highlight and opts.emphasis) and strong(show(c.value)) or tw(show(c.value))
           local cx = plot_x + c.x + math.floor(c.w / 2)
           local clash = marker and marker.label
             and cx + math.floor(label:getSize().w / 2) + px(4) > marker.lx
@@ -187,7 +193,9 @@ function ChartWidgets.columns(opts)
       for i, label in pairs(opts.labels or {}) do
         local c = cols[i]
         if c and ((i - 1) % every == 0 or i == opts.highlight) then
-          put(bb, dim(label), plot_x + c.x + math.floor(c.w / 2), base_y + px(6), "center")
+          -- the chosen column's label is Black and bold, the others quiet
+          put(bb, i == opts.highlight and opts.emphasis and strong(label) or dim(label),
+            plot_x + c.x + math.floor(c.w / 2), base_y + px(6), "center")
         end
       end
 
@@ -205,7 +213,9 @@ end
 --
 -- Horizontal bars, one row each: the name on the left (cut to fit), the bar, the number at its
 -- tip. `rows` are { label, value, text } (`text` is what is written at the tip, default the
--- value). The longest bar is black, the rest dark grey.
+-- value). The longest bar is black, the rest dark grey; with `tonal` each row is a step lighter than
+-- the one above (rows biggest first), the lightest edged with a hairline so it is not lost on the
+-- paper, and the figure at the tip stays black so the value never depends on the grey.
 --
 function ChartWidgets.bars(opts)
   local rows = opts.rows or {}
@@ -235,11 +245,19 @@ function ChartWidgets.bars(opts)
         put(bb, labels[i], x, mid - math.floor(labels[i]:getSize().h / 2))
         local len = lengths[i]
         local bx = x + label_w
-        local level = i == 1 and 0x00 or 0x55
+        local level = opts.tonal and Charts.ramp(i) or (i == 1 and 0x00 or 0x55)
         if len > 0 then
           local r = math.min(px(4), math.floor(bar_h / 2))
-          bb:paintRoundedRect(bx - r, mid - math.floor(bar_h / 2), len + r, bar_h, grey(level), r)
-          bb:paintRect(bx - r, mid - math.floor(bar_h / 2), r, bar_h, WHITE)
+          local top = mid - math.floor(bar_h / 2)
+          if opts.tonal and level >= 0x99 then
+            -- the hairline edge: a black bar with the grey inset in it
+            bb:paintRoundedRect(bx - r, top, len + r, bar_h, BLACK, r)
+            bb:paintRoundedRect(bx - r + Theme.line.hair, top + Theme.line.hair, len + r - 2 * Theme.line.hair,
+              bar_h - 2 * Theme.line.hair, grey(level), math.max(0, r - Theme.line.hair))
+          else
+            bb:paintRoundedRect(bx - r, top, len + r, bar_h, grey(level), r)
+          end
+          bb:paintRect(bx - r, top, r, bar_h, WHITE)
         end
         put(bb, tips[i], bx + len + px(8), mid - math.floor(tips[i]:getSize().h / 2))
       end
@@ -248,127 +266,44 @@ function ChartWidgets.bars(opts)
 end
 
 --
--- A donut with its legend beside it (or under it when the page is narrow).
---   slices      from Charts.slices (biggest first, Other last)
---   center      { top = "612", bottom = "books" } written in the hole
--- The legend lists each slice: a swatch in the slice's grey, its name, its share.
---
-function ChartWidgets.donut(opts)
-  local slices = Charts.arcs(opts.slices or {})
-  local width = opts.width
-  local wide = width >= px(520)
-  local d = wide and math.min(math.floor(width * 0.42), px(260)) or math.min(width, px(240))
-  local outer = d / 2
-  local inner = outer * 0.58
-  local gap = px(3)
-
-  -- the ring is drawn once into its own buffer: working out every pixel of it on each repaint
-  -- would make the page stutter as it scrolls
-  local ring
-  local function build()
-    ring = Blitbuffer.new(d, d, Screen.bb and Screen.bb:getType())
-    ring:fill(WHITE)
-    local cx, cy = d / 2, d / 2
-    for row = 0, d - 1 do
-      local dy = row + 0.5 - cy
-      local run_from, run_index
-      for col = 0, d do
-        local index = col < d and Charts.sliceAtGap(slices, col + 0.5 - cx, dy, inner, outer, gap) or nil
-        if index ~= run_index then
-          if run_index then ring:paintRect(run_from, row, col - run_from, 1, grey(Charts.shade(run_index))) end
-          run_from, run_index = col, index
-        end
-      end
-    end
-  end
-
-  local hole_top = opts.center and opts.center.top and text(opts.center.top, "display", { bold = true })
-  local hole_bottom = opts.center and opts.center.bottom and text(opts.center.bottom, "small", { grey = true })
-
-  local donut = Canvas:new {
-    width = d, height = d,
-    draw = function(bb, x, y)
-      if #slices == 0 then return end
-      if not ring then build() end
-      bb:blitFrom(ring, x, y, 0, 0, d, d)
-      if hole_top then
-        local th = hole_top:getSize().h + (hole_bottom and hole_bottom:getSize().h or 0)
-        put(bb, hole_top, x + d / 2, y + math.floor((d - th) / 2), "center")
-        if hole_bottom then
-          put(bb, hole_bottom, x + d / 2, y + math.floor((d - th) / 2) + hole_top:getSize().h, "center")
-        end
-      end
-    end,
-    on_free = function() if ring then ring:free(); ring = nil end end,
-  }
-
-  -- the legend
-  local legend_w = wide and (width - d - Theme.space.l) or width
-  local line_h = math.max(text("Ag", "small"):getSize().h, px(18)) + px(10)
-  local swatch = px(16)
-  local names, shares = {}, {}
-  for i, s in ipairs(slices) do
-    shares[i] = text(string.format("%d%%", s.percent), "small", { bold = true })
-    names[i] = text(s.label or "", "small", { width = legend_w - swatch - shares[i]:getSize().w - px(24) })
-  end
-  local legend = Canvas:new {
-    width = legend_w, height = math.max(1, #slices) * line_h,
-    draw = function(bb, x, y)
-      for i, s in ipairs(slices) do
-        local top = y + (i - 1) * line_h
-        local mid = top + math.floor(line_h / 2)
-        bb:paintRect(x, mid - math.floor(swatch / 2), swatch, swatch, grey(Charts.shade(i)))
-        -- the lightest swatches get a hairline so they are not lost against the paper
-        if Charts.shade(i) >= 0x99 then bb:paintBorder(x, mid - math.floor(swatch / 2), swatch, swatch, 1, BLACK, 0) end
-        put(bb, names[i], x + swatch + px(10), mid - math.floor(names[i]:getSize().h / 2))
-        put(bb, shares[i], x + legend_w, mid - math.floor(shares[i]:getSize().h / 2), "right")
-      end
-    end,
-  }
-
-  if wide then
-    -- the legend is centred beside the ring
-    local pad = math.max(0, math.floor((d - legend.height) / 2))
-    return HorizontalGroup:new {
-      align = "top",
-      donut,
-      Theme.hspan(Theme.space.l),
-      VerticalGroup:new { align = "left", Theme.span(pad), legend },
-    }
-  end
-  return VerticalGroup:new {
-    align = "center",
-    donut,
-    Theme.span("m"),
-    legend,
-  }
-end
-
---
--- A row of key figures (up to three across, more wrap): the number big and bold, what it
--- counts under it. `tiles` are { value, label }.
+-- A row of key figures (mock 8): the number big and Black, what it counts under it in secondary text,
+-- split by dotted rules. No boxes; the next section's own rule closes the row. `tiles` are { value, label }; up to
+-- three across, more wrap.
 --
 function ChartWidgets.kpis(opts)
   local tiles = opts.tiles or {}
   local per_row = math.min(opts.per_row or 3, math.max(1, #tiles))
-  local gap = Theme.space.m
-  local w = math.floor((opts.width - (per_row - 1) * gap) / per_row)
-  local h = px(opts.height or 88)
+  local w = math.floor(opts.width / per_row)
+  local pad = Theme.px(14)
   local group = VerticalGroup:new { align = "left" }
   for i = 1, #tiles, per_row do
-    local row = HorizontalGroup:new {}
+    local row = HorizontalGroup:new { align = "top" }
+    local row_h
     for j = i, math.min(i + per_row - 1, #tiles) do
-      if j > i then table.insert(row, Theme.hspan(gap)) end
+      local first = j == i
       local tile = tiles[j]
-      local inner = w - 2 * Theme.line.firm - Theme.space.m
-      table.insert(row, Theme.box(w, h, VerticalGroup:new {
-        align = "center",
-        text(tile.value, "display", { bold = true, width = inner }),
-        text(tile.label, "small", { grey = true, width = inner }),
-      }, { radius = 10 }))
+      local cell_w = (j == i + per_row - 1 or j == #tiles) and (opts.width - (j - i) * w) or w
+      local inner = cell_w - (first and 0 or pad)
+      local figure = VerticalGroup:new {
+        align = "left",
+        Theme.mmdText(tile.value, "strong", 32, { width = inner }),
+        Theme.mmdText(tile.label, "text", 18, { secondary = true, width = inner }),
+      }
+      row_h = row_h or (figure:getSize().h + Theme.space.m)
+      local cell = Canvas:new { width = cell_w, height = row_h, draw = function(bb, x, y)
+        if not first then
+          local t = Theme.line.hair
+          for yy = 0, row_h - t, t * 3 do bb:paintRect(x, y + yy, t, t, BLACK) end
+        end
+      end }
+      table.insert(row, OverlapGroup:new {
+        dimen = Geom:new { w = cell_w, h = row_h },
+        cell,
+        HorizontalGroup:new { Theme.hspan(first and 0 or pad), figure },
+      })
     end
+    table.insert(group, Theme.span("s"))
     table.insert(group, row)
-    if i + per_row <= #tiles then table.insert(group, Theme.span("m")) end
   end
   return group
 end

@@ -78,43 +78,15 @@ check("nothing, zeros and junk give no slices", function()
   assert(#s == 1 and s[1].percent == 100 and s[1].fraction == 1)
 end)
 
-print("\n== a ring ==")
+print("\n== grey steps ==")
 
-check("arcs run clockwise from 12 o'clock and meet at a full turn", function()
-  local s = Charts.arcs(Charts.slices({ { label = "a", value = 1 }, { label = "b", value = 3 } }, 5))
-  assert(s[1].label == "b" and s[1].from == 0 and math.abs(s[1].to - 0.75) < 1e-9)
-  assert(math.abs(s[2].from - 0.75) < 1e-9 and math.abs(s[2].to - 1) < 1e-9)
-end)
-
-check("a point belongs to the slice it is in, and to none outside the ring or in the hole", function()
-  local s = Charts.arcs(Charts.slices({ { label = "a", value = 1 }, { label = "b", value = 1 }, { label = "c", value = 2 } }, 5))
-  -- c (half the ring) is first: 12 o'clock to 6 o'clock clockwise, i.e. the right-hand side
-  assert(Charts.sliceAt(s, 50, 0, 20, 60) == 1, "3 o'clock is in the biggest")
-  assert(Charts.sliceAt(s, -50, 0, 20, 60) ~= 1, "9 o'clock is not")
-  assert(Charts.sliceAt(s, 0, 0, 20, 60) == nil, "the hole")
-  assert(Charts.sliceAt(s, 90, 0, 20, 60) == nil, "outside")
-  assert(Charts.sliceAt(s, 1, -50, 20, 60) == 1, "just right of 12 o'clock")
-  assert(Charts.sliceAt(s, -1, -50, 20, 60) == #s, "just left of 12 o'clock is the last slice")
-  assert(Charts.sliceAt({}, 50, 0, 20, 60) == nil)
-end)
-
-check("a thin gap is left between slices, and none for a single slice", function()
-  local s = Charts.arcs(Charts.slices({ { label = "a", value = 1 }, { label = "b", value = 1 } }, 5))
-  -- the edge between them is at 6 o'clock (turn 0.5) and at 12 o'clock
-  assert(Charts.sliceAtGap(s, 0, 40, 20, 60, 4) == nil, "no gap at 6 o'clock")
-  assert(Charts.sliceAtGap(s, 0, -40, 20, 60, 4) == nil, "no gap at 12 o'clock")
-  assert(Charts.sliceAtGap(s, 40, 0, 20, 60, 4) == 1, "the middle of a slice is solid")
-  assert(Charts.sliceAtGap(s, 40, 0, 20, 60, 0) == 1 and Charts.sliceAtGap(s, 0, 40, 20, 60, 0) ~= nil)
-  local one = Charts.arcs(Charts.slices({ { label = "a", value = 5 } }, 5))
-  assert(Charts.sliceAtGap(one, 0, -40, 20, 60, 4) == 1, "a single slice is a whole ring")
-end)
-
-check("grey levels are far apart, none near white, and repeat after five", function()
-  for i = 1, #Charts.LEVELS do
-    assert(Charts.shade(i) <= 0xBB, "too light to see")
-    for j = i + 1, #Charts.LEVELS do assert(math.abs(Charts.shade(i) - Charts.shade(j)) >= 0x20, "two greys too alike") end
+check("grey steps run from black to light, each clearly lighter, none near white", function()
+  assert(Charts.ramp(1) == 0)
+  for i = 2, #Charts.RAMP do
+    assert(Charts.ramp(i) - Charts.ramp(i - 1) >= 0x20, "two greys too alike")
   end
-  assert(Charts.shade(1) == 0 and Charts.shade(6) == Charts.shade(1))
+  assert(Charts.ramp(#Charts.RAMP) <= 0xBB, "too light to see")
+  assert(Charts.ramp(99) == Charts.ramp(#Charts.RAMP) and Charts.ramp(0) == 0, "out of range stays on the ramp")
 end)
 
 print("\n== columns and bars ==")

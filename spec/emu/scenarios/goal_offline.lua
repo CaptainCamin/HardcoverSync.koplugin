@@ -107,7 +107,7 @@ return {
     manager:showGoals()
     emu:pump()
     emu:expectText("Existing Reading Goal")
-    emu:expectText("/ 70 books")
+    emu:expectText("of 70 books")
 
     -- offline in both of the plugin's checks
     local was = NetworkManager.isConnected
@@ -131,7 +131,7 @@ return {
     drop_toasts(emu)
     local one = top()
     assert(one and one.name == "hardcover_goal", "the form did not close onto the goal: " .. tostring(one and one.name))
-    emu:expectText("/ 80 books")
+    emu:expectText("of 80 books")
     emu:expectText("Waiting to sync")
     assert(manager:savedGoals()[1].target == 70, "the saved copy took the unsent edit")
 
@@ -140,7 +140,7 @@ return {
     emu:pump()
     manager:showGoals()
     emu:pump()
-    emu:expectText("/ 80 books")
+    emu:expectText("of 80 books")
     tap_button(emu, "New goal")
     tap_button(emu, "Save")
     assert(#writes("saveGoal") == 0, "an offline new goal was sent")

@@ -146,7 +146,7 @@ return {
     local screen = top()
     assert(screen and screen.name == "hardcover_goals", "the form did not close onto the Goals screen: " .. tostring(screen and screen.name))
     emu:expectText(presets[3].name)
-    emu:expectText("/ 25 pages")
+    emu:expectText("of 25 pages")
     -- and the saved copy has it, for offline
     local saved = manager:savedGoals()
     assert(#saved == 2, "saved goals: " .. #saved)
@@ -209,7 +209,7 @@ return {
     assert(#sent == before + 1 and sent[#sent].id == new_goal.id and sent[#sent].input.goal == 30, "the change was not sent")
     local one = top()
     assert(one and one.name == "hardcover_goal", "the form did not close onto the goal: " .. tostring(one and one.name))
-    emu:expectText("/ 30 pages")
+    emu:expectText("of 30 pages")
 
     -- ------------------------------------------------------------------ Cancel
     tap_button(emu, "Edit goal")
