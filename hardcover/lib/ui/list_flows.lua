@@ -164,9 +164,13 @@ function Flows:showLists(host)
   local saved = store and store:index(user_id)
   local online = Network.connected()
 
-  local dialog = require("hardcover/lib/ui/lists_dialog"):new {
+  -- in the Library it is the icon list (the shelf icon, as on the Shelves tab); on its own, the lists
+  -- screen with covers
+  local dialog = require(host and "hardcover/lib/ui/icon_list_body" or "hardcover/lib/ui/lists_dialog"):new {
     shell = host and host.shell, width = host and host.width, height = host and host.height,
     parent = host and host.parent,
+    first_title = host and _("Your lists") or nil, second_title = host and _("Following") or nil,
+    icon_for = host and function() return "shelf" end or nil,
     mine = saved and saved.mine or nil,
     following = saved and saved.following or nil,
     message = not saved and (online and _("Loading your lists\226\128\166")
