@@ -20,6 +20,7 @@ local HorizontalGroup = require("ui/widget/horizontalgroup")
 local IconWidget = require("ui/widget/iconwidget")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
+local ScrollControl = require("hardcover/lib/ui/components/scroll_control")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
@@ -382,7 +383,7 @@ function HomeDialog:build()
   if column:getSize().h > room then
     -- the second pass rebuilds the tiles for the narrower column
     self.tiles = {}
-    local gutter = 3 * (ScrollableContainer.scroll_bar_width or Screen:scaleBySize(6))
+    local gutter = ScrollControl.gutter()
     width = screen_w - 2 * M - gutter
     self.scroll = ScrollableContainer:new {
       dimen = Geom:new { x = 0, y = 0, w = screen_w, h = room },
@@ -391,9 +392,7 @@ function HomeDialog:build()
     local scroll = self.scroll
     column = self:buildColumn(width, function() return scroll.dimen end)
     scroll[1] = HorizontalGroup:new { Theme.hspan(M), column }
-    -- the container works out how far it can scroll when it first paints
-    scroll:initState()
-    body = scroll
+    body = ScrollControl.wrap(scroll, column)
   else
     body = HorizontalGroup:new { Theme.hspan(M), column }
   end
