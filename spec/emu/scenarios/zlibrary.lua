@@ -26,10 +26,8 @@ return {
     emu:pump()
     local dialog = UIManager:getTopmostVisibleWidget()
     assert(dialog and dialog.zlibrary_button == nil, "a Z-library button without the plugin")
-    -- without the plugin the bar is Shelf | Reviews only
-    local n = 0
-    for _, child in ipairs(dialog.action_bar) do if child.callback then n = n + 1 end end
-    assert(n == 2, "the action bar should hold 2 buttons without Z-library, has " .. n)
+    -- without the plugin the bar is Reviews, then Shelf
+    assert(dialog.reviews_button and dialog.shelf_button, "the bar lost Reviews or Shelf")
     emu:shot("zlibrary_absent")
     emu:closeAll()
 
@@ -46,11 +44,11 @@ return {
     emu:expectText("Reviews")
     emu:shot("zlibrary_button")
 
-    -- it is below Shelf and Reviews, in the row of small buttons
+    -- it is the first row (a way to get the book), above Reviews and Shelf
     emu:screenNodes()
     local at = function(name) return dialog[name].dimen end
-    assert(at("shelf_button").y < at("reviews_button").y and at("reviews_button").y < at("zlibrary_button").y,
-      "Z-library is not below Shelf and Reviews")
+    assert(at("zlibrary_button").y < at("reviews_button").y and at("reviews_button").y < at("shelf_button").y,
+      "Z-library is not above Reviews and Shelf")
 
     -- all three are inside the margins
     local M = require("hardcover/lib/ui/theme").margin

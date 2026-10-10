@@ -21,6 +21,7 @@ local DeviceSearch = require("hardcover/lib/device_search")
 local Home = require("hardcover/lib/home")
 local Lists = require("hardcover/lib/lists")
 local Network = require("hardcover/lib/network")
+local OnDevice = require("hardcover/lib/on_device")
 local Recommendations = require("hardcover/lib/recommendations")
 local Reviews = require("hardcover/lib/reviews")
 local Shelf = require("hardcover/lib/shelf")
@@ -46,15 +47,19 @@ local Flows = {}
 function Flows:showBookDetail(book_id, edition_id, opts)
   opts = opts or {}
   local dialog
+  local on_device_file = self:deviceFile(book_id)
   dialog = require("hardcover/lib/ui/book_detail_dialog"):new {
     detail = nil,
     loading = true,
     -- the details on screen go along, so the reviews can say which book and how it is rated
     on_reviews = function(d) self:showReviews(book_id, Reviews.summary(d and d.detail)) end,
+    -- the book is on this device (a file the plugin linked to it): Open. Otherwise the file search
+    -- below, which is for looking further.
+    on_open = on_device_file and function(d) self:openOnDevice(d, on_device_file) end or nil,
     -- KOReader's file search, with the title filled in (it is in the file manager and the reader)
-    on_find = DeviceSearch.available(self.ui) and function(d) self:findOnDevice(d) end or nil,
+    on_find = not on_device_file and DeviceSearch.available(self.ui) and function(d) self:findOnDevice(d) end or nil,
     -- only when the Z-library plugin is there: no button that does nothing
-    on_zlibrary = Zlibrary.available(self.ui) and function(d) self:searchZlibrary(d) end or nil,
+    on_zlibrary = not on_device_file and Zlibrary.available(self.ui) and function(d) self:searchZlibrary(d) end or nil,
     on_shelf = function(d) self:chooseShelf(d) end,
     -- tapping your rating: works offline, the rating waits to be sent
     on_rating = function(d) self:rateBook(d) end,
@@ -197,6 +202,19 @@ end
 
 -- Look for the book on screen among the files on this device: KOReader's file search
 -- opens on top of this screen with the title filled in, and the reader picks the folder.
+-- The file of this book on the device (see on_device.lua), or nil.
+function Flows:deviceFile(book_id)
+  local ok, books = pcall(function() return self.settings and self.settings:readSetting("books") end)
+  if not ok then return nil end
+  local lfs = require("libs/libkoreader-lfs")
+  return OnDevice.file(books, book_id, function(file) return lfs.attributes(file, "mode") == "file" end)
+end
+
+function Flows:openOnDevice(dialog, file)
+  if dialog then UIManager:close(dialog) end
+  OnDevice.open(self.ui, file)
+end
+
 function Flows:findOnDevice(dialog)
   local detail = dialog and dialog.detail
   local summary = detail and detail.book and Shelf.detailSummary(detail) or {}
