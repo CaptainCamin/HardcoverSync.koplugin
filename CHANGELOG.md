@@ -4,7 +4,7 @@
 
 ### Added
 
-- **New navigation bar (beta).** Settings > "New navigation bar (beta)" opens Hardcover to four tabs with a bar at the bottom: Home, Library (Shelves, Lists and Vibes), Goals and Stats. Home is one fixed screen that never scrolls: the search field, the books you are reading, a quiet line saying whether anything is waiting to sync, and your shelves; on a small screen the shelves go first, then the sync line, and the bar always stays. Each tab keeps where you left it. Back goes to Home, then leaves. Off by default; takes effect the next time Hardcover opens.
+- **New navigation bar (beta).** Settings > "New navigation bar (beta)" opens Hardcover to four tabs with a bar at the bottom: Home, Library (Shelves, Lists and Vibes), Goals and Stats. Home is one fixed screen that never scrolls: the search field, the books you are reading, a quiet line saying whether anything is waiting to sync, and your shelves; on a small screen the shelves go first, then the sync line, and the bar always stays. Each tab keeps where you left it. Back goes to Home, then leaves; with no Back key, Home has a close at the right of its top bar and the other tabs a back arrow to Home. Off by default; takes effect the next time Hardcover opens.
 
 ### Changed
 
