@@ -154,6 +154,16 @@ function ScrollControl.wrap(scroll, rows)
     init_state(self)
     self._v_scroll_bar = nil
   end
+  -- A page step by the row grid may overshoot the first or last row and show blank space there (the
+  -- container allows it so a reader can find their place). With a visible control that only looks
+  -- broken, so the offset is held inside the content.
+  local scroll_by = scroll._scrollBy
+  if type(scroll_by) == "function" then
+    scroll._scrollBy = function(self, ...)
+      scroll_by(self, ...)
+      self._scroll_offset_y = math.max(0, math.min(self._scroll_offset_y, self._max_scroll_offset_y or 0))
+    end
+  end
   -- Work out the container's state first, then give it the row grid: with a grid in place initState
   -- snaps to a row, which queues a refresh of the whole scroll area, and a screen redrawn in place
   -- (an option ticked) must not cost that.
