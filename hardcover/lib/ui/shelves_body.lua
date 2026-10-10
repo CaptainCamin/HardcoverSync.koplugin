@@ -6,9 +6,9 @@ local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
-local HorizontalGroup = require("ui/widget/horizontalgroup")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local VerticalGroup = require("ui/widget/verticalgroup")
+local _ = require("gettext")
 
 local Draw = require("hardcover/lib/ui/components/draw")
 local Home = require("hardcover/lib/home")
@@ -35,18 +35,17 @@ end
 function ShelvesBody:build()
   local w, h = Hosted.size(self)
   local group = VerticalGroup:new { align = "left" }
-  local rows = self.rows or {}
+  local rows = Home.listOrder(self.rows)
+  local icon = Theme.mmd.row.icon
+  -- dividers start after the leading icon
+  local divider_x = ListItem.PAD + icon + Theme.px(16)
   for i, row in ipairs(rows) do
-    local trailing = HorizontalGroup:new { align = "center" }
-    local count = Home.countText(row.count)
-    if count ~= "" then
-      trailing[#trailing + 1] = Theme.mmdText(count, "text", 18, { secondary = true })
-      trailing[#trailing + 1] = Theme.hspan("s")
-    end
-    trailing[#trailing + 1] = Draw.chevron("right")
+    local count = type(row.count) == "number"
+      and (row.count == 1 and _("1 book") or string.format(_("%d books"), row.count)) or nil
     group[#group + 1] = ListItem.new {
-      width = w, label = row.title, trailing = trailing, strong = true,
-      divider = i < #rows and "dotted" or nil,
+      width = w, label = row.title, support = count, lead = Theme.icon("shelves", icon),
+      trailing = Draw.chevron("right"),
+      divider = i < #rows and "dotted" or nil, divider_x = divider_x,
       callback = function() if self.select_cb then self.select_cb(row) end end,
     }
   end

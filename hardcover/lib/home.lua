@@ -41,6 +41,19 @@ function Home.rows(counts)
   return rows
 end
 
+-- The shelves as the redesigned screens list them (mock 1 and 2): Want to read, Currently reading,
+-- Read, Did not finish. A new table; `rows` is left as it is.
+local LIST_ORDER = { HARDCOVER.STATUS.TO_READ, HARDCOVER.STATUS.READING, HARDCOVER.STATUS.FINISHED, HARDCOVER.STATUS.DNF }
+function Home.listOrder(rows)
+  local by_status = {}
+  for _, row in ipairs(rows or {}) do by_status[row.status_id] = row end
+  local out = {}
+  for _, id in ipairs(LIST_ORDER) do
+    if by_status[id] then out[#out + 1] = by_status[id] end
+  end
+  return out
+end
+
 -- The text shown at the right of a row.
 function Home.countText(count)
   if type(count) ~= "number" then
