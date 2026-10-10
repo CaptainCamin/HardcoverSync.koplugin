@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Hardcover shelves in Bookshelf.** Add Want to Read, Currently Reading, Read or Did Not Finish as their own Bookshelf shelves, or choose one of your Hardcover lists. Books load a page at a time, and tapping a remote book opens its Hardcover details.
 - **A library on your device.** Until now most screens downloaded everything again each time they opened, even when nothing had changed, and lists did not work offline at all. The plugin now keeps your lists, your shelves and every book on them on the device, and asks Hardcover only what changed. What has not changed opens from the device with no download at all.
 - **Every list and every shelf is kept on the device**, yours and the lists you follow, whether or not you have opened them. Home checks them each time it opens, in the requests it already makes for the shelf counts and the "More lists" tile, and downloads only what changed.
 - **Lists work offline.** The lists screen, each list and every book on them open at once from the device, offline too, with a note saying when they are from. A book on any list or shelf opens offline with its whole synopsis (the old saved shelves kept only the first 600 characters), and a book you opened online opens offline with everything its details showed.
