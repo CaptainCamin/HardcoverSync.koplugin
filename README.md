@@ -207,10 +207,13 @@ status (Read, Reading, Want to Read). The book you are on has a heavy border. Lo
 to page through. Tap a cover to open that book on top; Close brings you back. The series is fetched after the
 details appear, and is left out when you are offline.
 
-**Search in Z-library**, next to Reviews, appears when the
-[Z-library plugin](https://github.com/ZlibraryKO/zlibrary.koplugin) is installed and enabled. It runs that plugin's
-search for this book (title and first author) and its results screen opens on top; Close or Back returns here. This
-plugin does not download anything itself.
+**Search in Z-library** (or Anna's Archive, or Kindle Fetch), next to Reviews, appears when the plugin you picked is
+installed and enabled: [Z-library](https://github.com/ZlibraryKO/zlibrary.koplugin),
+[Anna's Archive](https://github.com/fischer-hub/annas.koplugin) or
+[Kindle Fetch](https://github.com/william-spongberg/KindleFetch.koplugin). Choose which one under
+Settings > Book search (Automatic uses the first one installed). It runs that plugin's search for this book
+(title and first author) and its results screen opens on top; Close or Back returns here. This plugin does not
+download anything itself.
 
 **Reviews**, a button under the description, shows what other readers wrote about the book: the most liked first,
 ten to a page, each with the reader's name (or "A reader" when they keep their account private), their rating

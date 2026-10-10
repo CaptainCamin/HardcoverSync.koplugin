@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Book search source.** Settings > Book search picks which plugin the book screen's search button hands the book to: Z-library, Anna's Archive or Kindle Fetch (each has to be installed and enabled), or Automatic, which uses the first one installed. The button carries that plugin's name.
 - The plugin ships the Lato typeface (Medium and Black, SIL Open Font License) and copies it into KOReader's fonts folder the first time it runs, so the redesigned screens can use it. Lato then also shows in KOReader's font menu after a restart.
 - **New navigation bar (beta).** Settings > "New navigation bar (beta)" opens Hardcover to four tabs with a bar at the bottom: Home, Library (Shelves, Lists and Vibes), Goals and Stats. Home is one fixed screen that never scrolls: the search field, the books you are reading, a quiet line saying whether anything is waiting to sync, and your shelves; on a small screen the shelves go first, then the sync line, and the bar always stays. Each tab keeps where you left it. Back goes to Home, then leaves; with no Back key, Home has a close at the right of its top bar and the other tabs a back arrow to Home. Off by default; takes effect the next time Hardcover opens.
 

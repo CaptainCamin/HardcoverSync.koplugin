@@ -9,6 +9,7 @@
 -- is the orchestration that shows dialogs and sends requests.
 
 local _ = require("gettext")
+local T = require("ffi/util").template
 local logger = require("logger")
 
 local UIManager = require("ui/uimanager")
@@ -26,7 +27,7 @@ local Recommendations = require("hardcover/lib/recommendations")
 local Reviews = require("hardcover/lib/reviews")
 local Shelf = require("hardcover/lib/shelf")
 local User = require("hardcover/lib/user")
-local Zlibrary = require("hardcover/lib/zlibrary")
+local BookSources = require("hardcover/lib/book_sources")
 
 local AuthScope = require("hardcover/lib/ui/auth_scope")
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
@@ -58,8 +59,10 @@ function Flows:showBookDetail(book_id, edition_id, opts)
     on_open = on_device_file and function(d) self:openOnDevice(d, on_device_file) end or nil,
     -- KOReader's file search, with the title filled in (it is in the file manager and the reader)
     on_find = not on_device_file and DeviceSearch.available(self.ui) and function(d) self:findOnDevice(d) end or nil,
-    -- only when the Z-library plugin is there: no button that does nothing
-    on_zlibrary = not on_device_file and Zlibrary.available(self.ui) and function(d) self:searchZlibrary(d) end or nil,
+    -- only when the chosen download plugin is there: no button that does nothing
+    on_zlibrary = not on_device_file and BookSources.available(self.ui, self:bookSourceChoice())
+      and function(d) self:searchBookSource(d) end or nil,
+    source_label = BookSources.label(self.ui, self:bookSourceChoice()),
     on_shelf = function(d) self:chooseShelf(d) end,
     -- tapping your rating: works offline, the rating waits to be sent
     on_rating = function(d) self:rateBook(d) end,
@@ -181,22 +184,29 @@ function Flows:showBookDetail(book_id, edition_id, opts)
   return dialog
 end
 
+function Flows:bookSourceChoice()
+  local ok, choice = pcall(function() return self.settings and self.settings:bookSource() end)
+  return ok and choice or "auto"
+end
+
 --
--- Search for the book on screen in the Z-library plugin (a separate plugin, found
--- by what it can do). Its own results screen opens on top of this one.
-function Flows:searchZlibrary(dialog)
+-- Search for the book on screen in the chosen download plugin (Z-library, Anna's Archive or
+-- Kindle Fetch: separate plugins, found by what they can do). Its own results screen opens
+-- on top of this one.
+function Flows:searchBookSource(dialog)
   local detail = dialog and dialog.detail
   -- the details carry authors as contributions: the summary joins them
   local summary = detail and detail.book and Shelf.detailSummary(detail) or {}
-  local ok, why = Zlibrary.search(self.ui, { title = summary.title, authors = summary.authors })
+  local ok, why, label = BookSources.search(self.ui, { title = summary.title, authors = summary.authors },
+    self:bookSourceChoice())
   if ok then return end
 
   if why == "not_installed" then
-    StatusDialogs.info(_("The Z-library plugin is not installed or not enabled."))
+    StatusDialogs.info(T(_("The %1 plugin is not installed or not enabled."), label))
   elseif why == "no_title" then
     StatusDialogs.info(_("This book has no title to search for."))
   else
-    StatusDialogs.info(_("Could not open the Z-library search."))
+    StatusDialogs.info(T(_("Could not open the %1 search."), label))
   end
 end
 

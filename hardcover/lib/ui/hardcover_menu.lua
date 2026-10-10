@@ -1301,6 +1301,29 @@ function HardcoverMenu:getTrackingSubMenuItems()
   }
 end
 
+function HardcoverMenu:getBookSourceSubMenuItems()
+  local BookSources = require("hardcover/lib/book_sources")
+  local function item(choice, text)
+    return {
+      text_func = function()
+        if choice ~= BookSources.AUTO and not BookSources.installed(self.ui, choice) then
+          return T(_("%1 (not installed)"), text)
+        end
+        return text
+      end,
+      checked_func = function() return self.settings:bookSource() == choice end,
+      callback = function() self.settings:updateSetting(SETTING.BOOK_SOURCE, choice) end,
+      radio = true,
+    }
+  end
+
+  local items = { item(BookSources.AUTO, _("Automatic (first one installed)")) }
+  for _i, source in ipairs(BookSources.SOURCES) do
+    items[#items + 1] = item(source.id, source.label)
+  end
+  return items
+end
+
 function HardcoverMenu:getSettingsSubMenuItems()
   return {
     {
@@ -1405,6 +1428,17 @@ function HardcoverMenu:getSettingsSubMenuItems()
         self.settings:updateSetting(SETTING.PURE_BLACK_TEXT, not self.settings:pureBlackText())
       end,
       help = _("Draw author lines, captions and hints in pure black instead of dark grey. Screens already open change the next time they open."),
+    },
+    {
+      text_func = function()
+        local BookSources = require("hardcover/lib/book_sources")
+        local choice = self.settings:bookSource()
+        return T(_("Book search: %1"), choice == BookSources.AUTO and _("Automatic") or BookSources.label(nil, choice))
+      end,
+      sub_item_table_func = function()
+        return self:getBookSourceSubMenuItems()
+      end,
+      help = _("Which plugin the book screen's search button hands the book to. The plugin has to be installed and enabled."),
     },
     {
       text = "Compatibility mode",
