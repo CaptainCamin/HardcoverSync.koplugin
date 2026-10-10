@@ -1,6 +1,6 @@
 -- Scroll control: the one way a long screen scrolls.
 --
--- Mudita Mindful Design (appendix, "Scroll"): a slim black bar over a hollow double-line track at the
+-- Mudita Mindful Design (appendix, "Scroll"): a slim black bar inside a hollow rounded track at the
 -- right edge, with a bare triangle at each end. A triangle is solid while the content can move that way
 -- and dotted once that end is reached. Every control is visible, so a tap on a triangle steps a page
 -- (swipe stays as a shortcut). No boxed arrow buttons, no page counter.
@@ -33,8 +33,9 @@ local BLACK = Theme.BLACK
 local px = Theme.px
 
 local TRI_W, TRI_H = px(16), px(11)
-local TRACK_W = px(14)
-local BAR_W = px(4)
+local TRACK_W = px(12)
+local BAR_W = px(6)
+local INSET = px(3) -- air between the track outline and the bar
 local MIN_BAR_H = px(28)
 
 local ScrollControl = InputContainer:extend {
@@ -112,17 +113,18 @@ function ScrollControl:paintTo(bb, x, y)
   triangle(bb, cx, y + math.floor((touch - TRI_H) / 2), TRI_W, TRI_H, "up", offset > 0)
   triangle(bb, cx, y + h - math.floor((touch + TRI_H) / 2), TRI_W, TRI_H, "down", offset < max)
 
-  -- the hollow double-line track between the triangles
+  -- the hollow track: one capsule outline, so the bar reads as sitting inside it
   local ty, th = y + touch, h - 2 * touch
   local lx = cx - math.floor(TRACK_W / 2)
-  bb:paintRect(lx, ty, Theme.line.hair, th, BLACK)
-  bb:paintRect(lx + TRACK_W - Theme.line.hair, ty, Theme.line.hair, th, BLACK)
+  bb:paintBorder(lx, ty, TRACK_W, th, Theme.line.hair, BLACK, math.floor(TRACK_W / 2), false)
 
-  -- the slim bar: its length is the share of the content in view, its place is the offset
+  -- the slim bar: its length is the share of the content in view, its place is the offset; it keeps
+  -- INSET clear of the outline at both ends
+  local inner_y, inner_h = ty + INSET, th - 2 * INSET
   local content_h = max + view_h
-  local bar_h = math.max(MIN_BAR_H, math.floor(th * view_h / content_h))
+  local bar_h = math.min(inner_h, math.max(MIN_BAR_H, math.floor(inner_h * view_h / content_h)))
   local clamped = math.max(0, math.min(max, offset))
-  local by = ty + math.floor((th - bar_h) * clamped / max)
+  local by = inner_y + math.floor((inner_h - bar_h) * clamped / max + 0.5)
   bb:paintRoundedRect(cx - math.floor(BAR_W / 2), by, BAR_W, bar_h, BLACK, math.floor(BAR_W / 2))
 end
 

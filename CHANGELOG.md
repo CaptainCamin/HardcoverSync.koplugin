@@ -9,6 +9,8 @@
 
 ### Changed
 
+- Hardcover books in Bookshelf now show their description in the hero (when it is saved on the device), followed by a line saying that opening the book shows the full description on Hardcover.
+- **Bookshelf sort and covers.** Hardcover shelf and list sources in Bookshelf have a sort picker in the shelf editor, show their covers (read from the device's cover cache, so selecting a book no longer risks a crash), and load shelves 250 books at a time. A shelf refreshed by its Bookshelf source is saved to the shared shelf database only, and an incomplete refresh keeps the last complete shelf.
 - **Questions, notices and the reader sheet on the new look.** Every yes/no question is a dialog with a title that says what it is about, one short line, and the answer filled on the right. Notices ("Saved", errors) are a snackbar along the bottom edge that closes itself. The reader sheet is the mock: the book, where you are, the "Update Hardcover as I read" switch, Update progress, Rate this book, Open book page and Cancel, as in the mock. The choose-from-a-list sheets (shelf, lists to add a book to, goal choices, conflicts, period) are sheets with radios and checkboxes, the goal form is a flat list under a top bar, loading and About are boxes in the new look. Things that only worked by long press now have a visible row: Unlink book, Discard queued changes, Clear rating; the beta settings say what they do under their name.
 - **Shelves, lists, vibes, "For you" and search results have a new list.** Fixed-height rows (a small cover, the title over the author, your rating, a chevron; a large number on a ranked list), dotted dividers, the scroll control to turn pages, and a line saying which books are on show. Sort is a small menu under the sort icon. A list that is not all downloaded ends with a Load more books button; a list's refresh is the reload icon in the bar. Compatibility mode no longer changes this screen.
 - **A book's details are a compact page of fixed-size blocks.** A smaller cover, the author and series right under the title, the buttons, your rating as five stars, About cut to five lines with Read more, genres on one line with "+N more", five detail rows with All details. The long texts open on screens of their own. Reviews is one scrolling list with Load more. A status pill under the series says where the book is ("Not on a shelf" if it is not), and the shelf button now reads "Change shelf" or "Add to shelf". There is no main button: a book that is on your device shows Open; one that is not shows Find on device (and Z-library, if installed). Open finds books you have read with Hardcover linked. The stats strip is gone.
@@ -20,12 +22,17 @@
 
 ### Added
 
+- **Hardcover sources in Bookshelf.** Add one Hardcover shelf and choose Want to Read, Currently Reading, Read or Did Not Finish; or add one Hardcover list and choose which list. Books load a page at a time, and tapping a remote book opens its Hardcover details.
 - **A library on your device.** Until now most screens downloaded everything again each time they opened, even when nothing had changed, and lists did not work offline at all. The plugin now keeps your lists, your shelves and every book on them on the device, and asks Hardcover only what changed. What has not changed opens from the device with no download at all.
 - **Every list and every shelf is kept on the device**, yours and the lists you follow, whether or not you have opened them. Home checks them each time it opens, in the requests it already makes for the shelf counts and the "More lists" tile, and downloads only what changed.
 - **Lists work offline.** The lists screen, each list and every book on them open at once from the device, offline too, with a note saying when they are from. A book on any list or shelf opens offline with its whole synopsis (the old saved shelves kept only the first 600 characters), and a book you opened online opens offline with everything its details showed.
 - **A book's details open at once.** A book you have opened before, that is out and has a synopsis, a cover and a page count, opens from the device with no loading message and no request for the book. Your shelf and rating on it come from your saved shelves, and are brought up to date by the request the "Similar to" strip makes anyway. A book still to come is asked for again once a week. The series is kept for a week, and shown offline.
 - **Settings > Download covers for offline** keeps the cover of every book on your shelves and lists on the device, so a shelf browsed offline is not a page of blank boxes. It says first how many covers and about how much it will download, shows its progress with a Stop button, keeps the device from standby while it runs, and turns Wi-Fi on the way Sync does. Running it again carries on where it stopped. The item says how many covers are missing.
 - **Refresh** in a shelf's and a list's menu (top left), and a reload icon on a book's details, download them again in full if anything looks out of date.
+
+### Fixed
+
+- Hardcover could fail to initialize when Bookshelf was installed while registering its source pickers. The source helper now resolves the shared remote-book hooks correctly.
 
 ### Changed
 
