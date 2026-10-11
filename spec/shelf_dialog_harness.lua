@@ -476,4 +476,26 @@ check("a screen's actions (a list's Refresh) are icons in the top bar", function
   assert(ran)
 end)
 
+check("turning a page shapes only the rows on the page, not every book on the shelf", function()
+  local shaped = 0
+  local plain = ShelfDialog.createListItem
+  ShelfDialog.createListItem = function(self, e) shaped = shaped + 1 return plain(self, e) end
+  local ok, err = pcall(function()
+    local d = build(many(600), { sortable = true, sort_key = "title" })
+    assert(shaped <= d.per_page, "the first build shaped " .. shaped .. " rows")
+    local items = d.items
+    d:setPage(2)
+    d:setPage(3)
+    d:setPage(2)
+    assert(d.items == items, "the list was built again on a page turn")
+    assert(shaped <= 3 * d.per_page, "page turns shaped " .. shaped .. " rows")
+    assert(#d.rows == d.per_page and d.rows[1], "page 2 has no rows")
+    -- a changed shelf is built again
+    d:setEntries(many(5), false)
+    assert(#d.items == 5, "a new set of entries kept the old list")
+  end)
+  ShelfDialog.createListItem = plain
+  assert(ok, err)
+end)
+
 r.finish()
