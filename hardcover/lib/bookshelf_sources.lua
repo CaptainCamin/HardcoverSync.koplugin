@@ -258,26 +258,73 @@ savedShelf = function(app, user_id, status_id)
   return app.shelf_cache and app.shelf_cache:get(user_id, status_id) or nil
 end
 
-local function savedList(app, user_id, source)
-  local store = app.list_store
-  if not (store and store.index and store.entries) then return nil end
+-- The saved index row of the list `source` names.
+local function listRow(store, user_id, source)
   local ok, index = pcall(store.index, store, user_id)
   if not ok or type(index) ~= "table" then return nil end
   for _, group in ipairs({ index.mine or {}, index.following or {} }) do
     for _, row in ipairs(group) do
       if tostring(row.id) == tostring(source.list_id)
           and (not source.list_source or row.source == source.list_source) then
-        local ok_entries, entries, meta = pcall(store.entries, store, user_id, row)
-        if ok_entries and type(entries) == "table" and type(meta) == "table" then
-          return {
-            entries = entries,
-            complete = meta.complete == true,
-            total = meta.complete and #entries or nil,
-          }
-        end
+        return row
       end
     end
   end
+end
+
+local function savedList(app, user_id, source)
+  local store = app.list_store
+  if not (store and store.index and store.entries) then return nil end
+  local row = listRow(store, user_id, source)
+  if not row then return nil end
+  local ok_entries, entries, meta = pcall(store.entries, store, user_id, row)
+  if ok_entries and type(entries) == "table" and type(meta) == "table" then
+    return {
+      entries = entries,
+      complete = meta.complete == true,
+      total = meta.complete and #entries or nil,
+    }
+  end
+end
+
+-- A list saved in full, known by its members only: no book is decoded until a page of
+-- them is asked for.
+local function lazyList(app, user_id, source)
+  local store = app.list_store
+  if not (store and store.index and type(store.members) == "function"
+      and type(store.entriesOf) == "function") then
+    return nil
+  end
+  local row = listRow(store, user_id, source)
+  if not row then return nil end
+  local ok, members, meta = pcall(store.members, store, user_id, row)
+  if ok and type(members) == "table" and type(meta) == "table" and meta.complete == true then
+    return { complete = true, total = #members, members = members, store = store, row = row }
+  end
+end
+
+-- One page of a list: from its members when that is the order asked for, otherwise
+-- from the whole list decoded once (see sortedPage).
+local function listPage(app, user_id, source, state, offset, limit)
+  local key = source.sort_key or ShelfSort.DEFAULT
+  if state.members then
+    if inShelfOrder(key) then
+      local total = #state.members
+      local first = (tonumber(offset) or 0) + 1
+      local last = math.min(first + (tonumber(limit) or 0) - 1, total)
+      local picked = {}
+      for i = first, last do
+        picked[#picked + 1] = state.members[key == "added_asc" and (total + 1 - i) or i]
+      end
+      local ok, entries = pcall(state.store.entriesOf, state.store, state.row, picked)
+      return toBooks(ok and type(entries) == "table" and entries or {}, nil)
+    end
+    local saved = savedList(app, user_id, source)
+    if not saved then return {} end
+    state.entries, state.complete, state.total = saved.entries, saved.complete, saved.total
+    state.members, state.store, state.row = nil, nil, nil
+  end
+  return sortedPage(state, nil, offset, limit, key)
 end
 
 local function sortRows()
@@ -704,6 +751,10 @@ function Sources.register(app)
     end
     local key = listKey(user_id, source.list_source or "mine", source.list_id)
     local state = list_entries[key]
+    if not state and inShelfOrder(source.sort_key) then
+      state = lazyList(app, user_id, source)
+      if state then list_entries[key] = state end
+    end
     if not state then
       state = savedList(app, user_id, source)
       if state then list_entries[key] = state end
@@ -711,7 +762,7 @@ function Sources.register(app)
     if not state then loadList(app, source, false); return {}, nil end
     if not state.complete then loadList(app, source, false) end
     return addCoverPaths(app, LISTS_ID,
-      sortedPage(state, nil, offset, limit, source.sort_key)), state.total
+      listPage(app, user_id, source, state, offset, limit)), state.total
   end
   lists.refresh = function(source, _drill, done)
     if not source.list_id then done(); return end

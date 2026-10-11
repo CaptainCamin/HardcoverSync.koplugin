@@ -385,4 +385,26 @@ if jit then
   end)
 end
 
+print("\n== reading a page of a list ==")
+
+check("a page of a saved list is read without reading the rest", function()
+  local books, lists = stores()
+  local row = listRow(7, T1, 20, { ranked = true })
+  local entries = {}
+  for i = 1, 20 do
+    entries[i] = { book_id = i, title = "Book " .. i, list_book_id = 500 + i, position = i - 1, date_added = T1 }
+  end
+  lists:putEntries(1, row, entries, true)
+  local members, saved = lists:members(1, row)
+  assert(#members == 20 and saved.complete and members[1].book_id == 1)
+  local asked, rows = 0, books.rows
+  books.rows = function(self, ids) asked = asked + #ids; return rows(self, ids) end
+  local page = lists:entriesOf(row, { members[3], members[4] })
+  assert(asked == 2, asked)
+  assert(#page == 2 and page[1].book_id == 3 and page[1].rank == 3 and page[2].list_book_id == 504)
+  local all = lists:entries(1, row)
+  assert(#all == 20 and all[20].rank == 20)
+  assert(lists:members(1, listRow(99)) == nil, "a list never saved has no members")
+end)
+
 r.finish()
