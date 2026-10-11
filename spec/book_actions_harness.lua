@@ -183,4 +183,29 @@ check("a book being read, wanted, or on no shelf is written as before", function
   end
 end)
 
+print("\n== turning a page ==")
+
+check("a page is sent while the book is being read", function()
+  assert(BookActions.pageWrite(HARDCOVER.STATUS.READING, false) == "allow")
+  assert(BookActions.pageWrite(HARDCOVER.STATUS.READING, true) == "allow")
+end)
+
+check("a page on a Want to Read book moves it to Currently Reading first", function()
+  assert(BookActions.pageWrite(HARDCOVER.STATUS.TO_READ, false) == "move")
+end)
+
+check("a page on a book known to be on no shelf moves it to Currently Reading first", function()
+  assert(BookActions.pageWrite(nil, true) == "move")
+end)
+
+check("a page on a book whose status is not known yet is sent as before", function()
+  assert(BookActions.pageWrite(nil, false) == "allow")
+end)
+
+check("a page on a Finished, Did not finish or unrecognised book is not sent", function()
+  assert(BookActions.pageWrite(HARDCOVER.STATUS.FINISHED, false) == "block")
+  assert(BookActions.pageWrite(HARDCOVER.STATUS.DNF, false) == "block")
+  assert(BookActions.pageWrite(4, false) == "block")
+end)
+
 r.finish()
