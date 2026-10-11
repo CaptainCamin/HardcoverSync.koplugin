@@ -116,6 +116,8 @@ function Hardcover:linkBook(book)
   -- book, read, status, queued progress) may be used for the new one. Without
   -- this its page updates land on the old book's read.
   local previous = self.settings:readBookSetting(filename, "book_id")
+  local old_edition = self.settings:readBookSetting(filename, "edition_id")
+  local old_pages = self.settings:pages()
   if previous ~= book.book_id then
     self.settings:clearBookSnapshot(filename)
     if self.cache.sync_queue then
@@ -124,19 +126,71 @@ function Hardcover:linkBook(book)
     self.state.book_status = {}
   end
 
+  -- The same book with another edition: the server is asked first, when the book is on the
+  -- user's shelf, so a failure leaves the link as it was.
+  local changing = book.book_id and previous == book.book_id and new_settings.edition_id
+    and new_settings.edition_id ~= old_edition
+  if changing and not self:moveEdition(filename, book, new_settings.edition_id, old_pages) then
+    UIManager:show(Notification:new {
+      text = _("The edition could not be changed. Check your connection and try again."),
+    })
+    return false
+  end
+
   self.settings:updateBookSetting(filename, new_settings)
   self.cache:cacheUserBook()
 
-  if book.book_id and self.state.book_status.id then
-    if new_settings.edition_id and new_settings.edition_id ~= self.state.book_status.edition_id then
-      -- update edition
-      self.state.book_status = Api:updateUserBook(
-        new_settings.book_id,
-        self.state.book_status.status_id,
-        self.state.book_status.privacy_setting_id,
-        new_settings.edition_id
-      ) or {}
+  return true
+end
+
+-- A position in a book is a share of its pages, so the same place in another edition is the
+-- same share of that edition's pages: page 120 of 300 is page 160 of 400.
+local function movedPage(page, old_pages, new_pages)
+  if not (page and old_pages and new_pages and old_pages > 0 and new_pages > 0) then
+    return page
+  end
+  return math.min(math.max(1, math.floor(page * new_pages / old_pages + 0.5)), new_pages)
+end
+
+-- Moves the book to another edition. A shelved book is moved on Hardcover first: the edition is on
+-- the shelf entry and on the current read, and the read's progress is in the old edition's pages,
+-- so the read moves first, with its progress. Returns false, having changed nothing on this device,
+-- when Hardcover does not answer; trying again is then safe, because it works from what was saved.
+-- Whether shelved or not, a queued page is in the old edition's pages, so it moves too.
+function Hardcover:moveEdition(filename, book, edition_id, old_pages)
+  local status = self.state.book_status
+  if status.id then
+    local reads = status.user_book_reads
+    local read = reads and reads[#reads]
+
+    local moved_read
+    if read and read.id then
+      moved_read = Api:updatePage(read.id, edition_id, movedPage(read.progress_pages, old_pages, book.pages), read.started_at)
+      if not (moved_read and moved_read.id) then
+        return false
+      end
     end
+
+    local user_book = Api:updateUserBook(book.book_id, status.status_id, status.privacy_setting_id, edition_id)
+    if not (user_book and user_book.id) then
+      return false
+    end
+
+    for key, value in pairs(user_book) do
+      status[key] = value
+    end
+    if moved_read and status.user_book_reads and #status.user_book_reads > 0 then
+      status.user_book_reads[#status.user_book_reads] = moved_read
+    end
+    self.cache:saveSnapshot(filename, status)
+  end
+
+  local queue = self.cache.sync_queue
+  local entry = queue and queue:get(filename)
+  if entry then
+    entry.mapped_page = movedPage(entry.mapped_page, old_pages, book.pages)
+    entry.edition_id = edition_id
+    queue:save(filename, entry)
   end
 
   return true

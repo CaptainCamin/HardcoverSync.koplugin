@@ -89,8 +89,8 @@ local privacy_labels = {
 function HardcoverMenu:mainMenu()
   -- One button for both places. In the file browser (no book open) it opens the home
   -- screen, which holds everything else (Sync, Account, Settings and About are behind
-  -- its cog). In the reader it opens the panel for the open book; the full tracking
-  -- menu (link, remove, sync...) is behind that panel's More button.
+  -- its cog). In the reader it opens the panel for the open book; the link actions (change
+  -- edition, link another book, unlink) are behind the panel's Edition button.
   return {
     enabled_func = function()
       return self.enabled
@@ -180,7 +180,6 @@ function HardcoverMenu:showReaderPanel()
     local status_items = self:getStatusSubMenuItems()
     local pages_item = findItem(status_items, "Update page")
     local note_item = findItem(status_items, "Add a note")
-    local rating_item = findItem(status_items, "Update rating") or findItem(status_items, "Set rating")
     local settings_item = findItem(view, "Settings")
     local link_item = findItem(view, "Linked book") or findItem(view, "Link book")
     local edition_item = findItem(view, "Change edition")
@@ -220,7 +219,8 @@ function HardcoverMenu:showReaderPanel()
       actions[#actions + 1] = action
     end
 
-    -- the three things a reader does mid-book, as in the mock; everything else is under More
+    -- the mid-book actions, as in the mock. The edition and the link are one button: it shows the
+    -- edition the file is linked to, and opens the list of what can be done to the link
     if linked then
       -- progress can only be set on a book being read; when it is not, the same button
       -- opens the statuses, so it never sits there dead with no reason given
@@ -229,7 +229,18 @@ function HardcoverMenu:showReaderPanel()
       else
         add(_("Change status"), status_item)
       end
-      add(_("Rate this book"), rating_item)
+      local format = self.settings:getLinkedEditionFormat()
+      local link_list = {
+        { text = _("Change edition"), enabled_func = edition_item and edition_item.enabled_func,
+          callback = edition_item and edition_item.callback, keep_menu_open = true },
+        { text = _("Link a different book"), enabled_func = link_item and link_item.enabled_func,
+          callback = link_item and link_item.callback, keep_menu_open = true },
+        self:getUnlinkMenuItem(),
+      }
+      actions[#actions + 1] = {
+        text = format and (_("Edition: ") .. format) or _("Edition: not chosen"),
+        run = function() run({ text = _("Edition"), sub_item_table = link_list }) end,
+      }
       actions[#actions + 1] = {
         text = _("Open book page"), enabled = self.enabled,
         run = function()
@@ -241,7 +252,7 @@ function HardcoverMenu:showReaderPanel()
     else
       add(_("Link this book"), link_item)
     end
-    -- the mock has nothing else; status, note, reviews, edition and settings are on the book page
+    -- the mock has nothing else; status, note, reviews and settings are on the book page
     -- and in the Hardcover menu
 
     return {
@@ -364,7 +375,10 @@ function HardcoverMenu:getSubMenuItems(book_view)
           },
           function(book)
             Background.run(function()
-              self.hardcover:linkBook(book)
+              local changed = book.edition_id ~= self.settings:getLinkedEditionId()
+              if self.hardcover:linkBook(book) and changed then
+                StatusDialogs.info(_("Edition changed. Page numbers and progress may have moved."))
+              end
               menu_instance:updateItems()
             end)
           end,
