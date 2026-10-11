@@ -587,6 +587,19 @@ function DialogManager:showShelvesBody(host)
   return body
 end
 
+-- The Cancel of a failed load's "Retry?" question. On its own the screen closes; as a tab of the
+-- shell there is nothing to close, so it would be left saying "Loading ..." for good: it says the
+-- load failed instead.
+function DialogManager:loadFailed(dialog, host, message)
+  return function()
+    if not host then
+      UIManager:close(dialog)
+    elseif Live.shown(dialog) and dialog.setMessage then
+      dialog:setMessage(message)
+    end
+  end
+end
+
 -- Sync now, as Settings > Sync does it (it finds a connection, or says it could not).
 function DialogManager:syncNow()
   local items = self.settings_items and self.settings_items() or {}
@@ -845,7 +858,7 @@ function DialogManager:showGoals(host)
           self:showGoals(host and { shell = host.shell, width = host.width, height = host.height,
             id = host.id, parent = host.parent, remount = true })
         end,
-        function() if not host then UIManager:close(dialog) end end)
+        self:loadFailed(dialog, host, _("Couldn't load your goals.")))
     end
   end)
   return dialog
@@ -912,7 +925,7 @@ function DialogManager:showStats(host)
             self:showStats(host and { shell = host.shell, width = host.width, height = host.height,
               id = host.id, parent = host.parent, remount = true })
           end,
-          function() if not host then UIManager:close(dialog) end end)
+          self:loadFailed(dialog, host, _("Couldn't load your stats.")))
       end
     end)
   end
@@ -1264,7 +1277,7 @@ function DialogManager:showVibes(host)
           self:showVibes(host and { shell = host.shell, width = host.width, height = host.height,
             id = host.id, parent = host.parent, remount = true })
         end,
-        function() if not host then UIManager:close(dialog) end end)
+        self:loadFailed(dialog, host, _("Couldn't load your vibes.")))
       return
     end
     if #vibes == 0 then
