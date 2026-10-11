@@ -114,6 +114,8 @@ _G.require = function(name)
   return make()
 end
 
+local UIManagerStub = make() -- the dialog's UIManager, so a check can see what it shows
+widgets["ui/uimanager"] = UIManagerStub
 local BookDetailDialog = real_require("hardcover/lib/ui/book_detail_dialog")
 local Theme = real_require("hardcover/lib/ui/theme")
 local Shelf = real_require("hardcover/lib/shelf")
@@ -184,7 +186,7 @@ print("\n== the body is built whole ==")
 
 check("a book with no subtitle still shows its details and description (the status is the Shelf label)", function()
   local d = BookDetailDialog:new { detail = detail({ title = "T", description = "About it.", publisher = { name = "P" } }) }
-  assert(d.status_text and d.status_text[1].text == "Currently Reading" and d.shelf_button.text == "Change shelf", "the status is not the pill and the Shelf button's label")
+  assert(d.status_text and d.status_text[1].text == "Currently Reading" and d.add_button.text == "Add", "the status is not the pill and the Add button")
   assert(deep(d.content_group, d.description_text), "description missing: " .. table.concat(kinds(d.content_group), ","))
   assert(#d.meta_rows == 1 and deep(d.content_group, d.meta_rows[1]), "details missing")
 end)
@@ -607,7 +609,7 @@ check("focus order: the action bar, then the arrows, then Close", function()
   local d = BookDetailDialog:new { detail = detail(FULL), image_loader = fakeLoader() }
   d:setSeries(Shelf.seriesCard(seriesOf(30), 115), function() end)
   assert(#d.layout == 3, "layout rows: " .. #d.layout)
-  assert(d.layout[1][1] == d.shelf_button, "the action bar is not first")
+  assert(d.layout[1][1] == d.add_button, "the action bar is not first")
   assert(d.layout[2][1] == d.carousel.prev and d.layout[2][2] == d.carousel.next)
   local last = d.layout[#d.layout]
   assert(last[1] == d.close_button and #last == 1, "Close is not last")
@@ -785,7 +787,7 @@ check("Reviews: an action bar button that calls back, and none without a callbac
   local pos = { about = blockOf(d.content_group, d.description_text), button = blockOf(d.content_group, d.reviews_button) }
   assert(pos.button, "the button is not in the page")
   assert(pos.about and pos.button < pos.about, "the action bar is not above About")
-  assert(blockOf(d.action_bar, d.reviews_button) < blockOf(d.action_bar, d.shelf_button), "Reviews is not above the Shelf row")
+  assert(blockOf(d.action_bar, d.reviews_button) < blockOf(d.action_bar, d.add_button), "Reviews is not above the Add row")
   d.reviews_button.callback()
   assert(opened == 1, "tapping it did not open the reviews")
   local none = BookDetailDialog:new { detail = detail({ title = "T" }) }
@@ -839,13 +841,13 @@ check("Find on device: a button that calls back with the dialog, and none withou
     detail = detail(FULL), on_lists = function() end, on_reviews = function() end,
     on_find = function() end, on_zlibrary = function() end,
   }
-  for _, b in ipairs({ all.shelf_button, all.lists_button, all.reviews_button, all.find_button, all.zlibrary_button }) do
+  for _, b in ipairs({ all.add_button, all.reviews_button, all.find_button, all.zlibrary_button }) do
     assert(b, "a button is missing from the full bar")
   end
   assert(all.open_button == nil, "Open for a book that is not on the device")
   assert(all.reviews_button.width == all.content_width, "Reviews is not the page's width")
   assert(all.find_button.width + all.zlibrary_button.width < all.content_width, "Find and Z-library do not fit one row")
-  assert(all.shelf_button.width + all.lists_button.width < all.content_width, "Shelf and Lists do not fit one row")
+  assert(all.add_button.width * 2 < all.content_width, "Add is not half a row, with room beside it")
 end)
 
 check("Open: the one filled button, for a book that is on the device; then Find and Z-library are not offered", function()
@@ -887,33 +889,33 @@ check("it shares a row with Find on device, and both survive a rebuild", functio
   assert(d.reviews_button and d.zlibrary_button, "the rebuild lost a button")
 end)
 
-print("\n== the shelf button ==")
+print("\n== the add button ==")
 
-check("Shelf is a plain button in the last row; Close is the title bar's back arrow", function()
+check("Add is a plain button in the last row; Close is the title bar's back arrow", function()
   local d = BookDetailDialog:new { detail = detail(FULL), on_reviews = function() end, on_zlibrary = function() end }
-  assert(d.shelf_button and d.close_button and d.shelf_button ~= d.close_button)
-  assert(blockOf(d.action_bar, d.shelf_button) == #d.action_bar, "Shelf is not the last row of the bar")
+  assert(d.add_button and d.close_button and d.add_button ~= d.close_button)
+  assert(blockOf(d.action_bar, d.add_button) == #d.action_bar, "Add is not the last row of the bar")
   assert(deep(d.content_group, d.action_bar), "the bar is not in the page")
   assert(d.close_button and d.title_bar, "Close is not the title bar's back button")
 end)
 
-check("the action bar's rows: Open or (Find, Z-library), Reviews, Shelf and Lists; each only when it has a handler", function()
+check("the action bar's rows: Open or (Find, Z-library), Reviews, Add; each only when it has a handler", function()
   local function names(d)
     local out = {}
     for _, row in ipairs(d.action_bar) do
       local row_names = {}
-      for _, field in ipairs({ "open_button", "find_button", "zlibrary_button", "reviews_button", "shelf_button", "lists_button" }) do
+      for _, field in ipairs({ "open_button", "find_button", "zlibrary_button", "reviews_button", "add_button" }) do
         if d[field] and deep(row, d[field]) then row_names[#row_names + 1] = field:gsub("_button", "") end
       end
       if #row_names > 0 then out[#out + 1] = table.concat(row_names, "+") end
     end
     return table.concat(out, ",")
   end
-  assert(names(BookDetailDialog:new { detail = detail(FULL) }) == "shelf")
-  assert(names(BookDetailDialog:new { detail = detail(FULL), on_reviews = function() end }) == "reviews,shelf")
+  assert(names(BookDetailDialog:new { detail = detail(FULL) }) == "add")
+  assert(names(BookDetailDialog:new { detail = detail(FULL), on_reviews = function() end }) == "reviews,add")
   assert(names(BookDetailDialog:new { detail = detail(FULL), on_reviews = function() end, on_zlibrary = function() end,
-    on_find = function() end, on_lists = function() end }) == "find+zlibrary,reviews,shelf+lists")
-  assert(names(BookDetailDialog:new { detail = detail(FULL), on_open = function() end, on_reviews = function() end }) == "open,reviews,shelf")
+    on_find = function() end, on_lists = function() end }) == "find+zlibrary,reviews,add")
+  assert(names(BookDetailDialog:new { detail = detail(FULL), on_open = function() end, on_reviews = function() end }) == "open,reviews,add")
 end)
 
 check("Your rating is five stars, the whole row a tap to rate", function()
@@ -925,18 +927,36 @@ check("Your rating is five stars, the whole row a tap to rate", function()
   assert(BookDetailDialog:new { detail = detail(FULL) }.rating_tap == nil, "a rating tap with nothing to open")
 end)
 
-check("its label says where the book is, or invites adding it", function()
-  assert(BookDetailDialog:new { detail = detail(FULL) }.shelf_button.text == "Change shelf")
-  local bare = BookDetailDialog:new { detail = { book = FULL } }
-  assert(bare.shelf_button.text == "Add to shelf", bare.shelf_button.text)
+check("its label is Add, whether or not the book is on a shelf", function()
+  assert(BookDetailDialog:new { detail = detail(FULL) }.add_button.text == "Add")
+  assert(BookDetailDialog:new { detail = { book = FULL } }.add_button.text == "Add")
 end)
 
-check("tapping it calls the owner's handler with the dialog", function()
+check("with only the shelf to offer, tapping it calls the owner's shelf handler with the dialog", function()
   local got
   local d = BookDetailDialog:new { detail = detail(FULL), on_shelf = function(x) got = x end }
-  d.shelf_button.callback()
+  d.add_button.callback()
   assert(got == d)
-  BookDetailDialog:new { detail = detail(FULL) }.shelf_button.callback() -- no handler: no error
+  BookDetailDialog:new { detail = detail(FULL) }.add_button.callback() -- no handler: no error
+end)
+
+check("with lists too, Add opens a sheet with the shelf and Lists rows, each calling its handler", function()
+  local UIManager = UIManagerStub
+  local shown
+  local was_show, was_close, was_picker = UIManager.show, UIManager.close, package.loaded["hardcover/lib/ui/picker"]
+  package.loaded["hardcover/lib/ui/picker"] = { new = function(o) return o end }
+  UIManager.show = function(_, w) shown = w end
+  UIManager.close = function() end
+  local got = {}
+  local d = BookDetailDialog:new { detail = detail(FULL), on_shelf = function() got.shelf = true end,
+    on_lists = function() got.lists = true end }
+  d.add_button.callback()
+  assert(shown, "nothing shown; lists=" .. tostring(d.on_lists))
+  assert(#shown.rows == 2, "no sheet of two rows")
+  assert(shown.rows[1].text == "Change shelf" and shown.rows[2].text == "Lists", shown.rows[1].text)
+  shown.rows[1].callback(); shown.rows[2].callback()
+  UIManager.show, UIManager.close, package.loaded["hardcover/lib/ui/picker"] = was_show, was_close, was_picker
+  assert(got.shelf and got.lists, "a row did not call its handler")
 end)
 
 check("setStatus updates the label, and keeps the cover", function()
@@ -947,18 +967,18 @@ check("setStatus updates the label, and keeps the cover", function()
   local picture = { fake = true }
   d.cover_bb = picture
   d:setStatus(1, 55)
-  assert(d.shelf_button.text == "Change shelf" and d.status_text[1].text == "Want to Read", d.status_text[1].text)
+  assert(d.status_text[1].text == "Want to Read", d.status_text[1].text)
   assert(d.detail.user_book_id == 55 and d.detail.status_id == 1)
   assert(d.cover_bb == picture, "the cover was thrown away")
   assert(#loader.batches == fetches, "the cover was fetched again")
   d:setStatus(3, 55)
-  assert(d.shelf_button.text == "Change shelf" and d.status_text[1].text == "Read")
+  assert(d.status_text[1].text == "Read")
 end)
 
 check("setStatus(nil) after a removal clears status, rating and the record", function()
   local d = BookDetailDialog:new { detail = { book = FULL, status_id = 3, user_book_id = 9, user_rating = 4 } }
   d:setStatus(nil, nil)
-  assert(d.shelf_button.text == "Add to shelf" and d.status_text[1].text == "Not on a shelf", "label or status line kept")
+  assert(d.status_text[1].text == "Not on a shelf", "label or status line kept")
   assert(d.detail.user_book_id == nil and d.detail.user_rating == nil)
 end)
 

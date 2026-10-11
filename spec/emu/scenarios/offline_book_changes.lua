@@ -78,6 +78,11 @@ return {
     }
     local list_store = manager.list_store
 
+    -- Add opens a sheet when the book can go on lists too: tap its row (shelf rows are "Add to shelf" / "Change shelf")
+    local function tapAdd(dialog, row)
+      tapButton(dialog.add_button)
+      if dialog.on_lists then tapText(row) end
+    end
     local function count(name)
       local n = 0
       for _, c in ipairs(fixtures.calls or {}) do if c.name == name then n = n + 1 end end
@@ -133,7 +138,7 @@ return {
     local mark = #fixtures.calls
 
     -- ---------------------------------------------------------------- a list
-    tapButton(dialog.lists_button)
+    tapAdd(dialog, "Lists")
     local picker = topmost()
     assert(picker ~= dialog and picker.rows, "the lists picker did not open offline: " .. emu:screenText())
     emu:expectText("Someday (0)")
@@ -157,7 +162,7 @@ return {
     emu:expectText("Someday")
 
     -- ---------------------------------------------------------------- a shelf
-    tapButton(dialog.shelf_button)
+    tapAdd(dialog, dialog.detail.status_id and "Change shelf" or "Add to shelf")
     picker = topmost()
     assert(picker ~= dialog and picker.rows, "the shelf picker did not open offline: " .. emu:screenText())
     tapText("Want to Read")

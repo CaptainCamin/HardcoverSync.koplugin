@@ -53,6 +53,11 @@ return {
       emu:tapExpecting(d.x + math.floor(d.w / 2), d.y + math.floor(d.h / 2))
       emu:pump()
     end
+    -- Add opens a sheet when the book can go on lists too: tap its row (shelf rows are "Add to shelf" / "Change shelf")
+    local function tapAdd(dialog, row)
+      tapButton(dialog.add_button)
+      if dialog.on_lists then tapText(row) end
+    end
     local function count(name)
       local n = 0
       for _, c in ipairs(fixtures.calls or {}) do if c.name == name then n = n + 1 end end
@@ -91,7 +96,7 @@ return {
     -- the plugin also trusts KOReader's own record of the connection, so go offline in both
     local was_state = NetworkManager.getConnectionState
     NetworkManager.getConnectionState = function() return false end
-    tapButton(dialog.shelf_button)
+    tapAdd(dialog, dialog.detail.status_id and "Change shelf" or "Add to shelf")
     NetworkManager.isConnected = was
     NetworkManager.getConnectionState = was_state
     emu:expectText("offline")
@@ -102,7 +107,7 @@ return {
     dialog = topmost()
 
     -- the picker lists the four shelves, and no Remove for a book not in the library
-    tapButton(dialog.shelf_button)
+    tapAdd(dialog, dialog.detail.status_id and "Change shelf" or "Add to shelf")
     for _, label in ipairs({ "Want to Read", "Currently Reading", "Read", "Did Not Finish" }) do
       emu:expectText(label)
     end
@@ -131,7 +136,7 @@ return {
     assert(dialog.cover_bb, "the cover was lost")
 
     -- change to Read; choosing the current status again does nothing
-    tapButton(dialog.shelf_button)
+    tapAdd(dialog, dialog.detail.status_id and "Change shelf" or "Add to shelf")
     tapText("Read")
     assert(count("updateUserBook") == 2 and lastCall("updateUserBook").status_id == 3,
       "Read was not sent as status 3")
@@ -139,7 +144,7 @@ return {
     assert(cache:get(USER, 3) == nil, "the Read shelf was left stale")
     emu:shot("add_to_shelf_read")
 
-    tapButton(dialog.shelf_button)
+    tapAdd(dialog, dialog.detail.status_id and "Change shelf" or "Add to shelf")
     emu:expectText("Remove from library")
     -- the radio-marked current choice closes the picker without a request
     local current
@@ -152,7 +157,7 @@ return {
     assert(count("updateUserBook") == 2, "choosing the current status made a request")
 
     -- remove: asks first, and Cancel keeps the book
-    tapButton(dialog.shelf_button)
+    tapAdd(dialog, dialog.detail.status_id and "Change shelf" or "Add to shelf")
     tapText("Remove from library")
     assert(count("removeUserBook") == 0, "removed without asking")
     emu:expectText("Remove \"The Obelisk Gate\" from your library?")
@@ -161,7 +166,7 @@ return {
     assert(count("removeUserBook") == 0, "Cancel removed the book")
     emu:expectText("Change shelf")
 
-    tapButton(dialog.shelf_button)
+    tapAdd(dialog, dialog.detail.status_id and "Change shelf" or "Add to shelf")
     tapText("Remove from library")
     tapText("Remove")
     assert(count("removeUserBook") == 1, "the removal was not requested")

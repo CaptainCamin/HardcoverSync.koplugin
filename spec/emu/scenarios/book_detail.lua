@@ -186,7 +186,7 @@ return {
     -- pixels past the right one) and its buttons are comfortably tall
     local Theme = require("hardcover/lib/ui/theme")
     local M = Theme.margin
-    for _, name in ipairs({ "shelf_button", "reviews_button" }) do
+    for _, name in ipairs({ "add_button", "reviews_button" }) do
       local b = typical[name]
       assert(b and b.dimen and b.dimen.w > 0, name .. " is not on screen")
       assert(b.dimen.x >= M, name .. " starts left of the margin")
