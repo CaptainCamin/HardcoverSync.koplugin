@@ -30,6 +30,7 @@ local Overlay = InputContainer:extend {
   y = 0,
   on_dismiss = nil, -- tap outside, or Back
   covers_fullscreen = false,
+  snackbar = false, -- set by Snackbar.show, so a caller can tell the notice from the window under it
 }
 
 function Overlay:init()
