@@ -309,6 +309,44 @@ check("a snapshot is written when one is saved", function()
   if settings.snapshots["/books/a.epub"] == nil then error("no snapshot written") end
 end)
 
+-- The library is asked through the API module; these stub it for one call and put it back.
+local function withLibrary(answer, fn)
+  local Api = require("hardcover/lib/hardcover_api")
+  local User = require("hardcover/lib/user")
+  local find, get_id = Api.findUserBook, User.getId
+  Api.findUserBook = answer
+  User.getId = function() return 7 end
+  local ok, err = pcall(fn)
+  Api.findUserBook, User.getId = find, get_id
+  if not ok then error(err, 0) end
+end
+
+print("\n== asking the library about a book ==")
+
+check("a library with no record of the book says the book is on no shelf", function()
+  withLibrary(function() return nil, nil end, function()
+    local settings = fakeSettings({ id = 501, book_id = 9001, status_id = HARDCOVER.STATUS.READING })
+    settings.getLinkedBookId = function() return 9001 end
+    local cache = newCache { settings = settings }
+    cache:cacheUserBook()
+    eq(cache.state.book_status.not_on_shelf, true, "not on a shelf")
+    eq(cache.state.book_status.status_id, nil, "no status from the saved copy")
+    eq(cache.state.book_status_fetched, true, "fetched")
+  end)
+end)
+
+check("a library that could not be asked leaves the saved copy in place", function()
+  withLibrary(function() return {}, { error = "no_response" } end, function()
+    local settings = fakeSettings({ id = 501, book_id = 9001, status_id = HARDCOVER.STATUS.READING })
+    settings.getLinkedBookId = function() return 9001 end
+    local cache = newCache { settings = settings }
+    local err = cache:cacheUserBook()
+    eq(cache.state.book_status.status_id, HARDCOVER.STATUS.READING, "saved status kept")
+    eq(cache.state.book_status.not_on_shelf, nil, "not marked as on no shelf")
+    eq(err ~= nil, true, "error handed back")
+  end)
+end)
+
 check("saving with no filename is a no-op", function()
   -- A nil filename here would otherwise build a settings key of "nil" and
   -- corrupt an unrelated book's entry.

@@ -476,6 +476,12 @@ function HardcoverApp:effectiveStatusId(filename)
   return self.state.book_status and self.state.book_status.status_id
 end
 
+-- What a page turn does to the book, from what the device knows (see BookActions.pageWrite).
+function HardcoverApp:pageWriteDecision(filename)
+  local book = self.state.book_status or {}
+  return BookActions.pageWrite(self:effectiveStatusId(filename), book.not_on_shelf == true)
+end
+
 function HardcoverApp:_handlePageUpdate(filename, mapped_page, immediate, callback)
   --logger.warn("HARDCOVER: Throttled page update", mapped_page)
   self.page_update_pending = false
@@ -484,12 +490,16 @@ function HardcoverApp:_handlePageUpdate(filename, mapped_page, immediate, callba
     return
   end
 
-  local status_id = self:effectiveStatusId(filename)
-  if status_id and status_id ~= HARDCOVER.STATUS.READING then
+  if self:pageWriteDecision(filename) == "block" then
     return
   end
 
   local immediate_update = function()
+    -- decided again here, not above: the update can wait a second, and the status can change in it
+    if self:pageWriteDecision(filename) == "move" then
+      self.cache:updateBookStatus(filename, HARDCOVER.STATUS.READING)
+      StatusDialogs.info(_("Now on your 'Currently Reading' shelf"), 2)
+    end
     local result = self.cache:syncPage(filename, mapped_page)
     if callback then
       callback(result)
