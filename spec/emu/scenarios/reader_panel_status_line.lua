@@ -24,21 +24,21 @@ local cases = {
     book_status = { id = 502, status_id = HARDCOVER.TO_READ, user_book_reads = {} },
     shelf = "On your 'Want to Read' shelf",
     line = "387 pages",
-    switch = true, note = true,
+    switch = false, note = false,
   },
   {
     key = "not_on_shelf",
     book_status = { not_on_shelf = true, user_book_reads = {} },
     shelf = "Not on a shelf",
     line = "387 pages",
-    switch = true, note = true,
+    switch = false, note = false,
   },
   {
     key = "not_checked",
     book_status = { user_book_reads = {} },
     shelf = "Shelf not checked yet",
     line = "387 pages",
-    switch = true, note = false,
+    switch = false, note = false,
   },
   {
     key = "finished",
@@ -54,6 +54,23 @@ local cases = {
     shelf = "On your 'Did Not Finish' shelf",
     line = "387 pages",
     switch = false, note = false,
+  },
+  {
+    -- tracking off: the switch comes back for any book, and says how to update by hand
+    key = "want_to_read_tracking_off",
+    sync = false,
+    book_status = { id = 502, status_id = HARDCOVER.TO_READ, user_book_reads = {} },
+    shelf = "On your 'Want to Read' shelf",
+    line = "387 pages",
+    switch = true, note = true,
+  },
+  {
+    key = "not_on_shelf_tracking_off",
+    sync = false,
+    book_status = { not_on_shelf = true, user_book_reads = {} },
+    shelf = "Not on a shelf",
+    line = "387 pages",
+    switch = true, note = true,
   },
 }
 
@@ -72,7 +89,7 @@ return {
         getLinkedEditionId = function() return nil end,
         getLinkedEditionFormat = function() return nil end,
         pages = function() return 387 end,
-        syncEnabled = function() return true end,
+        syncEnabled = function() return case.sync ~= false end,
         setSync = function() end,
         readSetting = function() return nil end,
       }
@@ -111,7 +128,7 @@ return {
       assert(text:find(case.line, 1, true), case.key .. ": line under the title says '" .. case.line .. "'")
       assert(text:find("Update Hardcover as I read", 1, true) ~= nil == case.switch,
         case.key .. ": switch shown is " .. tostring(case.switch))
-      assert(text:find("Keep reading to update progress.", 1, true) ~= nil == case.note,
+      assert(text:find("Change status to update progress.", 1, true) ~= nil == case.note,
         case.key .. ": the switch note shown is " .. tostring(case.note))
       assert(not text:find("Page 0", 1, true), case.key .. ": claims 'Page 0' with no saved page")
 

@@ -27,32 +27,37 @@ r.check("switch offered, no note", reading.track == true and reading.track_note 
 r.check("not finished: no Read again", not reading.finished)
 r.check("just started: page 0, still a page line",
   describe { status_id = S.READING, status_label = "Currently Reading" }.line == "Page 0 of 387" .. DOT .. "0%")
+local reading_off = describe { status_id = S.READING, status_label = "Currently Reading", sync_on = false }
+r.check("tracking off while reading: switch still offered, no note", reading_off.track == true and reading_off.track_note == nil)
 
-print("\n== Want to Read ==")
+print("\n== Want to Read (reading it asks to start it, so there is no switch while tracking is on) ==")
 local want = describe { status_id = S.TO_READ, status_label = "Want to Read" }
 r.check("length, not a page", want.line == "387 pages", want.line)
 r.check("shelf line", want.shelf == "On your 'Want to Read' shelf", want.shelf)
-r.check("switch with the on note", want.track == true and want.track_note == "Keep reading to update progress.", want.track_note)
-r.check("switch off: how to track it by hand",
-  describe { status_id = S.TO_READ, status_label = "Want to Read", sync_on = false }.track_note == "Change status to update progress.")
-r.check("switch off, no shelf: the same line",
-  describe { not_on_shelf = true, sync_on = false }.track_note == "Change status to update progress.")
-r.check("switch off while reading: still no note",
-  describe { status_id = S.READING, status_label = "Currently Reading", sync_on = false }.track_note == nil)
+r.check("tracking on: no switch, no note", want.track == false and want.track_note == nil)
+local want_off = describe { status_id = S.TO_READ, status_label = "Want to Read", sync_on = false }
+r.check("tracking off: the switch comes back, with how to update by hand",
+  want_off.track == true and want_off.track_note == "Change status to update progress.", want_off.track_note)
 
 print("\n== On no shelf, and shelf not checked ==")
 local none = describe { not_on_shelf = true }
 r.check("no shelf: line and length", none.shelf == "Not on a shelf" and none.line == "387 pages")
-r.check("no shelf: the note", none.track_note == "Keep reading to update progress.")
+r.check("no shelf, tracking on: no switch", none.track == false and none.track_note == nil)
+local none_off = describe { not_on_shelf = true, sync_on = false }
+r.check("no shelf, tracking off: switch and the same note", none_off.track == true and none_off.track_note == "Change status to update progress.")
 local unknown = describe {}
 r.check("not checked yet: says so", unknown.shelf == "Shelf not checked yet")
-r.check("not checked yet: switch, no note", unknown.track == true and unknown.track_note == nil)
+r.check("not checked yet, tracking on: no switch", unknown.track == false and unknown.track_note == nil)
+local unknown_off = describe { sync_on = false }
+r.check("not checked yet, tracking off: switch, no note (nothing is known to change)", unknown_off.track == true and unknown_off.track_note == nil)
 
 print("\n== Finished and Did not finish ==")
 local done = describe { status_id = S.FINISHED, saved_page = 387, status_label = "Read" }
-r.check("finished: Read again, no switch, no note", done.finished and not done.track and done.track_note == nil)
+r.check("finished, tracking on: Read again, no switch, no note", done.finished and not done.track and done.track_note == nil)
 r.check("finished: shelf line", done.shelf == "On your 'Read' shelf", done.shelf)
 r.check("finished with the last page saved: how far", done.line == "Page 387 of 387" .. DOT .. "100%", done.line)
+r.check("finished, tracking off: the switch is offered so it can be turned back on",
+  describe { status_id = S.FINISHED, status_label = "Read", sync_on = false }.track == true)
 local dnf = describe { status_id = S.DNF, status_label = "Did Not Finish" }
 r.check("did not finish, nothing saved: length, never Page 0", dnf.line == "387 pages" and dnf.finished and not dnf.track, dnf.line)
 r.check("did not finish, page 120 saved: how far",
