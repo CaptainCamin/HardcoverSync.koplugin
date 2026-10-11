@@ -324,6 +324,57 @@ check("moving a book to another shelf moves it in the saved shelves at once", fu
     "the shelves will not be asked about again")
 end)
 
+check("the counts on Home and the Shelves tab follow a book moved between shelves", function()
+  local m = newManager()
+  local function screen()
+    local o = { rows = { { status_id = 1, count = 4 }, { status_id = 2, count = 0 }, { status_id = 3, count = nil } } }
+    o.setRows = function(self, rows) self.rows = rows end
+    stack[#stack + 1] = o
+    return o
+  end
+  local home, shelves = screen(), screen()
+  m:screens():track("home", home)
+  m:screens():track("shelves", shelves)
+  m:shelfChanged(6, 1, 2, 106, true)
+  for _, s in ipairs({ home, shelves }) do
+    assert(s.rows[1].count == 3 and s.rows[2].count == 1, "counts: " .. tostring(s.rows[1].count) .. ", " .. tostring(s.rows[2].count))
+    assert(s.rows[3].count == nil, "an unknown count was invented")
+  end
+  m:shelfChanged(6, 2, nil, nil, true) -- off the library: only the shelf it left changes
+  assert(home.rows[2].count == 0 and home.rows[1].count == 3)
+  m:shelfChanged(6, nil, 3, 106) -- new to the library, counts for a shelf with none stay empty
+  assert(home.rows[3].count == nil)
+end)
+
+check("the Currently reading card and a hidden Stats tab follow a moved book", function()
+  local m = newManager()
+  local READING, FINISHED = 2, 3
+  local home = { rows = {}, entries = { { book_id = 2, title = "Two" }, { book_id = 9, title = "Nine" } } }
+  home.setRows = function() end
+  home.setReading = function(self, entries) self.entries = entries end
+  stack[#stack + 1] = home
+  m:screens():track("home", home)
+  m:shelfChanged(2, READING, FINISHED, 102, true) -- finished: off the card
+  assert(#home.entries == 1 and home.entries[1].book_id == 9, "the finished book is still on the card")
+  m:shelfChanged(6, FINISHED, READING, 106, true) -- started: on the card, from the saved shelf
+  assert(#home.entries == 2 and home.entries[1].book_id == 6, "the started book is not on the card")
+
+  local unmounted
+  local shell = { active = "goals", unmount = function(_, w) unmounted = w end }
+  local stats = { shell = shell, free = function() end }
+  stack[#stack + 1] = shell
+  m:screens():track("stats", stats)
+  m:shelfChanged(6, READING, 1, 106, true) -- Read not involved: Stats stays
+  assert(unmounted == nil, "Stats was dropped for a change that does not touch Read")
+  m:shelfChanged(6, READING, FINISHED, 106, true)
+  assert(unmounted == stats, "a hidden Stats tab was kept after a book was finished")
+
+  local visible = { shell = { active = "stats", unmount = function() error("the tab on screen was dropped") end } }
+  stack[#stack + 1] = visible.shell
+  m:screens():track("stats", visible)
+  m:shelfChanged(6, READING, FINISHED, 106, true)
+end)
+
 check("a rating sent from the queue is on the saved shelf at once", function()
   local m = newManager()
   m:ratingSent(106, { id = 106, book_id = 6, status_id = 3, rating = 3.5 })
