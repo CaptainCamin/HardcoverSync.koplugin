@@ -17,3 +17,17 @@
 - Betas are cut from `main`: Actions > Releases > Run workflow with a tag like `v2.0.0-beta` (always the `v` prefix; never push a bare tag, it publishes a stable release). The number is added automatically (`v2.0.0-beta.N`, one after the last beta on origin); type a full `v2.0.0-beta.4` to choose it yourself. A tag containing `beta` is published as a pre-release automatically; any other tag is stable. A stable release bumps `_meta.lua` and the changelog, then runs the same workflow with `v2.0.0`.
 - A hotfix for stable while `main` holds unfinished work branches from the release tag (e.g. `v1.7.0`), is released from there, then is cherry-picked onto `main`.
 - `gh` needs `--repo CaptainCamin/HardcoverSync.koplugin`. No AI attribution trailers in commits or PRs.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues in `CaptainCamin/HardcoverSync.koplugin`, via the `gh` CLI. Always pass `--repo CaptainCamin/HardcoverSync.koplugin`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
