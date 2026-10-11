@@ -133,15 +133,32 @@ local function slice(items, offset, limit)
   return out
 end
 
+-- The entries in the chosen order, kept per sort key so two Bookshelf shelves
+-- on the same Hardcover shelf with different sorts do not rebuild each other's
+-- list on every fetch. The list is dropped when the entries change (a download
+-- page arrived), and only the page asked for is turned into book records.
+local function sortedEntries(state, key)
+  local count = #state.entries
+  if state.sorted_count ~= count or state.sorted_source ~= state.entries then
+    state.sorted, state.sorted_count, state.sorted_source = {}, count, state.entries
+  end
+  local sorted = state.sorted[key]
+  if not sorted then
+    sorted = ShelfSort.sort(state.entries, key)
+    state.sorted[key] = sorted
+  end
+  return sorted
+end
+
+local function sortedPage(state, status_id, offset, limit, sort_key)
+  local page = slice(sortedEntries(state, sort_key or ShelfSort.DEFAULT), offset, limit)
+  return toBooks(page, status_id)
+end
+
 local function shelfPage(user_id, status_id, offset, limit, sort_key)
   local state = shelf_entries[shelfKey(user_id, status_id)]
   if not state then return {}, nil end
-  local key = sort_key or ShelfSort.DEFAULT
-  if state.sorted_key ~= key then
-    state.sorted_books = toBooks(ShelfSort.sort(state.entries, key), status_id)
-    state.sorted_key = key
-  end
-  return slice(state.sorted_books, offset, limit), state.complete and #state.entries or nil
+  return sortedPage(state, status_id, offset, limit, sort_key), state.complete and #state.entries or nil
 end
 
 local function addCoverPaths(app, id, books)
@@ -644,13 +661,8 @@ function Sources.register(app)
     end
     if not state then loadList(app, source, false); return {}, nil end
     if not state.complete then loadList(app, source, false) end
-    local sort_key = source.sort_key or ShelfSort.DEFAULT
-    if state.sorted_key ~= sort_key then
-      state.sorted_books = toBooks(ShelfSort.sort(state.entries, sort_key), nil)
-      state.sorted_key = sort_key
-    end
     return addCoverPaths(app, LISTS_ID,
-      slice(state.sorted_books, offset, limit)), state.total
+      sortedPage(state, nil, offset, limit, source.sort_key)), state.total
   end
   lists.refresh = function(source, _drill, done)
     if not source.list_id then done(); return end
