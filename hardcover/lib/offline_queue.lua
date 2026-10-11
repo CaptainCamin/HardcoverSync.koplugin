@@ -84,6 +84,8 @@ end
 
 function OfflineQueue:persist()
   if self.settings.flush then self.settings:flush() end
+  -- something screens show (Home's sync box) may have changed; never let a screen break a save
+  if self.on_change then pcall(self.on_change) end
 end
 
 function OfflineQueue:isHeld(entry)

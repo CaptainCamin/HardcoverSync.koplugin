@@ -41,4 +41,17 @@ function Hosted.remount(host, screen)
   (host.parent or host.shell):remount(host.id, screen)
 end
 
+-- What a failed load's Cancel does. On its own the screen closes. In the shell a tab cannot close,
+-- so it says it did not load and stays usable (the tabs and the top bar still work).
+-- Returns the function to hand to the retry dialog.
+function Hosted.cancelLoad(screen, host)
+  return function()
+    if not host then
+      require("ui/uimanager"):close(screen)
+    elseif screen.setMessage then
+      screen:setMessage(require("gettext")("Couldn't load. Open Hardcover again to retry."))
+    end
+  end
+end
+
 return Hosted

@@ -591,7 +591,7 @@ end
 function DialogManager:syncNow()
   local items = self.settings_items and self.settings_items() or {}
   for _i, item in ipairs(items) do
-    if item and item.tile == "Sync" and item.callback then
+    if item and item.key == "sync" and item.callback then
       item.callback({ updateItems = function() end })
       return
     end
@@ -601,7 +601,10 @@ end
 -- What is waiting to sync changed (a sync ran, a change was queued): Home's box says so.
 function DialogManager:queueChanged()
   local home = self:screens():open("home")
-  if home and home.rebuild then home:rebuild() end
+  if not (home and home.rebuild) then return end
+  -- queues save on every page turn: redraw only when the count the box shows has changed
+  if home.pending_fn and home.shown_pending == home.pending_fn() then return end
+  home:rebuild()
 end
 
 function DialogManager:showShell(active)
@@ -845,7 +848,7 @@ function DialogManager:showGoals(host)
           self:showGoals(host and { shell = host.shell, width = host.width, height = host.height,
             id = host.id, parent = host.parent, remount = true })
         end,
-        function() if not host then UIManager:close(dialog) end end)
+        Hosted.cancelLoad(dialog, host))
     end
   end)
   return dialog
@@ -912,7 +915,7 @@ function DialogManager:showStats(host)
             self:showStats(host and { shell = host.shell, width = host.width, height = host.height,
               id = host.id, parent = host.parent, remount = true })
           end,
-          function() if not host then UIManager:close(dialog) end end)
+          Hosted.cancelLoad(dialog, host))
       end
     end)
   end
@@ -1253,7 +1256,7 @@ function DialogManager:showVibes(host)
           self:showVibes(host and { shell = host.shell, width = host.width, height = host.height,
             id = host.id, parent = host.parent, remount = true })
         end,
-        function() if not host then UIManager:close(dialog) end end)
+        Hosted.cancelLoad(dialog, host))
       return
     end
     if #vibes == 0 then

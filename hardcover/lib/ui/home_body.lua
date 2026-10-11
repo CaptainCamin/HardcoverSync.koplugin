@@ -113,6 +113,7 @@ end
 -- and are built at the taller one's height so switching between them moves nothing below.
 function HomeBody:syncNote(width)
   local waiting = self.pending_fn and self.pending_fn() or 0
+  self.shown_pending = waiting
   local action = { label = _("Sync now"), callback = function() if self.sync_cb then self.sync_cb() end end }
   local function make(count, h)
     if count > 0 then

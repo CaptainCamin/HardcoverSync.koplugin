@@ -229,6 +229,10 @@ function HardcoverApp:init()
     ui = self.ui,
     wifi = self.wifi
   }
+  -- a change queued or sent: Home's sync box shows what is waiting
+  for _i, queue in ipairs({ self.sync_queue, self.goal_queue, self.rating_queue, self.shelf_queue, self.list_queue }) do
+    queue.on_change = function() self.dialog_manager:queueChanged() end
+  end
   self.hardcover = Hardcover:new {
     cache = self.cache,
     dialog_manager = self.dialog_manager,

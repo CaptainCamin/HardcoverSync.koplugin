@@ -730,6 +730,8 @@ function HardcoverMenu:getSyncMenuItem()
     separator = true,
     -- the settings screen shows this one as a tile at the top
     tile = _("Sync"),
+    -- stable, unlike the translated tile above: Home's Sync now finds the item by this
+    key = "sync",
   }
 end
 
