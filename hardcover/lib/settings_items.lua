@@ -36,15 +36,18 @@ function SettingsItems.rows(items, open, refresh)
       local text = resolve(item, "text") or ""
       local enabled = true
       if item.enabled_func then enabled = item.enabled_func() and true or false end
+      local stateful = item.checked_func ~= nil or item.checked ~= nil
 
       local row = {
         text = text,
         mandatory = resolve(item, "checked") and CHECK or (children(item) and "\226\128\186" or nil),
         dim = not enabled or nil,
         item = item,
-        -- what the screen needs to draw it: a tick box (ticked or not), an
-        -- arrow into a submenu, or one of the two header tiles
-        checkable = (item.checked_func ~= nil or item.checked ~= nil) or nil,
+        -- what the screen needs to draw it: a switch (on or off), a radio (one of
+        -- several choices, the current one filled), an arrow into a submenu, or one
+        -- of the two header tiles
+        checkable = (stateful and not item.radio) or nil,
+        radio = (stateful and item.radio) or nil,
         checked = resolve(item, "checked") and true or false,
         submenu = (item.sub_item_table ~= nil or item.sub_item_table_func ~= nil) or nil,
         tile = item.tile,
