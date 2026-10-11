@@ -6,7 +6,6 @@ local UIManager = require("ui/uimanager")
 local Hosted = require("hardcover/lib/ui/hosted")
 local Live = require("hardcover/lib/ui/live")
 local Network = require("hardcover/lib/network")
-local Notification = require("ui/widget/notification")
 
 local InfoMessage = require("ui/widget/infomessage")
 
@@ -1026,7 +1025,7 @@ function DialogManager:queueGoalChange(dialog, apply_fn, on_saved, goal, notice)
   self:applyGoals(self:savedGoals(), goal)
   UIManager:close(dialog)
   if on_saved and goal then on_saved(goal) end
-  UIManager:show(Notification:new { text = notice or _("Saved on this device. It will sync when you're online.") })
+  StatusDialogs.info(notice or _("Saved on this device. It will sync when you're online."))
 end
 
 function DialogManager:saveGoal(dialog, form, on_saved)
@@ -1122,7 +1121,7 @@ function DialogManager:archiveGoal(dialog, goal, on_saved)
     end
     UIManager:close(dialog)
     if not on_goal_screen then self:closeGoalScreen(goal.id) end
-    UIManager:show(Notification:new { text = GoalActions.archivedNotice(goal.id, false) })
+    StatusDialogs.info(GoalActions.archivedNotice(goal.id, false))
     if on_saved then on_saved(nil) end
   end)
 end

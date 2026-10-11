@@ -252,7 +252,7 @@ function support.preload_theme_stubs()
     "ui/widget/textwidget", "ui/widget/textboxwidget", "ui/widget/titlebar",
     "ui/widget/verticalgroup", "ui/widget/verticalspan", "ui/widget/container/leftcontainer",
     "ui/widget/container/centercontainer", "ui/widget/container/framecontainer",
-    "ui/widget/container/inputcontainer", "ui/gesturerange",
+    "ui/widget/container/inputcontainer", "ui/gesturerange", "ui/widget/widget",
   }) do
     if not package.preload[name] and not package.loaded[name] then
       package.preload[name] = make

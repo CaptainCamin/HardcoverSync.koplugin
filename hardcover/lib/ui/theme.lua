@@ -274,12 +274,14 @@ function Theme.hspan(name)
 end
 
 --
--- A horizontal rule of the given width. `firm` for a heading underline.
+-- A horizontal rule of the given width. `firm` for a heading underline (solid black); otherwise
+-- the dotted divider, because MMD separators are black only and a grey hairline is not one.
 --
 function Theme.rule(width, firm)
+  if not firm then return Theme.dottedRule(width) end
   return LineWidget:new {
-    dimen = Geom:new { w = width, h = firm and Theme.line.firm or Theme.line.hair },
-    background = firm and Theme.BLACK or Theme.DARK_GREY,
+    dimen = Geom:new { w = width, h = Theme.line.firm },
+    background = Theme.BLACK,
   }
 end
 
@@ -371,25 +373,35 @@ end
 -- the borders and padding. Putting the child in a CenterContainer whose size is
 -- the inside of the box makes the reported size the same as the painted one.
 -- opts: filled (black with white text), border (px, default firm), radius
--- (scaled units).
+-- (scaled units), dotted (the border is evenly spaced black dots: an unavailable control, which
+-- never rests on grey alone).
 --
 function Theme.box(w, h, child, opts)
   opts = opts or {}
   local bs = opts.border or Theme.line.firm
-  return FrameContainer:new {
+  local radius = opts.round and math.floor(math.min(w, h) / 2) or (opts.radius and px(opts.radius) or nil)
+  local box = FrameContainer:new {
     bordersize = bs,
-    radius = opts.round and math.floor(math.min(w, h) / 2) or (opts.radius and px(opts.radius) or nil),
+    radius = radius,
     padding = 0,
     margin = 0,
     width = w,
     height = h,
-    color = Theme.BLACK,
+    color = opts.dotted and Theme.WHITE or Theme.BLACK,
     background = opts.filled and Theme.BLACK or Theme.WHITE,
     CenterContainer:new {
       dimen = Geom:new { w = w - 2 * bs, h = h - 2 * bs },
       child,
     },
   }
+  if opts.dotted then
+    local paint = box.paintTo
+    function box:paintTo(bb, x, y)
+      paint(self, bb, x, y)
+      require("hardcover/lib/ui/components/draw").dottedBorder(bb, x, y, w, h, radius or 0, bs)
+    end
+  end
+  return box
 end
 
 --
@@ -417,8 +429,8 @@ Theme.BUTTON_H = px(54)
 -- The family's button: a bordered, rounded box with bold text, tappable over
 -- exactly what it draws. `filled` is the primary action (black, white text).
 -- opts: filled, h, size (type name), radius (default: a full pill), callback, viewport (see
--- viewport.lua: for buttons inside a scroll area), enabled (false = dark grey
--- text, no tap), name.
+-- viewport.lua: for buttons inside a scroll area), enabled (false = black text in a dotted box,
+-- no tap), name.
 --
 function Theme.button(text, w, opts)
   opts = opts or {}
@@ -429,10 +441,10 @@ function Theme.button(text, w, opts)
     face = Theme.face(opts.size or "small"),
     bold = true,
     max_width = w - 2 * Theme.line.firm - Theme.space.s,
-    fgcolor = (opts.filled and Theme.WHITE) or (enabled and Theme.BLACK or Theme.DARK_GREY),
+    fgcolor = (opts.filled and enabled) and Theme.WHITE or Theme.BLACK,
   }
   local box = Theme.box(w, opts.h or Theme.BUTTON_H, label,
-    { filled = opts.filled, radius = opts.radius, round = opts.radius == nil })
+    { filled = opts.filled and enabled, radius = opts.radius, round = opts.radius == nil, dotted = not enabled })
   local tap = TapRow:new {
     callback = enabled and opts.callback or nil,
     viewport = opts.viewport,

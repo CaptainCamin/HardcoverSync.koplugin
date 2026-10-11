@@ -371,9 +371,7 @@ end
 
 function HardcoverApp:onHardcoverLink()
   self.hardcover:showLinkBookDialog(false, function(book)
-    UIManager:show(Notification:new {
-      text = _("Linked to: " .. book.title),
-    })
+    StatusDialogs.info(_("Linked to: " .. book.title))
   end)
 end
 
@@ -395,17 +393,13 @@ end
 function HardcoverApp:onHardcoverTrack()
   self.settings:setSync(true)
   UIManager:nextTick(function()
-    UIManager:show(Notification:new {
-      text = _("Progress tracking enabled")
-    })
+    StatusDialogs.info(_("Progress tracking enabled"))
   end)
 end
 
 function HardcoverApp:onHardcoverStopTrack()
   self.settings:setSync(false)
-  UIManager:show(Notification:new {
-    text = _("Progress tracking disabled")
-  })
+  StatusDialogs.info(_("Progress tracking disabled"))
 end
 
 function HardcoverApp:onHardcoverUpdateProgress()
@@ -417,9 +411,7 @@ function HardcoverApp:onHardcoverUpdateProgress()
       self:updatePageNow(function(result)
         if result then
           local text = result.queued and _("Progress saved offline, will sync") or _("Progress updated")
-          UIManager:show(Notification:new {
-            text = text
-          })
+          StatusDialogs.info(text)
         else
           logger.warn("Unsuccessful updating page progress", self.ui.document.file)
         end
@@ -1182,6 +1174,7 @@ function HardcoverApp:startReadCache()
       end
     end,
 
+    -- a system event, not something the reader did: a plain toast, not a snackbar
     function()
       if NetworkManager:isConnected() then
         UIManager:show(Notification:new {
