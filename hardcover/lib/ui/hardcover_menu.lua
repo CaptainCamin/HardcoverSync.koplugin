@@ -24,6 +24,7 @@ local User = require("hardcover/lib/user")
 local _t = require("hardcover/lib/table_util")
 
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
+local BookActions = require("hardcover/lib/book_actions")
 local ICON = require("hardcover/lib/constants/icons")
 local SETTING = require("hardcover/lib/constants/settings")
 local VERSION = require("hardcover_version")
@@ -235,7 +236,7 @@ function HardcoverMenu:showReaderPanel()
       linked = linked,
       pills = {},
       line = not linked and _("Not linked to Hardcover") or #bits > 0 and table.concat(bits, "  \194\183  ") or nil,
-      track = linked and {
+      track = linked and BookActions.offerTrackSwitch(status.status_id, self.settings:syncEnabled()) and {
         checked = self.settings:syncEnabled(),
         toggle = function() self.settings:setSync(not self.settings:syncEnabled()) end,
       } or nil,
@@ -1351,6 +1352,29 @@ function HardcoverMenu:getSettingsSubMenuItems()
         local setting = self.settings:readSetting(SETTING.ALWAYS_SYNC) == true
         self.settings:updateSetting(SETTING.ALWAYS_SYNC, not setting)
       end,
+    },
+    {
+      section = SECTION.TRACKING,
+      text_func = function()
+        return T(_("Ask to start reading after %1 pages"), self.settings:startReadingPages())
+      end,
+      help = _("A book that is not on your Currently Reading shelf is not tracked. After this many pages in one sitting you are asked whether to start it."),
+      callback = function(menu_instance)
+        UIManager:show(SpinWidget:new {
+          value = self.settings:startReadingPages(),
+          value_min = 1,
+          value_max = 100,
+          value_step = 1,
+          value_hold_step = 10,
+          ok_text = _("Save"),
+          title_text = _("Pages before asking to start reading"),
+          callback = function(spin)
+            self.settings:updateSetting(SETTING.START_READING_PAGES, spin.value)
+            if menu_instance and menu_instance.updateItems then menu_instance:updateItems() end
+          end,
+        })
+      end,
+      keep_menu_open = true,
     },
     {
       section = SECTION.TRACKING,

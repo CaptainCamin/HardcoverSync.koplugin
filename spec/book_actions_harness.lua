@@ -183,29 +183,40 @@ check("a book being read, wanted, or on no shelf is written as before", function
   end
 end)
 
+print("\n== the progress switch ==")
+
+check("the switch is offered for a book being read", function()
+  assert(BookActions.offerTrackSwitch(HARDCOVER.STATUS.READING, true))
+  assert(BookActions.offerTrackSwitch(HARDCOVER.STATUS.READING, false))
+end)
+
+check("the switch is left out for any other book while tracking is on", function()
+  for _, status in ipairs({ HARDCOVER.STATUS.TO_READ, HARDCOVER.STATUS.FINISHED, HARDCOVER.STATUS.DNF, 4 }) do
+    assert(not BookActions.offerTrackSwitch(status, true), status)
+  end
+  assert(not BookActions.offerTrackSwitch(nil, true))
+end)
+
+check("a book with tracking off always shows the switch, so it can be turned back on", function()
+  assert(BookActions.offerTrackSwitch(nil, false))
+  assert(BookActions.offerTrackSwitch(HARDCOVER.STATUS.FINISHED, false))
+end)
+
 print("\n== turning a page ==")
 
 check("a page is sent while the book is being read", function()
-  assert(BookActions.pageWrite(HARDCOVER.STATUS.READING, false) == "allow")
-  assert(BookActions.pageWrite(HARDCOVER.STATUS.READING, true) == "allow")
+  assert(BookActions.pageWrite(HARDCOVER.STATUS.READING) == "allow")
 end)
 
-check("a page on a Want to Read book moves it to Currently Reading first", function()
-  assert(BookActions.pageWrite(HARDCOVER.STATUS.TO_READ, false) == "move")
-end)
-
-check("a page on a book known to be on no shelf moves it to Currently Reading first", function()
-  assert(BookActions.pageWrite(nil, true) == "move")
-end)
-
-check("a page on a book whose status is not known yet is sent as before", function()
-  assert(BookActions.pageWrite(nil, false) == "allow")
+check("a Want to Read book, a book on no shelf and a book not known yet ask first, and send nothing", function()
+  assert(BookActions.pageWrite(HARDCOVER.STATUS.TO_READ) == "ask")
+  assert(BookActions.pageWrite(nil) == "ask")
 end)
 
 check("a page on a Finished, Did not finish or unrecognised book is not sent", function()
-  assert(BookActions.pageWrite(HARDCOVER.STATUS.FINISHED, false) == "block")
-  assert(BookActions.pageWrite(HARDCOVER.STATUS.DNF, false) == "block")
-  assert(BookActions.pageWrite(4, false) == "block")
+  assert(BookActions.pageWrite(HARDCOVER.STATUS.FINISHED) == "block")
+  assert(BookActions.pageWrite(HARDCOVER.STATUS.DNF) == "block")
+  assert(BookActions.pageWrite(4) == "block")
 end)
 
 r.finish()
