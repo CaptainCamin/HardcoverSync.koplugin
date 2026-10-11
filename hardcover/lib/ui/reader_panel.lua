@@ -65,21 +65,17 @@ function ReaderPanel:buildTrackRow(track, width)
     dimen = Geom:new { w = width, h = h }, CenterContainer:new { dimen = Geom:new { w = width, h = h }, row } }
 end
 
--- the status line: where the book is, in words, with its action (if any) on the right; a row at
--- least a touch target tall
+-- where the book is, in words. When the book can be started again, the button sits on the right
+-- of the same line, a touch target tall; a plain line is only as tall as its text.
 function ReaderPanel:buildShelfRow(text, action, width)
   if not action then
-    local label = Theme.mmdText(text, "text", 21, { width = width })
-    local h = math.max(Theme.TOUCH_MIN, label:getSize().h + Theme.px(16))
-    return LeftContainer:new { dimen = Geom:new { w = width, h = h }, label }
+    return Theme.mmdText(text, "text", 21, { width = width })
   end
-  local button_w = math.floor(width * 0.36)
+  local button_w = math.floor(width * 0.34)
   local button = Button.new { label = action.text, w = button_w, h = Theme.TOUCH_MIN, callback = action.run }
-  local label = Theme.mmdText(text, "text", 21, { width = width - button_w - Theme.px(16) })
-  local h = math.max(Theme.TOUCH_MIN, label:getSize().h + Theme.px(16))
-  local row = HorizontalGroup:new { align = "center", label,
+  local label = Theme.mmdText(text, "text", 21, { width = width - button_w - Theme.space.m })
+  return HorizontalGroup:new { align = "center", label,
     Theme.hspan(width - label:getSize().w - button_w), button }
-  return CenterContainer:new { dimen = Geom:new { w = width, h = h }, row }
 end
 
 function ReaderPanel:render()
@@ -89,7 +85,7 @@ function ReaderPanel:render()
   local width = screen_w - 2 * M
 
   local content = VerticalGroup:new { align = "left" }
-  table.insert(content, Theme.span(Theme.px(14)))
+  table.insert(content, Theme.span("m"))
 
   -- the book; wide and short, the title and the status share a line so the page stays in view
   local landscape = screen_w > screen_h
@@ -113,29 +109,31 @@ function ReaderPanel:render()
     end
   end
 
+  -- what the book is: where it is, then how far; each line only when there is something true to say
+  if model.shelf then
+    table.insert(content, Theme.span("xs"))
+    table.insert(content, self:buildShelfRow(model.shelf, model.shelf_action, width))
+  end
   if model.line then
-    table.insert(content, Theme.span(Theme.px(6)))
+    table.insert(content, Theme.span("xs"))
     table.insert(content, Theme.mmdText(model.line, "text", 18, { secondary = true, width = width }))
   end
 
-  if model.shelf then
-    table.insert(content, Theme.span(Theme.px(8)))
-    table.insert(content, self:buildShelfRow(model.shelf, model.shelf_action, width))
-  end
-
+  -- what to do about it: the switch, with its explanation attached to it
   if model.track then
-    table.insert(content, Theme.span(Theme.px(8)))
+    table.insert(content, Theme.span("l"))
     table.insert(content, self:buildTrackRow(model.track, width))
     if model.track.note then
-      table.insert(content, Theme.mmdText(model.track.note, "text", 18, { secondary = true, width = width }))
+      table.insert(content, Theme.span("xs"))
+      table.insert(content, Theme.mmdText(model.track.note, "text", 18, { width = width }))
     end
   end
 
   -- the actions, two to a row; an action that cannot be used right now keeps its place, in
   -- a dotted box and without a tap
-  table.insert(content, Theme.span(Theme.px(14)))
+  table.insert(content, Theme.span(model.track and "m" or "l"))
   -- stacked as in the mock; two to a row only when the screen is wider than it is tall
-  local gap = Theme.px(16)
+  local gap = Theme.space.m
   local cols = landscape and 2 or 1
   local cell = math.floor((width - (cols - 1) * gap) / cols)
   local bh = nil
@@ -160,11 +158,11 @@ function ReaderPanel:render()
       end
       table.insert(content, row)
     end
-    table.insert(content, Theme.span(Theme.px(16)))
+    table.insert(content, Theme.span("m"))
   end
   table.insert(content, Button.new { label = _("Cancel"), w = width, h = bh, primary = true,
     callback = function() self:onClose() end })
-  table.insert(content, Theme.span(Theme.px(20)))
+  table.insert(content, Theme.span(Theme.margin))
 
   local sheet = FrameContainer:new {
     background = Blitbuffer.COLOR_WHITE,
