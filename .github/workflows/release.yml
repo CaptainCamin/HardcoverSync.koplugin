@@ -9,12 +9,8 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to create, e.g. v0.7.0 (must match the version in _meta.lua)'
+        description: 'Tag to create, e.g. v0.7.0 or v1.4.2-beta.1 (a tag containing "beta" is published as a pre-release; the stable one must match the version in _meta.lua)'
         required: true
-      prerelease:
-        description: 'Publish as a pre-release from this branch (tag like v1.4.2-beta.1: the number counts the betas; the _meta.lua match is skipped, and it is never "latest")'
-        required: false
-        default: 'false'
 
 jobs:
   build:
@@ -25,6 +21,20 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # A tag containing "beta" is a pre-release, and is never "latest". Pushed
+      # or run by hand, the tag alone decides.
+      - name: Work out the release kind
+        id: kind
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          case "$TAG" in
+            *beta*) prerelease=true ;;
+            *)      prerelease=false ;;
+          esac
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "Tag $TAG: prerelease=$prerelease"
 
       - name: Run Busted
         uses: lunarmodules/busted@v2.2.0
@@ -39,11 +49,11 @@ jobs:
       # installed beta knows which beta it is and the update check can tell the
       # next one from it. Done after the harnesses, on the checkout only.
       - name: Stamp the version of a pre-release
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.prerelease == 'true'
+        if: steps.kind.outputs.prerelease == 'true'
         env:
-          TAG: ${{ github.event.inputs.tag }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
-          # the tag is typed by hand: only this shape is let near the shell and sed
+          # the tag is typed by hand or pushed: only this shape is let near the shell and sed
           if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$'; then
             echo "A pre-release tag must look like v1.4.2-beta.1 (got: $TAG)"
             exit 1
@@ -60,7 +70,7 @@ jobs:
       # or the App Store (which compares the tag with _meta.lua) would loop on
       # "update available".
       - name: Check the tag matches _meta.lua
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.prerelease != 'true'
+        if: github.event_name == 'workflow_dispatch' && steps.kind.outputs.prerelease == 'false'
         env:
           TAG: ${{ github.event.inputs.tag }}
         run: |
@@ -76,6 +86,6 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           target_commitish: ${{ github.sha }}
-          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
+          prerelease: ${{ steps.kind.outputs.prerelease == 'true' }}
           generate_release_notes: true
           files: ${{ runner.temp }}/hardcoversync.koplugin.zip
