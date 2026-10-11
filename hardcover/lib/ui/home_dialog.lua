@@ -17,14 +17,12 @@ local Device = require("device")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
-local IconWidget = require("ui/widget/iconwidget")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
 local ScrollControl = require("hardcover/lib/ui/components/scroll_control")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
-local LeftContainer = require("ui/widget/container/leftcontainer")
 local _ = require("gettext")
 
 local Goals = require("hardcover/lib/goals")
@@ -217,28 +215,16 @@ end
 -- (a function returning the visible rectangle of the scroll area, or nil when the
 -- page is not scrolling) clips every tap range to what is on screen.
 function HomeDialog:buildColumn(width, viewport)
-  -- The search field: a rounded outline that reads as an input, and opens the
-  -- search box when tapped. The words are centred in it by a container of the
-  -- field's own size (a frame given a height does not centre its text).
-  local field_h = Screen:scaleBySize(52)
-  local search_icon = Screen:scaleBySize(26)
-  local field = TapRow:new {
-    viewport = viewport,
-    callback = function()
+  -- The search field (components/search_field.lua): a pill that reads as an input, and opens the
+  -- search box when tapped.
+  local field = require("hardcover/lib/ui/components/search_field").new {
+    width = width, viewport = viewport,
+    placeholder = _("Search books on Hardcover"),
+    on_tap = function()
       if self.search_cb then
         self.search_cb()
       end
     end,
-    Theme.box(width, field_h, LeftContainer:new {
-      dimen = Geom:new { w = width - 2 * Theme.line.firm, h = field_h - 2 * Theme.line.firm },
-      HorizontalGroup:new {
-        align = "center",
-        Theme.hspan("m"),
-        IconWidget:new { icon = "appbar.search", width = search_icon, height = search_icon },
-        Theme.hspan("s"),
-        text(_("Search books on Hardcover"), "body", { grey = true, width = width - 4 * Theme.space.m }),
-      },
-    }, { radius = 26 }),
   }
   self.search_button = field
 
