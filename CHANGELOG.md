@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Hold to jump.** Holding the up triangle of the scroll bar jumps to the start of the screen, holding the down triangle to the end (the last page, on a shelf). Tapping still steps one page.
 - **Read again.** A book marked Finished or Did not finish has a "Read again" button in the reader's panel. It asks first, then starts a new read from the page you are on (or from the start, on the last page). The finished read is kept.
 - **Book search source.** Settings > Book search picks which plugin the book screen's search button hands the book to: Z-library, Anna's Archive or Kindle Fetch (each has to be installed and enabled), or Automatic, which uses the first one installed. The button carries that plugin's name.
 - The plugin ships the Lato typeface (Medium and Black, SIL Open Font License) and copies it into KOReader's fonts folder the first time it runs, so the redesigned screens can use it. Lato then also shows in KOReader's font menu after a restart.

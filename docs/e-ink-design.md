@@ -75,7 +75,7 @@ Settled, with the date and where it is built. If something here disagrees with a
 
 - Goals and Stats: "30 days" is not a Stats period (the data model has all time or one year; mock 8 shows it). The highlighted column is the best month, not the current one (mock 8). The Past goals tab's rows have no chip.
 
-- Hold-only actions: unlink a book (`hardcover_menu.lua`, the "Linked book" row) and the compatibility-mode help text. Discard queued changes is a button in the Pending changes list now (`pending_changes_dialog.lua`); it was a hold on Sync.
+- Hold-only actions: unlink a book (`hardcover_menu.lua`, the "Linked book" row) and the compatibility-mode help text. Also holding the scroll bar's up or down triangle, which jumps to the start or end of the screen (`components/scroll_control.lua`): a long screen needs a fast way to either end and the triangles are the only control, so the owner accepts it as an exception with no visible control. Discard queued changes is a button in the Pending changes list now (`pending_changes_dialog.lua`); it was a hold on Sync.
 - Grey fills and lines in the charts: levels down to 0xBB, a 0xD8 gridline, 0x88 dashes (`chart_widgets.lua`, `charts.lua`). Allowed (see the decisions), to be polished.
 - `Theme.hatchRect` paints at 40% opacity, so its stripes anti-alias to grey; nothing calls it yet.
 - Search: `components/search_field.lua` is the field (Home, and the query on the results screen). Tapping it opens KOReader's `InputDialog` for the typing; there is no inline typing. Mock 3's search icon on a shelf is still not built.

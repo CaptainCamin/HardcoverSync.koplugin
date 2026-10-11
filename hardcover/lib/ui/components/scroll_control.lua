@@ -95,6 +95,7 @@ function ScrollControl:init()
   self.dimen = Geom:new { x = 0, y = 0, w = self.width, h = self.height }
   self.ges_events = {
     TapScrollControl = { GestureRange:new { ges = "tap", range = function() return self.dimen end } },
+    HoldScrollControl = { GestureRange:new { ges = "hold", range = function() return self.dimen end } },
   }
 end
 
@@ -140,6 +141,31 @@ function ScrollControl:onTapScrollControl(_, ges)
     self.scroll:onScrollPageDown()
   end
   return true
+end
+
+-- Holding the top triangle's touch area jumps to the start, the bottom one's to the end; a shortcut for
+-- the taps, which step a page. Anywhere else on the column does nothing.
+function ScrollControl:onHoldScrollControl(_, ges)
+  if not (self:metrics() and ges and ges.pos) then return false end
+  local touch = Theme.TOUCH_MIN
+  local dy = ges.pos.y - self.dimen.y
+  if dy < touch then
+    self:jump("start")
+  elseif dy >= self.dimen.h - touch then
+    self:jump("end")
+  end
+  return true
+end
+
+-- Move the scroll to its first or last place. A paged list (a shelf) goes through its own `jump`.
+function ScrollControl:jump(where)
+  local s = self.scroll
+  if type(s.jump) == "function" then return s.jump(where) end
+  local _, max = self:metrics()
+  if not max then return end
+  s:setScrolledOffset(Geom:new { x = 0, y = where == "start" and 0 or max })
+  if type(s._updateScrollBars) == "function" then s:_updateScrollBars() end
+  require("ui/uimanager"):setDirty(s, function() return "ui", s.dimen end)
 end
 
 -- Put the control on `scroll` and return the widget to show in its place. `rows` (optional) is the
@@ -194,6 +220,7 @@ function ScrollControl.paged(opts)
   end })
   function pager.onScrollPageUp() opts.go(opts.page() - 1) end
   function pager.onScrollPageDown() opts.go(opts.page() + 1) end
+  function pager.jump(where) opts.go(where == "start" and 1 or opts.pages()) end
   pager.dimen = Geom:new { x = 0, y = 0, w = 0, h = 0 }
   return ScrollControl:new { scroll = pager, width = ScrollControl.gutter(), height = opts.height }
 end
