@@ -5,6 +5,8 @@ checked yet, Finished and Did not finish. The book and the library are stand-ins
 the panel are the real thing.
 ]]
 
+local Blitbuffer = require("ffi/blitbuffer")
+local Device = require("device")
 local fixtures = require("fixtures")
 
 local HARDCOVER = { READING = 2, TO_READ = 1, FINISHED = 3, DNF = 5 }
@@ -20,19 +22,19 @@ local cases = {
     key = "want_to_read",
     book_status = { id = 502, status_id = HARDCOVER.TO_READ, user_book_reads = {} },
     shelf = "On your 'Want to Read' shelf",
-    switch = true, note = true, progress = true,
+    switch = true, note = true, progress = false,
   },
   {
     key = "not_on_shelf",
     book_status = { not_on_shelf = true, user_book_reads = {} },
     shelf = "Not on a shelf",
-    switch = true, note = true, progress = true,
+    switch = true, note = true, progress = false,
   },
   {
     key = "not_checked",
     book_status = { user_book_reads = {} },
     shelf = "Shelf not checked yet",
-    switch = true, note = false, progress = true,
+    switch = true, note = false, progress = false,
   },
   {
     key = "finished",
@@ -41,7 +43,7 @@ local cases = {
     switch = false, note = false, progress = true,
   },
   {
-    -- no page was ever saved, so the panel must not claim "Page 0 of 387"
+    -- no page was ever saved, so the panel must not claim "Page 0 of 387" (nor may Want to Read, no shelf, or unchecked)
     key = "did_not_finish",
     book_status = { id = 504, status_id = HARDCOVER.DNF, user_book_reads = {} },
     shelf = "On your 'Did Not Finish' shelf",
@@ -107,6 +109,8 @@ return {
 
       emu:shot("reader_panel_status_" .. case.key)
       emu:closeAll()
+      -- a sheet only paints its own rows, so wipe the screen or the last, taller one shows through
+      Device.screen.bb:fill(Blitbuffer.COLOR_WHITE)
     end
   end,
 }

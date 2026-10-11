@@ -201,8 +201,9 @@ function HardcoverMenu:showReaderPanel()
     local pages = self.settings:pages()
     if linked and pages then
       local saved = read and read.progress_pages
-      -- a finished book says where it stopped only when a page was saved; "Page 0" would be false
-      if saved or not finished then
+      -- how far is said only when it is true: a saved page, or a book being read. A book on no shelf,
+      -- Want to Read, or finished with nothing saved has no page to report ("Page 0" would be false).
+      if (saved and saved > 0) or status_id == HARDCOVER.STATUS.READING then
         local page = saved or 0
         bits[#bits + 1] = T(_("Page %1 of %2"), page, pages)
         bits[#bits + 1] = T(_("%1%"), math.floor(100 * page / pages + 0.5))
