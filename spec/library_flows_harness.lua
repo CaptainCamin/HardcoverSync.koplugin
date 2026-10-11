@@ -369,6 +369,21 @@ check("on its own, cancelling a failed load closes the screen", function()
   assert(not UIManagerShown(dialog), "the screen is still open")
 end)
 
+print("\n== no goals ==")
+
+check("saved and fresh goals say the same thing when there are none", function()
+  local m = newManager()
+  local goals_class = real_require("hardcover/lib/ui/goals_dialog")
+  assert(type(goals_class.NO_GOALS) == "string" and goals_class.NO_GOALS:find("+", 1, true), "the text points at the + button")
+  local fake_new, made = goals_class.new, nil
+  goals_class.new = function(_, o) o.free = function() end; made = o; return o end
+  m.shelf_cache:putGoals(User:getId(), {})
+  online = false
+  m:showGoals()
+  goals_class.new = fake_new
+  assert(made and made.message == goals_class.NO_GOALS, "the saved empty list says " .. tostring(made and made.message))
+end)
+
 print("\n== Home keeps the shelves saved ==")
 
 check("with every fingerprint as saved, Home's check downloads nothing", function()

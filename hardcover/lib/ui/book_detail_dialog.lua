@@ -248,9 +248,10 @@ function BookDetailDialog:init()
   -- where the book is on your shelves: a filled pill with the status, or an outlined "Not on a shelf"
   -- so the line is there for every book (not tappable; the Shelf button below is how it changes)
   local status_id = (self.detail or {}).status_id
-  self.status_text = Theme.pill(status_id and Shelf.statusLabel(status_id) or _("Not on a shelf"), {
-    filled = status_id ~= nil, max_width = text_width - 2 * Theme.space.m,
-  })
+  self.status_text = require("hardcover/lib/ui/components/chip").new {
+    label = status_id and Shelf.statusLabel(status_id) or _("Not on a shelf"),
+    selected = status_id ~= nil, size = 15, width = text_width,
+  }
   addTo(column, Theme.span("s"))
   addTo(column, self.status_text)
   if summary.facts then

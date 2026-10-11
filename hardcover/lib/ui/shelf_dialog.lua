@@ -33,6 +33,7 @@ local ShelfSort = require("hardcover/lib/shelf_sort")
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
+local SearchField = require("hardcover/lib/ui/components/search_field")
 local TopBar = require("hardcover/lib/ui/components/top_bar")
 
 local Screen = Device.screen
@@ -137,15 +138,35 @@ end
 -- "Load more" block when the shelf is not all here yet.
 function ShelfDialog:buildItems()
   local entries = self.entries or {}
+  local more = self.has_more and self.fetch_page and #entries > 0 and true or false
+  -- turning a page builds the list again, and the entries have not changed: the sorted
+  -- list is kept (a book is only ever added at the end, which changes the count)
+  local cache = self.items_cache
+  if cache and cache.entries == entries and cache.count == #entries and cache.sort_key == self.sort_key
+      and cache.sortable == self.sortable and cache.more == more then
+    return cache.items
+  end
+
   if self.sortable then entries = ShelfSort.sort(entries, self.sort_key) end
+  local dialog = self
+  -- A row's data is worked out the first time something reads it, so only the page on
+  -- screen is ever shaped (a shelf of thousands of books costs one page).
+  local lazy = { __index = function(item, key)
+    if rawget(item, "shaped") or item.kind ~= "book" then return nil end
+    item.shaped = true
+    local row = dialog:createListItem(item.entry)
+    item.row, item.rating, item.rank, item.reason = row, row.rating, row.rank, row.reason
+    return rawget(item, key)
+  end }
   local items = {}
   for _i, entry in ipairs(entries) do
-    local row = self:createListItem(entry)
-    items[#items + 1] = { kind = "book", row = row, entry = entry, rating = row.rating, rank = row.rank, reason = row.reason }
+    items[#items + 1] = setmetatable({ kind = "book", entry = entry }, lazy)
   end
-  if self.has_more and self.fetch_page and #items > 0 then
+  if more then
     items[#items + 1] = { kind = "more" }
   end
+  self.items_cache = { entries = self.entries, count = #(self.entries or {}), sort_key = self.sort_key,
+    sortable = self.sortable, more = more, items = items }
   return items
 end
 
@@ -237,17 +258,34 @@ function ShelfDialog:build()
   self.title_bar = bar
   self.close_button = bar.back_button
   self.sort_button = self.sortable and bar.action_buttons[1] or nil
-  local body_h = sh - bar:getSize().h
+  -- a search screen shows what was searched for in a search field under the bar: tap it to edit
+  -- the words, the X to clear them (which leaves the results)
+  local strip
+  if self.search then
+    strip = VerticalGroup:new { align = "left", Theme.span(px(8)),
+      HorizontalGroup:new { Theme.hspan(SIDE), SearchField.new {
+        width = sw - 2 * SIDE, query = self.search.query,
+        on_tap = function(query) self.search.on_edit(query) end,
+        on_clear = function() self.search.on_clear() end } },
+      Theme.span(px(8)) }
+  end
+  self.search_strip = strip
+  local top_h = bar:getSize().h + (strip and strip:getSize().h or 0)
+  local body_h = sh - top_h
 
   self.items = self:buildItems()
   self.row_h = ROW_H
   for _i, item in ipairs(self.items) do
-    if item.reason then self.row_h = ROW_H_REASON break end
+    -- (read from the entry: asking the item would shape every row)
+    if item.entry and type(item.entry.reason) == "string" and item.entry.reason ~= "" then
+      self.row_h = ROW_H_REASON
+      break
+    end
   end
   self.per_page = self:rowsPerPage(body_h)
   self.pages = math.max(1, math.ceil(#self.items / self.per_page))
   self.page = math.max(1, math.min(self.page or 1, self.pages))
-  self.body_region = Geom:new { x = 0, y = bar:getSize().h, w = sw, h = body_h }
+  self.body_region = Geom:new { x = 0, y = top_h, w = sw, h = body_h }
 
   local width = self.pages > 1 and (sw - ScrollControl.gutter()) or sw
   self.rows = {}
@@ -308,7 +346,8 @@ function ShelfDialog:build()
   self.frame = FrameContainer:new {
     width = sw, height = sh, background = Blitbuffer.COLOR_WHITE,
     bordersize = 0, padding = 0, margin = 0,
-    VerticalGroup:new { align = "left", bar, content },
+    strip and VerticalGroup:new { align = "left", bar, strip, content }
+      or VerticalGroup:new { align = "left", bar, content },
   }
   self[1] = self.frame
 
