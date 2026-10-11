@@ -5,8 +5,6 @@ checked yet, Finished and Did not finish. The book and the library are stand-ins
 the panel are the real thing.
 ]]
 
-local Blitbuffer = require("ffi/blitbuffer")
-local Device = require("device")
 local fixtures = require("fixtures")
 
 local HARDCOVER = { READING = 2, TO_READ = 1, FINISHED = 3, DNF = 5 }
@@ -136,8 +134,6 @@ return {
 
       emu:shot("reader_panel_status_" .. case.key)
       emu:closeAll()
-      -- a sheet only paints its own rows, so wipe the screen or the last, taller one shows through
-      Device.screen.bb:fill(Blitbuffer.COLOR_WHITE)
     end
   end,
 }

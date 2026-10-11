@@ -548,6 +548,9 @@ function M.boot(opts)
       n = n + 1
       if n > 50 then break end
     end
+    -- a sheet only paints its own rows, so without a wipe the next, shorter one is drawn over the last
+    local Device = require("device")
+    Device.screen.bb:fill(require("ffi/blitbuffer").COLOR_WHITE)
     return n
   end
 
