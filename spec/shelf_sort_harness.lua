@@ -104,6 +104,20 @@ check("equal values keep the arrival order (the sort is stable)", function()
   end
 end)
 
+check("each book's sort key is worked out once, not once per comparison", function()
+  for _, key in ipairs({ "title", "author", "pages_asc" }) do
+    local reads = 0
+    local list = {}
+    for i = 1, 200 do
+      local data = book(i, { title = "Title " .. (i * 37 % 200), authors = "A B" .. (i * 53 % 200),
+        pages = i * 29 % 200 })
+      list[i] = setmetatable({}, { __index = function(_, k) reads = reads + 1; return data[k] end })
+    end
+    ShelfSort.sort(list, key)
+    assert(reads <= #list, key .. " read its field " .. reads .. " times for " .. #list .. " books")
+  end
+end)
+
 check("an empty or missing list is fine", function()
   assert(#ShelfSort.sort({}, "title") == 0 and #ShelfSort.sort(nil, "title") == 0)
 end)

@@ -190,6 +190,20 @@ check("a submit closes the input, searches once with the trimmed text and shows 
   assert(d.has_more == false)
   assert(UIManager:isWidgetShown(d))
 end)
+check("the results screen carries the query for its search field: edit reopens the input, clear leaves", function()
+  local m = manager()
+  answer = { books = books(3) }
+  submit(m, "earthsea")
+  local d = results_dialogs[1]
+  assert(d.search and d.search.query == "earthsea", "no query for the field")
+  local before = #inputs
+  d.search.on_edit("earthsea")
+  assert(#inputs == before + 1 and inputs[#inputs].input == "earthsea", "edit did not reopen the input with the query")
+  local closed
+  d.onClose = function() closed = true end
+  d.search.on_clear()
+  assert(closed, "clear did not leave the results")
+end)
 check("results are capped at 25", function()
   local m = manager()
   answer = { books = books(60) }

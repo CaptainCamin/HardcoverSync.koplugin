@@ -6,7 +6,6 @@ local UIManager = require("ui/uimanager")
 local Hosted = require("hardcover/lib/ui/hosted")
 local Live = require("hardcover/lib/ui/live")
 local Network = require("hardcover/lib/network")
-local Notification = require("ui/widget/notification")
 
 local InfoMessage = require("ui/widget/infomessage")
 
@@ -479,9 +478,16 @@ end
 function DialogManager:showSearchResults(query, books)
   self:screens():discard("search_results")
 
-  local dialog = require("hardcover/lib/ui/shelf_dialog"):new {
+  local dialog -- named before it is built: its callbacks refer to it
+  dialog = require("hardcover/lib/ui/shelf_dialog"):new {
     compatibility_mode = self.settings:compatibilityMode(),
     title = BookSearch.title(query),
+    -- the words searched for sit in a search field: tap to edit them, X to clear them and leave
+    search = {
+      query = query,
+      on_edit = function(text) self:showSearchInput(text) end,
+      on_clear = function() dialog:onClose() end,
+    },
     entries = books,
     has_more = false,
     offset = #books,
@@ -585,6 +591,19 @@ function DialogManager:showShelvesBody(host)
   }
   self:screens():track("shelves", body)
   return body
+end
+
+-- The Cancel of a failed load's "Retry?" question. On its own the screen closes; as a tab of the
+-- shell there is nothing to close, so it would be left saying "Loading ..." for good: it says the
+-- load failed instead.
+function DialogManager:loadFailed(dialog, host, message)
+  return function()
+    if not host then
+      UIManager:close(dialog)
+    elseif Live.shown(dialog) and dialog.setMessage then
+      dialog:setMessage(message)
+    end
+  end
 end
 
 -- Sync now sends what is waiting, straight away (it finds a connection, or says it could not).
@@ -824,7 +843,7 @@ function DialogManager:showGoals(host)
     end,
   }
   if cached and #(self:shownGoals(cached)) == 0 then
-    dialog.message = _("No goals yet. Tap New goal to set one.")
+    dialog.message = require("hardcover/lib/ui/goals_dialog").NO_GOALS
   end
   self:screens():track("goals", dialog)
   if not host then UIManager:show(dialog) elseif host.remount then Hosted.remount(host, dialog) end
@@ -846,7 +865,7 @@ function DialogManager:showGoals(host)
           self:showGoals(host and { shell = host.shell, width = host.width, height = host.height,
             id = host.id, parent = host.parent, remount = true })
         end,
-        function() if not host then UIManager:close(dialog) end end)
+        self:loadFailed(dialog, host, _("Couldn't load your goals.")))
     end
   end)
   return dialog
@@ -913,7 +932,7 @@ function DialogManager:showStats(host)
             self:showStats(host and { shell = host.shell, width = host.width, height = host.height,
               id = host.id, parent = host.parent, remount = true })
           end,
-          function() if not host then UIManager:close(dialog) end end)
+          self:loadFailed(dialog, host, _("Couldn't load your stats.")))
       end
     end)
   end
@@ -1020,7 +1039,7 @@ function DialogManager:queueGoalChange(dialog, apply_fn, on_saved, goal, notice)
   self:applyGoals(self:savedGoals(), goal)
   UIManager:close(dialog)
   if on_saved and goal then on_saved(goal) end
-  UIManager:show(Notification:new { text = notice or _("Saved on this device. It will sync when you're online.") })
+  StatusDialogs.info(notice or _("Saved on this device. It will sync when you're online."))
 end
 
 function DialogManager:saveGoal(dialog, form, on_saved)
@@ -1116,7 +1135,7 @@ function DialogManager:archiveGoal(dialog, goal, on_saved)
     end
     UIManager:close(dialog)
     if not on_goal_screen then self:closeGoalScreen(goal.id) end
-    UIManager:show(Notification:new { text = GoalActions.archivedNotice(goal.id, false) })
+    StatusDialogs.info(GoalActions.archivedNotice(goal.id, false))
     if on_saved then on_saved(nil) end
   end)
 end
@@ -1265,7 +1284,7 @@ function DialogManager:showVibes(host)
           self:showVibes(host and { shell = host.shell, width = host.width, height = host.height,
             id = host.id, parent = host.parent, remount = true })
         end,
-        function() if not host then UIManager:close(dialog) end end)
+        self:loadFailed(dialog, host, _("Couldn't load your vibes.")))
       return
     end
     if #vibes == 0 then

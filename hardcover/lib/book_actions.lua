@@ -96,4 +96,21 @@ function BookActions.statusWrite(status_id, event)
   return "allow"
 end
 
+--
+-- What a page turn does to Hardcover, given the book's effective status.
+--   `status_id`       the status (a queued change counts), or nil if not known
+--   `known_no_shelf`  Hardcover was asked and has no record of the book on any shelf
+--   "allow"  send the page
+--   "move"   the book is wanted, or on no shelf: set it to Currently Reading, then send
+--   "block"  Finished, Did not finish, or any other status: send nothing
+--
+function BookActions.pageWrite(status_id, known_no_shelf)
+  if status_id == HARDCOVER.STATUS.READING then return "allow" end
+  if status_id == HARDCOVER.STATUS.TO_READ then return "move" end
+  if status_id == nil then
+    return known_no_shelf and "move" or "allow"
+  end
+  return "block"
+end
+
 return BookActions

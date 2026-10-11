@@ -56,39 +56,24 @@ local function authorKey(entry)
   return surname:lower() .. "\0" .. first:lower()
 end
 
--- number fields: missing values go last whichever way the sort runs
-local function numberSorter(field, descending)
-  return function(a, b)
-    local x, y = tonumber(a[field]), tonumber(b[field])
-    if x == nil and y == nil then return nil end
-    if x == nil then return false end
-    if y == nil then return true end
-    if x == y then return nil end
-    if descending then return x > y end
-    return x < y
-  end
+local function numberKey(field)
+  return function(entry) return tonumber(entry[field]) end
 end
 
-local function textSorter(keyfn)
-  return function(a, b)
-    local x, y = keyfn(a), keyfn(b)
-    if x == y then return nil end
-    return x < y
-  end
-end
-
+-- Each order is a key worked out once per book (not once per comparison, which
+-- on a slow device is the difference between a noticeable pause and none), and
+-- whether the keys are numbers. Number fields: missing values go last whichever
+-- way the sort runs.
 local SORTERS = {
-  added_desc = nil, -- the order they arrive in
-  added_asc = "reverse",
-  title = textSorter(titleKey),
-  author = textSorter(authorKey),
-  year_desc = numberSorter("release_year", true),
-  year_asc = numberSorter("release_year", false),
-  pages_asc = numberSorter("pages", false),
-  pages_desc = numberSorter("pages", true),
-  popular = numberSorter("users_count", true),
-  rating = numberSorter("community_rating", true),
-  my_rating = numberSorter("user_rating", true),
+  title = { key = titleKey },
+  author = { key = authorKey },
+  year_desc = { key = numberKey("release_year"), numeric = true, descending = true },
+  year_asc = { key = numberKey("release_year"), numeric = true },
+  pages_asc = { key = numberKey("pages"), numeric = true },
+  pages_desc = { key = numberKey("pages"), numeric = true, descending = true },
+  popular = { key = numberKey("users_count"), numeric = true, descending = true },
+  rating = { key = numberKey("community_rating"), numeric = true, descending = true },
+  my_rating = { key = numberKey("user_rating"), numeric = true, descending = true },
 }
 
 --
@@ -112,18 +97,29 @@ function ShelfSort.sort(entries, key)
     return reversed
   end
 
-  local compare = SORTERS[key]
-  local order = {}
-  for i, entry in ipairs(list) do order[entry] = i end
+  local sorter = SORTERS[key]
+  local keyOf, numeric, descending = sorter.key, sorter.numeric, sorter.descending
+  local keys, order = {}, {}
+  for i, entry in ipairs(list) do
+    keys[i] = keyOf(entry)
+    order[i] = i
+  end
 
-  table.sort(list, function(a, b)
-    local result = compare(a, b)
-    if result == nil then
-      return order[a] < order[b]
+  local function before(i, j)
+    local x, y = keys[i], keys[j]
+    if x == y then return i < j end
+    if numeric then
+      if x == nil then return false end
+      if y == nil then return true end
+      if descending then return x > y end
     end
-    return result
-  end)
-  return list
+    return x < y
+  end
+  table.sort(order, before)
+
+  local sorted = {}
+  for n, i in ipairs(order) do sorted[n] = list[i] end
+  return sorted
 end
 
 return ShelfSort

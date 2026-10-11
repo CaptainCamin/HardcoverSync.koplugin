@@ -710,6 +710,8 @@ function HardcoverMenu:getSyncMenuItem()
     separator = true,
     -- the settings screen shows this one as a tile at the top
     tile = _("Sync"),
+    -- how Home's Sync now finds it: the tile's words are translated, so they cannot be the key
+    tile_id = "sync",
   }
 end
 

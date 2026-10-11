@@ -161,6 +161,7 @@ fakeClass("hardcover/lib/ui/stats_dialog", "stats")
 fakeClass("hardcover/lib/ui/home_dialog", "home")
 fakeClass("hardcover/lib/ui/lists_dialog", "lists")
 
+local function UIManagerShown(w) for _, x in ipairs(stack) do if x == w then return true end end return false end
 local clock = 1000000
 local FP = { [1] = "1|A|", [2] = "1|B|", [3] = "2|C|9.0", [5] = "0||" }
 
@@ -333,6 +334,69 @@ check("a book removed from the library leaves its saved shelf", function()
   local m = newManager()
   m:shelfChanged(6, 3, nil)
   assert(m.shelf_store:member(1, 6) == nil)
+end)
+
+print("\n== a tab that fails to load ==")
+
+check("as a tab of the shell, cancelling a failed load says so instead of loading for good", function()
+  local m = newManager()
+  local shell = {}
+  stack[#stack + 1] = shell
+  local messages = {}
+  local goals_class = real_require("hardcover/lib/ui/goals_dialog")
+  local fake_new = goals_class.new
+  goals_class.new = function(_, o)
+    o = o or {}
+    o.setMessage = function(_, text) messages[#messages + 1] = text end
+    o.free = function() end
+    return o
+  end
+  local cancel
+  Api.getGoalsAsync = function(_, cb) cb(nil, { message = "boom" }) end
+  StatusDialogs.retry = function(_err, _what, _retry, on_cancel) cancel = on_cancel end
+  m:showGoals({ shell = shell, width = 100, height = 100, id = "goals" })
+  goals_class.new = fake_new
+  assert(cancel, "a failed load did not ask to retry")
+  cancel()
+  assert(#messages == 1 and messages[1]:find("load your goals", 1, true), "the tab says " .. table.concat(messages, "|"))
+end)
+
+check("on its own, cancelling a failed load closes the screen", function()
+  local m = newManager()
+  local dialog = { setMessage = function() error("no message on a screen that closes") end }
+  stack[#stack + 1] = dialog
+  m:loadFailed(dialog, nil, "x")()
+  assert(not UIManagerShown(dialog), "the screen is still open")
+end)
+
+print("\n== Home's Sync now ==")
+
+check("Sync now runs the sync item, whatever language its tile is in", function()
+  local m = newManager()
+  local ran = 0
+  m.settings_items = function()
+    return {
+      { text = "x", callback = function() error("not the sync item") end },
+      { tile = "Synchroniser", tile_id = "sync", callback = function() ran = ran + 1 end },
+    }
+  end
+  m:syncNow()
+  assert(ran == 1, "the sync item ran " .. ran .. " times")
+end)
+
+print("\n== no goals ==")
+
+check("saved and fresh goals say the same thing when there are none", function()
+  local m = newManager()
+  local goals_class = real_require("hardcover/lib/ui/goals_dialog")
+  assert(type(goals_class.NO_GOALS) == "string" and goals_class.NO_GOALS:find("+", 1, true), "the text points at the + button")
+  local fake_new, made = goals_class.new, nil
+  goals_class.new = function(_, o) o.free = function() end; made = o; return o end
+  m.shelf_cache:putGoals(User:getId(), {})
+  online = false
+  m:showGoals()
+  goals_class.new = fake_new
+  assert(made and made.message == goals_class.NO_GOALS, "the saved empty list says " .. tostring(made and made.message))
 end)
 
 print("\n== Home keeps the shelves saved ==")

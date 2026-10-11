@@ -306,6 +306,14 @@ check("it has nothing about a book, because none is open", function()
   end
 end)
 
+check("the Sync item carries an id of its own, because its tile's words are translated", function()
+  local found
+  for _, item in ipairs(newMenu():getHomeSettingsItems()) do
+    if item.tile_id == "sync" then found = item end
+  end
+  assert(found and found.callback, "Home's Sync now finds the item by tile_id")
+end)
+
 check("the reader menu has no About or Home (they live behind the home screen)", function()
   local m = labels(true)
   assert(not has(m, "About") and not has(m, "Home"), shown(m))

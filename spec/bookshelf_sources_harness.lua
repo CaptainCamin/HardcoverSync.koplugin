@@ -241,4 +241,34 @@ do
   r.check("and is then found under the same key", #got == 1 and got[1].title == "Listed")
 end
 
+-- ------------------------------------------------------------ sorting is not repeated
+do
+  local entries = {}
+  for i = 1, 30 do
+    entries[i] = { book_id = i, title = "Book " .. (i * 7 % 30), authors = "Au Thor" .. i,
+      pages = i * 13 % 30 }
+  end
+  local a, s = fakeApp { user_id = 21, entries = entries }
+  Sources.register(a)
+  local ShelfSort = require("hardcover/lib/shelf_sort")
+  local real, sorts = ShelfSort.sort, 0
+  ShelfSort.sort = function(...) sorts = sorts + 1; return real(...) end
+  local fetch = s.hardcover_shelf.fetch
+  local by_title = { status_id = 2, sort_key = "title" }
+  local by_pages = { status_id = 2, sort_key = "pages_desc" }
+  fetch(by_title, nil, 0, 5); fetch(by_title, nil, 5, 5)
+  r.check("turning pages sorts the shelf once", sorts == 1, sorts)
+  fetch(by_pages, nil, 0, 5)
+  for _ = 1, 3 do fetch(by_title, nil, 0, 5); fetch(by_pages, nil, 0, 5) end
+  r.check("two sorts of one shelf are each kept, not rebuilt in turn", sorts == 2, sorts)
+  local page = fetch(by_pages, nil, 0, 5)
+  r.check("and each still gives its own order", page[1].pages >= page[2].pages)
+  r.check("only the page asked for becomes book records", #fetch(by_title, nil, 25, 10) == 5)
+  -- a download page arrives: the entries grew, so the list is sorted again
+  entries[#entries + 1] = { book_id = 31, title = "Aaa", authors = "Z", pages = 1 }
+  r.check("new entries are sorted in", fetch(by_title, nil, 0, 1)[1].title == "Aaa"
+    and sorts == 3, sorts)
+  ShelfSort.sort = real
+end
+
 r.finish()

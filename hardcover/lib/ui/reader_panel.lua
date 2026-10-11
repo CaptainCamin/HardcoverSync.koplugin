@@ -78,7 +78,8 @@ function ReaderPanel:render()
     pill_row = HorizontalGroup:new { align = "center" }
     for i, pill in ipairs(model.pills) do
       if i > 1 then table.insert(pill_row, Theme.hspan("s")) end
-      table.insert(pill_row, Theme.pill(pill.text, { filled = pill.filled, max_width = width }))
+      table.insert(pill_row, require("hardcover/lib/ui/components/chip").new {
+        label = pill.text, selected = pill.filled, size = 15, width = width })
     end
   end
   local title = Theme.mmdText(model.title, "strong", 25, { width = width })
@@ -103,7 +104,7 @@ function ReaderPanel:render()
   end
 
   -- the actions, two to a row; an action that cannot be used right now keeps its place, in
-  -- secondary text and without a tap
+  -- a dotted box and without a tap
   table.insert(content, Theme.span(Theme.px(14)))
   -- stacked as in the mock; two to a row only when the screen is wider than it is tall
   local gap = Theme.px(16)
