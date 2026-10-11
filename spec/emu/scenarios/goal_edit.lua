@@ -12,7 +12,14 @@ local fixtures = require("fixtures")
 local Goals = require("hardcover/lib/goals")
 local UIManager = require("ui/uimanager")
 
-local function top() return UIManager:getTopmostVisibleWidget() end
+-- the topmost window that is not a snackbar (the "Goal archived" notice floats above and is a
+-- window of its own: a snackbar spends the tap that closes it, so it is not a KOReader toast)
+local function top()
+  for i = #UIManager._window_stack, 1, -1 do
+    local w = UIManager._window_stack[i].widget
+    if w and not (w.toast or w.snackbar) then return w end
+  end
+end
 
 -- a widget under `root` with this text that can be tapped (a button), painted first
 local function find_button(root, label, seen)
