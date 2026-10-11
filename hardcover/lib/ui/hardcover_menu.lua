@@ -39,6 +39,25 @@ function HardcoverMenu:new(o)
   }, self)
 end
 
+-- What can be done to the file's link, as a list: change the edition, link a different book, unlink.
+-- The book page's Edition button opens it. `on_close` is called when the list is closed.
+function HardcoverMenu:showLinkActions(on_close)
+  local view = self:getSubMenuItems(true)
+  local edition_item = findItem(view, "Change edition")
+  local link_item = findItem(view, "Linked book") or findItem(view, "Link book")
+  require("hardcover/lib/ui/settings_dialog").show {
+    title = _("Edition"),
+    items = {
+      { text = _("Change edition"), enabled_func = edition_item and edition_item.enabled_func,
+        callback = edition_item and edition_item.callback, keep_menu_open = true },
+      { text = _("Link a different book"), enabled_func = link_item and link_item.enabled_func,
+        callback = link_item and link_item.callback, keep_menu_open = true },
+      self:getUnlinkMenuItem(),
+    },
+    on_close = on_close,
+  }
+end
+
 -- Run a dialog-opening action immediately, arranging wifi around it.
 --
 -- This exists because running the action from inside an AutoWifi callback made
@@ -182,7 +201,6 @@ function HardcoverMenu:showReaderPanel()
     local note_item = findItem(status_items, "Add a note")
     local settings_item = findItem(view, "Settings")
     local link_item = findItem(view, "Linked book") or findItem(view, "Link book")
-    local edition_item = findItem(view, "Change edition")
     -- just the statuses (and Remove); page, note and rating have buttons of their own
     local status_item = findItem(view, "Update status") and {
       text = _("Update status"),
@@ -219,8 +237,8 @@ function HardcoverMenu:showReaderPanel()
       actions[#actions + 1] = action
     end
 
-    -- the mid-book actions, as in the mock. The edition and the link are one button: it shows the
-    -- edition the file is linked to, and opens the list of what can be done to the link
+    -- the mid-book actions, as in the mock. The edition and the link are changed from the book's
+    -- page (its Edition button; see showLinkActions)
     if linked then
       -- progress can only be set on a book being read; when it is not, the same button
       -- opens the statuses, so it never sits there dead with no reason given
@@ -229,18 +247,6 @@ function HardcoverMenu:showReaderPanel()
       else
         add(_("Change status"), status_item)
       end
-      local format = self.settings:getLinkedEditionFormat()
-      local link_list = {
-        { text = _("Change edition"), enabled_func = edition_item and edition_item.enabled_func,
-          callback = edition_item and edition_item.callback, keep_menu_open = true },
-        { text = _("Link a different book"), enabled_func = link_item and link_item.enabled_func,
-          callback = link_item and link_item.callback, keep_menu_open = true },
-        self:getUnlinkMenuItem(),
-      }
-      actions[#actions + 1] = {
-        text = format and (_("Edition: ") .. format) or _("Edition: not chosen"),
-        run = function() run({ text = _("Edition"), sub_item_table = link_list }) end,
-      }
       actions[#actions + 1] = {
         text = _("Open book page"), enabled = self.enabled,
         run = function()

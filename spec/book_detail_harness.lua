@@ -847,7 +847,8 @@ check("Find on device: a button that calls back with the dialog, and none withou
   assert(all.open_button == nil, "Open for a book that is not on the device")
   assert(all.reviews_button.width == all.content_width, "Reviews is not the page's width")
   assert(all.find_button.width + all.zlibrary_button.width < all.content_width, "Find and Z-library do not fit one row")
-  assert(all.add_button.width * 2 < all.content_width, "Add is not half a row, with room beside it")
+  assert(all.add_button.width == all.content_width, "Add does not take the whole row without Edition")
+  assert(all.edition_button == nil, "Edition without a handler")
 end)
 
 check("Open: the one filled button, for a book that is on the device; then Find and Z-library are not offered", function()
@@ -916,6 +917,19 @@ check("the action bar's rows: Open or (Find, Z-library), Reviews, Add; each only
   assert(names(BookDetailDialog:new { detail = detail(FULL), on_reviews = function() end, on_zlibrary = function() end,
     on_find = function() end, on_lists = function() end }) == "find+zlibrary,reviews,add")
   assert(names(BookDetailDialog:new { detail = detail(FULL), on_open = function() end, on_reviews = function() end }) == "open,reviews,add")
+end)
+
+check("Edition: a button beside Add, only with a handler, calling back with the dialog", function()
+  local got
+  local d = BookDetailDialog:new { detail = detail(FULL), on_edition = function(dialog) got = dialog end }
+  assert(d.edition_button and d.edition_button.text == "Edition", "no Edition button")
+  d.edition_button.callback()
+  assert(got == d, "tapping it did not call back")
+  assert(deep(d.action_bar, d.edition_button) and d.edition_button.width < d.content_width, "Edition is not in the Add row")
+  assert(d.add_button.width == d.edition_button.width, "Add and Edition do not share the row equally")
+  assert(BookDetailDialog:new { detail = detail(FULL) }.edition_button == nil, "Edition without a handler")
+  d:setSeries(nil, nil)
+  assert(d.edition_button, "the rebuild lost the button")
 end)
 
 check("Your rating is five stars, the whole row a tap to rate", function()

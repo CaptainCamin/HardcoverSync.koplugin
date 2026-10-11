@@ -68,6 +68,8 @@ function Flows:showBookDetail(book_id, edition_id, opts)
     on_rating = function(d) self:rateBook(d) end,
     -- only when signed in with OAuth (the write scope is an OAuth thing)
     on_lists = self:canChooseLists() and function(d) self:chooseLists(d) end or nil,
+    -- only for the book that is open in the reader: its link is what changes
+    on_edition = self:canChangeEdition(book_id) and function(d) self:chooseEdition(d, book_id) end or nil,
     -- the reload icon: everything fetched again, the escape hatch for anything kept that
     -- has gone out of date
     on_refresh = function()
@@ -369,6 +371,26 @@ end
 
 -- Signed in with OAuth, so there is a sign-in whose scopes can say whether it may
 -- change lists.
+-- The edition is part of how a file is linked to a book, so the Edition button is for the book
+-- open in the reader only (the details screen opened from a shelf or a list has no file to relink).
+function Flows:canChangeEdition(book_id)
+  if not (book_id and self.ui and self.ui.document and self.show_link_actions) then return false end
+  return self.settings:getLinkedBookId() == book_id
+end
+
+-- Edition: the same list as the reader menu's link actions (change edition, link a different book,
+-- unlink). When the list closes and the link has changed, the details are opened again for what the
+-- file is linked to now.
+function Flows:chooseEdition(dialog, book_id)
+  local before_book, before_edition = self.settings:getLinkedBookId(), self.settings:getLinkedEditionId()
+  self.show_link_actions(function()
+    local book, edition = self.settings:getLinkedBookId(), self.settings:getLinkedEditionId()
+    if book == before_book and edition == before_edition then return end
+    UIManager:close(dialog)
+    if book then self:showBookDetail(book, edition) else self:showBookDetail(book_id) end
+  end)
+end
+
 function Flows:canChooseLists()
   local auth = Api.auth
   return auth ~= nil and auth:usingOAuth() and not auth:needsReauth()

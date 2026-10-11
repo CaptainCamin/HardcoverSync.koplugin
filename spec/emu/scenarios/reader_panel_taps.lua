@@ -77,20 +77,13 @@ return {
     assert(calls.sync == false, "the tick did not turn tracking off")
     assert(panel_is_top())
 
-    -- the panel is the mid-book actions, the edition (one button) and Cancel; the mock has nothing else
+    -- the panel is the mid-book actions and Cancel; the mock has nothing else
     local nodes = emu:screenText()
     for _, gone in ipairs({ "Add a note", "Reviews", "Change edition", "More", "Rate this book" }) do
       assert(not nodes:find(gone, 1, true), gone .. " is not on the panel")
     end
-    emu:expectText("Edition:")
-    emu:shot("reader_panel_edition")
-
-    -- the edition button opens the link's own list: change, relink, unlink
-    tapText("Edition:")
-    emu:expectText("Change edition")
-    emu:expectText("Link a different book")
-    emu:expectText("Unlink book")
-    emu:shot("reader_panel_edition_list")
+    -- the edition and the link are changed from the book page (its Edition button), not the panel
+    assert(not nodes:find("Edition", 1, true), "the panel still has an Edition button")
     emu:closeAll()
     panel = menu:showReaderPanel()
     emu:pump()
