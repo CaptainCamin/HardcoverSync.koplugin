@@ -42,7 +42,8 @@ return {
           state.book_status.status_id = status
         end,
       },
-      sync_queue = { pendingCount = function() return 0 end, hasPending = function() return false end },
+      sync_queue = { pendingCount = function() return 0 end, hasPending = function() return false end,
+                     get = function() return nil end },
       auth = { usingOAuth = function() return true end, needsReauth = function() return false end,
                statusText = function() return "Signed in" end },
       dialog_manager = {
