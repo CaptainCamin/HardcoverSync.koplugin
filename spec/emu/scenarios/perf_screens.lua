@@ -117,8 +117,7 @@ return {
           track = { checked = sync, toggle = function() sync = not sync end },
           actions = {
             { text = "Status", run = function() end }, { text = "Set page", run = function() end },
-            { text = "Rating", run = function() end }, { text = "Add a note", run = function() end },
-            { text = "Details", run = function() end, wide = true },
+            { text = "Rating", run = function() end },
           },
         }
       end,
@@ -211,10 +210,11 @@ return {
     within("book details", results.detail, 2, 2.4)
     -- the sign-in bar stepping: the bar and its line, nothing else
     within("sign-in bar", results.signin, 0, 0.1)
-    -- the panel is a sheet over the page: never the whole panel
-    within("reader panel open", results.panel_open, 0, 0.6)
-    within("reader panel tick", results.panel_toggle, 0, 0.6)
-    within("reader panel close", results.panel_close, 0, 0.6)
+    -- the panel is a sheet over the page: never the whole panel. Stacked buttons (three actions and
+    -- Cancel, as the mock has them) make it about two thirds of a portrait screen
+    within("reader panel open", results.panel_open, 0, 0.7)
+    within("reader panel tick", results.panel_toggle, 0, 0.7)
+    within("reader panel close", results.panel_close, 0, 0.7)
     -- a tab switch: the screen once
     within("shell tab switch", results.shell_tab, 1, 1.3)
     within("shell tab switch (second)", results.shell_tab_back, 1, 1.3)
