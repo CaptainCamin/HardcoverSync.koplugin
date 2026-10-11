@@ -15,7 +15,8 @@
 - **Pushed screens.** A shelf's books, book details, a goal, Settings are separate windows above the shell;
   closing one reveals the shell as it was.
 - **Back.** On any tab but Home it goes to Home; on Home it leaves.
-- **Home** (`ui/home_body.lua`) never scrolls: cards first, as many as fit (three at most); with fewer than
-  one card's room the shelves go, then the sync line. Never the nav bar.
+- **Home** (`ui/home_body.lua`) never scrolls: one reading card (the book you read most recently), then
+  the sync box, then as many shelf rows as fit; on a small screen the shelves go first, then the sync box.
+  Never the nav bar.
 - **Library** (`ui/library_body.lua`): Shelves (`ui/shelves_body.lua`) | Lists | Vibes (with "For you" first).
 - One tab switch is one full-screen refresh (`perf_screens` budgets it).
