@@ -98,19 +98,25 @@ end
 
 --
 -- What a page turn does to Hardcover, given the book's effective status.
---   `status_id`       the status (a queued change counts), or nil if not known
---   `known_no_shelf`  Hardcover was asked and has no record of the book on any shelf
---   "allow"  send the page
---   "move"   the book is wanted, or on no shelf: set it to Currently Reading, then send
---   "block"  Finished, Did not finish, or any other status: send nothing
+--   `status_id`  the status (a queued change counts), or nil if not known
+--   "allow"  Currently Reading: send the page
+--   "ask"    Want to Read, on no shelf, or not known: send nothing yet. After a few pages the reader
+--            is asked whether to start the book (see StartReading); a status is never guessed
+--   "block"  Finished, Did not finish, or any other status: send nothing, and never ask
 --
-function BookActions.pageWrite(status_id, known_no_shelf)
+function BookActions.pageWrite(status_id)
   if status_id == HARDCOVER.STATUS.READING then return "allow" end
-  if status_id == HARDCOVER.STATUS.TO_READ then return "move" end
-  if status_id == nil then
-    return known_no_shelf and "move" or "allow"
-  end
+  if status_id == nil or status_id == HARDCOVER.STATUS.TO_READ then return "ask" end
   return "block"
+end
+
+--
+-- Whether the reader panel offers the "Update Hardcover as I read" switch. It is offered for a book
+-- being read, and also while it is off (so a book whose tracking was turned off can always be turned
+-- back on); for any other book reading asks first, and a switch there would promise what does not happen.
+--
+function BookActions.offerTrackSwitch(status_id, sync_on)
+  return status_id == HARDCOVER.STATUS.READING or not sync_on
 end
 
 return BookActions

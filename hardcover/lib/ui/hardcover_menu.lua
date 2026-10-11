@@ -204,7 +204,7 @@ function HardcoverMenu:showReaderPanel()
       pages = self.settings:pages(),
       sync_on = self.settings:syncEnabled(),
       status_label = status_id and Shelf.statusLabel(status_id) or nil,
-      -- the threshold setting arrives with the start-reading prompt (PR 113); 5 is its default
+      -- (the emulator scenarios' settings stand-ins have no such method; the facts default to 5)
       start_pages = self.settings.startReadingPages and self.settings:startReadingPages() or nil,
     }
     -- a finished book can be read again: a new read starts, and the finished one is kept
@@ -1431,6 +1431,29 @@ function HardcoverMenu:getSettingsSubMenuItems()
         local setting = self.settings:readSetting(SETTING.ALWAYS_SYNC) == true
         self.settings:updateSetting(SETTING.ALWAYS_SYNC, not setting)
       end,
+    },
+    {
+      section = SECTION.TRACKING,
+      text_func = function()
+        return T(_("Ask to start reading after %1 pages"), self.settings:startReadingPages())
+      end,
+      help = _("A book that is not on your Currently Reading shelf is not tracked. After this many pages in one sitting you are asked whether to start it."),
+      callback = function(menu_instance)
+        UIManager:show(SpinWidget:new {
+          value = self.settings:startReadingPages(),
+          value_min = 1,
+          value_max = 100,
+          value_step = 1,
+          value_hold_step = 10,
+          ok_text = _("Save"),
+          title_text = _("Pages before asking to start reading"),
+          callback = function(spin)
+            self.settings:updateSetting(SETTING.START_READING_PAGES, spin.value)
+            if menu_instance and menu_instance.updateItems then menu_instance:updateItems() end
+          end,
+        })
+      end,
+      keep_menu_open = true,
     },
     {
       section = SECTION.TRACKING,

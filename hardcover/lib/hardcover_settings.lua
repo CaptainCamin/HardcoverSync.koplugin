@@ -191,6 +191,13 @@ function HardcoverSettings:trackFrequency()
   return self.settings:readSetting(SETTING.TRACK_FREQUENCY) or 5
 end
 
+-- Pages read in one sitting before a book that is not being read is offered "Currently Reading".
+HardcoverSettings.START_READING_PAGES_DEFAULT = 5
+function HardcoverSettings:startReadingPages()
+  local value = tonumber(self.settings:readSetting(SETTING.START_READING_PAGES))
+  return value and math.max(1, math.floor(value)) or HardcoverSettings.START_READING_PAGES_DEFAULT
+end
+
 function HardcoverSettings:trackPercentageInterval()
   return self.settings:readSetting(SETTING.TRACK_PERCENTAGE) or 10
 end

@@ -11,6 +11,7 @@ local Settings = {
   NEW_NAVIGATION = "new_navigation",
   PURE_BLACK_TEXT = "pure_black_text",
   SHELF_SORT = "shelf_sort",
+  START_READING_PAGES = "start_reading_pages",
   SYNC = "sync",
   TRACK_FREQUENCY = "track_frequency",
   TRACK_METHOD = "track_method",

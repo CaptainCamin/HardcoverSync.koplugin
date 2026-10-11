@@ -43,6 +43,7 @@ local RatingQueue = require("hardcover/lib/rating_queue")
 local ShelfQueue = require("hardcover/lib/shelf_queue")
 local ListQueue = require("hardcover/lib/list_queue")
 local SyncConflicts = require("hardcover/lib/sync_conflicts")
+local StartReading = require("hardcover/lib/start_reading")
 local throttle = require("hardcover/lib/throttle")
 local User = require("hardcover/lib/user")
 
@@ -474,8 +475,47 @@ end
 
 -- What a page turn does to the book, from what the device knows (see BookActions.pageWrite).
 function HardcoverApp:pageWriteDecision(filename)
-  local book = self.state.book_status or {}
-  return BookActions.pageWrite(self:effectiveStatusId(filename), book.not_on_shelf == true)
+  return BookActions.pageWrite(self:effectiveStatusId(filename))
+end
+
+-- A book that is not being read: pages turned forward are counted here, and once there are enough
+-- the reader is asked whether to start it. Nothing is sent or queued until they say yes.
+function HardcoverApp:countPageForStart(filename, old_page, new_page)
+  self.state.start_reading = self.state.start_reading or StartReading.new()
+  if StartReading.turn(self.state.start_reading, old_page, new_page, self.settings:startReadingPages()) then
+    self:askToStartReading(filename)
+  end
+end
+
+function HardcoverApp:askToStartReading(filename)
+  local state = self.state.start_reading
+  StatusDialogs.confirm {
+    title = _("Start reading this book?"),
+    text = _("Set it to Currently Reading on Hardcover, and update it as you read."),
+    ok_text = _("Start reading"),
+    cancel_text = _("Not now"),
+    ok_callback = function() self:startReading(filename) end,
+    cancel_callback = function() if state then StartReading.declined(state) end end,
+  }
+end
+
+-- "Start reading": a Want to Read book is moved to Currently Reading. A book whose shelf is not
+-- known is not given a status (it may be Finished there); its page is sent and Hardcover starts the
+-- read, or asks, as it does for any page.
+function HardcoverApp:startReading(filename)
+  if self:effectiveStatusId(filename) == HARDCOVER.STATUS.TO_READ then
+    self.cache:updateBookStatus(filename, HARDCOVER.STATUS.READING)
+    StatusDialogs.info(_("Now on your 'Currently Reading' shelf"), 2)
+  end
+  Trapper:wrap(function()
+    self:updatePageNowForced(filename)
+  end)
+end
+
+function HardcoverApp:updatePageNowForced(filename)
+  local page = self.ui.getCurrentPage and self.ui:getCurrentPage() or self.state.page
+  local mapped_page = self.page_mapper:getMappedPage(page, self.ui.document:getPageCount(), self.settings:pages())
+  self.cache:syncPage(filename, mapped_page)
 end
 
 function HardcoverApp:_handlePageUpdate(filename, mapped_page, immediate, callback)
@@ -486,15 +526,14 @@ function HardcoverApp:_handlePageUpdate(filename, mapped_page, immediate, callba
     return
   end
 
-  if self:pageWriteDecision(filename) == "block" then
+  if self:pageWriteDecision(filename) ~= "allow" then
     return
   end
 
   local immediate_update = function()
     -- decided again here, not above: the update can wait a second, and the status can change in it
-    if self:pageWriteDecision(filename) == "move" then
-      self.cache:updateBookStatus(filename, HARDCOVER.STATUS.READING)
-      StatusDialogs.info(_("Now on your 'Currently Reading' shelf"), 2)
+    if self:pageWriteDecision(filename) ~= "allow" then
+      return
     end
     local result = self.cache:syncPage(filename, mapped_page)
     if callback then
@@ -535,6 +574,9 @@ function HardcoverApp:pageUpdateEvent(page)
     return
   end
   --logger.warn("HARDCOVER page update event pending")
+  if self:pageWriteDecision(self.ui.document.file) == "ask" then
+    self:countPageForStart(self.ui.document.file, self.state.last_page, page)
+  end
   local document_pages = self.ui.document:getPageCount()
   local remote_pages = self.settings:pages()
 
@@ -610,6 +652,7 @@ function HardcoverApp:onDocumentClose()
   local had_pending = self.page_update_pending
   self:cancelPendingUpdates()
   self.state.read_cache_started = false
+  self.state.start_reading = nil
 
   if not self.state.book_status.id and not self.settings:syncEnabled() and not self.sync_queue:hasPending() then
     self.state.process_page_turns = false

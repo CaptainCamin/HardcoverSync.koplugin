@@ -14,7 +14,8 @@
 -- track:      the "Update Hardcover as I read" switch is offered: for a book being read, and for any
 --             other linked book while tracking is off (so it can always be turned back on). A book
 --             that is not being read is not tracked (reading it asks to start it), so a switch there
---             would promise what does not happen. Mirrors BookActions.offerTrackSwitch (PR 113).
+--             would promise what does not happen.
+--             The rule is BookActions.offerTrackSwitch.
 -- track_note: under the switch, only while it is off and the book is Want to Read or on no shelf:
 --             "Change status to update progress." (the way to update it by hand).
 -- hint:       where the switch is not shown (tracking on, book Want to Read, on no shelf, or shelf not
@@ -23,6 +24,7 @@
 --             threshold setting (5 when not given).
 
 local _ = require("gettext")
+local BookActions = require("hardcover/lib/book_actions")
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 
 local Facts = {}
@@ -67,7 +69,7 @@ function Facts.describe(o)
     out.shelf = _("Shelf not checked yet")
   end
 
-  out.track = reading or not o.sync_on
+  out.track = BookActions.offerTrackSwitch(status_id, o.sync_on)
   if out.track and not o.sync_on
       and (status_id == HARDCOVER.STATUS.TO_READ or (status_id == nil and o.not_on_shelf)) then
     out.track_note = _("Change status to update progress.")
