@@ -17,7 +17,8 @@
 --             would promise what does not happen. Mirrors BookActions.offerTrackSwitch (PR 113).
 -- track_note: under the switch, only while it is off and the book is Want to Read or on no shelf:
 --             "Change status to update progress." (the way to update it by hand).
--- hint:       where the switch is not shown (tracking on, book Want to Read or on no shelf), what
+-- hint:       where the switch is not shown (tracking on, book Want to Read, on no shelf, or shelf not
+--             checked yet; reading each of them asks to start it), what
 --             reading will do: "After 5 pages you'll be asked to start reading." `start_pages` is the
 --             threshold setting (5 when not given).
 
@@ -71,7 +72,7 @@ function Facts.describe(o)
       and (status_id == HARDCOVER.STATUS.TO_READ or (status_id == nil and o.not_on_shelf)) then
     out.track_note = _("Change status to update progress.")
   end
-  if not out.track and (status_id == HARDCOVER.STATUS.TO_READ or (status_id == nil and o.not_on_shelf)) then
+  if not out.track and (status_id == HARDCOVER.STATUS.TO_READ or status_id == nil) then
     local n = tonumber(o.start_pages) or 5
     out.hint = n == 1 and _("After 1 page you'll be asked to start reading.")
       or fill(_("After %1 pages you'll be asked to start reading."), n)

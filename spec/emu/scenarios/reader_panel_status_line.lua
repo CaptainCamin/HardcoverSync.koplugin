@@ -38,7 +38,7 @@ local cases = {
     book_status = { user_book_reads = {} },
     shelf = "Shelf not checked yet",
     line = "387 pages",
-    switch = false, note = false,
+    switch = false, note = false, hint = true,
   },
   {
     key = "finished",

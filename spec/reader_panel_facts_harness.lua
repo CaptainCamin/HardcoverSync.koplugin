@@ -44,8 +44,8 @@ local want_off = describe { status_id = S.TO_READ, status_label = "Want to Read"
 r.check("tracking off: the switch comes back, with how to update by hand",
   want_off.track == true and want_off.track_note == "Change status to update progress.", want_off.track_note)
 r.check("tracking off: no hint (the note is under the switch)", want_off.hint == nil)
-r.check("no hint while reading, finished, or when the shelf is not known",
-  reading.hint == nil and describe { status_id = S.FINISHED, status_label = "Read" }.hint == nil and describe {}.hint == nil)
+r.check("no hint while reading or finished",
+  reading.hint == nil and describe { status_id = S.FINISHED, status_label = "Read" }.hint == nil)
 
 print("\n== On no shelf, and shelf not checked ==")
 local none = describe { not_on_shelf = true }
@@ -55,9 +55,12 @@ local none_off = describe { not_on_shelf = true, sync_on = false }
 r.check("no shelf, tracking off: switch and the same note", none_off.track == true and none_off.track_note == "Change status to update progress.")
 local unknown = describe {}
 r.check("not checked yet: says so", unknown.shelf == "Shelf not checked yet")
-r.check("not checked yet, tracking on: no switch", unknown.track == false and unknown.track_note == nil)
+r.check("not checked yet, tracking on: no switch, the same hint", unknown.track == false and unknown.track_note == nil
+  and unknown.hint == "After 5 pages you'll be asked to start reading.", unknown.hint)
+r.check("not checked yet: the hint follows the threshold setting", describe { start_pages = 8 }.hint == "After 8 pages you'll be asked to start reading.")
 local unknown_off = describe { sync_on = false }
-r.check("not checked yet, tracking off: switch, no note (nothing is known to change)", unknown_off.track == true and unknown_off.track_note == nil)
+r.check("not checked yet, tracking off: switch, no note, no hint (nothing is known to change)",
+  unknown_off.track == true and unknown_off.track_note == nil and unknown_off.hint == nil)
 
 print("\n== Finished and Did not finish ==")
 local done = describe { status_id = S.FINISHED, saved_page = 387, status_label = "Read" }
