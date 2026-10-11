@@ -264,6 +264,12 @@ function HardcoverSettings:newNavigation()
   return self.settings:readSetting(SETTING.NEW_NAVIGATION) == true
 end
 
+-- which book-download plugin the book screen's search button uses: "auto" or a source id
+-- (see hardcover/lib/book_sources.lua)
+function HardcoverSettings:bookSource()
+  return self.settings:readSetting(SETTING.BOOK_SOURCE) or "auto"
+end
+
 function HardcoverSettings:pureBlackText()
   return self.settings:readSetting(SETTING.PURE_BLACK_TEXT) == true
 end

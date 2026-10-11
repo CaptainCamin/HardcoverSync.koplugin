@@ -81,8 +81,11 @@ local BookDetailDialog = FocusManager:extend {
   -- called with the dialog when Find on device is tapped (look for the book among the files on this
   -- device); no callback, no button. Offered only when the book is not already on it.
   on_find = nil,
-  -- present only when the Z-library plugin is installed (see hardcover/lib/zlibrary.lua)
+  -- present only when the chosen download plugin (Z-library, Anna's Archive or Kindle Fetch; see
+  -- hardcover/lib/book_sources.lua) is installed. Named for the first one it served.
   on_zlibrary = nil,
+  -- what that button says
+  source_label = "Z-library",
   -- tapping your rating: called with the dialog. No callback, not tappable.
   on_rating = nil,
   width = nil,
@@ -353,7 +356,7 @@ function BookDetailDialog:init()
   else
     local get = {}
     if self.on_find then get[#get + 1] = { "find_button", _("Find on device"), "on_find" } end
-    if self.on_zlibrary then get[#get + 1] = { "zlibrary_button", _("Z-library"), "on_zlibrary" } end
+    if self.on_zlibrary then get[#get + 1] = { "zlibrary_button", self.source_label, "on_zlibrary" } end
     add_row(get)
   end
   if self.on_reviews then add_row({ { "reviews_button", _("Reviews"), "on_reviews" } }) end

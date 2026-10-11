@@ -5,6 +5,7 @@ local Settings = {
   ENABLE_WIFI = "enable_wifi",
   LINK_BY_HARDCOVER = "link_by_hardcover",
   LINK_BY_ISBN = "link_by_isbn",
+  BOOK_SOURCE = "book_source",
   LINK_BY_TITLE = "link_by_title",
   MENU_CONFIRMATION = "menu_confirmation",
   NEW_NAVIGATION = "new_navigation",
