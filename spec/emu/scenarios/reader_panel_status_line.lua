@@ -15,39 +15,45 @@ local cases = {
   {
     key = "reading",
     book_status = { id = 501, status_id = HARDCOVER.READING, user_book_reads = { { progress_pages = 120 } } },
-    shelf = "On your 'Currently Reading' shelf",
-    switch = true, note = false, progress = true,
+    shelf = nil, -- no shelf line for Currently Reading
+    line = "Page 120 of 387",
+    switch = true, note = false,
   },
   {
     key = "want_to_read",
     book_status = { id = 502, status_id = HARDCOVER.TO_READ, user_book_reads = {} },
     shelf = "On your 'Want to Read' shelf",
-    switch = true, note = true, progress = false,
+    line = "387 pages",
+    switch = true, note = true,
   },
   {
     key = "not_on_shelf",
     book_status = { not_on_shelf = true, user_book_reads = {} },
     shelf = "Not on a shelf",
-    switch = true, note = true, progress = false,
+    line = "387 pages",
+    switch = true, note = true,
   },
   {
     key = "not_checked",
     book_status = { user_book_reads = {} },
     shelf = "Shelf not checked yet",
-    switch = true, note = false, progress = false,
+    line = "387 pages",
+    switch = true, note = false,
   },
   {
     key = "finished",
     book_status = { id = 503, status_id = HARDCOVER.FINISHED, user_book_reads = { { progress_pages = 387 } } },
     shelf = "On your 'Read' shelf",
-    switch = false, note = false, progress = true,
+    line = "Page 387 of 387",
+    switch = false, note = false,
   },
   {
-    -- no page was ever saved, so the panel must not claim "Page 0 of 387" (nor may Want to Read, no shelf, or unchecked)
+    -- no page was ever saved, so the panel says how long the book is and must not claim "Page 0 of 387" (nor may Want to Read, no shelf, or unchecked)
     key = "did_not_finish",
     book_status = { id = 504, status_id = HARDCOVER.DNF, user_book_reads = {} },
     shelf = "On your 'Did Not Finish' shelf",
-    switch = false, note = false, progress = false,
+    line = "387 pages",
+    switch = false, note = false,
   },
 }
 
@@ -96,16 +102,18 @@ return {
       emu:screenNodes() -- paint first
       local text = emu:screenText()
 
-      assert(text:find(case.shelf, 1, true), case.key .. ": status line says '" .. case.shelf .. "'")
+      if case.shelf then
+        assert(text:find(case.shelf, 1, true), case.key .. ": status line says '" .. case.shelf .. "'")
+      else
+        assert(not text:find(" shelf", 1, true) and not text:find("Not on a shelf", 1, true),
+          case.key .. ": has a shelf line, which Currently Reading leaves out")
+      end
+      assert(text:find(case.line, 1, true), case.key .. ": line under the title says '" .. case.line .. "'")
       assert(text:find("Update Hardcover as I read", 1, true) ~= nil == case.switch,
         case.key .. ": switch shown is " .. tostring(case.switch))
-      assert(text:find("When on, reading moves it to Currently Reading.", 1, true) ~= nil == case.note,
-        case.key .. ": reading-moves note shown is " .. tostring(case.note))
-      if case.progress then
-        assert(text:find("Page ", 1, true) ~= nil, case.key .. ": page line is missing")
-      else
-        assert(not text:find("Page 0", 1, true), case.key .. ": claims 'Page 0' with no saved page")
-      end
+      assert(text:find("Keep reading to update progress.", 1, true) ~= nil == case.note,
+        case.key .. ": the switch note shown is " .. tostring(case.note))
+      assert(not text:find("Page 0", 1, true), case.key .. ": claims 'Page 0' with no saved page")
 
       emu:shot("reader_panel_status_" .. case.key)
       emu:closeAll()

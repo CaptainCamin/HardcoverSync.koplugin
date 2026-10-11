@@ -173,7 +173,6 @@ function HardcoverMenu:showReaderPanel()
     local file = self.ui.document and self.ui.document.file
     local pending = file and self.sync_queue:get(file)
     local status_id = (pending and pending.status_id) or status.status_id
-    local finished = status_id == HARDCOVER.STATUS.FINISHED or status_id == HARDCOVER.STATUS.DNF
     local doc_title = self.ui.doc_props and self.ui.doc_props.display_title
     local title = (linked and self.settings:getLinkedTitle()) or doc_title or _("This book")
 
@@ -195,34 +194,19 @@ function HardcoverMenu:showReaderPanel()
       end,
     }
 
-    local bits = {}
     local reads = status.user_book_reads
     local read = reads and reads[#reads]
-    local pages = self.settings:pages()
-    if linked and pages then
-      local saved = read and read.progress_pages
-      -- how far is said only when it is true: a saved page, or a book being read. A book on no shelf,
-      -- Want to Read, or finished with nothing saved has no page to report ("Page 0" would be false).
-      if (saved and saved > 0) or status_id == HARDCOVER.STATUS.READING then
-        local page = saved or 0
-        bits[#bits + 1] = T(_("Page %1 of %2"), page, pages)
-        bits[#bits + 1] = T(_("%1%"), math.floor(100 * page / pages + 0.5))
-      end
-    end
-
-    -- where the book is, in words: the same statuses the details screen's pill uses
-    local shelf
-    if linked then
-      if status_id then
-        shelf = T(_("On your '%1' shelf"), Shelf.statusLabel(status_id))
-      elseif status.not_on_shelf then
-        shelf = _("Not on a shelf")
-      else
-        shelf = _("Shelf not checked yet")
-      end
-    end
+    local facts = require("hardcover/lib/reader_panel_facts").describe {
+      linked = linked,
+      status_id = status_id,
+      not_on_shelf = status.not_on_shelf,
+      saved_page = read and read.progress_pages,
+      pages = self.settings:pages(),
+      sync_on = self.settings:syncEnabled(),
+      status_label = status_id and Shelf.statusLabel(status_id) or nil,
+    }
     -- a finished book can be read again: a new read starts, and the finished one is kept
-    local shelf_action = (linked and finished) and {
+    local shelf_action = (linked and facts.finished) and {
       text = _("Read again"),
       run = function() self:readAgain() end,
     } or nil
@@ -262,17 +246,16 @@ function HardcoverMenu:showReaderPanel()
       title = title,
       linked = linked,
       pills = {},
-      line = not linked and _("Not linked to Hardcover") or #bits > 0 and table.concat(bits, "  \194\183  ") or nil,
-      shelf = shelf,
+      line = facts.line,
+      shelf = facts.shelf,
       shelf_action = shelf_action,
       -- the switch means "Hardcover follows this book". It is not offered for a Finished or Did not
       -- finish book: neither page progress nor a status change is sent for those, so it would do nothing.
-      -- Where reading moves the book, a line under it says so, whether the switch is on or off.
-      track = (linked and not finished) and {
+      -- Where reading moves the book (Want to Read, no shelf) a line under it says what to do, switch on or off.
+      track = facts.track and {
         checked = self.settings:syncEnabled(),
         toggle = function() self.settings:setSync(not self.settings:syncEnabled()) end,
-        note = (status_id == HARDCOVER.STATUS.TO_READ or (status_id == nil and status.not_on_shelf))
-          and _("When on, reading moves it to Currently Reading.") or nil,
+        note = facts.track_note,
       } or nil,
       actions = actions,
     }

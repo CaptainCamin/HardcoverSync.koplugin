@@ -8,7 +8,8 @@
 -- now instead of what was true when it opened.
 --
 -- model() returns:
---   { title, linked (bool), pills = { { text, filled }, ... }, line (string or nil),
+--   { title, linked (bool), pills = { { text, filled }, ... },
+--     line (string or nil: how far or how long, right under the title),
 --     shelf (string or nil: where the book is, in words),
 --     shelf_action (nil, or { text, run }: a button beside the shelf line),
 --     track = { checked, toggle, note (string or nil) } or nil,
@@ -109,14 +110,15 @@ function ReaderPanel:render()
     end
   end
 
-  -- what the book is: where it is, then how far; each line only when there is something true to say
-  if model.shelf then
-    table.insert(content, Theme.span("xs"))
-    table.insert(content, self:buildShelfRow(model.shelf, model.shelf_action, width))
-  end
+  -- what the book is: how far or how long, right under the title, then where it is; each line only
+  -- when there is something true to say (Currently Reading has no shelf line)
   if model.line then
     table.insert(content, Theme.span("xs"))
     table.insert(content, Theme.mmdText(model.line, "text", 18, { secondary = true, width = width }))
+  end
+  if model.shelf then
+    table.insert(content, Theme.span("xs"))
+    table.insert(content, self:buildShelfRow(model.shelf, model.shelf_action, width))
   end
 
   -- what to do about it: the switch, with its explanation attached to it
