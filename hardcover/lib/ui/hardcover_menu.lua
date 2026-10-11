@@ -367,7 +367,10 @@ function HardcoverMenu:getSubMenuItems(book_view)
               self.hardcover:linkBook(book)
               menu_instance:updateItems()
             end)
-          end
+          end,
+          nil,
+          nil,
+          true
         )
       end,
       keep_menu_open = true,
@@ -1560,18 +1563,6 @@ function HardcoverMenu:getSettingsSubMenuItems()
         self.settings:updateSetting(SETTING.PURE_BLACK_TEXT, not self.settings:pureBlackText())
       end,
       help = _("Draw author lines, captions and hints in pure black instead of dark grey. Screens already open change the next time they open."),
-    },
-    {
-      section = SECTION.DISPLAY,
-      text = "Compatibility mode",
-      checked_func = function()
-        return self.settings:compatibilityMode()
-      end,
-      callback = function()
-        local setting = self.settings:compatibilityMode()
-        self.settings:updateSetting(SETTING.COMPATIBILITY_MODE, not setting)
-      end,
-      help = _("Turns off the fancy list in the pickers that link a book or choose an edition. May help on some versions of KOReader."),
     },
   }
 end

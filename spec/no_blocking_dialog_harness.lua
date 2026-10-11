@@ -209,7 +209,7 @@ package.preload["json"] = function() return dofile(ROOT .. "/spec/json.lua") end
 package.preload["ffi/util"] = function()
   return { template = function(fmt) return fmt end }
 end
--- The vendored listmenu/covermenu require blitbuffer for its colour constants.
+-- The shelf and picker widgets take their colour constants from blitbuffer.
 package.preload["ffi/blitbuffer"] = function()
   return { COLOR_WHITE = 0xFFFFFF, COLOR_BLACK = 0x000000,
            COLOR_GRAY = 0x808080, COLOR_LIGHT_GRAY = 0xC0C0C0,
@@ -227,9 +227,8 @@ end
 package.preload["ui/widget/container/focusmanager"] = function()
   return { extend = function() return { new = function(_, o) return o end } end }
 end
-package.preload["ui/widget/focusmanager"] = function()
-  return { extend = function() return { new = function(_, o) return o end } end }
-end
+-- ShelfDialog extends it, and the picker extends ShelfDialog, so this must be a class that extends again
+package.preload["ui/widget/focusmanager"] = function() return widget_stub() end
 package.preload["ui/widget/scrollablecontainer"] = function()
   return { extend = function() return { new = function(_, o) return o end } end }
 end

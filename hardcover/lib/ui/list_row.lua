@@ -205,20 +205,26 @@ function ListRow.row(book, opts)
 end
 
 --
--- Map a list of books to rows, marking the one matching active_item.
---
--- The highlight tells the reader where they already are without opening
--- anything -- most useful in the edition picker, where the current edition is
+-- Whether a row is the one already chosen (active_item is the linked book or edition): the same
+-- edition, or else the same book. The picker says so, so the reader sees where they already are
+-- without opening anything -- most useful in the edition picker, where the current edition is
 -- otherwise indistinguishable from the others.
+--
+function ListRow.isActive(row, active_item)
+  if not active_item then return false end
+  if row.edition_id and row.edition_id == active_item.edition_id then return true end
+  return active_item.book_id ~= nil and row.book_id == active_item.book_id
+end
+
+--
+-- Map a list of books to rows, marking the one matching active_item.
 --
 function ListRow.rows(books, opts, active_item)
   local out = {}
   for i, book in ipairs(books or {}) do
     local row = ListRow.row(book, opts)
     if active_item then
-      local same_edition = row.edition_id and row.edition_id == active_item.edition_id
-      local same_book = row.book_id == active_item.book_id
-      row.highlight = (same_edition or same_book) or false
+      row.highlight = ListRow.isActive(row, active_item)
     end
     out[i] = row
   end

@@ -1,6 +1,7 @@
 -- Search field (MMD): a pill 48 tall with a leading magnifier (20, touch 28), the words in full Black
--- (the placeholder too: MMD keeps it black so it never rests on grey) and, once there is a query, a
--- clear X (28, touch 48) at the end. A fixed width, so nothing moves when the query changes.
+-- (the placeholder too: MMD keeps it black so it never rests on grey) and, once there is a query and a
+-- `on_clear` to go with it, a clear X (28, touch 48) at the end. A fixed width, so nothing moves when
+-- the query changes.
 --
 -- KOReader types into its own box, so the field does not take keys itself: tapping it calls `on_tap`
 -- (the caller opens the input with the current query) and the X calls `on_clear`.
@@ -35,7 +36,9 @@ function SearchField.new(opts)
   local shown, has_query = SearchField.content(opts.query, opts.placeholder)
   local border = Theme.line.firm
 
-  local clear_w = has_query and m.clear_touch or 0
+  -- a clear X only where there is a query and a handler for it: a button that does nothing is a lie
+  local clearable = has_query and opts.on_clear ~= nil
+  local clear_w = clearable and m.clear_touch or 0
   local left_w = w - 2 * border - clear_w
   local side = Theme.px(14)
   local icon_cell = CenterContainer:new { dimen = Geom:new { w = m.icon_touch, h = h - 2 * border },
@@ -50,7 +53,7 @@ function SearchField.new(opts)
   }
   local row = HorizontalGroup:new { align = "center", left }
   local clear
-  if has_query then
+  if clearable then
     clear = TapRow:new {
       callback = function() if opts.on_clear then opts.on_clear() end end,
       viewport = opts.viewport,

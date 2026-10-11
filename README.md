@@ -345,11 +345,6 @@ This feature is not used for all network requests. If wifi has not been manually
 By default, changes to a book's read status (Want to Read, Did Not Finish, etc) will immediately update in Hardcover as
 soon as you press them. Enable this setting to display a confirmation prompt before those changes are sent.
 
-### Compatibility mode
-
-When enabled, the pickers that link a book or choose an edition are displayed in a simplified list with minimal data. (Shelves, lists and search results are not affected.) This mode is the
-default for KOReader versions prior to v2024.07
-
 ## Development
 
 Everything except the live API calls can be checked without a device or an API token:
