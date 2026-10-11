@@ -45,5 +45,18 @@ r.check("rows are edge to edge", grid[1].top == 0 and grid[1].bottom == 39 and g
   and grid[2].bottom == 99 and grid[3].top == 100 and grid[3].bottom == 119)
 r.check("no children, no grid (free scrolling)", ScrollControl.grid({}) == nil and ScrollControl.grid(nil) == nil)
 
+-- hold: a paged list jumps to its first or last page; other holds are ignored
+local went
+local paged = ScrollControl.paged { height = 1000, pages = function() return 5 end, page = function() return 3 end,
+  go = function(n) went = n end }
+paged.dimen = { x = 0, y = 0, w = 40, h = 1000 }
+paged:onHoldScrollControl(nil, { pos = { x = 5, y = 5 } })
+r.check("hold on the top triangle goes to page 1", went == 1)
+paged:onHoldScrollControl(nil, { pos = { x = 5, y = 995 } })
+r.check("hold on the bottom triangle goes to the last page", went == 5)
+went = nil
+paged:onHoldScrollControl(nil, { pos = { x = 5, y = 500 } })
+r.check("hold on the track does nothing", went == nil)
+
 _G.require = real_require
 r.finish()
