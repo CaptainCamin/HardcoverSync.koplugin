@@ -12,6 +12,7 @@
 
 ### Changed
 
+- **One chip for state.** A goal's "On track" / "Behind" and a book's shelf status (on the book page and the reader sheet) are drawn by one chip component to the catalog's numbers: bold label, 2 border, radius 20, filled when selected, outlined otherwise. There are no filter chips because the Library has no filters.
 - **A book marked Finished or Did not finish on Hardcover is not changed by reaching its end.** The plugin no longer writes Finished over a book that is Finished or Did not finish when the book ends or its status is set to reading. A Did not finish book that ends on its own asks once per session whether to mark it as Read, with "Keep as Did not finish" as the other answer. A choice you make in KOReader's end-of-book dialog is applied, and a confirmation says so.
 - **Reading a Want to Read book, or one on no shelf, puts it on Currently Reading.** The first page turned sets the book to Currently Reading (a note says so), as a book not on a shelf already did. Finished and Did not finish books are still not sent progress.
 - Hardcover books in Bookshelf now show their description in the hero (when it is saved on the device), followed by a line saying that opening the book shows the full description on Hardcover.
