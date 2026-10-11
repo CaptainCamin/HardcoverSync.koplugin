@@ -795,6 +795,15 @@ function HardcoverMenu:getAccountMenuItem()
   }
 end
 
+-- The groups the settings screen folds its options into (see ui/settings_dialog.lua): an item
+-- names its group in `section`, which the reader's TouchMenu ignores.
+local SECTION = {
+  TRACKING = _("Tracking"),
+  LINKING = _("Books"),
+  DISPLAY = _("Home & display"),
+  UPDATES = _("Updates"),
+}
+
 -- Everything the home screen's settings screen lists: sync, the account (when
 -- the plugin signs in with OAuth), the settings, then About.
 function HardcoverMenu:getHomeSettingsItems(opts)
@@ -823,12 +832,14 @@ function HardcoverMenu:getHomeSettingsItems(opts)
   -- every cover on your shelves and lists, kept on the device (see cover_flows.lua)
   if self.dialog_manager and self.dialog_manager.downloadCoversForOffline then
     items[#items + 1] = {
+      section = SECTION.DISPLAY,
       text_func = function() return self.dialog_manager:coversMenuText() end,
       keep_menu_open = true,
       callback = function() self.dialog_manager:downloadCoversForOffline() end,
     }
   end
   for _, item in ipairs(self:getUpdateMenuItems()) do
+    item.section = SECTION.UPDATES
     items[#items + 1] = item
   end
   if opts.about ~= false then
@@ -1335,48 +1346,7 @@ end
 function HardcoverMenu:getSettingsSubMenuItems()
   return {
     {
-      text = _("Show \"For you\" on Home"),
-      checked_func = function()
-        return self.settings:readSetting(SETTING.SHOW_FOR_YOU) ~= false
-      end,
-      callback = function()
-        self.settings:updateSetting(SETTING.SHOW_FOR_YOU,
-          self.settings:readSetting(SETTING.SHOW_FOR_YOU) == false)
-      end,
-      keep_menu_open = true,
-    },
-    {
-      text = "Automatically link by ISBN",
-      checked_func = function()
-        return self.settings:readSetting(SETTING.LINK_BY_ISBN) == true
-      end,
-      callback = function()
-        local setting = self.settings:readSetting(SETTING.LINK_BY_ISBN) == true
-        self.settings:updateSetting(SETTING.LINK_BY_ISBN, not setting)
-      end
-    },
-    {
-      text = "Automatically link by Hardcover identifiers",
-      checked_func = function()
-        return self.settings:readSetting(SETTING.LINK_BY_HARDCOVER) == true
-      end,
-      callback = function()
-        local setting = self.settings:readSetting(SETTING.LINK_BY_HARDCOVER) == true
-        self.settings:updateSetting(SETTING.LINK_BY_HARDCOVER, not setting)
-      end
-    },
-    {
-      text = "Automatically link by title and author",
-      checked_func = function()
-        return self.settings:readSetting(SETTING.LINK_BY_TITLE) == true
-      end,
-      callback = function()
-        local setting = self.settings:readSetting(SETTING.LINK_BY_TITLE) == true
-        self.settings:updateSetting(SETTING.LINK_BY_TITLE, not setting)
-      end,
-      separator = true
-    },
-    {
+      section = SECTION.TRACKING,
       text_func = function()
         return "Track progress settings: " .. ""
       end,
@@ -1385,6 +1355,7 @@ function HardcoverMenu:getSettingsSubMenuItems()
       end,
     },
     {
+      section = SECTION.TRACKING,
       text = "Always track progress by default",
       checked_func = function()
         return self.settings:readSetting(SETTING.ALWAYS_SYNC) == true
@@ -1395,6 +1366,7 @@ function HardcoverMenu:getSettingsSubMenuItems()
       end,
     },
     {
+      section = SECTION.TRACKING,
       text = "Enable wifi on demand",
       checked_func = function()
         return self.settings:readSetting(SETTING.ENABLE_WIFI) == true
@@ -1408,6 +1380,7 @@ function HardcoverMenu:getSettingsSubMenuItems()
       end
     },
     {
+      section = SECTION.TRACKING,
       text = "Confirm changes to book read status",
       checked_func = function()
         return self.settings:menuConfirm()
@@ -1415,9 +1388,69 @@ function HardcoverMenu:getSettingsSubMenuItems()
       callback = function()
         local setting = self.settings:menuConfirm() == true
         self.settings:setMenuConfirm(not setting)
+      end,
+      separator = true,
+    },
+    {
+      section = SECTION.LINKING,
+      text = "Automatically link by ISBN",
+      checked_func = function()
+        return self.settings:readSetting(SETTING.LINK_BY_ISBN) == true
+      end,
+      callback = function()
+        local setting = self.settings:readSetting(SETTING.LINK_BY_ISBN) == true
+        self.settings:updateSetting(SETTING.LINK_BY_ISBN, not setting)
       end
     },
     {
+      section = SECTION.LINKING,
+      text = "Automatically link by Hardcover identifiers",
+      checked_func = function()
+        return self.settings:readSetting(SETTING.LINK_BY_HARDCOVER) == true
+      end,
+      callback = function()
+        local setting = self.settings:readSetting(SETTING.LINK_BY_HARDCOVER) == true
+        self.settings:updateSetting(SETTING.LINK_BY_HARDCOVER, not setting)
+      end
+    },
+    {
+      section = SECTION.LINKING,
+      text = "Automatically link by title and author",
+      checked_func = function()
+        return self.settings:readSetting(SETTING.LINK_BY_TITLE) == true
+      end,
+      callback = function()
+        local setting = self.settings:readSetting(SETTING.LINK_BY_TITLE) == true
+        self.settings:updateSetting(SETTING.LINK_BY_TITLE, not setting)
+      end,
+    },
+    {
+      section = SECTION.LINKING,
+      text_func = function()
+        local BookSources = require("hardcover/lib/book_sources")
+        local choice = self.settings:bookSource()
+        return T(_("Book search: %1"), choice == BookSources.AUTO and _("Automatic") or BookSources.label(nil, choice))
+      end,
+      sub_item_table_func = function()
+        return self:getBookSourceSubMenuItems()
+      end,
+      help = _("Which plugin the book screen's search button hands the book to. The plugin has to be installed and enabled."),
+      separator = true,
+    },
+    {
+      section = SECTION.DISPLAY,
+      text = _("Show \"For you\" on Home"),
+      checked_func = function()
+        return self.settings:readSetting(SETTING.SHOW_FOR_YOU) ~= false
+      end,
+      callback = function()
+        self.settings:updateSetting(SETTING.SHOW_FOR_YOU,
+          self.settings:readSetting(SETTING.SHOW_FOR_YOU) == false)
+      end,
+      keep_menu_open = true,
+    },
+    {
+      section = SECTION.DISPLAY,
       text = _("New navigation bar (beta)"),
       checked_func = function()
         return self.settings:newNavigation()
@@ -1428,6 +1461,7 @@ function HardcoverMenu:getSettingsSubMenuItems()
       help = _("Open Hardcover to Home, Library, Goals and Stats tabs with a bar at the bottom. Takes effect the next time Hardcover opens."),
     },
     {
+      section = SECTION.DISPLAY,
       text = _("Pure black secondary text (beta)"),
       checked_func = function()
         return self.settings:pureBlackText()
@@ -1438,17 +1472,7 @@ function HardcoverMenu:getSettingsSubMenuItems()
       help = _("Draw author lines, captions and hints in pure black instead of dark grey. Screens already open change the next time they open."),
     },
     {
-      text_func = function()
-        local BookSources = require("hardcover/lib/book_sources")
-        local choice = self.settings:bookSource()
-        return T(_("Book search: %1"), choice == BookSources.AUTO and _("Automatic") or BookSources.label(nil, choice))
-      end,
-      sub_item_table_func = function()
-        return self:getBookSourceSubMenuItems()
-      end,
-      help = _("Which plugin the book screen's search button hands the book to. The plugin has to be installed and enabled."),
-    },
-    {
+      section = SECTION.DISPLAY,
       text = "Compatibility mode",
       checked_func = function()
         return self.settings:compatibilityMode()
@@ -1458,7 +1482,7 @@ function HardcoverMenu:getSettingsSubMenuItems()
         self.settings:updateSetting(SETTING.COMPATIBILITY_MODE, not setting)
       end,
       help = _("Turns off the fancy list in the pickers that link a book or choose an edition. May help on some versions of KOReader."),
-    }
+    },
   }
 end
 

@@ -12,6 +12,14 @@ local fixtures = require("fixtures")
 local UIManager = require("ui/uimanager")
 local Device = require("device")
 
+-- the painted rectangle of the heading row for `title` (its text has no position of its own)
+local function headerRect(screen, title)
+  for _, t in ipairs(screen.taps) do
+    if t.shows:find("section|" .. title .. "|", 1, true) then return t.tap.dimen end
+  end
+  error("no heading for " .. title)
+end
+
 return {
   name = "settings_screen",
 
@@ -36,6 +44,9 @@ return {
           { text = "Track by pages", checked_func = function() return false end, callback = function() end },
         } },
       { text = "Sign out", callback = function() end },
+      { section = "Linking", text = "Link by ISBN", checked_func = function() return false end, callback = function() end },
+      { section = "Updates", text = "Check for updates", callback = function() end },
+      { section = "Linking", text = "Link by title", checked_func = function() return false end, callback = function() end },
     }
     local screen = SettingsDialog.show { title = "Settings", items = items,
       on_close = function() state.closed = true end }
@@ -72,6 +83,23 @@ return {
     emu:tap(Device.screen:scaleBySize(30), Device.screen:scaleBySize(30)) -- nothing is left to take it
     emu:pump()
     assert(state.closed, "back at the top did not leave the screen")
+
+    -- a group's options sit under its heading, wherever they were listed; tapping the heading folds them
+    local screen2 = SettingsDialog.show { title = "Settings", items = items }
+    emu:pump()
+    emu:screenNodes()
+    emu:expectText("Link by ISBN")
+    emu:expectText("Link by title")
+    emu:expectText("LINKING")
+    local head = headerRect(screen2, "Linking")
+    emu:tapExpecting(head.x + 5, head.y + 5)
+    emu:pump()
+    emu:screenNodes()
+    emu:expectText("LINKING")
+    emu:shot("settings_screen_folded")
+    assert(not pcall(emu.expectText, emu, "Link by ISBN"), "a folded group still shows its options")
+    UIManager:close(screen2)
+    emu:pump()
 
     -- a long page scrolls by whole pages with the control
     local many = {}

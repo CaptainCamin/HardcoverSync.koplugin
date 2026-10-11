@@ -17,7 +17,10 @@ local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
+local HorizontalGroup = require("ui/widget/horizontalgroup")
 local InputContainer = require("ui/widget/container/inputcontainer")
+local LeftContainer = require("ui/widget/container/leftcontainer")
+local LineWidget = require("ui/widget/linewidget")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
@@ -27,6 +30,7 @@ local Draw = require("hardcover/lib/ui/components/draw")
 local ListItem = require("hardcover/lib/ui/components/list_item")
 local Refresh = require("hardcover/lib/ui/refresh")
 local ScrollControl = require("hardcover/lib/ui/components/scroll_control")
+local TapRow = require("hardcover/lib/ui/tap_row")
 local SettingsItems = require("hardcover/lib/settings_items")
 local Switch = require("hardcover/lib/ui/components/switch")
 local Theme = require("hardcover/lib/ui/theme")
@@ -34,6 +38,10 @@ local TopBar = require("hardcover/lib/ui/components/top_bar")
 local Viewport = require("hardcover/lib/ui/viewport")
 
 local Screen = Device.screen
+
+-- The groups the user folded, by name: kept while KOReader runs, so they stay folded when the
+-- screen is closed and opened again.
+local collapsed = {}
 
 local SettingsScreen = InputContainer:extend {
   name = "hardcover_settings",
@@ -82,6 +90,33 @@ function SettingsScreen:buildRow(row, width, viewport)
   return item
 end
 
+-- A group's heading: its name in small capitals, and a chevron that says whether the group is
+-- open. The whole row opens or folds it. Folded, it says how many options are tucked away.
+function SettingsScreen:buildHeader(title, count, width, viewport)
+  local folded = collapsed[title]
+  local h = Theme.px(56)
+  local label = string.upper(title)
+  if folded then label = string.format("%s  \194\183  %d", label, count) end
+  local chevron = Draw.chevron(folded and "down" or "up")
+  local label_w = width - 2 * ListItem.PAD - chevron:getSize().w - Theme.px(12)
+  local line = HorizontalGroup:new { align = "center", Theme.hspan(ListItem.PAD),
+    LeftContainer:new { dimen = Geom:new { w = label_w, h = h },
+      Theme.mmdText(label, "strong", 15, { width = label_w }) },
+    Theme.hspan(Theme.px(12)), chevron, Theme.hspan(ListItem.PAD) }
+  local item = TapRow:new {
+    callback = function()
+      collapsed[title] = not collapsed[title] or nil
+      self:render(true)
+    end,
+    viewport = viewport,
+    text = title,
+    VerticalGroup:new { align = "left", line, LineWidget:new {
+      dimen = Geom:new { w = width, h = Theme.line.hair }, background = Theme.BLACK } },
+  }
+  self.taps[#self.taps + 1] = { tap = item, shows = "section|" .. title .. "|" .. tostring(folded) }
+  return item
+end
+
 -- The page's content for `rows`, laid out in `width`.
 function SettingsScreen:buildContent(rows, width, viewport)
   local content = VerticalGroup:new { align = "left" }
@@ -89,8 +124,30 @@ function SettingsScreen:buildContent(rows, width, viewport)
   for _, row in ipairs(rows) do
     if row.tile then table.insert(content, self:buildRow(row, width, viewport)) end
   end
+  -- a group's rows count where its first row is, wherever the rest are
+  local members, done = {}, {}
   for _, row in ipairs(rows) do
-    if not row.tile then
+    if row.section and not row.tile then
+      members[row.section] = members[row.section] or {}
+      table.insert(members[row.section], row)
+    end
+  end
+  for _, row in ipairs(rows) do
+    if row.tile then
+      -- already shown
+    elseif row.section then
+      if not done[row.section] then
+        done[row.section] = true
+        local group = members[row.section]
+        table.insert(content, Theme.span("s"))
+        table.insert(content, self:buildHeader(row.section, #group, width, viewport))
+        if not collapsed[row.section] then
+          for _, member in ipairs(group) do
+            table.insert(content, self:buildRow(member, width, viewport))
+          end
+        end
+      end
+    else
       table.insert(content, self:buildRow(row, width, viewport))
       if row.separator then table.insert(content, Theme.span("m")) end
     end

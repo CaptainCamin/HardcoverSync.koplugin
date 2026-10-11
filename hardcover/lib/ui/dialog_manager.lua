@@ -409,7 +409,7 @@ end
 --
 -- The plugin's settings, on top of whatever is showing.
 function DialogManager:showSettings()
-  require("hardcover/lib/ui/settings_dialog").show {
+  return require("hardcover/lib/ui/settings_dialog").show {
     items = self.settings_items and self.settings_items() or {},
   }
 end
