@@ -43,6 +43,33 @@ function GoalActions.route(opts)
 end
 
 --
+-- The question asked before an archive, and the words for the result. A goal made
+-- here and never sent is not archived on Hardcover: it is dropped, and says so.
+--
+function GoalActions.archiveAsk(goal_id)
+  if GoalQueue.isLocal(goal_id) then
+    return {
+      title = _("Discard this goal?"),
+      text = _("It was made on this device and never sent to Hardcover, so nothing is left behind."),
+      ok = _("Discard"),
+    }
+  end
+  return {
+    title = _("Archive this goal?"),
+    text = _("It stays on Hardcover, hidden, and you can bring it back from the website."),
+    ok = _("Archive"),
+  }
+end
+
+-- What the user is told once an archive has gone through: `queued` when it is kept
+-- here until the connection is back, else it went to Hardcover.
+function GoalActions.archivedNotice(goal_id, queued)
+  if GoalQueue.isLocal(goal_id) then return _("Discarded.") end
+  if queued then return _("Archived on this device. It will sync when you're online.") end
+  return _("Goal archived.")
+end
+
+--
 -- Why a write failed, in a sentence: a refusal for the permission says to sign in
 -- again, Hardcover's own words are passed on, anything else is "no answer".
 --

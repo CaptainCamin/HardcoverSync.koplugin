@@ -5,6 +5,8 @@
 --
 -- No KOReader requires, so it runs under stock Lua in the spec suite.
 
+local HARDCOVER = require("hardcover/lib/constants/hardcover")
+
 local BookActions = {}
 
 --
@@ -67,6 +69,31 @@ function BookActions.ratingGate(detail, has_queue)
   if detail.status_id ~= nil and not detail.user_book_id and has_queue then return "unsent" end
   if not (detail.user_book_id and has_queue) then return "needs_shelf" end
   return "ok"
+end
+
+--
+-- Whether a status write the reader did not ask for may go ahead, and how it is asked for.
+--   `status_id`  the book's effective status (a queued change counts), or nil if unknown
+--   `event`      how the change came about:
+--                "end_auto"    the book reached its end and the plugin marks it on its own
+--                              (KOReader's auto-mark or its "mark as read" end action)
+--                "end_chosen"  the reader chose "Mark as finished" in KOReader's own dialog
+--                "reading"     the book's status was set to reading
+--   "allow"  write it
+--   "block"  leave Hardcover as it is
+--   "ask"    ask the reader first
+--
+-- Finished is never written over. Did not finish is the reader's decision: an automatic end
+-- asks, and a choice the reader made in KOReader is applied.
+--
+function BookActions.statusWrite(status_id, event)
+  if status_id == HARDCOVER.STATUS.FINISHED then return "block" end
+  if status_id == HARDCOVER.STATUS.DNF then
+    if event == "end_auto" then return "ask" end
+    if event == "end_chosen" then return "allow" end
+    return "block"
+  end
+  return "allow"
 end
 
 return BookActions

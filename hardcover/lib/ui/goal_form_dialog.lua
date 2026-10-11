@@ -25,6 +25,7 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
 
+local GoalActions = require("hardcover/lib/goal_actions")
 local Goals = require("hardcover/lib/goals")
 local Button = require("hardcover/lib/ui/components/button")
 local Draw = require("hardcover/lib/ui/components/draw")
@@ -133,7 +134,7 @@ function GoalFormDialog:buildContent(width, viewport)
       enabled = not self.busy, callback = (not self.busy) and function() self:archive() end or nil }
     table.insert(c, self.archive_button)
     table.insert(c, Theme.span("xs"))
-    table.insert(c, Theme.mmdText(_("It stays on Hardcover, hidden. Bring it back from the website."), "text", 18,
+    table.insert(c, Theme.mmdText(GoalActions.archiveAsk(self.goal.id).text, "text", 18,
       { secondary = true, width = width }))
   end
   table.insert(c, Theme.span("l"))
@@ -345,10 +346,11 @@ end
 
 function GoalFormDialog:archive()
   if self.busy then return end
+  local ask = GoalActions.archiveAsk(self.goal.id)
   StatusDialogs.confirm {
-    title = _("Archive this goal?"),
-    text = _("It stays on Hardcover, hidden, and you can bring it back from the website."),
-    ok_text = _("Archive"),
+    title = ask.title,
+    text = ask.text,
+    ok_text = ask.ok,
     ok_callback = function()
       if self.on_archive then self.on_archive() end
     end,

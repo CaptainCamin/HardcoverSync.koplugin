@@ -82,7 +82,7 @@ end
 
 local function toBooks(entries, status_id)
   local out = {}
-  for _, entry in ipairs(type(entries) == "table" and entries or {}) do
+  for _index, entry in ipairs(type(entries) == "table" and entries or {}) do
     local book_id = tonumber(entry.book_id)
     if book_id then
       local authors = type(entry.authors) == "string" and entry.authors or nil
@@ -138,7 +138,7 @@ local function shelfPage(user_id, status_id, offset, limit, sort_key)
   if not state then return {}, nil end
   local key = sort_key or ShelfSort.DEFAULT
   if state.sorted_key ~= key then
-    state.sorted_books = ShelfSort.sort(toBooks(state.entries, status_id), key)
+    state.sorted_books = toBooks(ShelfSort.sort(state.entries, key), status_id)
     state.sorted_key = key
   end
   return slice(state.sorted_books, offset, limit), state.complete and #state.entries or nil
@@ -235,7 +235,7 @@ local function sortRows()
             done()
           end
           local rows = {}
-          for _, option in ipairs(ShelfSort.OPTIONS) do
+          for _index, option in ipairs(ShelfSort.OPTIONS) do
             local key = option.key
             rows[#rows + 1] = {
               text = (draft.source.sort_key or ShelfSort.DEFAULT) == key
@@ -646,7 +646,7 @@ function Sources.register(app)
     if not state.complete then loadList(app, source, false) end
     local sort_key = source.sort_key or ShelfSort.DEFAULT
     if state.sorted_key ~= sort_key then
-      state.sorted_books = ShelfSort.sort(toBooks(state.entries, nil), sort_key)
+      state.sorted_books = toBooks(ShelfSort.sort(state.entries, sort_key), nil)
       state.sorted_key = sort_key
     end
     return addCoverPaths(app, LISTS_ID,

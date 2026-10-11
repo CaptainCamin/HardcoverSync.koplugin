@@ -146,6 +146,65 @@ r.check("offset and limit slice the sorted shelf", #page == 1 and page[1].title 
 r.check("a complete saved shelf starts no request", #ticks == 0 and Api.shelf_calls == 0)
 r.check("an unknown shelf is empty", select(1, shelf.fetch({ status_id = 99 }, nil, 0, 5))[1] == nil)
 
+-- ------------------------------------------------------------ every sort order
+do
+  local a, s = fakeApp { user_id = 8, entries = {
+    { book_id = 1, title = "The Beta", authors = "Zoe Adams", release_year = 2001, pages = 300,
+      users_count = 10, community_rating = 3.5, user_rating = 2 },
+    { book_id = 2, title = "Alpha", authors = "Bob Young", release_year = 1999, pages = 100,
+      users_count = 500, community_rating = 4.5, user_rating = 5 },
+    { book_id = 3, title = "Gamma", authors = "Amy Brown", release_year = 2010, pages = 200,
+      users_count = 50, community_rating = 4.0, user_rating = 3 },
+  } }
+  Sources.register(a)
+  local function ids(key)
+    local out = {}
+    for _, b in ipairs(s.hardcover_shelf.fetch({ status_id = 1, sort_key = key }, nil, 0, 10)) do
+      out[#out + 1] = b.hardcover_book_id
+    end
+    return table.concat(out, ",")
+  end
+  local expected = {
+    added_desc = "1,2,3", added_asc = "3,2,1", title = "2,1,3", author = "1,3,2",
+    year_desc = "3,1,2", year_asc = "2,1,3", pages_asc = "2,3,1", pages_desc = "1,3,2",
+    popular = "2,3,1", rating = "2,3,1", my_rating = "2,3,1",
+  }
+  -- author: surname Adams (1), Brown (3), Young (2)
+  for key, want in pairs(expected) do
+    r.check("sort " .. key, ids(key) == want, ids(key))
+  end
+  r.check("an unknown key keeps the saved order", ids("nonsense") == "1,2,3")
+end
+
+-- ------------------------------------------------------------ the editor's sort row
+do
+  local a, s = fakeApp { user_id = 7 }
+  local shown
+  package.preload["hardcover/lib/ui/picker"] = function()
+    return { new = function(opts) shown = opts; return opts end }
+  end
+  Sources.register(a)
+  local button = s.hardcover_shelf.editor_rows({ source = {} })[1][1]
+  local draft = { source = { sort_key = "title" } }
+  r.check("the sort button names the current order",
+    button.text(draft):find("Title", 1, true) ~= nil)
+  local done_called = false
+  button.callback(draft, function() done_called = true end)
+  r.check("the sort button opens a picker with every order", shown and #shown.rows == 11)
+  shown.rows[2].callback()
+  r.check("choosing an order sets the key and finishes",
+    draft.source.sort_key == "added_asc")
+  r.check("done is called", done_called)
+end
+
+-- ------------------------------------------------------------ a book with no title
+do
+  local a, s = fakeApp { user_id = 10, entries = { { book_id = 5, authors = "Someone" } } }
+  Sources.register(a)
+  local got = s.hardcover_shelf.fetch({ status_id = 1 }, nil, 0, 5)
+  r.check("an untitled book is shown as Untitled", got[1] and got[1].title == "Untitled")
+end
+
 -- ------------------------------------------------------------ open
 specs.hardcover_shelf.open(books[1])
 r.check("open shows Hardcover details", app.opened == 2)

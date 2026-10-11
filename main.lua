@@ -23,6 +23,7 @@ local Api = require("hardcover/lib/hardcover_api")
 local Auth = require("hardcover/lib/auth")
 local AutoWifi = require("hardcover/lib/auto_wifi")
 local Background = require("hardcover/lib/background")
+local BookActions = require("hardcover/lib/book_actions")
 local BookStore = require("hardcover/lib/book_store")
 local Cache = require("hardcover/lib/cache")
 local Config = require("hardcover/lib/config")
@@ -989,10 +990,21 @@ function HardcoverApp:onEndOfBook()
     return
   end
 
-  local marker = function()
+  -- Decided when the write would happen, not when the book was opened: the 'later' wait is 30
+  -- seconds, and the status can change in that time.
+  local marker = function(event)
+    local decision = BookActions.statusWrite(self:effectiveStatusId(file_path), event)
+    if decision == "ask" then
+      self:askDidNotFinish(file_path)
+      return false
+    end
+    if decision == "block" then
+      return false
+    end
     Background.run(function()
       self.cache:updateBookStatus(file_path, HARDCOVER.STATUS.FINISHED)
     end)
+    return true
   end
 
   if mark_read == 'later' then
@@ -1004,14 +1016,37 @@ function HardcoverApp:onEndOfBook()
           status = summary.status
         end
       end
-      if status == "complete" then
-        marker()
+      if status == "complete" and marker("end_chosen") then
+        StatusDialogs.info(_("Hardcover status saved"), 2)
       end
     end)
   else
-    marker()
-    StatusDialogs.info(_("Hardcover status saved"), 2)
+    if marker("end_auto") then
+      StatusDialogs.info(_("Hardcover status saved"), 2)
+    end
   end
+end
+
+-- A book marked Did not finish that ends on its own: ask once per book for the session. Either
+-- answer is kept for the session, so the question does not come back for the same book.
+function HardcoverApp:askDidNotFinish(file_path)
+  self.state.did_not_finish_asked = self.state.did_not_finish_asked or {}
+  if self.state.did_not_finish_asked[file_path] then
+    return
+  end
+  self.state.did_not_finish_asked[file_path] = true
+  StatusDialogs.confirm {
+    title = _("You've reached the end"),
+    text = _("Hardcover has this as Did not finish. Mark it as Read?"),
+    cancel_text = _("Keep as Did not finish"),
+    ok_text = _("Mark as Read"),
+    ok_callback = function()
+      Background.run(function()
+        self.cache:updateBookStatus(file_path, HARDCOVER.STATUS.FINISHED)
+      end)
+      StatusDialogs.info(_("Hardcover status saved"), 2)
+    end,
+  }
 end
 
 function HardcoverApp:syncFileUpdates(filename)
@@ -1023,14 +1058,14 @@ function HardcoverApp:onDocSettingsItemsChanged(file, doc_settings)
     return
   end
 
-  local status
+  local status, event
   if doc_settings.summary.status == "complete" then
-    status = HARDCOVER.STATUS.FINISHED
+    status, event = HARDCOVER.STATUS.FINISHED, "end_auto"
   elseif doc_settings.summary.status == "reading" then
-    status = HARDCOVER.STATUS.READING
+    status, event = HARDCOVER.STATUS.READING, "reading"
   end
 
-  if status then
+  if status and BookActions.statusWrite(self:effectiveStatusId(file), event) == "allow" then
     Background.run(function()
       self.cache:updateBookStatus(file, status)
     end)

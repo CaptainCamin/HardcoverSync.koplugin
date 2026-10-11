@@ -936,12 +936,16 @@ end
 
 -- One goal, big. `note` is the saved-copy note when the goals shown are not fresh.
 function DialogManager:showGoal(goal, note)
-  local dialog = require("hardcover/lib/ui/goal_dialog"):new {
+  local dialog
+  dialog = require("hardcover/lib/ui/goal_dialog"):new {
     goal = goal,
     finished_offline = self:finishedOffline(),
     note = note,
     edit_cb = function(current)
       self:showGoalForm(current)
+    end,
+    archive_cb = function(current)
+      self:archiveGoal(dialog, current, nil)
     end,
   }
   self:screens():track("goal", dialog)
@@ -1009,13 +1013,14 @@ function DialogManager:closeGoalScreen(goal_id)
 end
 
 -- Make a change wait for the connection: it shows at once everywhere, and the sync
--- sends it. `goal` is what to show now (a goal, or nil for an archive).
-function DialogManager:queueGoalChange(dialog, apply_fn, on_saved, goal)
+-- sends it. `goal` is what to show now (a goal, or nil for an archive); `notice` is
+-- what the user is told (the saved-here line when none).
+function DialogManager:queueGoalChange(dialog, apply_fn, on_saved, goal, notice)
   apply_fn()
   self:applyGoals(self:savedGoals(), goal)
   UIManager:close(dialog)
   if on_saved and goal then on_saved(goal) end
-  UIManager:show(Notification:new { text = _("Saved on this device. It will sync when you're online.") })
+  UIManager:show(Notification:new { text = notice or _("Saved on this device. It will sync when you're online.") })
 end
 
 function DialogManager:saveGoal(dialog, form, on_saved)
@@ -1065,6 +1070,9 @@ function DialogManager:saveGoal(dialog, form, on_saved)
   end)
 end
 
+-- Archive a goal, from the goal's own screen (`dialog` is that screen) or from its
+-- form (`dialog` is the form, and the goal screen under it closes too). Offline, or
+-- with a change to it still waiting, it is kept here and sent by the sync.
 function DialogManager:archiveGoal(dialog, goal, on_saved)
   local queue = self.goal_queue
   local route = GoalActions.route {
@@ -1073,6 +1081,8 @@ function DialogManager:archiveGoal(dialog, goal, on_saved)
     connected = Network.connected(),
     goal_id = goal.id,
   }
+  -- the goal screen closes with its own change; a form closes and leaves it open
+  local on_goal_screen = dialog.name == "hardcover_goal"
 
   if route == "sign_in" then
     dialog:setMessage(GoalActions.SIGN_IN_AGAIN)
@@ -1081,8 +1091,8 @@ function DialogManager:archiveGoal(dialog, goal, on_saved)
 
   if route == "queue" then
     queue:queueArchive(goal.id, goal)
-    self:queueGoalChange(dialog, function() end, nil, nil)
-    self:closeGoalScreen(goal.id)
+    self:queueGoalChange(dialog, function() end, nil, nil, GoalActions.archivedNotice(goal.id, true))
+    if not on_goal_screen then self:closeGoalScreen(goal.id) end
     if on_saved then on_saved(nil) end
     if Network.connected() and self.flush_goals then self.flush_goals() end
     return
@@ -1105,7 +1115,8 @@ function DialogManager:archiveGoal(dialog, goal, on_saved)
       return
     end
     UIManager:close(dialog)
-    self:closeGoalScreen(goal.id)
+    if not on_goal_screen then self:closeGoalScreen(goal.id) end
+    UIManager:show(Notification:new { text = GoalActions.archivedNotice(goal.id, false) })
     if on_saved then on_saved(nil) end
   end)
 end
