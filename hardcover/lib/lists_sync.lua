@@ -22,10 +22,17 @@ ListsSync.FRESH_FOR = 300
 -- Books asked for in one request when a list gained books the device does not have.
 ListsSync.BOOKS_PER_REQUEST = 100
 
+-- A saved index row's fingerprint is the one it was fetched with, not one worked out from
+-- its count again: a book put on a list while offline changes the count shown (see
+-- ListStore:addMember) but must not make the row look out of date.
+local function printOf(row)
+  return type(row) == "table" and row.fingerprint or Lists.fingerprint(row)
+end
+
 -- Does the saved copy of list `row` (ListStore:contents) need downloading?
 function ListsSync.needsDownload(row, saved)
   if type(saved) ~= "table" or not saved.complete then return true end
-  local fingerprint = Lists.fingerprint(row)
+  local fingerprint = printOf(row)
   return fingerprint == nil or saved.fingerprint ~= fingerprint
 end
 
@@ -56,7 +63,7 @@ function ListsSync.indexChanged(index, marks)
   if n ~= #marks then return true end
   for _, mark in ipairs(marks) do
     local row = saved[tostring(mark.source) .. ":" .. tostring(mark.id)]
-    if not row or mark.fingerprint == nil or Lists.fingerprint(row) ~= mark.fingerprint then
+    if not row or mark.fingerprint == nil or printOf(row) ~= mark.fingerprint then
       return true
     end
   end

@@ -81,6 +81,8 @@ function Flows:showBookDetail(book_id, edition_id, opts)
   }
 
   UIManager:show(dialog)
+  -- the latest details screen, for a change that is sent while it is up (see shelfSent)
+  self:screens():track("book", dialog)
 
   local user_id = User:getId()
   -- What is saved about the book, shown when the network cannot supply it: its details
@@ -108,7 +110,7 @@ function Flows:showBookDetail(book_id, edition_id, opts)
 
   local function showSaved()
     local detail = saved_detail()
-    dialog:setDetail(self:withPendingRating(detail))
+    dialog:setDetail(self:withPending(detail))
     StatusDialogs.info(_("Offline: showing saved details"))
     -- the saved series, if there is one (offline nothing is fetched)
     if detail and detail.book then self:loadSeries(dialog, detail.book, user_id) end
@@ -142,7 +144,7 @@ function Flows:showBookDetail(book_id, edition_id, opts)
     settled.status_id = m and m.status_id
     settled.user_rating = m and m.rating
     dialog.similar_card = Recommendations.loadingCard(settled.book and settled.book.title)
-    dialog:setDetail(self:withPendingRating(settled))
+    dialog:setDetail(self:withPending(settled))
     self:loadSeries(dialog, settled.book, user_id, function() self:loadSimilar(dialog, book_id) end)
     return dialog
   end
@@ -174,7 +176,7 @@ function Flows:showBookDetail(book_id, edition_id, opts)
     -- the "Similar to" strip is there at once, empty and saying it is loading, so it is
     -- no surprise when the books arrive (and the page does not jump when they do)
     dialog.similar_card = Recommendations.loadingCard(detail.book and detail.book.title)
-    dialog:setDetail(self:withPendingRating(detail))
+    dialog:setDetail(self:withPending(detail))
 
     -- one after the other: two requests in flight at once left one of them lost
     self:loadSeries(dialog, detail.book, user_id, function() self:loadSimilar(dialog, book_id) end,
@@ -310,15 +312,15 @@ end
 
 -- Put the book on the details screen on a shelf, or take it off.
 --
--- Online only: the change is sent at once and the screen is updated from the
--- answer, so offline there is nothing honest to show. (It does not touch the
--- offline sync queue, which is for reading progress.)
+-- Online the change is sent at once and the screen is updated from the answer. Offline it
+-- is kept in the shelf queue (shelf_queue.lua), shown at once and sent when the
+-- connection is back. (Neither touches the sync queue, which is for reading progress.)
 --
 function Flows:chooseShelf(dialog)
   local detail = dialog.detail
   if not (detail and detail.book and detail.book.book_id) then return end
 
-  if not Network.connected() then
+  if not Network.connected() and not self.shelf_queue then
     StatusDialogs.info(_("You are offline. Changing a shelf needs a connection."))
     return
   end
@@ -341,7 +343,9 @@ function Flows:chooseShelf(dialog)
     }
   end
 
-  if detail.user_book_id then
+  -- a book put on a shelf offline has no library record yet, but is still removable
+  local waiting = self.shelf_queue and self.shelf_queue:get(detail.book.book_id)
+  if detail.user_book_id or (waiting and waiting.kind == "status") then
     rows[#rows + 1] = {
       text = _("Remove from library"),
       callback = function()
@@ -375,11 +379,14 @@ local function listsNeedNewSignIn()
 end
 
 -- The lists screen, when it is open underneath, shows the new size of a list.
-function Flows:refreshListsScreen(list_id, count)
+-- `unsent`: the change is waiting in the list queue, so the saved copy is not out of date
+-- (it holds the change) and must not be downloaded over it. `count` may be nil (a change
+-- that was sent later: the size is whatever the next download says).
+function Flows:refreshListsScreen(list_id, count, unsent)
   -- the saved copy of the list is out of date now: the next look downloads it again
-  if self.list_store then self.list_store:markStale(User:getId(), list_id) end
+  if self.list_store and not unsent then self.list_store:markStale(User:getId(), list_id) end
   local screen = self:screens():open("lists")
-  if not screen then return end
+  if not screen or count == nil then return end
   local changed = false
   for _i, row in ipairs(screen.mine or {}) do
     if row.id == list_id and row.count ~= count then
@@ -402,11 +409,6 @@ function Flows:chooseLists(dialog)
   local detail = dialog.detail
   if not (detail and detail.book and detail.book.book_id) then return end
 
-  if not Network.connected() then
-    StatusDialogs.info(_("You are offline. Changing a list needs a connection."))
-    return
-  end
-
   -- a sign-in known to lack the scope would only fail: say what to do instead
   -- (nil, as with a personal token, is "cannot tell": try and see)
   if scopeMissing(Lists.WRITE_SCOPE) then
@@ -415,6 +417,21 @@ function Flows:chooseLists(dialog)
   end
 
   if detail.lists then
+    self:showListsPicker(dialog)
+    return
+  end
+
+  if not Network.connected() then
+    -- which lists the book is on, from the lists saved on the device
+    local rows, left_out = self:savedBookLists(detail.book.book_id)
+    if not rows then
+      StatusDialogs.info(_("You are offline, and your lists are not saved on this device yet. Open them once online."), 5)
+      return
+    end
+    if left_out > 0 then
+      StatusDialogs.info(_("Lists that are not saved on this device are left out until you are online."), 4)
+    end
+    detail.lists = rows
     self:showListsPicker(dialog)
     return
   end
@@ -430,9 +447,53 @@ function Flows:chooseLists(dialog)
         function() end)
       return
     end
-    detail.lists = rows
+    detail.lists = self:withPendingLists(rows, detail.book.book_id)
     self:showListsPicker(dialog)
   end)
+end
+
+-- Which of your lists hold the book, from the lists saved on the device (the offline
+-- picker's rows, in Lists.membership's shape). A list put on or taken off while offline
+-- is saved with the change, so it shows here. Returns rows and how many lists were left
+-- out because the saved copy cannot say (never downloaded in full); nil when no list can
+-- be shown at all.
+function Flows:savedBookLists(book_id)
+  local store = self.list_store
+  if not store then return nil end
+  local user_id = User:getId()
+  local index = store:index(user_id)
+  if not index then return nil end
+
+  local rows, left_out = {}, 0
+  for _i, list in ipairs(index.mine or {}) do
+    local member = store:memberOf(user_id, list.id, book_id)
+    if member == nil then
+      left_out = left_out + 1
+    else
+      rows[#rows + 1] = {
+        id = list.id, name = list.name, count = list.count, ranked = list.ranked, private = list.private,
+        on = member and true or false, list_book_id = member and tonumber(member.list_book_id) or nil,
+      }
+    end
+  end
+  if #rows == 0 then return nil end
+  return rows, left_out
+end
+
+-- Hardcover's word on which lists hold the book, with the changes still waiting to be sent
+-- laid over it (the answer cannot know them yet).
+function Flows:withPendingLists(rows, book_id)
+  local queue = self.list_queue
+  if not queue then return rows end
+  for _i, r in ipairs(rows) do
+    local op = queue:get(r.id, book_id)
+    if op and op.kind == "add" and not r.on then
+      Lists.markAdded(r, nil)
+    elseif op and op.kind == "remove" and r.on then
+      Lists.markRemoved(r)
+    end
+  end
+  return rows
 end
 
 function Flows:showListsPicker(dialog)
@@ -478,10 +539,43 @@ function Flows:showListsPicker(dialog)
     end
   end
 
+  -- offline: kept in the list queue, shown at once, sent when the connection is back
+  local function toggleOffline(r)
+    local queue = self.list_queue
+    local store = self.list_store
+    if not (queue and store) then
+      StatusDialogs.info(_("You are offline. Changing a list needs a connection."))
+      return
+    end
+    local user_id = User:getId()
+    local info = { title = detail.book.title, list_name = r.name }
+    if r.on then
+      queue:queueRemove(user_id, book_id, r.id, r.list_book_id, info)
+      store:removeMember(user_id, r.id, book_id)
+      Lists.markRemoved(r)
+    else
+      queue:queueAdd(user_id, book_id, r.id, r.count, info)
+      self:keepBookRow(detail)
+      store:addMember(user_id, r.id, book_id)
+      Lists.markAdded(r, nil)
+    end
+    redraw(r)
+    self:refreshListsScreen(r.id, r.count, true)
+    if Network.connected() then
+      StatusDialogs.info(string.format(_("\"%s\": the waiting change was undone."), r.name), 3)
+    else
+      StatusDialogs.info(string.format(r.on and _("Offline: added to \"%s\". It will be sent when you're connected.")
+        or _("Offline: removed from \"%s\". It will be sent when you're connected."), r.name), 3)
+    end
+  end
+
   local function toggle(r)
     if r.busy then return end
-    if not Network.connected() then
-      StatusDialogs.info(_("You are offline. Changing a list needs a connection."))
+    -- A change for this very list is still waiting: this tap undoes it (Hardcover never
+    -- had it, so there is nothing to ask), whatever the connection.
+    local waiting = self.list_queue and self.list_queue:get(r.id, book_id)
+    if not Network.connected() or waiting then
+      toggleOffline(r)
       return
     end
     r.busy = true
@@ -553,6 +647,15 @@ function Flows:forgetShelves(old_status_id, new_status_id)
   require("hardcover/lib/bookshelf_sources").invalidate()
 end
 
+-- What was changed here and not sent yet (a shelf, a rating) shows in place of what is on record.
+function Flows:withPending(detail)
+  local shelf = self.shelf_queue
+  if shelf and detail and detail.book then
+    BookActions.withPendingShelf(detail, shelf:get(detail.book.book_id))
+  end
+  return self:withPendingRating(detail)
+end
+
 -- A rating set offline and not yet sent shows in place of the one on record.
 function Flows:withPendingRating(detail)
   local queue = self.rating_queue
@@ -570,6 +673,10 @@ function Flows:rateBook(dialog)
   if gate == "no_book" then return end
   if gate == "needs_shelf" then
     StatusDialogs.info(_("Put this book on a shelf to rate it."))
+    return
+  end
+  if gate == "unsent" then
+    StatusDialogs.info(_("This book's shelf change has not been sent yet. You can rate it once it has."), 4)
     return
   end
 
@@ -607,10 +714,44 @@ function Flows:ratingSent(_user_book_id, user_book)
   self:forgetShelves(user_book and user_book.status_id, nil)
 end
 
+-- The saved shelves and lists show a book from its saved row. A book opened with an edition
+-- (from a search, say) is kept as details only, so give it a row now, or a change made
+-- offline would be in the shelf or list but missing from its screen.
+function Flows:keepBookRow(detail)
+  local store = self.book_store
+  local book = detail and detail.book
+  if not (store and book and book.book_id) then return end
+  if #store:missing({ book.book_id }) == 0 then return end
+  local row = Shelf.normalizeEntry({ book = book })
+  row.user_book_id, row.status_id, row.user_rating, row.date_added = nil, nil, nil, nil
+  store:saveRows({ row })
+end
+
+-- Offline: the change is kept (shelf_queue.lua), the saved shelves and the screen show it
+-- at once, and it is sent when the connection is back (see shelfSent).
+function Flows:saveShelfOffline(dialog, status_id)
+  local detail = dialog.detail
+  local old_status_id = detail.status_id
+  local request = BookActions.shelfRequest(detail, status_id)
+  self:keepBookRow(detail)
+  local op = self.shelf_queue:queueStatus(User:getId(), request.book_id, status_id, {
+    user_book_id = detail.user_book_id, edition_id = request.edition_id, title = detail.book.title,
+    from_status_id = old_status_id,
+  })
+  self:shelfChanged(request.book_id, old_status_id, status_id, op.user_book_id, true)
+  if Live.shown(dialog) then dialog:setStatus(status_id, op.user_book_id) end
+  StatusDialogs.info(_("Offline: the shelf change is kept and will be sent when you're connected."), 3)
+end
+
 function Flows:saveShelf(dialog, status_id)
   local detail = dialog.detail
   local old_status_id = detail.status_id
   local request = BookActions.shelfRequest(detail, status_id)
+
+  if not Network.connected() and self.shelf_queue then
+    self:saveShelfOffline(dialog, status_id)
+    return
+  end
 
   local loading = StatusDialogs.loading(_("Saving to your shelf…"))
 
@@ -625,7 +766,9 @@ function Flows:saveShelf(dialog, status_id)
         return
       end
 
-      -- the change happened whether or not the screen is still there
+      -- the change happened whether or not the screen is still there; one waiting for
+      -- this book from before would only undo it later
+      if self.shelf_queue then self.shelf_queue:cancel(request.book_id) end
       self:shelfChanged(request.book_id, old_status_id, status_id, user_book.id or detail.user_book_id)
       if Live.shown(dialog) then
         dialog:setStatus(status_id, user_book.id or detail.user_book_id)
@@ -637,6 +780,25 @@ function Flows:removeFromShelf(dialog)
   local detail = dialog.detail
   local old_status_id = detail.status_id
   local user_book_id = detail.user_book_id
+  local book_id = detail.book and detail.book.book_id
+
+  local waiting = self.shelf_queue and book_id and self.shelf_queue:get(book_id)
+  -- offline, or a book that only went on a shelf offline (the connection may be back, but
+  -- Hardcover has no record of it yet): kept, not sent
+  if self.shelf_queue and book_id and (not Network.connected() or (not user_book_id and waiting)) then
+    if not (user_book_id or waiting) then return end
+    -- a book that only went on a shelf offline has nothing on Hardcover to remove
+    local outcome = self.shelf_queue:queueRemove(User:getId(), book_id, user_book_id, detail.book.title, old_status_id)
+    self:shelfChanged(book_id, old_status_id, nil, nil, true)
+    if Live.shown(dialog) then dialog:setStatus(nil, nil) end
+    if outcome == "dropped" then
+      StatusDialogs.info(_("Taken off your shelf. It had not been sent, so nothing is left to send."), 3)
+    else
+      StatusDialogs.info(_("Offline: the removal is kept and will be sent when you're connected."), 3)
+    end
+    return
+  end
+
   if not user_book_id then return end
 
   local loading = StatusDialogs.loading(_("Removing from your library…"))
@@ -651,11 +813,78 @@ function Flows:removeFromShelf(dialog)
       return
     end
 
-    self:shelfChanged(detail.book and detail.book.book_id, old_status_id, nil)
+    if self.shelf_queue and book_id then self.shelf_queue:cancel(book_id) end
+    self:shelfChanged(book_id, old_status_id, nil)
     if Live.shown(dialog) then
       dialog:setStatus(nil, nil)
     end
   end)
+end
+
+-- A shelf change made offline went through. The saved shelves are marked out of date
+-- (the shelf the book left too: it is not in the queue's way any more), and the details
+-- screen, if it is still up on that book, gets the library record the change made, which
+-- rating needs.
+function Flows:shelfSent(op, user_book)
+  local user_id = User:getId()
+  local shelves = self:shelves()
+  if shelves and op.from_status_id then shelves:markStale(user_id, op.from_status_id) end
+  local status_id = op.kind == "status" and op.status_id or nil
+  local user_book_id = type(user_book) == "table" and tonumber(user_book.id) or nil
+  self:shelfChanged(op.book_id, op.from_status_id, status_id, user_book_id)
+
+  local screen = self:screens():open("book")
+  local on = screen and screen.detail and screen.detail.book and screen.detail.book.book_id
+  if on and tonumber(on) == tonumber(op.book_id) and screen.detail.status_id == status_id and status_id then
+    screen:setStatus(status_id, user_book_id or screen.detail.user_book_id)
+  end
+end
+
+-- A shelf or list change waiting to be sent was cancelled (Pending changes): the saved
+-- shelves or list, the counts and the open details screen go back to what they were,
+-- and the saved copies are marked out of date so Hardcover's word replaces them online.
+-- `row.op` is the cancelled op.
+function Flows:pendingUndone(row)
+  local op = row.op
+  if type(op) ~= "table" then return end
+  local user_id = User:getId()
+
+  if row.kind == "shelf" then
+    local now = op.kind == "status" and op.status_id or nil
+    self:shelfChanged(op.book_id, now, op.from_status_id, op.user_book_id, true)
+    local shelves = self:shelves()
+    if shelves then
+      if now then shelves:markStale(user_id, now) end
+      if op.from_status_id then shelves:markStale(user_id, op.from_status_id) end
+    end
+    local screen = self:screens():open("book")
+    local on = screen and screen.detail and screen.detail.book and screen.detail.book.book_id
+    if on and tonumber(on) == tonumber(op.book_id) then
+      screen:setStatus(op.from_status_id, op.user_book_id)
+    end
+    return
+  end
+
+  local store = self.list_store
+  if row.kind == "list" and store then
+    if op.kind == "add" then
+      store:removeMember(user_id, op.list_id, op.book_id)
+    else
+      store:addMember(user_id, op.list_id, op.book_id)
+    end
+    local index = store:index(user_id)
+    local count
+    for _i, list in ipairs(index and index.mine or {}) do
+      if list.id == op.list_id then count = list.count end
+    end
+    self:refreshListsScreen(op.list_id, count) -- marks the saved list out of date too
+  end
+end
+
+-- A list change made offline went through: the saved copy of the list is out of date now
+-- (its books' order and rows come from Hardcover), so the next look downloads it.
+function Flows:listChangeSent(op, _result)
+  self:refreshListsScreen(op.list_id, nil)
 end
 
 --
@@ -749,7 +978,10 @@ function Flows:applyAbout(dialog, book_id, about)
   local mine = about.user_book
   local status_id = mine and tonumber(mine.status_id) or nil
   local user_book_id = mine and tonumber(mine.id) or nil
-  if status_id ~= detail.status_id or (status_id and user_book_id ~= detail.user_book_id) then
+  -- a shelf change made here and not sent yet is what the screen shows, not Hardcover's
+  -- older word
+  local shelf_waiting = self.shelf_queue and self.shelf_queue:get(book_id)
+  if not shelf_waiting and (status_id ~= detail.status_id or (status_id and user_book_id ~= detail.user_book_id)) then
     local shelves = self:shelves()
     if shelves then
       if status_id then

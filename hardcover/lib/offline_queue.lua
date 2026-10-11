@@ -24,8 +24,37 @@
 --
 -- Plain data, no KOReader requires, so it runs under stock Lua in the spec suite.
 
+local Lists = require("hardcover/lib/lists")
+
 local OfflineQueue = {}
 OfflineQueue.__index = OfflineQueue
+
+-- A change Hardcover refused (or that needs a permission the sign-in lacks) this many
+-- flushes in a row is held: it stays, shown as waiting, until the user acts.
+OfflineQueue.MAX_REJECTIONS = 3
+
+-- Is this the kind of failure that says nothing about the change itself? (no answer,
+-- a timeout, a busy or broken server.) Those are tried again later without counting.
+function OfflineQueue.transient(err)
+  if err == nil then return true end
+  if type(err) == "string" then return false end -- Hardcover's own words: a refusal
+  if type(err) ~= "table" then return true end
+  if err.completed == false or err.error == "no_response" then return true end
+  local status = tonumber(err.status)
+  if status == nil then return err.errors == nil end
+  return status == 429 or status >= 500
+end
+
+-- Count a refusal against `op`: a missing scope holds it at once (reason "scope"), the
+-- third refusal in a row holds it too (reason "refused").
+function OfflineQueue.reject(op, err)
+  op.failures = (op.failures or 0) + 1
+  if Lists.isScopeError(err) then
+    op.held, op.reason = true, "scope"
+  elseif op.failures >= OfflineQueue.MAX_REJECTIONS then
+    op.held, op.reason = true, "refused"
+  end
+end
 
 OfflineQueue.iterate = pairs
 

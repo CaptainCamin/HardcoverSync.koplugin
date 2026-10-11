@@ -157,7 +157,10 @@ end
 
 -- The book went onto shelf `status_id` (from another, or new to the library). It keeps
 -- your rating; a book new to the shelf goes first, as Hardcover orders shelves.
-function ShelfStore:moveBook(user_id, book_id, status_id, user_book_id)
+-- `unsent`: the change is waiting in the shelf queue, not made on Hardcover yet. The shelves
+-- are then not marked stale, or the next look would download them over it; they are
+-- marked when the change is sent (the caller moves the book again then).
+function ShelfStore:moveBook(user_id, book_id, status_id, user_book_id, unsent)
   book_id = tonumber(book_id)
   if not (book_id and status_id) then return false end
   local old = self:member(user_id, book_id)
@@ -168,6 +171,7 @@ function ShelfStore:moveBook(user_id, book_id, status_id, user_book_id)
     rating = old and old.rating,
     date_added = (old and old.date_added) or os.date("%Y-%m-%d"),
   })
+  if unsent then return true end
   if old and old.status_id ~= status_id then self:markStale(user_id, old.status_id) end
   self:markStale(user_id, status_id)
   return true
@@ -184,12 +188,12 @@ function ShelfStore:rateBook(user_id, book_id, rating)
   return true
 end
 
--- The book left the library.
-function ShelfStore:removeBook(user_id, book_id)
+-- The book left the library (`unsent`: see moveBook).
+function ShelfStore:removeBook(user_id, book_id, unsent)
   local old = self:member(user_id, book_id)
   if not old then return false end
   self.db:deleteMember(who(user_id), old.book_id)
-  self:markStale(user_id, old.status_id)
+  if not unsent then self:markStale(user_id, old.status_id) end
   return true
 end
 

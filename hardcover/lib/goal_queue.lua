@@ -12,16 +12,11 @@
 -- nothing; archiving a goal drops the edits waiting for it.
 
 local Goals = require("hardcover/lib/goals")
-local Lists = require("hardcover/lib/lists")
 local OfflineQueue = require("hardcover/lib/offline_queue")
 
 local GoalQueue = OfflineQueue.extend({})
 GoalQueue.store_key = "goal_ops"
 GoalQueue.iterate = ipairs -- the ops are a list, in the order they were made
-
--- An op the server refused (or that needs a permission the sign-in lacks) this many
--- flushes in a row is held: it stays, shown as waiting, until the user acts.
-GoalQueue.MAX_REJECTIONS = 3
 
 function GoalQueue.isLocal(key)
   return type(key) == "string" and key:find("^local:") ~= nil
@@ -167,17 +162,7 @@ function GoalQueue:apply(goals)
   return out
 end
 
--- Is this the kind of failure that says nothing about the change itself? (no answer,
--- a timeout, a busy or broken server.) Those are tried again later without counting.
-local function transient(err)
-  if err == nil then return true end
-  if type(err) == "string" then return false end -- Hardcover's own words: a refusal
-  if type(err) ~= "table" then return true end
-  if err.completed == false or err.error == "no_response" then return true end
-  local status = tonumber(err.status)
-  if status == nil then return err.errors == nil end
-  return status == 429 or status >= 500
-end
+local transient = OfflineQueue.transient
 
 --
 -- Send what is waiting, in order. `api` needs saveGoal(id, input) and archiveGoal(goal)
@@ -234,12 +219,7 @@ function GoalQueue:_flush(api, opts)
         stopped = true
         break
       else
-        op.failures = (op.failures or 0) + 1
-        if Lists.isScopeError(err) then
-          op.held, op.reason = true, "scope"
-        elseif op.failures >= GoalQueue.MAX_REJECTIONS then
-          op.held, op.reason = true, "refused"
-        end
+        OfflineQueue.reject(op, err)
         self:persist()
       end
     end

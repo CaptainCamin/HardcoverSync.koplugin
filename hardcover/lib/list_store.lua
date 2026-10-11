@@ -199,4 +199,105 @@ function ListStore:putMembers(user_id, row, members, complete)
   return save(self, user_id, row, kept, ids, complete)
 end
 
+-- ------------------------------------------------------------------ changes made offline
+
+-- Is the book on this saved list? Returns the member ({ list_book_id, position, book_id,
+-- date_added }), false when the list is saved whole and the book is not on it, and nil
+-- when the saved copy cannot say (never saved, or only part of it).
+function ListStore:memberOf(user_id, list_id, book_id)
+  local saved = self:contents(user_id, list_id)
+  if not saved then return nil end
+  book_id = tonumber(book_id)
+  for _, m in ipairs(saved.members) do
+    if tonumber(m.book_id) == book_id then return m end
+  end
+  if saved.complete then return false end
+  return nil
+end
+
+-- The index row of one of your lists, from the saved index.
+local function indexRow(index, list_id)
+  for _, row in ipairs(index and index.mine or {}) do
+    if tostring(row.id) == tostring(list_id) then return row end
+  end
+end
+
+local function putIndexAsIs(self, user_id, index)
+  local text = Codec.encode(index)
+  return text and self.db:putBlob(indexKey(user_id), text) or false
+end
+
+--
+-- A book put on a list from this device while offline. The saved list and its size in the
+-- index change at once, so every screen shows it; the fingerprints stay as they were, so
+-- the saved copy is not mistaken for out of date and downloaded over the change before it
+-- is sent (see markStale for after). A ranked list gets the book last. The book's row must
+-- be saved already (opening its details does that), or the list cannot show it.
+--
+function ListStore:addMember(user_id, list_id, book_id)
+  book_id = tonumber(book_id)
+  local saved = self:contents(user_id, list_id)
+  if not (saved and book_id) then return false end
+  for _, m in ipairs(saved.members) do
+    if tonumber(m.book_id) == book_id then return false end
+  end
+
+  local members, ids = {}, {}
+  local last = -1
+  for i, m in ipairs(saved.members) do
+    members[i] = m
+    ids[#ids + 1] = m.book_id
+    last = math.max(last, tonumber(m.position) or i - 1)
+  end
+  members[#members + 1] = { position = last + 1, book_id = book_id, date_added = os.date("%Y-%m-%d") }
+  ids[#ids + 1] = book_id
+
+  local text = Codec.encode({
+    fingerprint = saved.fingerprint, complete = saved.complete, saved_at = self.now(), members = members,
+  })
+  if not text then return false end
+  self.db:putOwned(listKey(user_id, list_id), ids, text)
+
+  local index = self:index(user_id)
+  local row = indexRow(index, list_id)
+  if row then
+    row.count = (tonumber(row.count) or 0) + 1
+    putIndexAsIs(self, user_id, index)
+  end
+  return true
+end
+
+-- A book taken off a list from this device while offline (see addMember).
+function ListStore:removeMember(user_id, list_id, book_id)
+  book_id = tonumber(book_id)
+  local saved = self:contents(user_id, list_id)
+  if not (saved and book_id) then return false end
+
+  local members, ids, found = {}, {}, false
+  for _, m in ipairs(saved.members) do
+    if tonumber(m.book_id) == book_id then
+      found = true
+    else
+      members[#members + 1] = m
+      ids[#ids + 1] = m.book_id
+    end
+  end
+  if not found then return false end
+
+  local text = Codec.encode({
+    fingerprint = saved.fingerprint, complete = saved.complete, saved_at = self.now(), members = members,
+  })
+  if not text then return false end
+  self.db:putOwned(listKey(user_id, list_id), ids, text)
+  self.books:evict()
+
+  local index = self:index(user_id)
+  local row = indexRow(index, list_id)
+  if row then
+    row.count = math.max(0, (tonumber(row.count) or 0) - 1)
+    putIndexAsIs(self, user_id, index)
+  end
+  return true
+end
+
 return ListStore

@@ -6,7 +6,8 @@
 -- Lua in the spec suite.
 --
 -- A row is { kind, title, text, note (nil or a few words on why it is stuck), cancel }:
--- `cancel()` removes just that change and returns true.
+-- `cancel()` removes just that change and returns true. A shelf or list row also carries
+-- `op`, so the screens that showed the change can be put back (see DialogManager:pendingUndone).
 
 local _ = require("gettext")
 local T = require("ffi/util").template
@@ -30,6 +31,16 @@ local function stuck(entry)
   if entry.conflict then return _("waiting for your answer") end
   if (entry.failures or 0) >= 3 then return _("Hardcover refused it") end
   return nil
+end
+
+-- the same for a change that can be held (shelf and list changes, as goals are)
+local function heldNote(op)
+  if not op.held then return nil end
+  return op.reason == "scope" and _("sign in again to send it") or _("Hardcover refused it")
+end
+
+local function bookTitle(op)
+  return (type(op.title) == "string" and op.title ~= "") and op.title or T(_("Book %1"), op.book_id)
 end
 
 function PendingChanges.list(queues)
@@ -68,6 +79,35 @@ function PendingChanges.list(queues)
         text = (r.rating or 0) > 0 and T(_("%1: rating %2"), title, tostring(r.rating))
           or T(_("%1: clear the rating"), title),
         cancel = function() return ratings:cancel(r.user_book_id) end,
+      }
+    end
+  end
+
+  local shelves = queues.shelf_queue
+  if shelves then
+    for _i, op in ipairs(shelves:list()) do
+      local title = bookTitle(op)
+      local book_id = op.book_id
+      rows[#rows + 1] = {
+        kind = "shelf", title = title, op = op, note = heldNote(op),
+        text = op.kind == "remove" and T(_("%1: remove from your library"), title)
+          or T(_("%1: move to %2"), title, statusText(op.status_id)),
+        cancel = function() return shelves:cancel(book_id) end,
+      }
+    end
+  end
+
+  local lists = queues.list_queue
+  if lists then
+    for _i, op in ipairs(lists:list()) do
+      local title = bookTitle(op)
+      local name = (type(op.list_name) == "string" and op.list_name ~= "") and op.list_name or _("a list")
+      local list_id, book_id = op.list_id, op.book_id
+      rows[#rows + 1] = {
+        kind = "list", title = title, op = op, note = heldNote(op),
+        text = op.kind == "remove" and T(_("%1: take off the list \"%2\""), title, name)
+          or T(_("%1: put on the list \"%2\""), title, name),
+        cancel = function() return lists:cancel(list_id, book_id) end,
       }
     end
   end

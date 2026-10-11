@@ -307,15 +307,27 @@ end
 -- with a shelf on Home (the counts, the reading list) and in Stats is forgotten as
 -- before.
 --
-function Flows:shelfChanged(book_id, old_status_id, status_id, user_book_id)
+-- `unsent`: made offline, waiting in the shelf queue. The saved shelves must not be marked
+-- out of date (the next look would download them over the change), and nothing is
+-- forgotten, which offline would leave Home with no counts at all: the two counts that
+-- moved are adjusted instead. All of it is done properly when the change is sent.
+--
+function Flows:shelfChanged(book_id, old_status_id, status_id, user_book_id, unsent)
   local store = self:shelves()
   local user_id = User:getId()
   if store then
     if status_id then
-      store:moveBook(user_id, book_id, status_id, user_book_id)
+      store:moveBook(user_id, book_id, status_id, user_book_id, unsent)
     else
-      store:removeBook(user_id, book_id)
+      store:removeBook(user_id, book_id, unsent)
     end
+  end
+  if unsent then
+    if self.shelf_cache and old_status_id ~= status_id then
+      self.shelf_cache:bumpCounts(user_id, Home.statusIds(), { [old_status_id or 0] = -1, [status_id or 0] = 1 })
+    end
+    require("hardcover/lib/bookshelf_sources").invalidate()
+    return
   end
   self:forgetShelves(old_status_id, status_id)
 end
