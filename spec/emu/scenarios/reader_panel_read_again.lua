@@ -1,5 +1,5 @@
 --[[--
-A finished book's panel offers "Read again" beside its shelf line. Tapping it asks first, and then
+A finished book's panel offers "Read again" as an action. Tapping it asks first, and then
 the page goes to the sync queue as a re-read: sent at once when online, and kept for later when
 offline. The queue, the cache and the network are stand-ins; the menu and the panel are the real
 thing.
@@ -71,7 +71,7 @@ return {
       menu:showReaderPanel()
       emu:pump()
       emu:screenNodes() -- paint first: tap ranges are only real once painted
-      assert(emu:screenText():find("On your 'Read' shelf", 1, true), "the shelf line is missing")
+      assert(emu:screenText():find("Read again", 1, true), "Read again is missing")
       emu:shot(online and "reader_panel_read_again_online" or "reader_panel_read_again_offline")
 
       tapText("Read again")

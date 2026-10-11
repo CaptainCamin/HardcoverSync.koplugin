@@ -27,7 +27,6 @@ local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local ICON = require("hardcover/lib/constants/icons")
 local SETTING = require("hardcover/lib/constants/settings")
 local VERSION = require("hardcover_version")
-local Shelf = require("hardcover/lib/shelf")
 local SyncConflicts = require("hardcover/lib/sync_conflicts")
 
 local HardcoverMenu = {}
@@ -201,30 +200,14 @@ function HardcoverMenu:showReaderPanel()
     local pages = self.settings:pages()
     if linked and pages then
       local saved = read and read.progress_pages
-      -- a finished book says where it stopped only when a page was saved; "Page 0" would be false
-      if saved or not finished then
+      -- how far is said only when it is true: a saved page, or a book being read. A book on no shelf,
+      -- Want to Read, or finished with nothing saved has no page to report ("Page 0" would be false).
+      if (saved and saved > 0) or status_id == HARDCOVER.STATUS.READING then
         local page = saved or 0
         bits[#bits + 1] = T(_("Page %1 of %2"), page, pages)
         bits[#bits + 1] = T(_("%1%"), math.floor(100 * page / pages + 0.5))
       end
     end
-
-    -- where the book is, in words: the same statuses the details screen's pill uses
-    local shelf
-    if linked then
-      if status_id then
-        shelf = T(_("On your '%1' shelf"), Shelf.statusLabel(status_id))
-      elseif status.not_on_shelf then
-        shelf = _("Not on a shelf")
-      else
-        shelf = _("Shelf not checked yet")
-      end
-    end
-    -- a finished book can be read again: a new read starts, and the finished one is kept
-    local shelf_action = (linked and finished) and {
-      text = _("Read again"),
-      run = function() self:readAgain() end,
-    } or nil
 
     local actions = {}
     local function add(text, item, extra)
@@ -235,6 +218,10 @@ function HardcoverMenu:showReaderPanel()
 
     -- the three things a reader does mid-book, as in the mock; everything else is under More
     if linked then
+      -- a finished book can be read again: a new read starts, and the finished one is kept
+      if finished then
+        actions[#actions + 1] = { text = _("Read again"), enabled = true, run = function() self:readAgain() end }
+      end
       -- progress can only be set on a book being read; when it is not, the same button
       -- opens the statuses, so it never sits there dead with no reason given
       if status_id == HARDCOVER.STATUS.READING then
@@ -262,8 +249,6 @@ function HardcoverMenu:showReaderPanel()
       linked = linked,
       pills = {},
       line = not linked and _("Not linked to Hardcover") or #bits > 0 and table.concat(bits, "  \194\183  ") or nil,
-      shelf = shelf,
-      shelf_action = shelf_action,
       -- the switch means "Hardcover follows this book". It is not offered for a Finished or Did not
       -- finish book: neither page progress nor a status change is sent for those, so it would do nothing.
       -- Where reading moves the book, a line under it says so, whether the switch is on or off.
