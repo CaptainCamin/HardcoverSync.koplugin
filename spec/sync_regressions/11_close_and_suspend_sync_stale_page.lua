@@ -24,7 +24,7 @@ local function newApp(synced)
     getCurrentPage = function() return 200 end, -- what is on screen now
   }
   return KB.new_app {
-    state = { page = 120, book_status = { id = 500 } }, -- 120: last debounced event
+    state = { page = 120, book_status = { id = 500, status_id = 2 } }, -- 120: last debounced event; a book being read
     ui = ui,
     page_mapper = PageMapper:new { state = {}, ui = ui },
     page_update_pending = true, -- an earlier update left the flag set
