@@ -284,6 +284,12 @@ function ShelfDialog:build()
   end
   self.per_page = self:rowsPerPage(body_h)
   self.pages = math.max(1, math.ceil(#self.items / self.per_page))
+  -- A list that runs to more than one page shares what is left over (the part of the page too
+  -- short for another row) out among its rows, so no gap sits above the footer. Every row on every
+  -- page gets the same height.
+  if self.pages > 1 then
+    self.row_h = self.row_h + math.floor((body_h - FOOTER_H - self.per_page * self.row_h) / self.per_page)
+  end
   self.page = math.max(1, math.min(self.page or 1, self.pages))
   self.body_region = Geom:new { x = 0, y = top_h, w = sw, h = body_h }
 
