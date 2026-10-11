@@ -121,6 +121,7 @@ Theme.mmd = {
   rule = { overlay = px(3), gap = px(2) }, -- the black rule and white gap on top of anything laid over a page
   row = { pad_x = px(16), pad_y = px(15.5), gap = px(4), icon = px(28), tile = px(48) },
   button = { radius = px(8), border = math.max(2, px(2)) },
+  chip = { radius = px(20), border = math.max(2, px(2)), pad = px(14), pad_y = px(4), text = 18 },
   search = { h = px(48), icon = px(20), icon_touch = px(28), clear = px(28), clear_touch = px(48) },
 }
 

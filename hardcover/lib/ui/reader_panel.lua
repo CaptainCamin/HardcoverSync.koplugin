@@ -78,7 +78,8 @@ function ReaderPanel:render()
     pill_row = HorizontalGroup:new { align = "center" }
     for i, pill in ipairs(model.pills) do
       if i > 1 then table.insert(pill_row, Theme.hspan("s")) end
-      table.insert(pill_row, Theme.pill(pill.text, { filled = pill.filled, max_width = width }))
+      table.insert(pill_row, require("hardcover/lib/ui/components/chip").new {
+        label = pill.text, selected = pill.filled, size = 15, width = width })
     end
   end
   local title = Theme.mmdText(model.title, "strong", 25, { width = width })
