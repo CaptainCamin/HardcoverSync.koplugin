@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to create, e.g. v0.7.0 or v1.4.2-beta.1 (a tag containing "beta" is published as a pre-release; the stable one must match the version in _meta.lua)'
+        description: 'Tag to create: v0.7.0 (stable, must match the version in _meta.lua), v1.4.2-beta.1 (a beta, published as a pre-release), or v1.4.2-beta to take the next beta number automatically'
         required: true
 
 jobs:
@@ -22,19 +22,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # A tag containing "beta" is a pre-release, and is never "latest". Pushed
-      # or run by hand, the tag alone decides.
-      - name: Work out the release kind
+      # Typed by hand as a beta with no number ("v2.0.0-beta"), the tag gets the
+      # next number after the betas already on origin, so nobody has to remember
+      # the last one. A tag containing "beta" is a pre-release, and is never
+      # "latest".
+      - name: Work out the tag and release kind
         id: kind
         env:
-          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          INPUT: ${{ github.event.inputs.tag }}
+          REF: ${{ github.ref_name }}
         run: |
-          case "$TAG" in
+          tag=${INPUT:-$REF}
+          case "$INPUT" in
+            *-beta)
+              base=${INPUT%-beta}
+              last=$(git ls-remote --tags origin "refs/tags/$base-beta.*" \
+                | awk '{ print $2 }' | sed 's/\^{}$//; s|^refs/tags/||' \
+                | awk -v p="$base-beta." 'index($0, p) == 1 { n = substr($0, length(p) + 1); if (n ~ /^[0-9]+$/ && n + 0 > max) max = n + 0 } END { print max + 0 }')
+              tag="$base-beta.$((last + 1))"
+              ;;
+          esac
+          case "$tag" in
             *beta*) prerelease=true ;;
             *)      prerelease=false ;;
           esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
-          echo "Tag $TAG: prerelease=$prerelease"
+          echo "Release $tag: prerelease=$prerelease"
 
       - name: Run Busted
         uses: lunarmodules/busted@v2.2.0
@@ -51,7 +65,7 @@ jobs:
       - name: Stamp the version of a pre-release
         if: steps.kind.outputs.prerelease == 'true'
         env:
-          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          TAG: ${{ steps.kind.outputs.tag }}
         run: |
           # the tag is typed by hand or pushed: only this shape is let near the shell and sed
           if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$'; then
@@ -84,7 +98,7 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          tag_name: ${{ steps.kind.outputs.tag }}
           target_commitish: ${{ github.sha }}
           prerelease: ${{ steps.kind.outputs.prerelease == 'true' }}
           generate_release_notes: true
