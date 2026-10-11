@@ -12,6 +12,7 @@
 
 ### Changed
 
+- **What you did is acknowledged with a snackbar.** Linking a book, turning progress tracking on or off, Update progress, and saving or archiving a goal (offline too) now answer with the snackbar along the bottom edge, as the other notices do, instead of KOReader's toast. Background events (a book's information failing to load, a book linked on its own) keep the plain toast.
 - **A book marked Finished or Did not finish on Hardcover is not changed by reaching its end.** The plugin no longer writes Finished over a book that is Finished or Did not finish when the book ends or its status is set to reading. A Did not finish book that ends on its own asks once per session whether to mark it as Read, with "Keep as Did not finish" as the other answer. A choice you make in KOReader's end-of-book dialog is applied, and a confirmation says so.
 - **Reading a Want to Read book, or one on no shelf, puts it on Currently Reading.** The first page turned sets the book to Currently Reading (a note says so), as a book not on a shelf already did. Finished and Did not finish books are still not sent progress.
 - Hardcover books in Bookshelf now show their description in the hero (when it is saved on the device), followed by a line saying that opening the book shows the full description on Hardcover.
