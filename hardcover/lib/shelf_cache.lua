@@ -207,6 +207,21 @@ function ShelfCache:putCounts(user_id, counts)
   return (pcall(store.flush, store))
 end
 
+-- A book moved between shelves while offline: the counts it changed, by `deltas`
+-- ({ [status_id] = +1 or -1 }, ids that are not in `status_ids` ignored), so Home still
+-- shows them. A shelf with no count saved is left without one.
+function ShelfCache:bumpCounts(user_id, status_ids, deltas)
+  local counts = self:counts(user_id, status_ids)
+  local moved = false
+  for status_id, delta in pairs(deltas or {}) do
+    if counts[status_id] ~= nil then
+      counts[status_id] = math.max(0, counts[status_id] + delta)
+      moved = true
+    end
+  end
+  return moved and self:putCounts(user_id, counts) or false
+end
+
 -- The "currently reading" list for the home screen, as last loaded. Kept apart
 -- from the shelves: it is a short, differently shaped list (with progress) and
 -- must not stand in for a shelf. `entries` may be empty, which is a real answer

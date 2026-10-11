@@ -644,6 +644,9 @@ function DialogManager:showOldHome(host)
     pending_fn = function()
       return (self.sync_queue and self.sync_queue:pendingCount() or 0)
         + (self.goal_queue and self.goal_queue:count() or 0)
+        + (self.rating_queue and self.rating_queue:count() or 0)
+        + (self.shelf_queue and self.shelf_queue:count() or 0)
+        + (self.list_queue and self.list_queue:count() or 0)
     end,
     -- the sync box's Sync now: what Settings > Sync does
     sync_cb = function() self:syncNow() end,

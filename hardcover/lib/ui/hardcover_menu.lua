@@ -570,6 +570,8 @@ end
 function HardcoverMenu:pendingTotal()
   return self.sync_queue:pendingCount() + (self.goal_queue and self.goal_queue:count() or 0)
     + (self.rating_queue and self.rating_queue:count() or 0)
+    + (self.shelf_queue and self.shelf_queue:count() or 0)
+    + (self.list_queue and self.list_queue:count() or 0)
 end
 
 function HardcoverMenu:conflictCount()
@@ -588,7 +590,10 @@ function HardcoverMenu:getPendingChangesMenuItem()
     callback = function(menu_instance)
       -- loaded here, not at the top: the screen pulls in the settings page and its widgets
       require("hardcover/lib/ui/pending_changes_dialog").show {
-        queues = { sync_queue = self.sync_queue, goal_queue = self.goal_queue, rating_queue = self.rating_queue },
+        queues = {
+          sync_queue = self.sync_queue, goal_queue = self.goal_queue, rating_queue = self.rating_queue,
+          shelf_queue = self.shelf_queue, list_queue = self.list_queue,
+        },
         on_cancel = function(row) self:pendingCancelled(row) end,
         on_send = function()
           self:withWifiThen(function() self.on_flush_sync_queue() end, true)
@@ -605,6 +610,9 @@ end
 function HardcoverMenu:pendingCancelled(row)
   if row.kind == "goal" and self.dialog_manager and self.dialog_manager.applyGoals then
     self.dialog_manager:applyGoals(self.dialog_manager:savedGoals())
+  end
+  if (row.kind == "shelf" or row.kind == "list") and self.dialog_manager and self.dialog_manager.pendingUndone then
+    self.dialog_manager:pendingUndone(row)
   end
   if (row.kind == "page" or row.kind == "status" or row.kind == "rating")
       and self.cache and self.settings:bookLinked() and self.ui and self.ui.document then

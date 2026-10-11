@@ -223,7 +223,11 @@ sign in.
 The **Shelf** button beside Close puts the book on a shelf: it reads `Add to shelf` for a book that is not in your
 library and `Shelf: <status>` for one that is. Tap it to choose Want to Read, Currently Reading, Read or Did Not
 Finish, or (for a book already in your library) `Remove from library`, which asks first. Your status line and the
-button update in place. This needs a connection; offline it tells you so and changes nothing.
+button update in place. Offline the change is kept, shown at once and sent when you are connected again; the
+book then has no library record yet, so rating it waits until the change has been sent. Putting a book on or taking it
+off your own **Lists** works the same way, from the lists saved on the device (a list that was never downloaded in
+full is left out of the picker until you are online). `Pending changes` in the settings shows what is waiting, and
+cancels any one of them.
 
 ### Where things are
 
