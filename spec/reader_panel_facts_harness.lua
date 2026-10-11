@@ -33,10 +33,12 @@ local want = describe { status_id = S.TO_READ, status_label = "Want to Read" }
 r.check("length, not a page", want.line == "387 pages", want.line)
 r.check("shelf line", want.shelf == "On your 'Want to Read' shelf", want.shelf)
 r.check("switch with the on note", want.track == true and want.track_note == "Keep reading to update progress.", want.track_note)
-r.check("switch off: no note",
-  describe { status_id = S.TO_READ, status_label = "Want to Read", sync_on = false }.track_note == nil)
-r.check("switch off, no shelf: no note",
-  describe { not_on_shelf = true, sync_on = false }.track_note == nil)
+r.check("switch off: how to track it by hand",
+  describe { status_id = S.TO_READ, status_label = "Want to Read", sync_on = false }.track_note == "Change status to track progress.")
+r.check("switch off, no shelf: the same line",
+  describe { not_on_shelf = true, sync_on = false }.track_note == "Change status to track progress.")
+r.check("switch off while reading: still no note",
+  describe { status_id = S.READING, status_label = "Currently Reading", sync_on = false }.track_note == nil)
 
 print("\n== On no shelf, and shelf not checked ==")
 local none = describe { not_on_shelf = true }

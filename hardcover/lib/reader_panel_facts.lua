@@ -13,7 +13,8 @@
 -- finished:   Finished or Did not finish: the panel offers "Read again" beside the shelf line.
 -- track:      the "Update Hardcover as I read" switch is offered (a linked book that is not finished).
 -- track_note: under the switch, only for Want to Read and a book on no shelf (where reading moves it),
---             and only while the switch is on: an off switch needs no explaining.
+--             "Keep reading to update progress." with the switch on, "Change status to track progress."
+--             with it off (the way to update it by hand).
 
 local _ = require("gettext")
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
@@ -61,8 +62,9 @@ function Facts.describe(o)
   end
 
   out.track = not out.finished
-  if o.sync_on and (status_id == HARDCOVER.STATUS.TO_READ or (status_id == nil and o.not_on_shelf)) then
-    out.track_note = _("Keep reading to update progress.")
+  if status_id == HARDCOVER.STATUS.TO_READ or (status_id == nil and o.not_on_shelf) then
+    out.track_note = o.sync_on and _("Keep reading to update progress.")
+      or _("Change status to track progress.")
   end
   return out
 end
