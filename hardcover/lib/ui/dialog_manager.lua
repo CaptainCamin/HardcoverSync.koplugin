@@ -495,12 +495,14 @@ function DialogManager:showSearchResults(query, books)
       self:showBookDetail(entry.book_id)
     end,
     -- closing returns to the screen beneath: forget this one and repaint what
-    -- it covered
+    -- it covered. A "ui" refresh leaves the results' covers ghosting on the page
+    -- under them (they showed through the Home rows), and only a flashing "full"
+    -- clears an e-ink panel.
     close_callback = function()
       if self.search_results_dialog == dialog then
         self.search_results_dialog = nil
       end
-      UIManager:setDirty("all", "ui")
+      UIManager:setDirty("all", "full")
     end,
   }
   self:screens():track("search_results", dialog)
