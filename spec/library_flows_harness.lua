@@ -371,17 +371,15 @@ end)
 
 print("\n== Home's Sync now ==")
 
-check("Sync now runs the sync item, whatever language its tile is in", function()
+check("Sync now sends what is waiting; the box opens the list", function()
   local m = newManager()
-  local ran = 0
-  m.settings_items = function()
-    return {
-      { text = "x", callback = function() error("not the sync item") end },
-      { tile = "Synchroniser", tile_id = "sync", callback = function() ran = ran + 1 end },
-    }
-  end
+  local sent, listed = 0, 0
+  m.send_now = function() sent = sent + 1 end
+  m.show_pending = function() listed = listed + 1 end
   m:syncNow()
-  assert(ran == 1, "the sync item ran " .. ran .. " times")
+  assert(sent == 1 and listed == 0, "Sync now sent " .. sent .. " times, opened the list " .. listed)
+  m:showPendingChanges()
+  assert(sent == 1 and listed == 1, "the box opened the list " .. listed .. " times")
 end)
 
 print("\n== no goals ==")

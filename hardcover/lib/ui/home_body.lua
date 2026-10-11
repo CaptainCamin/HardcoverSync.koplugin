@@ -3,8 +3,9 @@
 -- Top to bottom: "Currently reading" with the book you read most recently as a bordered card (cover,
 -- title, author, a thick progress bar, "62% · page 186 of 300" and one filled Open book
 -- button); a box saying whether changes are waiting to sync (a sync icon, a count and Sync now) or
--- all is well (a check, All synced, Sync now still there), both with a dotted outline, the same height either way so what
--- is below never moves; then "Shelves" as two-line list rows with their counts. The other books
+-- all is well (a check, All synced, Sync now still there), both with a dotted outline, the same height
+-- either way so what is below never moves. Sync now sends; a tap anywhere else on the box opens the
+-- list of what is waiting. Then "Shelves" as two-line list rows with their counts. The other books
 -- being read are one tap away under Shelves > Currently reading.
 --
 -- It fills the room it is given: the card first, then the sync box, then as many shelf rows as fit.
@@ -40,6 +41,7 @@ local HomeBody = HomeDialog:extend {
   name = "hardcover_home_body",
   pending_fn = nil, -- returns how many changes are waiting to sync
   sync_cb = nil,    -- Sync now
+  pending_cb = nil, -- a tap on the sync box: what is waiting
 }
 
 function HomeBody:init()
@@ -114,13 +116,14 @@ end
 function HomeBody:syncNote(width)
   local waiting = self.pending_fn and self.pending_fn() or 0
   local action = { label = _("Sync now"), callback = function() if self.sync_cb then self.sync_cb() end end }
+  local on_tap = function() if self.pending_cb then self.pending_cb() end end
   local function make(count, h)
     if count > 0 then
-      return Note.new { width = width, h = h, dotted = true, icon_name = "sync", action = action,
+      return Note.new { width = width, h = h, dotted = true, icon_name = "sync", action = action, on_tap = on_tap,
         title = count == 1 and _("1 change waiting") or string.format(_("%d changes waiting"), count),
         text = _("They sync when you are online.") }
     end
-    return Note.new { width = width, h = h, dotted = true, icon_name = "check", action = action,
+    return Note.new { width = width, h = h, dotted = true, icon_name = "check", action = action, on_tap = on_tap,
       title = _("All synced"), text = _("Nothing is waiting to send.") }
   end
   local probe = make(waiting > 0 and 0 or 1)

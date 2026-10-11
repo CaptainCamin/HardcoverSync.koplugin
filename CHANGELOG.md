@@ -12,6 +12,7 @@
 
 ### Changed
 
+- **Sync shows what is waiting.** There is no separate Pending changes row any more: Sync opens the list when changes wait (each can be cancelled, Send them now sends the rest, and Discard queued changes is a button there rather than a hold on Sync). Home's sync box opens the same list when you tap it; its Sync now button still sends straight away.
 - **What you did is acknowledged with a snackbar.** Linking a book, turning progress tracking on or off, Update progress, and saving or archiving a goal (offline too) now answer with the snackbar along the bottom edge, as the other notices do, instead of KOReader's toast. Background events (a book's information failing to load, a book linked on its own) keep the plain toast.
 - **No grey buttons or rules.** A button that cannot be used right now (a Save while saving, a reader action that needs a linked book) keeps its Black label inside a dotted box and is never filled, instead of dark grey text. The thin rules between parts of the older screens (Home, Lists, Reviews) are the dotted divider, not a grey line. Chart greys are unchanged.
 - **A real search field.** The search field on Home is a 48 tall pill with a magnifier and its words in full black. The search results screen shows what you searched for in the same field under the top bar: tap it to change the words, the X to clear them and go back. Typing still happens in KOReader's own box and keyboard.

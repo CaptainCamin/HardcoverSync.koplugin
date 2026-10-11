@@ -58,9 +58,12 @@ return {
     os.remove(path)
     local DialogManager = require("hardcover/lib/ui/dialog_manager")
     local pending = 0
+    local sent_now, opened_list = 0, 0
     local manager = DialogManager:new { settings = settings,
       sync_queue = { finishedCount = function() return 0 end, pendingCount = function() return pending end },
-      shelf_cache = ShelfCache:new { path = path, open = function(p) return LuaSettings:open(p) end } }
+      shelf_cache = ShelfCache:new { path = path, open = function(p) return LuaSettings:open(p) end },
+      send_now = function() sent_now = sent_now + 1 end,
+      show_pending = function() opened_list = opened_list + 1 end }
 
     local W, H = Device.screen:getWidth(), Device.screen:getHeight()
     local function nav(i) -- tap the i-th of four destinations in the bar
@@ -86,6 +89,23 @@ return {
     emu:pump()
     emu:expectText("2 changes waiting")
     emu:expectText("Sync now")
+
+    -- the sync box: a tap on its words opens what is waiting; its Sync now button sends and
+    -- does not also open the list (the button sits inside the box's own touch area)
+    local function tapText(text)
+      local node = emu:expectText(text)
+      emu:tapExpecting(node.x + math.floor(node.w / 2), node.y + math.floor(node.h / 2))
+      emu:pump()
+    end
+    tapText("2 changes waiting")
+    assert(opened_list == 1 and sent_now == 0, "tapping the words: opened " .. opened_list .. ", sent " .. sent_now)
+    -- the gap between the icon and the words is the box too, not only the words
+    local words = emu:expectText("2 changes waiting")
+    emu:tapExpecting(words.x - 4, words.y + math.floor(words.h / 2))
+    emu:pump()
+    assert(opened_list == 2 and sent_now == 0, "tapping the gap: opened " .. opened_list .. ", sent " .. sent_now)
+    tapText("Sync now")
+    assert(opened_list == 2 and sent_now == 1, "Sync now: opened " .. opened_list .. ", sent " .. sent_now)
     pending = 0
     home:rebuild()
 

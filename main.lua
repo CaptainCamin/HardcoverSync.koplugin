@@ -221,6 +221,9 @@ function HardcoverApp:init()
     shelf_queue = self.shelf_queue,
     list_queue = self.list_queue,
     flush_goals = function() self:flushSyncQueue(false) end,
+    -- Home's sync box: Sync now sends, and the rest of the box opens the list (the menu's)
+    send_now = function() self.menu:sendPending() end,
+    show_pending = function() self.menu:showPendingChanges() end,
     -- the settings, for the home screen's Settings button; read when asked, as
     -- the menu is built after this
     settings_items = function()
@@ -905,7 +908,7 @@ end
 function HardcoverApp:_noticeHeld(kind, held)
   self.noticed_held = self.noticed_held or {}
   if held > 0 and held ~= self.noticed_held[kind] then
-    StatusDialogs.info(_("A shelf or list change could not be sent. Settings > Pending changes shows which."), 5)
+    StatusDialogs.info(_("A shelf or list change could not be sent. Sync shows which."), 5)
   end
   self.noticed_held[kind] = held
 end

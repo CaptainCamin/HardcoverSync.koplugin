@@ -472,9 +472,13 @@ function M.boot(opts)
   ]]
   function emu:tapExpecting(x, y, opts)
     local consumed = self:tap(x, y, opts)
-    assert(consumed, string.format(
-      "tap at (%d,%d) was not consumed by %s -- no gesture range covers that point",
-      x, y, tostring(UIManager:getTopmostVisibleWidget().name)))
+    if not consumed then
+      -- only read the top widget on failure: a tap that closes its screen (Send them now) leaves none
+      local top = UIManager:getTopmostVisibleWidget()
+      error(string.format(
+        "tap at (%d,%d) was not consumed by %s -- no gesture range covers that point",
+        x, y, top and tostring(top.name) or "nothing"), 2)
+    end
     return consumed
   end
 
