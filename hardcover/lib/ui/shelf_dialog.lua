@@ -1,5 +1,6 @@
 -- A list of books on a screen of its own: a shelf, one of your lists, a vibe's ranking, "For you",
--- search results. Selecting a row opens the book's details.
+-- search results, and the book and edition pickers (search_dialog.lua, which is this screen with a
+-- chosen row). Selecting a row opens the book's details, unless the screen is a picker.
 --
 -- Built on our own widgets, a page at a time (mock 3): the top bar (back arrow, the short title, the
 -- sort icon on a shelf, a reload icon where the screen can be refreshed), fixed-height rows (cover,
@@ -27,6 +28,7 @@ local CoverCells = require("hardcover/lib/ui/cover_cells")
 local Draw = require("hardcover/lib/ui/components/draw")
 local ListRow = require("hardcover/lib/ui/list_row")
 local Popover = require("hardcover/lib/ui/components/popover")
+local Radio = require("hardcover/lib/ui/components/radio")
 local ScrollControl = require("hardcover/lib/ui/components/scroll_control")
 local Shelf = require("hardcover/lib/shelf")
 local ShelfSort = require("hardcover/lib/shelf_sort")
@@ -192,7 +194,8 @@ function ShelfDialog:buildRow(item, width)
   table.insert(line, self.covers:cell(row.cover_url, COVER_W, COVER_H))
   table.insert(line, Theme.hspan(SIDE))
 
-  -- the right-hand end: your rating, then the chevron
+  -- the right-hand end: your rating, then the chevron. On a picker the row is chosen by tapping it, so
+  -- there is no chevron (it promises a screen): a radio says which row is the current choice, as the choice sheet does.
   local trailing = HorizontalGroup:new { align = "center" }
   if item.rating then
     table.insert(trailing, Theme.icon("star-filled", px(18)))
@@ -200,15 +203,21 @@ function ShelfDialog:buildRow(item, width)
     table.insert(trailing, Theme.mmdText(item.rating, "strong", 18))
     table.insert(trailing, Theme.hspan(px(12)))
   end
-  table.insert(trailing, Draw.chevron("right"))
+  if row.chooser then
+    table.insert(trailing, Radio.new { selected = row.current })
+  else
+    table.insert(trailing, Draw.chevron("right"))
+  end
 
   local used = SIDE + (item.rank and numeral_w or 0) + COVER_W + SIDE + trailing:getSize().w + SIDE + SIDE
   local text_w = math.max(px(60), width - used)
   local column = VerticalGroup:new { align = "left",
     Theme.mmdText(row.title or row.text or "", "strong", 21, { width = text_w }) }
-  if row.authors then
+  -- the second line: the author, or on a picker what tells the choices apart (the edition's format)
+  local second = row.detail or row.authors
+  if second then
     table.insert(column, Theme.span(px(3)))
-    table.insert(column, Theme.mmdText(row.authors, "text", 18, { width = text_w, secondary = true }))
+    table.insert(column, Theme.mmdText(second, "text", 18, { width = text_w, secondary = true }))
   end
   if item.reason then
     table.insert(column, Theme.span(px(3)))
@@ -259,14 +268,16 @@ function ShelfDialog:build()
   self.close_button = bar.back_button
   self.sort_button = self.sortable and bar.action_buttons[1] or nil
   -- a search screen shows what was searched for in a search field under the bar: tap it to edit
-  -- the words, the X to clear them (which leaves the results)
+  -- the words, and the X (when the screen has one) clears them, which leaves the results
   local strip
+  self.search_field = nil
   if self.search then
+    self.search_field = SearchField.new {
+      width = sw - 2 * SIDE, query = self.search.query, placeholder = self.search.placeholder,
+      on_tap = function(query) self.search.on_edit(query) end,
+      on_clear = self.search.on_clear and function() self.search.on_clear() end or nil }
     strip = VerticalGroup:new { align = "left", Theme.span(px(8)),
-      HorizontalGroup:new { Theme.hspan(SIDE), SearchField.new {
-        width = sw - 2 * SIDE, query = self.search.query,
-        on_tap = function(query) self.search.on_edit(query) end,
-        on_clear = function() self.search.on_clear() end } },
+      HorizontalGroup:new { Theme.hspan(SIDE), self.search_field },
       Theme.span(px(8)) }
   end
   self.search_strip = strip
@@ -314,7 +325,8 @@ function ShelfDialog:build()
         self.rows[#self.rows + 1] = item.tap
       end
     end
-    -- the footer sits at the same place on every page, under the rows' space
+    -- on a list of several pages the footer sits at the same height on every page, so it is pushed down
+    -- to the bottom of a full page; a list that fits one page has it straight under its rows
     local shown_first, shown_last = 0, 0
     for i = first, last do
       if self.items[i].kind == "book" then
@@ -324,8 +336,8 @@ function ShelfDialog:build()
     end
     if shown_first > 0 then
       local total = tostring(#self.entries) .. (self.has_more and "+" or "")
-      local room = self.per_page * self.row_h
-      table.insert(list, Theme.span(room - (last - first + 1) * self.row_h + px(8)))
+      local empty_rows = self.pages > 1 and (self.per_page - (last - first + 1)) * self.row_h or 0
+      table.insert(list, Theme.span(empty_rows + px(8)))
       table.insert(list, HorizontalGroup:new { Theme.hspan(SIDE),
         Theme.mmdText(string.format(_("Showing %d to %d of %s"), shown_first, shown_last, total), "text", 15,
           { secondary = true, width = width - 2 * SIDE }) })
@@ -357,8 +369,13 @@ function ShelfDialog:build()
   }
   self[1] = self.frame
 
-  -- keyboard / d-pad focus: the rows on this page, then Close
+  -- keyboard / d-pad focus: the search field (and its X) when there is one, the rows on this page,
+  -- the Load more block, then Close
   self.layout = {}
+  if self.search_field then
+    table.insert(self.layout, { self.search_field.field_button })
+    if self.search_field.clear_button then table.insert(self.layout, { self.search_field.clear_button }) end
+  end
   for _i, row in ipairs(self.rows) do table.insert(self.layout, { row }) end
   if self.more_button then table.insert(self.layout, { self.more_button }) end
   table.insert(self.layout, { self.close_button })

@@ -2,11 +2,9 @@
 Book detail: the screen shown after picking a row on the shelf.
 
 Long-form text, so this is where wrapping, scrolling and the page counter
-matter. Runs against both the plain-Menu and SearchMenu (compatibility mode
-off) paths, because the plugin ships a vendored menu for the second and a bug
-in one does not show up in the other.
+matter.
 
-Screens: book_detail, book_detail_compat.
+Screens: book_detail, and the rest of the detail variants below.
 ]]
 
 local fixtures = require("fixtures")
@@ -159,17 +157,6 @@ return {
     else
       print("  detail fits on one page; scrolling untested")
     end
-
-    --[[--
-    The same book with compatibility mode on, which takes the plugin's vendored
-    SearchMenu instead of the vendored-or-stock Menu. Both paths are shipped, so
-    both need to render.
-    ]]
-    local settings = fixtures.real_settings(emu)
-    settings:updateSetting(require("hardcover/lib/constants/settings").COMPATIBILITY_MODE, true)
-
-    local manager = build_detail(emu, { book_id = book_id })
-    emu:shot("book_detail_compat")
 
     --[[--
     A typical book, linked to an edition: series line, community rating, and the

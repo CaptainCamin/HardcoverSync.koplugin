@@ -16,9 +16,6 @@ local support = dofile(PLUGIN .. "/spec/support.lua")
 local r = support.reporter()
 
 local HEAVY = {
-  "hardcover/vendor/listmenu",
-  "hardcover/vendor/covermenu",
-  "hardcover/lib/ui/search_menu",
   "hardcover/lib/ui/search_dialog",
   "hardcover/lib/ui/shelf_dialog",
   "hardcover/lib/ui/book_detail_dialog",

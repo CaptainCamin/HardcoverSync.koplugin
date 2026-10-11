@@ -155,12 +155,14 @@ end
 -- dialog is on screen before fetch runs, and a failure becomes a retry rather
 -- than a blank list the user cannot tell from "no editions exist".
 --
--- search_callback, when given, puts a magnifying glass in the title bar that
+-- search_callback, when given, puts a search field under the title bar that
 -- re-runs a query in place. It is not optional in practice: the link-book
 -- dialog is useless without it, since the initial lookup can easily return
 -- nothing for an edition with a thin metadata record.
 --
-function DialogManager:buildLoadingSearchDialog(title, fetch, active_item, book_callback, search_callback, search_value)
+-- edition_rows is true for the edition picker: its rows say what tells the editions apart (the format
+-- and pages) where the link-book picker's say the author.
+function DialogManager:buildLoadingSearchDialog(title, fetch, active_item, book_callback, search_callback, search_value, edition_rows)
   discard(self.search_dialog)
   self.search_dialog = nil
 
@@ -176,6 +178,7 @@ function DialogManager:buildLoadingSearchDialog(title, fetch, active_item, book_
     end,
     search_callback = search_callback,
     search_value = search_value,
+    edition_rows = edition_rows,
   }
 
   UIManager:show(self.search_dialog)
@@ -190,7 +193,7 @@ function DialogManager:buildLoadingSearchDialog(title, fetch, active_item, book_
       StatusDialogs.retry(err or _("no response"), _("Loading the list"),
         function()
           self:buildLoadingSearchDialog(title, fetch, active_item, book_callback,
-                                        search_callback, search_value)
+                                        search_callback, search_value, edition_rows)
         end,
         function() end)
       return
@@ -252,13 +255,14 @@ function DialogManager:updateSearchResults(search)
       -- Keep the previous rows. Clearing them turns a transient failure into
       -- an empty list, which reads as "no matches" -- a different and wrong
       -- answer to the question the user asked.
-      StatusDialogs.error(_("Search failed. Tap the search icon to try again."))
+      StatusDialogs.error(_("Search failed. Tap the search field to try again."))
       return
     end
 
+    -- the words first: setItems rebuilds the search field from them
+    self.search_dialog.search_value = search
     self.search_dialog:setItems(self.search_dialog.title, books,
                                 self.search_dialog.active_item)
-    self.search_dialog.search_value = search
   end)
 end
 
@@ -338,7 +342,10 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
             Book:editionFormatName(edition.edition_format, edition.reading_format_id),
             edition.pages
           )
-        end
+        end,
+        nil,
+        nil,
+        true
       )
     end,
 

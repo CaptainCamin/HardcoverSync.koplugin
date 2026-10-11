@@ -774,13 +774,15 @@ function M.install(opts)
   Api.findEditions = function(_, book_id, userId)
     record("findEditions")
     local b = M.books_by_id[book_id] or M.books[1]
+    local formats = { "Hardcover", "Paperback", "Ebook" }
     local editions = {}
     for i = 1, 3 do
-      editions[i] = {
+      -- the real API's rows, as HardcoverApi:findEditions hands them over: normalised
+      editions[i] = Api.normalizedEdition(Api, {
         id = book_id * 100 + i,
         book = deepcopy(b),
         cached_image = b.cached_image,
-        edition_format = "Paperback",
+        edition_format = formats[i],
         reading_format_id = 1,
         pages = (b.pages or 300) + (i - 1) * 12,
         publisher = { name = "Fixture Press" },
@@ -789,7 +791,7 @@ function M.install(opts)
         language = { code2 = "en", language = "English" },
         title = b.title,
         user_book = i == 1 and { id = 9000 + book_id } or nil,
-      }
+      })
     end
     return editions
   end
