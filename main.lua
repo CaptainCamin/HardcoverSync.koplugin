@@ -434,7 +434,8 @@ end
 function HardcoverApp:onSettingsChanged(field, change, original_value)
   if field == SETTING.BOOKS then
     local book_settings = change.config
-    if self:_bookSettingChanged(book_settings, "status_id") then
+    -- (only a real change: Bookshelf's shelves are kept in memory, and a progress sync saves the same status again)
+    if HardcoverSettings.statusChanged(book_settings, original_value) then
       BookshelfSources.invalidate(self)
     end
     if self:_bookSettingChanged(book_settings, "sync") then
