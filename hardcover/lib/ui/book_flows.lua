@@ -371,50 +371,24 @@ end
 
 -- Signed in with OAuth, so there is a sign-in whose scopes can say whether it may
 -- change lists.
--- The edition is part of how a file is linked to a book, so it can be changed only for the book
--- open in the reader (the details screen opened from a shelf or a list has no file to relink).
+-- The edition is part of how a file is linked to a book, so the Edition button is for the book
+-- open in the reader only (the details screen opened from a shelf or a list has no file to relink).
 function Flows:canChangeEdition(book_id)
-  if not (book_id and self.ui and self.ui.document and self.link_book) then return false end
+  if not (book_id and self.ui and self.ui.document and self.show_link_actions) then return false end
   return self.settings:getLinkedBookId() == book_id
 end
 
--- Edition: the editions of the book, to pick another for the linked file. Nothing to pick when
--- the book has one edition. The link moves through Hardcover:linkBook, as the reader menu's
--- Change edition does (shelf entry and read move too; queued pages are rescaled).
+-- Edition: the same list as the reader menu's link actions (change edition, link a different book,
+-- unlink). When the list closes and the link has changed, the details are opened again for what the
+-- file is linked to now.
 function Flows:chooseEdition(dialog, book_id)
-  if not Network.connected() then
-    StatusDialogs.info(_("Changing the edition needs an internet connection."))
-    return
-  end
-  local current = self.settings:getLinkedEditionId()
-  self:buildLoadingSearchDialog(
-    _("Select edition"),
-    function(callback)
-      Api:findEditionsAsync(book_id, User:getId(), function(items, err)
-        if items and #items <= 1 then
-          UIManager:close(self.search_dialog)
-          callback(items, err)
-          StatusDialogs.info(_("This book has no other editions."))
-          return
-        end
-        callback(items, err)
-      end)
-    end,
-    { edition_id = current },
-    function(book)
-      if not book or book.edition_id == current then return end
-      Background.run(function()
-        if self.link_book(book) then
-          StatusDialogs.info(_("Edition changed. Page numbers and progress may have moved."))
-          UIManager:close(dialog)
-          self:showBookDetail(book_id, book.edition_id)
-        end
-      end)
-    end,
-    nil,
-    nil,
-    true
-  )
+  local before_book, before_edition = self.settings:getLinkedBookId(), self.settings:getLinkedEditionId()
+  self.show_link_actions(function()
+    local book, edition = self.settings:getLinkedBookId(), self.settings:getLinkedEditionId()
+    if book == before_book and edition == before_edition then return end
+    UIManager:close(dialog)
+    if book then self:showBookDetail(book, edition) else self:showBookDetail(book_id) end
+  end)
 end
 
 function Flows:canChooseLists()

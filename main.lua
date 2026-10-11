@@ -230,8 +230,8 @@ function HardcoverApp:init()
     settings_items = function()
       return self.menu and self.menu:getHomeSettingsItems() or {}
     end,
-    -- the details screen's Edition button relinks the open book (built below)
-    link_book = function(book) return self.hardcover:linkBook(book) end,
+    -- the details screen's Edition button opens the menu's link actions (the menu is built below)
+    show_link_actions = function(on_close) self.menu:showLinkActions(on_close) end,
     state = self.state,
     ui = self.ui,
     wifi = self.wifi
