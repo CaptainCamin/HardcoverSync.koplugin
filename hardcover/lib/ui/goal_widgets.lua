@@ -56,12 +56,7 @@ end
 -- they fit, the words under the chip when they do not.
 function GoalWidgets.standing(p, width)
   local label, filled = Goals.chip(p)
-  local chip = FrameContainer:new {
-    bordersize = Theme.line.firm, radius = Theme.px(18), color = Theme.BLACK,
-    background = filled and Theme.BLACK or Theme.WHITE,
-    padding = Theme.px(4), padding_left = Theme.px(14), padding_right = Theme.px(14), margin = 0,
-    Theme.mmdText(_(label), "strong", 18, { color = filled and Theme.WHITE or Theme.BLACK }),
-  }
+  local chip = require("hardcover/lib/ui/components/chip").new { label = _(label), selected = filled }
   local line = Goals.paceText(p)
   if not line then return chip end
   local gap = Theme.space.m
