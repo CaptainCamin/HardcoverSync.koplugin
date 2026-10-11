@@ -12,6 +12,7 @@
 
 ### Changed
 
+- **A book marked Finished or Did not finish on Hardcover is not changed by reaching its end.** The plugin no longer writes Finished over a book that is Finished or Did not finish when the book ends or its status is set to reading. A Did not finish book that ends on its own asks once per session whether to mark it as Read, with "Keep as Did not finish" as the other answer. A choice you make in KOReader's end-of-book dialog is applied, and a confirmation says so.
 - Hardcover books in Bookshelf now show their description in the hero (when it is saved on the device), followed by a line saying that opening the book shows the full description on Hardcover.
 - Sorting Hardcover shelves and lists in Bookshelf works: the sort picker crashed when opened, and sorting by author could not work on the converted records.
 - **Bookshelf sort and covers.** Hardcover shelf and list sources in Bookshelf have a sort picker in the shelf editor, show their covers (read from the device's cover cache, so selecting a book no longer risks a crash), and load shelves 250 books at a time. A shelf refreshed by its Bookshelf source is saved to the shared shelf database only, and an incomplete refresh keeps the last complete shelf.
