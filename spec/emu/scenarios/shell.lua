@@ -107,11 +107,20 @@ return {
     print(string.format("        home at %dx%d: note=%s, shelf rows=%d", W, H, tostring(L.note), L.shelves))
     local bottom = home.dimen.y + home.dimen.h
     assert(bottom <= H - require("hardcover/lib/ui/components/nav_bar").HEIGHT, "Home reaches into the nav bar")
-    -- Open book opens the book's details
-    emu:tapExpecting(home.open_button.dimen.x + 10, home.open_button.dimen.y + 10)
+    -- the tile (cover, title) opens the book's details
+    assert(home.tile, "the card has no tile to tap")
+    emu:tapExpecting(home.tile.dimen.x + 10, home.tile.dimen.y + 10)
     emu:pump()
     local details = UIManager:getTopmostVisibleWidget()
-    assert(details and details.name == "hardcover_book_detail", "Open book did not open the details: " .. tostring(details and details.name))
+    assert(details and details.name == "hardcover_book_detail", "the tile did not open the details: " .. tostring(details and details.name))
+    UIManager:close(details)
+    emu:pump()
+    assert(UIManager:getTopmostVisibleWidget() == shell, "closing the details did not reveal the shell")
+    -- Open book with no file on this device falls back to the details
+    emu:tapExpecting(home.open_button.dimen.x + 10, home.open_button.dimen.y + 10)
+    emu:pump()
+    details = UIManager:getTopmostVisibleWidget()
+    assert(details and details.name == "hardcover_book_detail", "Open book did not fall back to the details: " .. tostring(details and details.name))
     UIManager:close(details)
     emu:pump()
     assert(UIManager:getTopmostVisibleWidget() == shell, "closing the details did not reveal the shell")
