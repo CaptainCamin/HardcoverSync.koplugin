@@ -120,19 +120,25 @@ function ListStore:contents(user_id, list_id)
   if saved and type(saved.members) == "table" then return saved end
 end
 
--- The list's books as shelf entries (Lists.entry's shape: the book's row, the
--- list_books id, and `rank` on a ranked list), in the list's order. nil when the list
--- was never saved; a book whose row is missing is left out.
-function ListStore:entries(user_id, row)
+-- The list's members, in the list's order ({ list_book_id, position, book_id, date_added }
+-- each), and what was saved with them; nil when the list was never saved. None of the
+-- books themselves is read.
+function ListStore:members(user_id, row)
   local saved = type(row) == "table" and self:contents(user_id, row.id)
   if not saved then return nil end
+  return saved.members, saved
+end
 
+-- The entries (Lists.entry's shape: the book's row, the list_books id, and `rank` on a
+-- ranked list) for these members, in the order given. Only their books are read and
+-- decoded. A book whose row is missing is left out.
+function ListStore:entriesOf(row, members)
   local ids = {}
-  for i, m in ipairs(saved.members) do ids[i] = m.book_id end
+  for i, m in ipairs(members) do ids[i] = m.book_id end
   local books = self.books:rows(ids)
 
   local out = {}
-  for _, m in ipairs(saved.members) do
+  for _, m in ipairs(members) do
     local book = books[tonumber(m.book_id)]
     if book then
       local entry = {}
@@ -144,7 +150,14 @@ function ListStore:entries(user_id, row)
       out[#out + 1] = entry
     end
   end
-  return out, saved
+  return out
+end
+
+-- The list's books as entries, in the list's order. nil when the list was never saved.
+function ListStore:entries(user_id, row)
+  local members, saved = self:members(user_id, row)
+  if not members then return nil end
+  return self:entriesOf(row, members), saved
 end
 
 local function membersOf(entries)

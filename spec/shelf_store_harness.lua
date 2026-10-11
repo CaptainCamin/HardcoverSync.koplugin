@@ -231,4 +231,22 @@ check("the old file's cut synopses are recognised, real ones are not", function(
   assert(not BookStore.isCut(nil))
 end)
 
+check("a page of a shelf can be read without reading the rest", function()
+  local shelves, books = stores()
+  local entries = {}
+  for i = 1, 20 do entries[i] = entry(i) end
+  shelves:putEntries(1, 1, entries, true, FP)
+  local members, meta = shelves:members(1, 1)
+  assert(#members == 20 and meta.complete and members[1].book_id == 1 and members[20].book_id == 20)
+  local asked = 0
+  local rows = books.rows
+  books.rows = function(self, ids) asked = asked + #ids; return rows(self, ids) end
+  local page = shelves:entriesOf({ members[3], members[4] })
+  assert(asked == 2, asked)
+  assert(#page == 2 and page[1].book_id == 3 and page[2].title == "Book 4" and page[2].user_book_id == 904)
+  local all = shelves:entries(1, 1)
+  assert(#all == 20 and all[20].book_id == 20)
+  assert(shelves:members(1, 5) == nil, "a shelf never saved has no members")
+end)
+
 r.finish()

@@ -271,4 +271,82 @@ do
   ShelfSort.sort = real
 end
 
+-- ------------------------------------------------------------ opening decodes only the page
+do
+  local all = {}
+  for i = 1, 40 do
+    all[i] = { book_id = i, title = "Book " .. (41 - i), authors = "Au Thor", date_added = "2026-01-01" }
+  end
+  local decoded, full = 0, 0
+  local a, s = fakeApp { user_id = 31 }
+  a.shelf_store = {
+    members = function()
+      local members = {}
+      for i, e in ipairs(all) do members[i] = { book_id = e.book_id } end
+      return members, { complete = true }
+    end,
+    entriesOf = function(_, members)
+      local out = {}
+      for _, m in ipairs(members) do decoded = decoded + 1; out[#out + 1] = all[m.book_id] end
+      return out
+    end,
+    entries = function() full = full + 1; return all, { complete = true } end,
+  }
+  Sources.register(a)
+  local fetch = s.hardcover_shelf.fetch
+  local page, total = fetch({ status_id = 2 }, nil, 0, 5)
+  r.check("a saved shelf opens without decoding it all", decoded == 5 and full == 0, decoded .. "/" .. full)
+  r.check("the page is the first five, and the total is the whole shelf",
+    #page == 5 and page[1].hardcover_book_id == 1 and page[5].hardcover_book_id == 5 and total == 40)
+  page = fetch({ status_id = 2 }, nil, 35, 10)
+  r.check("the last page is short and still only its books are read",
+    #page == 5 and page[5].hardcover_book_id == 40 and decoded == 10, decoded)
+  page = fetch({ status_id = 2, sort_key = "added_asc" }, nil, 0, 3)
+  r.check("oldest first reads from the other end",
+    #page == 3 and page[1].hardcover_book_id == 40 and page[3].hardcover_book_id == 38 and full == 0)
+  page = fetch({ status_id = 2, sort_key = "title" }, nil, 0, 3)
+  r.check("another order decodes the shelf once and sorts it",
+    full == 1 and #page == 3 and page[1].title == "Book 1", full)
+  fetch({ status_id = 2, sort_key = "title" }, nil, 3, 3)
+  fetch({ status_id = 2 }, nil, 0, 3)
+  r.check("and later pages and orders do not decode it again", full == 1, full)
+end
+
+-- ------------------------------------------------------------ a saved list opens without decoding it all
+do
+  local all = {}
+  for i = 1, 40 do all[i] = { book_id = i, title = "Book " .. (41 - i), authors = "Au Thor" } end
+  local decoded, full = 0, 0
+  local a, s = fakeApp { user_id = 41 }
+  a.list_store = {
+    index = function() return { mine = { { id = 5, source = "mine" } }, following = {} } end,
+    members = function()
+      local members = {}
+      for i, e in ipairs(all) do members[i] = { book_id = e.book_id } end
+      return members, { complete = true }
+    end,
+    entriesOf = function(_, _row, members)
+      local out = {}
+      for _, m in ipairs(members) do decoded = decoded + 1; out[#out + 1] = all[m.book_id] end
+      return out
+    end,
+    entries = function() full = full + 1; return all, { complete = true } end,
+  }
+  Sources.register(a)
+  local fetch = s.hardcover_lists.fetch
+  local list = { kind = "hardcover_lists", list_id = 5, list_source = "mine" }
+  local page, total = fetch(list, nil, 0, 5)
+  r.check("a saved list opens without decoding it all", decoded == 5 and full == 0, decoded .. "/" .. full)
+  r.check("the page is the first five, and the total is the whole list",
+    #page == 5 and page[1].hardcover_book_id == 1 and total == 40)
+  page = fetch({ kind = "hardcover_lists", list_id = 5, list_source = "mine", sort_key = "added_asc" }, nil, 0, 3)
+  r.check("oldest first reads from the other end",
+    #page == 3 and page[1].hardcover_book_id == 40 and full == 0)
+  page = fetch({ kind = "hardcover_lists", list_id = 5, list_source = "mine", sort_key = "title" }, nil, 0, 3)
+  r.check("another order decodes the list once and sorts it",
+    full == 1 and #page == 3 and page[1].title == "Book 1", full)
+  fetch(list, nil, 0, 3)
+  r.check("and later pages do not decode it again", full == 1, full)
+end
+
 r.finish()
