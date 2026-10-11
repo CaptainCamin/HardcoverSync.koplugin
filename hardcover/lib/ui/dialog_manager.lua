@@ -6,7 +6,6 @@ local UIManager = require("ui/uimanager")
 local Hosted = require("hardcover/lib/ui/hosted")
 local Live = require("hardcover/lib/ui/live")
 local Network = require("hardcover/lib/network")
-local Notification = require("ui/widget/notification")
 
 local InfoMessage = require("ui/widget/infomessage")
 
@@ -479,9 +478,16 @@ end
 function DialogManager:showSearchResults(query, books)
   self:screens():discard("search_results")
 
-  local dialog = require("hardcover/lib/ui/shelf_dialog"):new {
+  local dialog -- named before it is built: its callbacks refer to it
+  dialog = require("hardcover/lib/ui/shelf_dialog"):new {
     compatibility_mode = self.settings:compatibilityMode(),
     title = BookSearch.title(query),
+    -- the words searched for sit in a search field: tap to edit them, X to clear them and leave
+    search = {
+      query = query,
+      on_edit = function(text) self:showSearchInput(text) end,
+      on_clear = function() dialog:onClose() end,
+    },
     entries = books,
     has_more = false,
     offset = #books,
@@ -1019,7 +1025,7 @@ function DialogManager:queueGoalChange(dialog, apply_fn, on_saved, goal, notice)
   self:applyGoals(self:savedGoals(), goal)
   UIManager:close(dialog)
   if on_saved and goal then on_saved(goal) end
-  UIManager:show(Notification:new { text = notice or _("Saved on this device. It will sync when you're online.") })
+  StatusDialogs.info(notice or _("Saved on this device. It will sync when you're online."))
 end
 
 function DialogManager:saveGoal(dialog, form, on_saved)
@@ -1115,7 +1121,7 @@ function DialogManager:archiveGoal(dialog, goal, on_saved)
     end
     UIManager:close(dialog)
     if not on_goal_screen then self:closeGoalScreen(goal.id) end
-    UIManager:show(Notification:new { text = GoalActions.archivedNotice(goal.id, false) })
+    StatusDialogs.info(GoalActions.archivedNotice(goal.id, false))
     if on_saved then on_saved(nil) end
   end)
 end

@@ -104,7 +104,7 @@ function ReaderPanel:render()
   end
 
   -- the actions, two to a row; an action that cannot be used right now keeps its place, in
-  -- secondary text and without a tap
+  -- a dotted box and without a tap
   table.insert(content, Theme.span(Theme.px(14)))
   -- stacked as in the mock; two to a row only when the screen is wider than it is tall
   local gap = Theme.px(16)
