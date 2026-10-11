@@ -28,13 +28,13 @@ end
 
 local online = true
 local stack = {}
-local dirty = {}
+local shown_modes = {}
 package.preload["ui/uimanager"] = function()
   return {
-    show = function(_, w) stack[#stack + 1] = w end,
+    show = function(_, w, mode) stack[#stack + 1] = w; shown_modes[w] = mode end,
     close = function(_, w) for i = #stack, 1, -1 do if stack[i] == w then table.remove(stack, i) end end end,
     isWidgetShown = function(_, w) for _, x in ipairs(stack) do if x == w then return true end end return false end,
-    setDirty = function(_, w, mode) dirty[#dirty + 1] = { w, mode } end, scheduleIn = function() end, unschedule = function() end,
+    setDirty = function() end, scheduleIn = function() end, unschedule = function() end,
     forceRePaint = function() end, nextTick = function(_, fn) fn() end,
   }
 end
@@ -205,16 +205,11 @@ check("the results screen carries the query for its search field: edit reopens t
   d.search.on_clear()
   assert(closed, "clear did not leave the results")
 end)
-check("closing the results flashes the whole panel, so their covers do not ghost on the page beneath", function()
+check("the results go up with a full flashing refresh, so they are not drawn over the page beneath", function()
   local m = manager()
   answer = { books = books(3) }
   submit(m, "earthsea")
-  local d = results_dialogs[1]
-  for i = #dirty, 1, -1 do dirty[i] = nil end
-  d.close_callback()
-  local full
-  for _, x in ipairs(dirty) do if x[1] == "all" and x[2] == "full" then full = true end end
-  assert(full, "no full refresh queued on close")
+  assert(shown_modes[results_dialogs[1]] == "full", "results shown with " .. tostring(shown_modes[results_dialogs[1]]))
 end)
 check("results are capped at 25", function()
   local m = manager()
