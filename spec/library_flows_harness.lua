@@ -369,6 +369,21 @@ check("on its own, cancelling a failed load closes the screen", function()
   assert(not UIManagerShown(dialog), "the screen is still open")
 end)
 
+print("\n== Home's Sync now ==")
+
+check("Sync now runs the sync item, whatever language its tile is in", function()
+  local m = newManager()
+  local ran = 0
+  m.settings_items = function()
+    return {
+      { text = "x", callback = function() error("not the sync item") end },
+      { tile = "Synchroniser", tile_id = "sync", callback = function() ran = ran + 1 end },
+    }
+  end
+  m:syncNow()
+  assert(ran == 1, "the sync item ran " .. ran .. " times")
+end)
+
 print("\n== no goals ==")
 
 check("saved and fresh goals say the same thing when there are none", function()
