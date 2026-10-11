@@ -137,15 +137,35 @@ end
 -- "Load more" block when the shelf is not all here yet.
 function ShelfDialog:buildItems()
   local entries = self.entries or {}
+  local more = self.has_more and self.fetch_page and #entries > 0 and true or false
+  -- turning a page builds the list again, and the entries have not changed: the sorted
+  -- list is kept (a book is only ever added at the end, which changes the count)
+  local cache = self.items_cache
+  if cache and cache.entries == entries and cache.count == #entries and cache.sort_key == self.sort_key
+      and cache.sortable == self.sortable and cache.more == more then
+    return cache.items
+  end
+
   if self.sortable then entries = ShelfSort.sort(entries, self.sort_key) end
+  local dialog = self
+  -- A row's data is worked out the first time something reads it, so only the page on
+  -- screen is ever shaped (a shelf of thousands of books costs one page).
+  local lazy = { __index = function(item, key)
+    if rawget(item, "shaped") or item.kind ~= "book" then return nil end
+    item.shaped = true
+    local row = dialog:createListItem(item.entry)
+    item.row, item.rating, item.rank, item.reason = row, row.rating, row.rank, row.reason
+    return rawget(item, key)
+  end }
   local items = {}
   for _i, entry in ipairs(entries) do
-    local row = self:createListItem(entry)
-    items[#items + 1] = { kind = "book", row = row, entry = entry, rating = row.rating, rank = row.rank, reason = row.reason }
+    items[#items + 1] = setmetatable({ kind = "book", entry = entry }, lazy)
   end
-  if self.has_more and self.fetch_page and #items > 0 then
+  if more then
     items[#items + 1] = { kind = "more" }
   end
+  self.items_cache = { entries = self.entries, count = #(self.entries or {}), sort_key = self.sort_key,
+    sortable = self.sortable, more = more, items = items }
   return items
 end
 
@@ -242,7 +262,11 @@ function ShelfDialog:build()
   self.items = self:buildItems()
   self.row_h = ROW_H
   for _i, item in ipairs(self.items) do
-    if item.reason then self.row_h = ROW_H_REASON break end
+    -- (read from the entry: asking the item would shape every row)
+    if item.entry and type(item.entry.reason) == "string" and item.entry.reason ~= "" then
+      self.row_h = ROW_H_REASON
+      break
+    end
   end
   self.per_page = self:rowsPerPage(body_h)
   self.pages = math.max(1, math.ceil(#self.items / self.per_page))
