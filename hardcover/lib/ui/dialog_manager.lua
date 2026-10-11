@@ -591,7 +591,7 @@ end
 function DialogManager:syncNow()
   local items = self.settings_items and self.settings_items() or {}
   for _i, item in ipairs(items) do
-    if item and item.tile == "Sync" and item.callback then
+    if item and item.tile_id == "sync" and item.callback then
       item.callback({ updateItems = function() end })
       return
     end
