@@ -74,6 +74,9 @@ local BookDetailDialog = FocusManager:extend {
   -- called with no arguments when "Lists" is chosen in the Add sheet (the lists to put the book on);
   -- no callback, no Lists row
   on_lists = nil,
+  -- called with the dialog when Edition is tapped (change the edition the open book is linked to);
+  -- no callback, no button. Only offered for the book that is open in the reader.
+  on_edition = nil,
   on_refresh = nil, -- the title bar's reload icon; nil hides it
   -- called with the dialog when Open is tapped (the book is on this device: a file the plugin linked
   -- to it); no callback, no button
@@ -321,7 +324,7 @@ function BookDetailDialog:init()
   -- There is no one main button. They scroll with the page, so each tap is cut to the visible area
   -- (see viewport.lua) or one scrolled away could catch a tap meant for what is over it.
   self.open_button, self.find_button, self.zlibrary_button = nil, nil, nil
-  self.reviews_button, self.add_button = nil, nil
+  self.reviews_button, self.add_button, self.edition_button = nil, nil, nil
   local function button(field, text, handler, opts)
     local b = Button.new {
       label = text, w = opts.w, h = Theme.TOUCH_MIN, size = 19, primary = opts.primary,
@@ -363,9 +366,14 @@ function BookDetailDialog:init()
     add_row(get)
   end
   if self.on_reviews then add_row({ { "reviews_button", _("Reviews"), "on_reviews" } }) end
-  -- Add: one button for the shelf and the lists (see openAdd). Half a row, the other half left
-  -- free for a button that is still to come.
-  add_row({ { "add_button", _("Add"), "openAdd" } }, 2)
+  -- Add: one button for the shelf and the lists (see openAdd). With Edition (only for the book open
+  -- in the reader) the two share the row; alone, Add keeps half a row.
+  local add_spec = { "add_button", _("Add"), "openAdd" }
+  if self.on_edition then
+    add_row({ add_spec, { "edition_button", _("Edition"), "on_edition" } })
+  else
+    add_row({ add_spec }, 2)
+  end
   self.action_bar = action_bar
 
   -- About: five lines at most, so the block is the same height for every book; a Read more opens

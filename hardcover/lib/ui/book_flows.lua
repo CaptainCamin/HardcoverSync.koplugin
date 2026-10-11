@@ -68,6 +68,8 @@ function Flows:showBookDetail(book_id, edition_id, opts)
     on_rating = function(d) self:rateBook(d) end,
     -- only when signed in with OAuth (the write scope is an OAuth thing)
     on_lists = self:canChooseLists() and function(d) self:chooseLists(d) end or nil,
+    -- only for the book that is open in the reader: its link is what changes
+    on_edition = self:canChangeEdition(book_id) and function(d) self:chooseEdition(d, book_id) end or nil,
     -- the reload icon: everything fetched again, the escape hatch for anything kept that
     -- has gone out of date
     on_refresh = function()
@@ -369,6 +371,52 @@ end
 
 -- Signed in with OAuth, so there is a sign-in whose scopes can say whether it may
 -- change lists.
+-- The edition is part of how a file is linked to a book, so it can be changed only for the book
+-- open in the reader (the details screen opened from a shelf or a list has no file to relink).
+function Flows:canChangeEdition(book_id)
+  if not (book_id and self.ui and self.ui.document and self.link_book) then return false end
+  return self.settings:getLinkedBookId() == book_id
+end
+
+-- Edition: the editions of the book, to pick another for the linked file. Nothing to pick when
+-- the book has one edition. The link moves through Hardcover:linkBook, as the reader menu's
+-- Change edition does (shelf entry and read move too; queued pages are rescaled).
+function Flows:chooseEdition(dialog, book_id)
+  if not Network.connected() then
+    StatusDialogs.info(_("Changing the edition needs an internet connection."))
+    return
+  end
+  local current = self.settings:getLinkedEditionId()
+  self:buildLoadingSearchDialog(
+    _("Select edition"),
+    function(callback)
+      Api:findEditionsAsync(book_id, User:getId(), function(items, err)
+        if items and #items <= 1 then
+          UIManager:close(self.search_dialog)
+          callback(items, err)
+          StatusDialogs.info(_("This book has no other editions."))
+          return
+        end
+        callback(items, err)
+      end)
+    end,
+    { edition_id = current },
+    function(book)
+      if not book or book.edition_id == current then return end
+      Background.run(function()
+        if self.link_book(book) then
+          StatusDialogs.info(_("Edition changed. Page numbers and progress may have moved."))
+          UIManager:close(dialog)
+          self:showBookDetail(book_id, book.edition_id)
+        end
+      end)
+    end,
+    nil,
+    nil,
+    true
+  )
+end
+
 function Flows:canChooseLists()
   local auth = Api.auth
   return auth ~= nil and auth:usingOAuth() and not auth:needsReauth()
