@@ -29,7 +29,7 @@ and what is still open. The rules themselves live in the header of
    them are redrawn in the same spots (less ghosting, less battery). Screens change in place; a long page
    should scroll by whole pages that land on row edges.
 3. **State never rests on grey alone.** A disabled or off control shows it with a check, a fill, a dotted
-   border, or is left out. In Mudita's own log, users kept tapping buttons that were only greyed.
+   border, or is left out. (Buttons: an unavailable one keeps its Black label in a dotted box.) In Mudita's own log, users kept tapping buttons that were only greyed.
 4. **Few big dark areas.** Try an outline or a pattern before a solid fill. A fill marks the one primary
    action or the active choice.
 5. **Say what happened.** With no animation, a tap is acknowledged with visible text ("Saved"), not motion.
@@ -77,7 +77,6 @@ Settled, with the date and where it is built. If something here disagrees with a
 - Hold-only actions: unlink a book (`hardcover_menu.lua`, the "Linked book" row), discard all queued changes (hold on Sync now; per-change cancel is visible in `pending_changes_dialog.lua`), and the compatibility-mode help text.
 - Grey fills and lines in the charts: levels down to 0xBB, a 0xD8 gridline, 0x88 dashes (`chart_widgets.lua`, `charts.lua`). Allowed (see the decisions), to be polished.
 - `Theme.hatchRect` paints at 40% opacity, so its stripes anti-alias to grey; nothing calls it yet.
-- `Theme.rule` hairlines and `Theme.button`'s disabled look use `DARK_GREY`.
 - KOReader's own widgets are still used for typing and numbers: the text and number boxes, the date picker and the rating/page spinner. Everything else is on the new components.
 
 ## MMD component metrics
