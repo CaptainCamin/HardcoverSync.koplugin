@@ -101,6 +101,29 @@ check("nothing sent leaves the goals as they are", function()
   assert(GoalActions.afterFlush(goals, {}, {}) == goals)
 end)
 
+print("\n== archiving ==")
+
+check("an archive offline is kept here, whatever the sign-in", function()
+  assert(GoalActions.route { queue = queue({}), connected = false, goal_id = 1 } == "queue")
+end)
+
+check("an archive online is sent now, unless a change to the goal is waiting", function()
+  assert(GoalActions.route { queue = queue({}), connected = true, goal_id = 1 } == "send")
+  assert(GoalActions.route { queue = queue({ [1] = true }), connected = true, goal_id = 1 } == "queue")
+end)
+
+check("a goal made here is asked to be discarded, not archived", function()
+  local ask = GoalActions.archiveAsk("local:3")
+  assert(ask.ok == "Discard" and ask.title == "Discard this goal?")
+  assert(GoalActions.archiveAsk(7).ok == "Archive")
+end)
+
+check("the result says what happened to the goal", function()
+  assert(GoalActions.archivedNotice("local:3", true) == "Discarded.")
+  assert(GoalActions.archivedNotice(7, true):find("sync when you're online", 1, true))
+  assert(GoalActions.archivedNotice(7, false) == "Goal archived.")
+end)
+
 print("\n== the saved copy, then the refresh ==")
 
 check("what is shown first", function()
