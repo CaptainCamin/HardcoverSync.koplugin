@@ -155,10 +155,55 @@ local function sortedPage(state, status_id, offset, limit, sort_key)
   return toBooks(page, status_id)
 end
 
-local function shelfPage(user_id, status_id, offset, limit, sort_key)
+-- Orders that are the saved order of the shelf (newest added first, or its reverse):
+-- a shelf that is only counted, not decoded, can serve these a page at a time.
+local function inShelfOrder(key)
+  return key == nil or key == ShelfSort.DEFAULT or key == "added_asc"
+end
+
+local savedShelf
+
+-- A shelf saved in full, known by who is on it only: nothing of its books is decoded
+-- until a page of them is asked for. Opening a shelf of hundreds then costs one cheap
+-- query, not the decoding of every book (their descriptions included) for the dozen shown.
+local function lazyShelf(app, user_id, status_id)
+  local store = app.shelf_store
+  if not (store and type(store.members) == "function" and type(store.entriesOf) == "function") then
+    return nil
+  end
+  local ok, members, meta = pcall(store.members, store, user_id, status_id)
+  if ok and type(members) == "table" and type(meta) == "table" and meta.complete == true then
+    return { complete = true, members = members, store = store }
+  end
+end
+
+-- The page of a lazy shelf: the members it covers, and only their books read.
+local function lazyPage(state, status_id, offset, limit, key)
+  local members, total = state.members, #state.members
+  local first = (tonumber(offset) or 0) + 1
+  local last = math.min(first + (tonumber(limit) or 0) - 1, total)
+  local picked = {}
+  for i = first, last do
+    picked[#picked + 1] = members[key == "added_asc" and (total + 1 - i) or i]
+  end
+  local ok, entries = pcall(state.store.entriesOf, state.store, picked)
+  return toBooks(ok and type(entries) == "table" and entries or {}, status_id)
+end
+
+local function shelfPage(app, user_id, status_id, offset, limit, sort_key)
   local state = shelf_entries[shelfKey(user_id, status_id)]
   if not state then return {}, nil end
-  return sortedPage(state, status_id, offset, limit, sort_key), state.complete and #state.entries or nil
+  local key = sort_key or ShelfSort.DEFAULT
+  if state.members then
+    if inShelfOrder(key) then
+      return lazyPage(state, status_id, offset, limit, key), #state.members
+    end
+    -- another order needs every book's fields: decode the shelf once, then as before
+    local saved = savedShelf(app, user_id, status_id)
+    if not saved then return {}, nil end
+    state.entries, state.complete, state.members, state.store = saved.entries, saved.complete, nil, nil
+  end
+  return sortedPage(state, status_id, offset, limit, key), state.complete and #state.entries or nil
 end
 
 local function addCoverPaths(app, id, books)
@@ -202,7 +247,7 @@ local function addCoverPaths(app, id, books)
   return books
 end
 
-local function savedShelf(app, user_id, status_id)
+savedShelf = function(app, user_id, status_id)
   if app.shelf_store and type(app.shelf_store.entries) == "function" then
     local ok, entries, meta = pcall(app.shelf_store.entries, app.shelf_store,
       user_id, status_id)
@@ -454,6 +499,11 @@ local function shelfSource(app, id, fixed_shelf, picker)
     end
     local key = shelfKey(user_id, shelf.status)
     local state = shelf_entries[key]
+    local sort_key = source and source.sort_key
+    if not state and inShelfOrder(sort_key) then
+      state = lazyShelf(app, user_id, shelf.status)
+      if state then shelf_entries[key] = state end
+    end
     if not state then
       local saved = savedShelf(app, user_id, shelf.status)
       if saved then
@@ -462,8 +512,7 @@ local function shelfSource(app, id, fixed_shelf, picker)
       end
     end
     if not (state and state.complete) then loadShelf(app, shelf, false) end
-    local entries, total = shelfPage(user_id, shelf.status, offset, limit,
-      source and source.sort_key)
+    local entries, total = shelfPage(app, user_id, shelf.status, offset, limit, sort_key)
     return addCoverPaths(app, id, entries), total
   end
   spec.refresh = function(source, _drill, done)

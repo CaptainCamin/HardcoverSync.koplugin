@@ -51,12 +51,19 @@ local function entryOf(row, member)
   return entry
 end
 
--- The shelf's books as shelf entries, in Hardcover's order, and its meta; nil when the
--- shelf was never saved. A book whose row is missing is left out.
-function ShelfStore:entries(user_id, status_id)
+-- Which books are on the shelf, in Hardcover's order ({ status_id, user_book_id, book_id,
+-- rating, date_added } each), and its meta; nil when the shelf was never saved. Nothing
+-- of the books themselves is read: a shelf of hundreds comes back from one cheap query.
+function ShelfStore:members(user_id, status_id)
   local meta = self:meta(user_id, status_id)
   if not meta then return nil end
-  local members = self.db:getMembers(who(user_id), status_id)
+  return self.db:getMembers(who(user_id), status_id), meta
+end
+
+-- The entries (Shelf.normalizeEntry's shape) for these members, in the order given. Only
+-- their books are read and decoded, so a screenful costs a screenful. A book whose row is
+-- missing is left out.
+function ShelfStore:entriesOf(members)
   local ids = {}
   for i, m in ipairs(members) do ids[i] = m.book_id end
   local rows = self.books:rows(ids)
@@ -65,7 +72,15 @@ function ShelfStore:entries(user_id, status_id)
     local row = rows[m.book_id]
     if row then out[#out + 1] = entryOf(row, m) end
   end
-  return out, meta
+  return out
+end
+
+-- The shelf's books as shelf entries, in Hardcover's order, and its meta; nil when the
+-- shelf was never saved. A book whose row is missing is left out.
+function ShelfStore:entries(user_id, status_id)
+  local members, meta = self:members(user_id, status_id)
+  if not members then return nil end
+  return self:entriesOf(members), meta
 end
 
 -- The shelf row of one book: { status_id, user_book_id, rating, date_added }, or nil when
