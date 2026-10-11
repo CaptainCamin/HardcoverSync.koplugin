@@ -511,7 +511,9 @@ function DialogManager:showSearchResults(query, books)
     end,
   }
   self:screens():track("search_results", dialog)
-  UIManager:show(dialog)
+  -- A flashing "full" refresh as the results go up: a partial one draws the list over the page
+  -- beneath, and the covers then ghost on that page (they showed through the Home rows).
+  UIManager:show(dialog, "full")
 
   if #books == 0 then
     dialog:setEmptyState(_("No results"))
