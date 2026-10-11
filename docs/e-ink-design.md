@@ -29,7 +29,7 @@ and what is still open. The rules themselves live in the header of
    them are redrawn in the same spots (less ghosting, less battery). Screens change in place; a long page
    should scroll by whole pages that land on row edges.
 3. **State never rests on grey alone.** A disabled or off control shows it with a check, a fill, a dotted
-   border, or is left out. In Mudita's own log, users kept tapping buttons that were only greyed.
+   border, or is left out. (Buttons: an unavailable one keeps its Black label in a dotted box.) In Mudita's own log, users kept tapping buttons that were only greyed.
 4. **Few big dark areas.** Try an outline or a pattern before a solid fill. A fill marks the one primary
    action or the active choice.
 5. **Say what happened.** With no animation, a tap is acknowledged with visible text ("Saved"), not motion.
@@ -77,8 +77,25 @@ Settled, with the date and where it is built. If something here disagrees with a
 - Hold-only actions: unlink a book (`hardcover_menu.lua`, the "Linked book" row), discard all queued changes (hold on Sync now; per-change cancel is visible in `pending_changes_dialog.lua`), and the compatibility-mode help text.
 - Grey fills and lines in the charts: levels down to 0xBB, a 0xD8 gridline, 0x88 dashes (`chart_widgets.lua`, `charts.lua`). Allowed (see the decisions), to be polished.
 - `Theme.hatchRect` paints at 40% opacity, so its stripes anti-alias to grey; nothing calls it yet.
-- `Theme.rule` hairlines and `Theme.button`'s disabled look use `DARK_GREY`.
+- Search: `components/search_field.lua` is the field (Home, and the query on the results screen). Tapping it opens KOReader's `InputDialog` for the typing; there is no inline typing. Mock 3's search icon on a shelf is still not built.
 - KOReader's own widgets are still used for typing and numbers: the text and number boxes, the date picker and the rating/page spinner. Everything else is on the new components.
+
+## Which catalog components the plugin uses
+
+Written so a missing component is a decision, not an oversight. "Built" means a module in
+`hardcover/lib/ui/components/` with a use on a screen.
+
+| Component | Status |
+|---|---|
+| Button, Switch, Radio, Checkbox, Cards, Menus (popover), Dialog, Top app bar, Progress bar, Tabs, Separators, List, Bottom sheets, Loading, Scrollbar | Built and used |
+| Navigation bar | Built; behind the "New navigation bar (beta)" setting until verified on a device |
+| Snackbar | Built; answers what the reader did (link, tracking, progress, goal saves, status messages). System events keep KOReader's plain toast |
+| Search | Built (`search_field.lua`): Home, and the query on the results screen. Typing is KOReader's box |
+| Chips | Built for state only (`chip.lua`: goal standing, shelf status). No filter, input or suggestion chips: the Library has no filters (decision) |
+| Slider | Not built. The only candidate is the progress and rating entry, which uses KOReader's spin widgets; a slider needs drag handling and would replace a working widget, so it waits for a decision and a device |
+| Badge | Not built. The one count (changes waiting to sync) is already in the sync box, and the nav bar has no tab where a badge would sit |
+| Tooltip | Not used. It is a long-press pattern; the plugin has no hold-only actions by rule |
+| FAB | Not used. No screen has a floating primary action; the primary action is a filled button in the flow |
 
 ## MMD component metrics
 

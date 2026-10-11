@@ -46,6 +46,10 @@ local GoalsDialog = InputContainer:extend {
   height = nil,
 }
 
+-- Shown when there are no goals, however they were found out (saved or fresh). The + is in the
+-- top bar, on its own and in the shell alike.
+GoalsDialog.NO_GOALS = _("No goals yet. Tap + to set one.")
+
 function GoalsDialog:init()
   self.title = self.title or _("Goals")
   self.today = self.today or Goals.today()
@@ -216,7 +220,7 @@ function GoalsDialog:setGoals(goals, note, finished_offline)
   self.goals, self.note, self.message = goals, note, nil
   if finished_offline then self.finished_offline = finished_offline end
   if goals and #goals == 0 then
-    self.message = _("No goals yet. Set one on hardcover.app and it will show up here.")
+    self.message = GoalsDialog.NO_GOALS
   end
   self:rebuild()
 end

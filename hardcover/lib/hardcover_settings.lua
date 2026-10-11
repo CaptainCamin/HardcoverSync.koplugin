@@ -58,7 +58,9 @@ function HardcoverSettings:updateBookSetting(filename, config)
     books[filename] = {}
   end
   local book_setting = books[filename]
-  local original_value = { table.unpack(book_setting) }
+  -- what the book's settings were before this change (table.unpack would copy nothing: they are keyed)
+  local original_value = {}
+  for k, v in pairs(book_setting) do original_value[k] = v end
   for k, v in pairs(config) do
     if k == "_delete" then
       for _, name in ipairs(v) do
@@ -72,6 +74,17 @@ function HardcoverSettings:updateBookSetting(filename, config)
   self.settings:flush()
 
   self:notify(SETTING.BOOKS, { filename = filename, config = config }, original_value)
+end
+
+-- Did this change to a book's settings (`config`, as updateBookSetting got it) move the book to a
+-- different status? A snapshot saved after every progress sync repeats the status it already had.
+function HardcoverSettings.statusChanged(config, original)
+  original = original or {}
+  if config.status_id ~= nil then return original.status_id ~= config.status_id end
+  for _, name in ipairs(config._delete or {}) do
+    if name == "status_id" then return original.status_id ~= nil end
+  end
+  return false
 end
 
 function HardcoverSettings:updateSetting(key, value)

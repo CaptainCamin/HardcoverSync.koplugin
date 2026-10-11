@@ -54,6 +54,7 @@ local shown, closed, dirty = {}, {}, 0
 local errors = {}
 local popovers = {}
 local bars = {}
+local fields = {}
 
 local widgets = {
   ["ui/widget/focusmanager"] = FocusManager,
@@ -89,6 +90,11 @@ local widgets = {
     for i = 1, #(opts.actions or {}) do bar.action_buttons[i] = widget("Action"):new { dimen = { x = 900 + i, y = 10, w = 40, h = 40 } } end
     bars[#bars + 1] = bar
     return bar
+  end },
+  ["hardcover/lib/ui/components/search_field"] = { new = function(opts)
+    local f = widget("Field"):new { opts = opts }
+    fields[#fields + 1] = f
+    return f
   end },
   ["hardcover/lib/ui/components/scroll_control"] = {
     gutter = function() return 18 end,
@@ -395,6 +401,26 @@ check("a shelf has the sort icon in the top bar, a list that is not a shelf does
   assert(#bars[1].opts.actions == 0 and #bars[1].action_buttons == 0, "a sort icon on search results")
 end)
 
+check("a search screen has a search field under the bar, and the rows are still there", function()
+  fields = {}
+  local edited, cleared
+  local plain = build({ entry() })
+  local d = build({ entry(), entry({ book_id = 2 }) }, { search = { query = "dune",
+    on_edit = function(q) edited = q end, on_clear = function() cleared = true end } })
+  assert(#fields == 1 and fields[1].opts.query == "dune", "no field")
+  assert(#d.rows == 2, "rows lost: " .. #d.rows)
+  assert(d.body_region.y > plain.body_region.y, "the list does not start below the field")
+  fields[1].opts.on_tap("dune")
+  fields[1].opts.on_clear()
+  assert(edited == "dune" and cleared, "the field's taps are not wired")
+end)
+
+check("a shelf has no search field", function()
+  fields = {}
+  build({ entry() })
+  assert(#fields == 0)
+end)
+
 check("it opens in the arrival order by default", function()
   assert(titles(shelf()) == "The Zebra|Apple|Mango", titles(shelf()))
 end)
@@ -448,6 +474,28 @@ check("a screen's actions (a list's Refresh) are icons in the top bar", function
   assert(action and action.icon == "sync", "no reload icon")
   action.callback()
   assert(ran)
+end)
+
+check("turning a page shapes only the rows on the page, not every book on the shelf", function()
+  local shaped = 0
+  local plain = ShelfDialog.createListItem
+  ShelfDialog.createListItem = function(self, e) shaped = shaped + 1 return plain(self, e) end
+  local ok, err = pcall(function()
+    local d = build(many(600), { sortable = true, sort_key = "title" })
+    assert(shaped <= d.per_page, "the first build shaped " .. shaped .. " rows")
+    local items = d.items
+    d:setPage(2)
+    d:setPage(3)
+    d:setPage(2)
+    assert(d.items == items, "the list was built again on a page turn")
+    assert(shaped <= 3 * d.per_page, "page turns shaped " .. shaped .. " rows")
+    assert(#d.rows == d.per_page and d.rows[1], "page 2 has no rows")
+    -- a changed shelf is built again
+    d:setEntries(many(5), false)
+    assert(#d.items == 5, "a new set of entries kept the old list")
+  end)
+  ShelfDialog.createListItem = plain
+  assert(ok, err)
 end)
 
 r.finish()

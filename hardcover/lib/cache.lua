@@ -224,6 +224,17 @@ function Cache:cacheUserBook()
     return nil
   end
 
+  -- Asked, and the library has no record of the book: it is on no shelf. Say so, rather than fall
+  -- back to the saved copy, which may be older than that.
+  if not errors then
+    self.state.book_status = { book_id = self.settings:getLinkedBookId(), not_on_shelf = true }
+    self.state.book_status_fetched = true
+    if file and self.sync_queue then
+      self.sync_queue:applyPending(file, self.state.book_status)
+    end
+    return nil
+  end
+
   if file then
     self:hydrateBookStatus(file)
   else

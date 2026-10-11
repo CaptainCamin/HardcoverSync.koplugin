@@ -371,9 +371,7 @@ end
 
 function HardcoverApp:onHardcoverLink()
   self.hardcover:showLinkBookDialog(false, function(book)
-    UIManager:show(Notification:new {
-      text = _("Linked to: " .. book.title),
-    })
+    StatusDialogs.info(_("Linked to: " .. book.title))
   end)
 end
 
@@ -395,17 +393,13 @@ end
 function HardcoverApp:onHardcoverTrack()
   self.settings:setSync(true)
   UIManager:nextTick(function()
-    UIManager:show(Notification:new {
-      text = _("Progress tracking enabled")
-    })
+    StatusDialogs.info(_("Progress tracking enabled"))
   end)
 end
 
 function HardcoverApp:onHardcoverStopTrack()
   self.settings:setSync(false)
-  UIManager:show(Notification:new {
-    text = _("Progress tracking disabled")
-  })
+  StatusDialogs.info(_("Progress tracking disabled"))
 end
 
 function HardcoverApp:onHardcoverUpdateProgress()
@@ -417,9 +411,7 @@ function HardcoverApp:onHardcoverUpdateProgress()
       self:updatePageNow(function(result)
         if result then
           local text = result.queued and _("Progress saved offline, will sync") or _("Progress updated")
-          UIManager:show(Notification:new {
-            text = text
-          })
+          StatusDialogs.info(text)
         else
           logger.warn("Unsuccessful updating page progress", self.ui.document.file)
         end
@@ -442,7 +434,8 @@ end
 function HardcoverApp:onSettingsChanged(field, change, original_value)
   if field == SETTING.BOOKS then
     local book_settings = change.config
-    if self:_bookSettingChanged(book_settings, "status_id") then
+    -- (only a real change: Bookshelf's shelves are kept in memory, and a progress sync saves the same status again)
+    if HardcoverSettings.statusChanged(book_settings, original_value) then
       BookshelfSources.invalidate(self)
     end
     if self:_bookSettingChanged(book_settings, "sync") then
@@ -476,6 +469,12 @@ function HardcoverApp:effectiveStatusId(filename)
   return self.state.book_status and self.state.book_status.status_id
 end
 
+-- What a page turn does to the book, from what the device knows (see BookActions.pageWrite).
+function HardcoverApp:pageWriteDecision(filename)
+  local book = self.state.book_status or {}
+  return BookActions.pageWrite(self:effectiveStatusId(filename), book.not_on_shelf == true)
+end
+
 function HardcoverApp:_handlePageUpdate(filename, mapped_page, immediate, callback)
   --logger.warn("HARDCOVER: Throttled page update", mapped_page)
   self.page_update_pending = false
@@ -484,12 +483,16 @@ function HardcoverApp:_handlePageUpdate(filename, mapped_page, immediate, callba
     return
   end
 
-  local status_id = self:effectiveStatusId(filename)
-  if status_id and status_id ~= HARDCOVER.STATUS.READING then
+  if self:pageWriteDecision(filename) == "block" then
     return
   end
 
   local immediate_update = function()
+    -- decided again here, not above: the update can wait a second, and the status can change in it
+    if self:pageWriteDecision(filename) == "move" then
+      self.cache:updateBookStatus(filename, HARDCOVER.STATUS.READING)
+      StatusDialogs.info(_("Now on your 'Currently Reading' shelf"), 2)
+    end
     local result = self.cache:syncPage(filename, mapped_page)
     if callback then
       callback(result)
@@ -1172,6 +1175,7 @@ function HardcoverApp:startReadCache()
       end
     end,
 
+    -- a system event, not something the reader did: a plain toast, not a snackbar
     function()
       if NetworkManager:isConnected() then
         UIManager:show(Notification:new {
