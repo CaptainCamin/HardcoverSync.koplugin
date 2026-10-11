@@ -12,8 +12,19 @@ local UIManager = require("ui/uimanager")
 local function top()
   for i = #UIManager._window_stack, 1, -1 do
     local w = UIManager._window_stack[i].widget
-    if w and not w.toast then return w end
+    -- not a toast or a snackbar, and a real screen: the emulator leaves unnamed windows above the details
+    if w and not (w.toast or w.snackbar) and (w.name or w.value_widget) then return w end
   end
+end
+
+-- the names of the open windows, bottom to top: when a tap target is missing, what is on top of what
+local function stack_names()
+  local names = {}
+  for _i, entry in ipairs(UIManager._window_stack) do
+    local w = entry.widget
+    names[#names + 1] = tostring(w and (w.name or w.id) or "?") .. (w and (w.toast or w.snackbar) and "*" or "")
+  end
+  return table.concat(names, ", ")
 end
 
 local function find_button(root, label, seen)
@@ -61,16 +72,17 @@ return {
     end
     go(true)
 
-    manager:showBookDetail(103, 10301)
+    -- the dialog comes back from the call: it is the one window to hold on to
+    local dialog = manager:showBookDetail(103, 10301)
     emu:pump()
-    local dialog = top()
     emu:expectText("The Left Hand of Darkness")
     go(false) -- the connection drops with the book already open
 
     -- "Your rating" is a row of five stars: the whole row is the tap
     emu:screenNodes()
     local d = dialog.rating_tap and dialog.rating_tap.dimen
-    assert(d and d.w > 0, "the rating figure is not tappable")
+    assert(d and d.w > 0, "the rating figure is not tappable: top is " .. tostring(dialog and dialog.name)
+      .. ", on_rating " .. tostring(dialog and dialog.on_rating) .. ", windows [" .. stack_names() .. "]")
     emu:tapExpecting(d.x + math.floor(d.w / 2), d.y + math.floor(d.h / 2))
     emu:pump()
 
