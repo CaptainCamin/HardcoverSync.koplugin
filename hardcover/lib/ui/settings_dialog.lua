@@ -28,6 +28,7 @@ local _ = require("gettext")
 
 local Draw = require("hardcover/lib/ui/components/draw")
 local ListItem = require("hardcover/lib/ui/components/list_item")
+local Radio = require("hardcover/lib/ui/components/radio")
 local Refresh = require("hardcover/lib/ui/refresh")
 local ScrollControl = require("hardcover/lib/ui/components/scroll_control")
 local TapRow = require("hardcover/lib/ui/tap_row")
@@ -56,7 +57,7 @@ function SettingsScreen:init()
   self:render()
 end
 
--- One option as a list item: its words, and at the end a switch, a chevron or nothing.
+-- One option as a list item: its words, and at the end a switch, a radio, a chevron or nothing.
 function SettingsScreen:buildRow(row, width, viewport)
   -- a menu label that ends in its value's colon ("Track progress settings: ") reads as a dangling
   -- colon here
@@ -69,7 +70,9 @@ function SettingsScreen:buildRow(row, width, viewport)
     label = row.tile
   end
   local trailing
-  if row.checkable then
+  if row.radio then
+    trailing = Radio.new { selected = row.checked }
+  elseif row.checkable then
     trailing = Switch.new { on = row.checked, unavailable = row.dim and not row.checked }
   elseif row.submenu or row.tile then
     trailing = Draw.chevron("right")
