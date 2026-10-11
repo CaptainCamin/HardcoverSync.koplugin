@@ -478,9 +478,16 @@ end
 function DialogManager:showSearchResults(query, books)
   self:screens():discard("search_results")
 
-  local dialog = require("hardcover/lib/ui/shelf_dialog"):new {
+  local dialog -- named before it is built: its callbacks refer to it
+  dialog = require("hardcover/lib/ui/shelf_dialog"):new {
     compatibility_mode = self.settings:compatibilityMode(),
     title = BookSearch.title(query),
+    -- the words searched for sit in a search field: tap to edit them, X to clear them and leave
+    search = {
+      query = query,
+      on_edit = function(text) self:showSearchInput(text) end,
+      on_clear = function() dialog:onClose() end,
+    },
     entries = books,
     has_more = false,
     offset = #books,

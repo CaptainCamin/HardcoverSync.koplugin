@@ -77,6 +77,7 @@ Settled, with the date and where it is built. If something here disagrees with a
 - Hold-only actions: unlink a book (`hardcover_menu.lua`, the "Linked book" row), discard all queued changes (hold on Sync now; per-change cancel is visible in `pending_changes_dialog.lua`), and the compatibility-mode help text.
 - Grey fills and lines in the charts: levels down to 0xBB, a 0xD8 gridline, 0x88 dashes (`chart_widgets.lua`, `charts.lua`). Allowed (see the decisions), to be polished.
 - `Theme.hatchRect` paints at 40% opacity, so its stripes anti-alias to grey; nothing calls it yet.
+- Search: `components/search_field.lua` is the field (Home, and the query on the results screen). Tapping it opens KOReader's `InputDialog` for the typing; there is no inline typing. Mock 3's search icon on a shelf is still not built.
 - KOReader's own widgets are still used for typing and numbers: the text and number boxes, the date picker and the rating/page spinner. Everything else is on the new components.
 
 ## MMD component metrics
