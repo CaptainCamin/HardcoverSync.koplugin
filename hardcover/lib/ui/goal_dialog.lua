@@ -17,9 +17,11 @@ local _ = require("gettext")
 
 local Button = require("hardcover/lib/ui/components/button")
 local GoalWidgets = require("hardcover/lib/ui/goal_widgets")
+local GoalActions = require("hardcover/lib/goal_actions")
 local Goals = require("hardcover/lib/goals")
 local ProgressBar = require("hardcover/lib/ui/components/progress_bar")
 local Section = require("hardcover/lib/ui/components/section")
+local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 local Theme = require("hardcover/lib/ui/theme")
 local TopBar = require("hardcover/lib/ui/components/top_bar")
 
@@ -32,6 +34,9 @@ local GoalDialog = InputContainer:extend {
   finished_offline = 0,
   note = nil,
   edit_cb = nil,          -- the "Edit goal" button appears when this is set
+  archive_cb = nil,       -- the "Archive goal" button appears when this is set; called with the goal once confirmed
+  message = nil,          -- why the last change did not go through (shown above the goal)
+  busy = false,           -- an archive is on its way to Hardcover
   close_callback = nil,
 }
 
@@ -55,6 +60,11 @@ function GoalDialog:buildContent(width, viewport)
       TextBoxWidget:new { text = self.note, face = Theme.face("small"), width = width - 2 * Theme.space.s - 2 * Theme.line.hair },
     })
     table.insert(c, Theme.span("m"))
+  end
+
+  if self.message then
+    table.insert(c, Theme.mmdText(self.message, "text", 18, { secondary = true, width = width }))
+    table.insert(c, Theme.span("s"))
   end
 
   table.insert(c, Theme.mmdText(Goals.datesText(goal), "text", 15, { secondary = true, width = width }))
@@ -93,15 +103,25 @@ function GoalDialog:buildContent(width, viewport)
     table.insert(c, b)
   end
 
+  if self.edit_cb or self.archive_cb then table.insert(c, Theme.span("s")) end
   if self.edit_cb then
-    table.insert(c, Theme.span("s"))
     self.edit_button = Button.new {
       label = _("Edit goal"), w = width, h = Theme.px(56), size = 21, viewport = viewport,
-      callback = function() self.edit_cb(goal) end,
+      enabled = not self.busy,
+      callback = (not self.busy) and function() self.edit_cb(goal) end or nil,
     }
     table.insert(c, self.edit_button)
-    table.insert(c, Theme.span("l"))
   end
+  if self.archive_cb then
+    if self.edit_cb then table.insert(c, Theme.span("s")) end
+    self.archive_button = Button.new {
+      label = self.busy and _("Archiving\226\128\166") or _("Archive goal"), w = width, h = Theme.px(56), size = 21,
+      viewport = viewport, enabled = not self.busy,
+      callback = (not self.busy) and function() self:archive() end or nil,
+    }
+    table.insert(c, self.archive_button)
+  end
+  table.insert(c, Theme.span("l"))
   return c
 end
 
@@ -134,15 +154,44 @@ function GoalDialog:build()
   self[1] = self.frame
 end
 
--- the goal was changed: show it as it is now
-function GoalDialog:setGoal(goal)
-  self.goal = goal
+function GoalDialog:rebuild()
   if self[1] and type(self[1].free) == "function" then
     pcall(function() self[1]:free() end)
   end
   self[1] = nil
   self:build()
   UIManager:setDirty(self, "ui")
+end
+
+-- the goal was changed: show it as it is now
+function GoalDialog:setGoal(goal)
+  self.goal = goal
+  self:rebuild()
+end
+
+-- an archive is on its way (the buttons wait) or has failed (the reason shows)
+function GoalDialog:setBusy(busy)
+  self.busy = busy and true or false
+  self:rebuild()
+end
+
+function GoalDialog:setMessage(message)
+  self.message = message
+  self:rebuild()
+end
+
+-- Archive, after a confirm. The saved list is updated by DialogManager.
+function GoalDialog:archive()
+  if self.busy then return end
+  local ask = GoalActions.archiveAsk(self.goal.id)
+  StatusDialogs.confirm {
+    title = ask.title,
+    text = ask.text,
+    ok_text = ask.ok,
+    ok_callback = function()
+      if self.archive_cb then self.archive_cb(self.goal) end
+    end,
+  }
 end
 
 function GoalDialog:onCloseWidget()
