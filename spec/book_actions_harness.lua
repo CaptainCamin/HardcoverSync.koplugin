@@ -17,6 +17,7 @@ local function check(label, fn)
 end
 
 local BookActions = require("hardcover/lib/book_actions")
+local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local Lists = require("hardcover/lib/lists")
 local Recommendations = require("hardcover/lib/recommendations")
 
@@ -152,6 +153,34 @@ end)
 check("an error that is not a table counts as a failure, not a cancel", function()
   assert(Recommendations.retryPolicy(3, "boom") == "give_up")
   assert(Recommendations.retryPolicy(1, nil) == "retry")
+end)
+
+print("\n== writing a status the reader did not ask for ==")
+
+check("a book already Finished is never written over by the plugin", function()
+  for _, event in ipairs({ "end_auto", "end_chosen", "reading" }) do
+    assert(BookActions.statusWrite(HARDCOVER.STATUS.FINISHED, event) == "block", event)
+  end
+end)
+
+check("a Did not finish book that ends on its own is asked about, not written", function()
+  assert(BookActions.statusWrite(HARDCOVER.STATUS.DNF, "end_auto") == "ask")
+end)
+
+check("a Did not finish book the reader marked finished in KOReader is written", function()
+  assert(BookActions.statusWrite(HARDCOVER.STATUS.DNF, "end_chosen") == "allow")
+end)
+
+check("a Did not finish book whose status is set to reading is not written over", function()
+  assert(BookActions.statusWrite(HARDCOVER.STATUS.DNF, "reading") == "block")
+end)
+
+check("a book being read, wanted, or on no shelf is written as before", function()
+  for _, event in ipairs({ "end_auto", "end_chosen", "reading" }) do
+    assert(BookActions.statusWrite(HARDCOVER.STATUS.READING, event) == "allow", event)
+    assert(BookActions.statusWrite(HARDCOVER.STATUS.TO_READ, event) == "allow", event)
+    assert(BookActions.statusWrite(nil, event) == "allow", event)
+  end
 end)
 
 r.finish()
