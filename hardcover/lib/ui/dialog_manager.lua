@@ -823,7 +823,7 @@ function DialogManager:showGoals(host)
     end,
   }
   if cached and #(self:shownGoals(cached)) == 0 then
-    dialog.message = _("No goals yet. Tap New goal to set one.")
+    dialog.message = require("hardcover/lib/ui/goals_dialog").NO_GOALS
   end
   self:screens():track("goals", dialog)
   if not host then UIManager:show(dialog) elseif host.remount then Hosted.remount(host, dialog) end
