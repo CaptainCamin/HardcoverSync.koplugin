@@ -59,7 +59,7 @@ function Snackbar.show(opts)
   local bar = FrameContainer:new { width = sw, bordersize = 0, padding = 0, margin = 0,
     background = Theme.WHITE, VerticalGroup:new { align = "left", Overlay.top_rule(sw), line } }
 
-  overlay = Overlay:new { anchor = "bottom", bar }
+  overlay = Overlay:new { anchor = "bottom", snackbar = true, bar }
   overlay.timeout_task = function() overlay:close() end
   UIManager:scheduleIn(opts.timeout or 4, overlay.timeout_task)
   return overlay:show()

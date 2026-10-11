@@ -12,7 +12,7 @@ local UIManager = require("ui/uimanager")
 local function top()
   for i = #UIManager._window_stack, 1, -1 do
     local w = UIManager._window_stack[i].widget
-    if w and not w.toast then return w end
+    if w and not (w.toast or w.snackbar) then return w end
   end
 end
 
