@@ -208,7 +208,13 @@ function HardcoverMenu:showReaderPanel()
 
     -- the three things a reader does mid-book, as in the mock; everything else is under More
     if linked then
-      add(_("Update progress"), pages_item)
+      -- progress can only be set on a book being read; when it is not, the same button
+      -- opens the statuses, so it never sits there dead with no reason given
+      if status.status_id == HARDCOVER.STATUS.READING then
+        add(_("Update progress"), pages_item)
+      else
+        add(_("Change status"), status_item)
+      end
       add(_("Rate this book"), rating_item)
       actions[#actions + 1] = {
         text = _("Open book page"), enabled = self.enabled,
@@ -242,6 +248,7 @@ function HardcoverMenu:showReaderPanel()
   -- it used to be fetched first, with the screen frozen for as long as Hardcover took
   -- to answer, and the panel only appeared after that.
   panel = require("hardcover/lib/ui/reader_panel").show { model = model }
+  self.reader_panel = panel
   if self.settings:bookLinked() then
     local function signature()
       local status = self.state.book_status or {}
@@ -892,6 +899,10 @@ end
 function HardcoverMenu:setStatus(status)
   Background.run(function()
     self.cache:updateBookStatus(self.ui.document.file, status)
+    -- the reader panel's action follows the status, and the write lands after the panel
+    -- has already redrawn when the status dialog closed
+    local panel = self.reader_panel
+    if panel and UIManager:isWidgetShown(panel) then panel:render() end
   end)
 end
 
