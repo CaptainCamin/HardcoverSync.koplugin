@@ -35,14 +35,22 @@ local want = describe { status_id = S.TO_READ, status_label = "Want to Read" }
 r.check("length, not a page", want.line == "387 pages", want.line)
 r.check("shelf line", want.shelf == "On your 'Want to Read' shelf", want.shelf)
 r.check("tracking on: no switch, no note", want.track == false and want.track_note == nil)
+r.check("tracking on: says reading will ask", want.hint == "After 5 pages you'll be asked to start reading.", want.hint)
+r.check("the threshold setting is used",
+  describe { status_id = S.TO_READ, status_label = "Want to Read", start_pages = 12 }.hint == "After 12 pages you'll be asked to start reading.")
+r.check("a threshold of one page",
+  describe { status_id = S.TO_READ, status_label = "Want to Read", start_pages = 1 }.hint == "After 1 page you'll be asked to start reading.")
 local want_off = describe { status_id = S.TO_READ, status_label = "Want to Read", sync_on = false }
 r.check("tracking off: the switch comes back, with how to update by hand",
   want_off.track == true and want_off.track_note == "Change status to update progress.", want_off.track_note)
+r.check("tracking off: no hint (the note is under the switch)", want_off.hint == nil)
+r.check("no hint while reading, finished, or when the shelf is not known",
+  reading.hint == nil and describe { status_id = S.FINISHED, status_label = "Read" }.hint == nil and describe {}.hint == nil)
 
 print("\n== On no shelf, and shelf not checked ==")
 local none = describe { not_on_shelf = true }
 r.check("no shelf: line and length", none.shelf == "Not on a shelf" and none.line == "387 pages")
-r.check("no shelf, tracking on: no switch", none.track == false and none.track_note == nil)
+r.check("no shelf, tracking on: no switch, the same hint", none.track == false and none.hint == "After 5 pages you'll be asked to start reading.")
 local none_off = describe { not_on_shelf = true, sync_on = false }
 r.check("no shelf, tracking off: switch and the same note", none_off.track == true and none_off.track_note == "Change status to update progress.")
 local unknown = describe {}

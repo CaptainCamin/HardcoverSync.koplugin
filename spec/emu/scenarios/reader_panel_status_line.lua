@@ -24,14 +24,14 @@ local cases = {
     book_status = { id = 502, status_id = HARDCOVER.TO_READ, user_book_reads = {} },
     shelf = "On your 'Want to Read' shelf",
     line = "387 pages",
-    switch = false, note = false,
+    switch = false, note = false, hint = true,
   },
   {
     key = "not_on_shelf",
     book_status = { not_on_shelf = true, user_book_reads = {} },
     shelf = "Not on a shelf",
     line = "387 pages",
-    switch = false, note = false,
+    switch = false, note = false, hint = true,
   },
   {
     key = "not_checked",
@@ -130,6 +130,8 @@ return {
         case.key .. ": switch shown is " .. tostring(case.switch))
       assert(text:find("Change status to update progress.", 1, true) ~= nil == case.note,
         case.key .. ": the switch note shown is " .. tostring(case.note))
+      assert(text:find("asked to start reading", 1, true) ~= nil == (case.hint == true),
+        case.key .. ": the 'asked to start reading' hint shown is " .. tostring(case.hint == true))
       assert(not text:find("Page 0", 1, true), case.key .. ": claims 'Page 0' with no saved page")
 
       emu:shot("reader_panel_status_" .. case.key)

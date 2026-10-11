@@ -204,6 +204,8 @@ function HardcoverMenu:showReaderPanel()
       pages = self.settings:pages(),
       sync_on = self.settings:syncEnabled(),
       status_label = status_id and Shelf.statusLabel(status_id) or nil,
+      -- the threshold setting arrives with the start-reading prompt (PR 113); 5 is its default
+      start_pages = self.settings.startReadingPages and self.settings:startReadingPages() or nil,
     }
     -- a finished book can be read again: a new read starts, and the finished one is kept
     local shelf_action = (linked and facts.finished) and {
@@ -249,6 +251,7 @@ function HardcoverMenu:showReaderPanel()
       line = facts.line,
       shelf = facts.shelf,
       shelf_action = shelf_action,
+      hint = facts.hint,
       -- the switch means "Hardcover follows this book". It is not offered for a Finished or Did not
       -- finish book: neither page progress nor a status change is sent for those, so it would do nothing.
       -- Where reading moves the book (Want to Read, no shelf) a line under it says what to do, switch on or off.

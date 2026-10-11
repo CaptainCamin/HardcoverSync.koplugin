@@ -12,6 +12,7 @@
 --     line (string or nil: how far or how long, right under the title),
 --     shelf (string or nil: where the book is, in words),
 --     shelf_action (nil, or { text, run }: a button beside the shelf line),
+--     hint (string or nil: what reading will do, where there is no switch),
 --     track = { checked, toggle, note (string or nil) } or nil,
 --     actions = { { text, enabled, primary, run }, ... } }
 --
@@ -121,6 +122,12 @@ function ReaderPanel:render()
     table.insert(content, self:buildShelfRow(model.shelf, model.shelf_action, width))
   end
 
+  -- no switch for this book: what reading will do
+  if model.hint then
+    table.insert(content, Theme.span("l"))
+    table.insert(content, Theme.mmdText(model.hint, "text", 18, { width = width }))
+  end
+
   -- what to do about it: the switch, with its explanation attached to it
   if model.track then
     table.insert(content, Theme.span("l"))
@@ -133,7 +140,7 @@ function ReaderPanel:render()
 
   -- the actions, two to a row; an action that cannot be used right now keeps its place, in
   -- a dotted box and without a tap
-  table.insert(content, Theme.span(model.track and "m" or "l"))
+  table.insert(content, Theme.span((model.track or model.hint) and "m" or "l"))
   -- stacked as in the mock; two to a row only when the screen is wider than it is tall
   local gap = Theme.space.m
   local cols = landscape and 2 or 1
