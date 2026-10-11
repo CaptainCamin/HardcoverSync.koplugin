@@ -119,6 +119,16 @@ function SyncQueue:enqueuePage(filepath, payload)
   return entry
 end
 
+-- A page that starts the book again. The flush opens a new read for it (see _flushEntry), so the
+-- finished read is never written. Only the page is queued, not a status: a READING status queued
+-- ahead of the page would make the page land on the finished read.
+function SyncQueue:startReread(filepath, payload)
+  local entry = self:enqueuePage(filepath, payload)
+  entry.reread = true
+  self:persist()
+  return entry
+end
+
 function SyncQueue:enqueueStatus(filepath, payload)
   local entry = self:_ensure(filepath, payload)
   entry.status_id = payload.status_id

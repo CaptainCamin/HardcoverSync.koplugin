@@ -27,6 +27,7 @@ local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local ICON = require("hardcover/lib/constants/icons")
 local SETTING = require("hardcover/lib/constants/settings")
 local VERSION = require("hardcover_version")
+local Shelf = require("hardcover/lib/shelf")
 local SyncConflicts = require("hardcover/lib/sync_conflicts")
 
 local HardcoverMenu = {}
@@ -168,6 +169,11 @@ function HardcoverMenu:showReaderPanel()
   local function model()
     local linked = self.settings:bookLinked()
     local status = self.state.book_status or {}
+    -- the status the book has, with a change still waiting to be sent counted (as the page path counts it)
+    local file = self.ui.document and self.ui.document.file
+    local pending = file and self.sync_queue:get(file)
+    local status_id = (pending and pending.status_id) or status.status_id
+    local finished = status_id == HARDCOVER.STATUS.FINISHED or status_id == HARDCOVER.STATUS.DNF
     local doc_title = self.ui.doc_props and self.ui.doc_props.display_title
     local title = (linked and self.settings:getLinkedTitle()) or doc_title or _("This book")
 
@@ -194,10 +200,31 @@ function HardcoverMenu:showReaderPanel()
     local read = reads and reads[#reads]
     local pages = self.settings:pages()
     if linked and pages then
-      local page = read and read.progress_pages or 0
-      bits[#bits + 1] = T(_("Page %1 of %2"), page, pages)
-      bits[#bits + 1] = T(_("%1%"), math.floor(100 * page / pages + 0.5))
+      local saved = read and read.progress_pages
+      -- a finished book says where it stopped only when a page was saved; "Page 0" would be false
+      if saved or not finished then
+        local page = saved or 0
+        bits[#bits + 1] = T(_("Page %1 of %2"), page, pages)
+        bits[#bits + 1] = T(_("%1%"), math.floor(100 * page / pages + 0.5))
+      end
     end
+
+    -- where the book is, in words: the same statuses the details screen's pill uses
+    local shelf
+    if linked then
+      if status_id then
+        shelf = T(_("On your '%1' shelf"), Shelf.statusLabel(status_id))
+      elseif status.not_on_shelf then
+        shelf = _("Not on a shelf")
+      else
+        shelf = _("Shelf not checked yet")
+      end
+    end
+    -- a finished book can be read again: a new read starts, and the finished one is kept
+    local shelf_action = (linked and finished) and {
+      text = _("Read again"),
+      run = function() self:readAgain() end,
+    } or nil
 
     local actions = {}
     local function add(text, item, extra)
@@ -210,7 +237,7 @@ function HardcoverMenu:showReaderPanel()
     if linked then
       -- progress can only be set on a book being read; when it is not, the same button
       -- opens the statuses, so it never sits there dead with no reason given
-      if status.status_id == HARDCOVER.STATUS.READING then
+      if status_id == HARDCOVER.STATUS.READING then
         add(_("Update progress"), pages_item)
       else
         add(_("Change status"), status_item)
@@ -235,9 +262,16 @@ function HardcoverMenu:showReaderPanel()
       linked = linked,
       pills = {},
       line = not linked and _("Not linked to Hardcover") or #bits > 0 and table.concat(bits, "  \194\183  ") or nil,
-      track = linked and {
+      shelf = shelf,
+      shelf_action = shelf_action,
+      -- the switch means "Hardcover follows this book". It is not offered for a Finished or Did not
+      -- finish book: neither page progress nor a status change is sent for those, so it would do nothing.
+      -- Where reading moves the book, a line under it says so, whether the switch is on or off.
+      track = (linked and not finished) and {
         checked = self.settings:syncEnabled(),
         toggle = function() self.settings:setSync(not self.settings:syncEnabled()) end,
+        note = (status_id == HARDCOVER.STATUS.TO_READ or (status_id == nil and status.not_on_shelf))
+          and _("When on, reading moves it to Currently Reading.") or nil,
       } or nil,
       actions = actions,
     }
@@ -894,6 +928,65 @@ function HardcoverMenu:removeCurrentRead(menu_instance)
       menu_instance:updateItems()
     end
   end)
+end
+
+-- Start a finished or Did not finish book again. Asks first.
+function HardcoverMenu:readAgain()
+  StatusDialogs.confirm {
+    title = _("Read this book again?"),
+    text = _("Hardcover keeps your finished read. A new read starts now."),
+    cancel_text = _("Cancel"),
+    ok_text = _("Start reading again"),
+    ok_callback = function() self:startReread() end,
+  }
+end
+
+-- The new read starts at the page the reader is on, or at the start when they are on the last
+-- page. It goes through the sync queue as a re-read (SyncQueue:startReread), so the finished read
+-- is never written. Online it is sent at once, and the book's status changes only once Hardcover
+-- has the new read; offline the change shows now and is sent with the rest of the queue.
+function HardcoverMenu:startReread()
+  local file = self.ui.document.file
+  local document_page = self.ui:getCurrentPage()
+  local document_pages = self.ui.document:getPageCount()
+  local page = 0
+  if document_page < document_pages then
+    page = self.page_mapper:getMappedPage(document_page, document_pages, self.settings:pages())
+  end
+
+  local payload = self.cache:queueMeta(file)
+  payload.mapped_page = page
+  self.sync_queue:startReread(file, payload)
+
+  Background.run(function()
+    if not Network.connected() then
+      self.cache:applyLocalStatus(file, HARDCOVER.STATUS.READING)
+      self.cache:applyLocalPage(page, payload.edition_id, os.date("%Y-%m-%d"), nil)
+      self:refreshReaderPanel()
+      StatusDialogs.info(_("Reading again. It will be sent when you are back online."), 3)
+      return
+    end
+
+    self.sync_queue:flush(Api, {
+      user_id = User:getId(),
+      settings = self.settings,
+      current_file = file,
+      state = self.state,
+    })
+    if self.sync_queue:hasPending(file) then
+      StatusDialogs.error(_("Could not start the new read. It is saved and will be sent again."), 3)
+      return
+    end
+    self.cache:cacheUserBook()
+    self:refreshReaderPanel()
+    StatusDialogs.info(_("Reading again"), 2)
+  end)
+end
+
+function HardcoverMenu:refreshReaderPanel()
+  if self.reader_panel and UIManager:isWidgetShown(self.reader_panel) then
+    self.reader_panel:render()
+  end
 end
 
 function HardcoverMenu:savePage(current_read, edition_page, menu_instance)

@@ -37,7 +37,8 @@ return {
       state = { book_status = { id = 1, status_id = 2, rating = 4.5,
         user_book_reads = { { progress_pages = 142 } } } },
       cache = { cacheUserBook = function() calls.fetched_with_panel_up = emu:top() and emu:top().name == "hardcover_reader_panel" end },
-      sync_queue = { pendingCount = function() return 0 end, hasPending = function() return false end },
+      sync_queue = { pendingCount = function() return 0 end, hasPending = function() return false end,
+      get = function() return nil end },
       auth = { usingOAuth = function() return true end, needsReauth = function() return false end,
                statusText = function() return "Signed in" end },
       dialog_manager = {
