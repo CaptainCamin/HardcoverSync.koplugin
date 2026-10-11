@@ -13,6 +13,7 @@ local VerticalGroup = require("ui/widget/verticalgroup")
 
 local Button = require("hardcover/lib/ui/components/button")
 local Draw = require("hardcover/lib/ui/components/draw")
+local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
 
 local px = Theme.px
@@ -22,8 +23,9 @@ local Note = {}
 
 Note.MIN_H = px(62)
 
--- opts { width, icon_name (an SVG in icons/), title, text, dotted, action = { label, callback }, h }
--- `h` makes the box at least that tall (give both looks the taller one's height).
+-- opts { width, icon_name (an SVG in icons/), title, text, dotted, action = { label, callback }, h, on_tap }
+-- `h` makes the box at least that tall (give both looks the taller one's height). `on_tap` makes the
+-- whole box a touch target too; the action's button still takes the taps on it.
 function Note.new(opts)
   local pad_x, pad_y, radius = px(14), px(12), px(10)
   local w = opts.width
@@ -64,7 +66,14 @@ function Note.new(opts)
     end
   end)
   local inside = LeftContainer:new { dimen = Geom:new { w = w, h = h }, HorizontalGroup:new { Theme.hspan(pad_x), row } }
-  return OverlapGroup:new { dimen = Geom:new { w = w, h = h }, allow_mirroring = false, border, inside }
+  local box = OverlapGroup:new { dimen = Geom:new { w = w, h = h }, allow_mirroring = false, border, inside }
+  if opts.on_tap then
+    -- Last, so the button (in `inside`) is offered the tap first. Not wrapped around the button: a
+    -- tap row hands its tap to every tap row inside it, whatever the position, so the button would
+    -- fire with the box. Draw.drawn paints nothing; it only takes the touch.
+    box[#box + 1] = TapRow:new { callback = opts.on_tap, Draw.drawn(w, h, function() end) }
+  end
+  return box
 end
 
 return Note

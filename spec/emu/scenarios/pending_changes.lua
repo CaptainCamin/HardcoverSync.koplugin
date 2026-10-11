@@ -79,6 +79,8 @@ return {
 
     tap("Send them now")
     assert(sent == 1, "Send them now did not send")
+    local after = UIManager:getTopmostVisibleWidget()
+    assert(not after or after.name ~= "hardcover_settings", "the list stayed open after Send them now")
 
     -- the last one: cancelling it leaves nothing, and says so
     emu:closeAll()
@@ -88,6 +90,32 @@ return {
     tap("Cancel the change")
     emu:expectText("Nothing is waiting to be sent.")
     assert(not q.sync_queue:hasPending())
+    emu:closeAll()
+
+    -- discard: asked first, and it throws away the queued progress and status changes only
+    q.sync_queue:enqueuePage("/b/dune.epub", { mapped_page = 130, book_id = 7, title = "Dune" })
+    local discarded = 0
+    Dialog.show { queues = q, on_discard = function() discarded = discarded + 1 end }
+    emu:pump()
+    tap("Discard 1 queued changes")
+    emu:expectText("Discard 1 queued changes?")
+    emu:shot("pending_changes_discard")
+    tap("Keep them")
+    assert(q.sync_queue:hasPending(), "Keep them discarded the changes")
+    tap("Discard 1 queued changes")
+    local function tapExact(text) -- "Discard" alone, not the row it sits on top of
+      for _, node in ipairs(emu:screenNodes()) do
+        if node.text == text then
+          emu:tapExpecting(node.x + math.floor(node.w / 2), node.y + math.floor(node.h / 2))
+          emu:pump()
+          return
+        end
+      end
+      error("no button reading exactly " .. text)
+    end
+    tapExact("Discard")
+    assert(not q.sync_queue:hasPending(), "Discard kept the changes")
+    assert(discarded == 1, "on_discard was not told")
     emu:closeAll()
   end,
 }

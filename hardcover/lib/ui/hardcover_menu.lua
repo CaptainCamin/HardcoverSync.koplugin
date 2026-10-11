@@ -395,8 +395,6 @@ function HardcoverMenu:getSubMenuItems(book_view)
     },
     book_view and self:getUnlinkMenuItem(),
     self:getSyncMenuItem(),
-    self:pendingTotal() > 0 and self:getPendingChangesMenuItem(),
-    self.sync_queue:pendingCount() > 0 and self:getDiscardMenuItem(),
     self:conflictCount() > 0 and self:getSyncConflictsMenuItem(),
     -- OAuth sign-in/out. Only offered when hardcover_config.lua supplies a
     -- client_id; with a static API key there is nothing to sign in to.
@@ -585,31 +583,36 @@ function HardcoverMenu:conflictCount()
   return self.sync_queue and self.sync_queue.conflictCount and self.sync_queue:conflictCount() or 0
 end
 
--- Every change waiting to be sent, each with a way to cancel just that one.
-function HardcoverMenu:getPendingChangesMenuItem()
-  return {
-    text_func = function()
-      return T(_("Pending changes (%1)"), self:pendingTotal())
+-- Every change waiting to be sent, each with a way to cancel just that one, a way to discard
+-- what Sync queues, and a way to send the rest. Sync opens this when something waits, and so
+-- does a tap on Home's sync box.
+function HardcoverMenu:showPendingChanges(menu_instance)
+  -- loaded here, not at the top: the screen pulls in the settings page and its widgets
+  require("hardcover/lib/ui/pending_changes_dialog").show {
+    queues = {
+      sync_queue = self.sync_queue, goal_queue = self.goal_queue, rating_queue = self.rating_queue,
+      shelf_queue = self.shelf_queue, list_queue = self.list_queue,
+    },
+    on_cancel = function(row)
+      self:pendingCancelled(row)
+      self:queueChanged()
     end,
-    enabled_func = function()
-      return self:pendingTotal() > 0
-    end,
-    callback = function(menu_instance)
-      -- loaded here, not at the top: the screen pulls in the settings page and its widgets
-      require("hardcover/lib/ui/pending_changes_dialog").show {
-        queues = {
-          sync_queue = self.sync_queue, goal_queue = self.goal_queue, rating_queue = self.rating_queue,
-          shelf_queue = self.shelf_queue, list_queue = self.list_queue,
-        },
-        on_cancel = function(row) self:pendingCancelled(row) end,
-        on_send = function()
-          self:withWifiThen(function() self.on_flush_sync_queue() end, true)
-        end,
-      }
-      if menu_instance and menu_instance.updateItems then menu_instance:updateItems() end
-    end,
-    keep_menu_open = true,
+    on_discard = function() self:queueChanged() end,
+    on_send = function() self:sendPending() end,
   }
+  if menu_instance and menu_instance.updateItems then menu_instance:updateItems() end
+end
+
+-- Sends what is waiting. Syncing genuinely needs a connection, but the confirmation message
+-- must still appear when it cannot be sent -- otherwise the menu item looks dead. withWifiThen
+-- reports the outcome either way.
+function HardcoverMenu:sendPending()
+  self:withWifiThen(function() self.on_flush_sync_queue() end, true)
+end
+
+-- Home's sync box says what is waiting, so it is drawn again after a change to the queues.
+function HardcoverMenu:queueChanged()
+  if self.dialog_manager and self.dialog_manager.queueChanged then self.dialog_manager:queueChanged() end
 end
 
 -- A waiting change was cancelled: the screens that showed it as if it had happened go back
@@ -643,7 +646,7 @@ function HardcoverMenu:getSyncConflictsMenuItem()
           if menu_instance and menu_instance.updateItems then menu_instance:updateItems() end
           -- answers are only useful once they are sent
           if resolved > 0 then
-            self:withWifiThen(function() self.on_flush_sync_queue() end, true)
+            self:sendPending()
           end
         end,
       }
@@ -677,31 +680,9 @@ function HardcoverMenu:getUnlinkMenuItem()
   }
 end
 
-function HardcoverMenu:discardPending(menu_instance)
-  local count = self.sync_queue:pendingCount()
-  if count == 0 then return end
-  self.dialog_manager:confirm({
-    title = T(_("Discard %1 queued changes?"), count),
-    text = _("They are deleted from this device and never sent to Hardcover."),
-    ok_text = _("Discard"),
-    ok_callback = function()
-      self.sync_queue:clearAll()
-      menu_instance:updateItems()
-    end,
-  })
-end
-
-function HardcoverMenu:getDiscardMenuItem()
-  return {
-    text_func = function() return T(_("Discard %1 queued changes"), self.sync_queue:pendingCount()) end,
-    enabled_func = function() return self.sync_queue:pendingCount() > 0 end,
-    callback = function(menu_instance) self:discardPending(menu_instance) end,
-    keep_menu_open = true,
-  }
-end
-
--- Sync now / pending changes: one definition for the menu and the home screen's
--- settings.
+-- Sync: one definition for the menu and the home screen's settings. With changes waiting it
+-- opens them (where they are sent, or cancelled and discarded one by one); with none it sends
+-- nothing and says so.
 function HardcoverMenu:getSyncMenuItem()
   return {
     text_func = function()
@@ -717,15 +698,14 @@ function HardcoverMenu:getSyncMenuItem()
     enabled_func = function()
       return self.enabled and (self.sync_queue:hasPending() or self:pendingTotal() > 0)
     end,
-    callback = function()
-      -- Syncing genuinely needs a connection, but the confirmation message
-      -- must still appear when it cannot be sent -- otherwise the menu item
-      -- looks dead. withWifiThen reports the outcome either way.
-      self:withWifiThen(function()
-        self.on_flush_sync_queue()
-      end, true)
+    callback = function(menu_instance)
+      -- opening the list needs no connection (sending in it does), so it works offline too
+      if self:pendingTotal() > 0 then
+        self:showPendingChanges(menu_instance)
+        return
+      end
+      self:sendPending()
     end,
-    hold_callback = function(menu_instance) self:discardPending(menu_instance) end,
     keep_menu_open = true,
     separator = true,
     -- the settings screen shows this one as a tile at the top
@@ -818,12 +798,6 @@ function HardcoverMenu:getHomeSettingsItems(opts)
   local items = {}
   if opts.sync ~= false then
     items[1] = self:getSyncMenuItem()
-    if self:pendingTotal() > 0 then
-      items[#items + 1] = self:getPendingChangesMenuItem()
-    end
-    if self.sync_queue:pendingCount() > 0 then
-      items[#items + 1] = self:getDiscardMenuItem()
-    end
     if self:conflictCount() > 0 then
       items[#items + 1] = self:getSyncConflictsMenuItem()
     end

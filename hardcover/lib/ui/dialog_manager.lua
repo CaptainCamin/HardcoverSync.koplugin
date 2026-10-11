@@ -587,15 +587,15 @@ function DialogManager:showShelvesBody(host)
   return body
 end
 
--- Sync now, as Settings > Sync does it (it finds a connection, or says it could not).
+-- Sync now sends what is waiting, straight away (it finds a connection, or says it could not).
+-- Settings > Sync opens the list first, so this is not that item's callback.
 function DialogManager:syncNow()
-  local items = self.settings_items and self.settings_items() or {}
-  for _i, item in ipairs(items) do
-    if item and item.tile == "Sync" and item.callback then
-      item.callback({ updateItems = function() end })
-      return
-    end
-  end
+  if self.send_now then self.send_now() end
+end
+
+-- Home's sync box opens the list of what is waiting, as Settings > Sync does when changes wait.
+function DialogManager:showPendingChanges()
+  if self.show_pending then self.show_pending() end
 end
 
 -- What is waiting to sync changed (a sync ran, a change was queued): Home's box says so.
@@ -648,8 +648,9 @@ function DialogManager:showOldHome(host)
         + (self.shelf_queue and self.shelf_queue:count() or 0)
         + (self.list_queue and self.list_queue:count() or 0)
     end,
-    -- the sync box's Sync now: what Settings > Sync does
+    -- the sync box's Sync now sends; tapping the rest of the box opens what is waiting
     sync_cb = function() self:syncNow() end,
+    pending_cb = function() self:showPendingChanges() end,
     rows = Home.rows(saved_counts),
     entries = shownReading(saved_reading),
     select_cb = function(row)
