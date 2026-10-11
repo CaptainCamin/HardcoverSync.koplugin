@@ -210,7 +210,7 @@ function Flows:showLists(host)
           self:showLists(host and { shell = host.shell, width = host.width, height = host.height,
             id = host.id, parent = host.parent, remount = true })
         end,
-        function() if not host then UIManager:close(dialog) end end)
+        self:loadFailed(dialog, host, _("Couldn't load your lists.")))
       return
     end
     if #lists.mine == 0 and #lists.following == 0 then
