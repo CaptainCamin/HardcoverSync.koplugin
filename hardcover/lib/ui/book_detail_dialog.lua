@@ -71,8 +71,8 @@ local BookDetailDialog = FocusManager:extend {
   detail = nil,
   -- called with no arguments when Reviews is tapped; no callback, no button
   on_reviews = nil,
-  -- called with no arguments when Lists is tapped (the lists to put the book on);
-  -- no callback, no button
+  -- called with no arguments when "Lists" is chosen in the Add sheet (the lists to put the book on);
+  -- no callback, no Lists row
   on_lists = nil,
   on_refresh = nil, -- the title bar's reload icon; nil hides it
   -- called with the dialog when Open is tapped (the book is on this device: a file the plugin linked
@@ -317,11 +317,11 @@ function BookDetailDialog:init()
   end
 
   -- the buttons, one slot after another: Open (filled) when the book is on this device, else Find on
-  -- device and Z-library (outlined, side by side) to get it; Reviews; then Shelf and Lists in a row.
+  -- device and Z-library (outlined, side by side) to get it; Reviews; then Add (shelf or lists) in half a row.
   -- There is no one main button. They scroll with the page, so each tap is cut to the visible area
   -- (see viewport.lua) or one scrolled away could catch a tap meant for what is over it.
   self.open_button, self.find_button, self.zlibrary_button = nil, nil, nil
-  self.reviews_button, self.shelf_button, self.lists_button = nil, nil, nil
+  self.reviews_button, self.add_button = nil, nil
   local function button(field, text, handler, opts)
     local b = Button.new {
       label = text, w = opts.w, h = Theme.TOUCH_MIN, size = 19, primary = opts.primary,
@@ -336,12 +336,14 @@ function BookDetailDialog:init()
   end
   local action_bar = VerticalGroup:new { align = "left" }
   local action_rows = {} -- the buttons of each row, for the focus order
-  -- `specs`: { field, label, handler, primary }, sharing the width equally
-  local function add_row(specs)
+  -- `specs`: { field, label, handler, primary }, sharing the width equally; `slots` (default
+  -- #specs) is how many equal columns the row has, so a row can leave room beside its buttons
+  local function add_row(specs, slots)
     if #specs == 0 then return end
     if #action_bar > 0 then table.insert(action_bar, Theme.span("s")) end
     local gap = Theme.space.s
-    local each = math.floor((width - (#specs - 1) * gap) / #specs)
+    slots = slots or #specs
+    local each = math.floor((width - (slots - 1) * gap) / slots)
     local row = HorizontalGroup:new { align = "top" }
     local fields = {}
     for i, spec in ipairs(specs) do
@@ -361,9 +363,9 @@ function BookDetailDialog:init()
     add_row(get)
   end
   if self.on_reviews then add_row({ { "reviews_button", _("Reviews"), "on_reviews" } }) end
-  local manage = { { "shelf_button", Shelf.shelfButtonText((self.detail or {}).status_id), "on_shelf" } }
-  if self.on_lists then manage[#manage + 1] = { "lists_button", _("Lists"), "on_lists" } end
-  add_row(manage)
+  -- Add: one button for the shelf and the lists (see openAdd). Half a row, the other half left
+  -- free for a button that is still to come.
+  add_row({ { "add_button", _("Add"), "openAdd" } }, 2)
   self.action_bar = action_bar
 
   -- About: five lines at most, so the block is the same height for every book; a Read more opens
@@ -814,6 +816,30 @@ function BookDetailDialog:setRating(rating)
 end
 
 --
+-- The Add button: a sheet of what to add the book to (its shelf, and your lists when they can be
+-- changed). With nothing but the shelf to offer it opens the shelf sheet at once.
+function BookDetailDialog:openAdd()
+  if not self.on_lists then
+    if self.on_shelf then self:on_shelf() end
+    return
+  end
+  local picker
+  local function row(text, handler)
+    return { text = text, callback = function()
+      UIManager:close(picker)
+      if handler then handler(self) end
+    end }
+  end
+  picker = require("hardcover/lib/ui/picker").new {
+    title = _("Add"),
+    rows = {
+      row(_(Shelf.shelfButtonText((self.detail or {}).status_id)), self.on_shelf),
+      row(_("Lists"), self.on_lists),
+    },
+  }
+  UIManager:show(picker)
+end
+
 -- The lists the book is on are known (or changed): `rows` is Lists.membership's
 -- result, kept on the detail so the picker does not ask again and the line under
 -- the status can name them. Keeps the cover and the scroll position.

@@ -14,6 +14,7 @@
 
 ### Changed
 
+- **One Add button on a book's details screen.** The separate Shelf and Lists buttons are now one "Add" button. It opens a sheet with "Add to shelf" / "Change shelf" and "Lists" (Lists only when signed in with OAuth); without Lists it goes straight to the shelf sheet. The button takes half the row, leaving the other half free.
 - **The edition of a linked book is changed from the reader's panel.** The panel has an Edition button (Edition: Kindle, or Edition: not chosen) that opens Change edition, Link a different book and Unlink book. The panel's More button is gone: the link actions it held are behind this button. A shelved book's edition changes on Hardcover first, so if Hardcover does not answer nothing changes and you are asked to try again. Pages move to the same share of the new edition's pages, the page count may differ, and the progress with it, which the confirmation says.
 - **Rating is on the book's page.** Rate this book is no longer a button on the reader's panel: tap "Open book page", then "Your rating".
 - **Sync shows what is waiting.** There is no separate Pending changes row any more: Sync opens the list when changes wait (each can be cancelled, Send them now sends the rest, and Discard queued changes is a button there rather than a hold on Sync). Home's sync box opens the same list when you tap it; its Sync now button still sends straight away.

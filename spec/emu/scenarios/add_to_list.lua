@@ -59,6 +59,11 @@ return {
       emu:tapExpecting(d.x + math.floor(d.w / 2), d.y + math.floor(d.h / 2))
       emu:pump()
     end
+    -- Add opens a sheet when the book can go on lists too: tap its row (shelf rows are "Add to shelf" / "Change shelf")
+    local function tapAdd(dialog, row)
+      tapButton(dialog.add_button)
+      if dialog.on_lists then tapText(row) end
+    end
     local function count(name)
       local n = 0
       for _, c in ipairs(fixtures.calls or {}) do if c.name == name then n = n + 1 end end
@@ -87,16 +92,15 @@ return {
 
     -- the buttons: Shelf over Reviews, then Lists and Z-library in one row below, inside the
     -- margins, none on another
-    assert(dialog.lists_button, "no Lists button for an OAuth sign-in")
-    emu:expectText("Lists")
+    assert(dialog.add_button and dialog.on_lists, "no Lists to add to for an OAuth sign-in")
+    emu:expectText("Add")
     local M = require("hardcover/lib/ui/theme").margin
     UIManager:_repaint()
     local at = function(name) return dialog[name].dimen end
-    assert(at("zlibrary_button").y < at("reviews_button").y and at("reviews_button").y < at("shelf_button").y,
-      "the buttons are not Z-library, Reviews, then Shelf")
-    assert(at("shelf_button").y == at("lists_button").y and at("shelf_button").x < at("lists_button").x,
-      "Shelf and Lists are not one row, Shelf first")
-    for _, name in ipairs({ "shelf_button", "lists_button", "reviews_button", "zlibrary_button" }) do
+    assert(at("zlibrary_button").y < at("reviews_button").y and at("reviews_button").y < at("add_button").y,
+      "the buttons are not Z-library, Reviews, then Add")
+    assert(at("add_button").x * 2 + at("add_button").w < emu.Screen:getWidth(), "Add is not half a row on the left")
+    for _, name in ipairs({ "add_button", "reviews_button", "zlibrary_button" }) do
       local d = dialog[name].dimen
       assert(d and d.x >= M and d.x + d.w <= emu.Screen:getWidth() - M, name .. " is outside the margins")
     end
@@ -111,7 +115,7 @@ return {
     -- the plugin also trusts KOReader's own record of the connection, so go offline in both
     local was_state = NetworkManager.getConnectionState
     NetworkManager.getConnectionState = function() return false end
-    tapButton(dialog.lists_button)
+    tapAdd(dialog, "Lists")
     NetworkManager.isConnected = was
     NetworkManager.getConnectionState = was_state
     emu:expectText("offline")
@@ -121,7 +125,7 @@ return {
 
     -- a sign-in known to lack the scope: told what to do, nothing sent
     Api.auth = fixtures.fake_auth(false)
-    tapButton(dialog.lists_button)
+    tapAdd(dialog, "Lists")
     emu:expectText("Sign out and back in")
     emu:expectText("Settings > Account")
     assert(count("getBookLists") == 0 and count("addToList") == 0, "a sign-in without the scope made a request")
@@ -130,7 +134,7 @@ return {
 
     -- the right scope: one request for the membership, then the picker
     Api.auth = fixtures.fake_auth(true)
-    tapButton(dialog.lists_button)
+    tapAdd(dialog, "Lists")
     local picker = topmost()
     assert(picker ~= dialog and picker.rows, "the picker did not open")
     assert(count("getBookLists") == 1 and lastCall("getBookLists").book_id == 103, "the membership was not asked for once")
@@ -198,7 +202,7 @@ return {
 
     -- opening again asks nothing: the membership is already on the screen
     local asked = count("getBookLists")
-    tapButton(dialog.lists_button)
+    tapAdd(dialog, "Lists")
     assert(count("getBookLists") == asked, "the picker asked for the lists again")
     emu:expectText("Books that made me grin (5)")
     UIManager:close(topmost())
@@ -214,7 +218,7 @@ return {
     manager:showBookDetail(103, 10301)
     emu:pump()
     dialog = topmost()
-    tapButton(dialog.lists_button)
+    tapAdd(dialog, "Lists")
     picker = topmost()
     tapText("Someday")
     local row
@@ -228,9 +232,9 @@ return {
     manager:showBookDetail(103, 10301)
     emu:pump()
     dialog = topmost()
-    assert(dialog.lists_button and dialog.zlibrary_button, "the bar lost a button in compatibility mode")
+    assert(dialog.add_button and dialog.zlibrary_button, "the bar lost a button in compatibility mode")
     UIManager:_repaint()
-    for _, name in ipairs({ "shelf_button", "lists_button", "reviews_button", "zlibrary_button" }) do
+    for _, name in ipairs({ "add_button", "reviews_button", "zlibrary_button" }) do
       local d = dialog[name].dimen
       assert(d and d.x >= M and d.x + d.w <= emu.Screen:getWidth() - M, name .. " is outside the margins (compat)")
     end
@@ -238,13 +242,13 @@ return {
     emu:shot("add_to_list_bar_compat")
     emu:closeAll()
 
-    -- no OAuth sign-in (a personal token, or none): no Lists button at all
+    -- no OAuth sign-in (a personal token, or none): no Lists row in Add
     Api.auth = nil
     manager = DialogManager:new { settings = settings, ui = { {}, plugin } }
     manager:showBookDetail(103, 10301)
     emu:pump()
     dialog = topmost()
-    assert(dialog.lists_button == nil, "a Lists button without an OAuth sign-in")
+    assert(dialog.add_button and dialog.on_lists == nil, "Lists offered without an OAuth sign-in")
     emu:closeAll()
   end,
 }
