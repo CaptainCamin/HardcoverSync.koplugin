@@ -18,6 +18,7 @@ local Live = require("hardcover/lib/ui/live")
 
 local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
+local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local Home = require("hardcover/lib/home")
 local Network = require("hardcover/lib/network")
 local ShelfLoader = require("hardcover/lib/shelf_loader")
@@ -302,11 +303,13 @@ function Flows:showShelf(status_id, title)
 end
 
 --
--- The shelf counts on screen (Home's, and the Library's Shelves tab), which a shell keeps
--- between visits, follow a book that moved from one shelf to another. Hardcover's own counts
--- replace them the next time Home loads.
+-- What a shell keeps between visits follows a book that moved from one shelf to another, and
+-- only then: the shelf counts on Home and the Library's Shelves tab move with it, the Currently
+-- reading card loses the book (or gains it, from the saved shelf), and a Stats tab that is out
+-- of sight is dropped when Read was involved, so it loads again when opened. Hardcover's own
+-- answers replace all of this the next time Home loads.
 --
-function Flows:moveShownCounts(old_status_id, new_status_id)
+function Flows:moveShownCounts(old_status_id, new_status_id, book_id)
   if old_status_id == new_status_id then return end
   for _i, kind in ipairs({ "home", "shelves" }) do
     local screen = self:screens():open(kind)
@@ -324,6 +327,33 @@ function Flows:moveShownCounts(old_status_id, new_status_id)
       screen:setRows(rows, true)
     end
   end
+
+  local READING, FINISHED = HARDCOVER.STATUS.READING, HARDCOVER.STATUS.FINISHED
+  local home = self:screens():open("home")
+  if home and home.setReading and book_id and (old_status_id == READING or new_status_id == READING) then
+    local entries = {}
+    for _i, entry in ipairs(home.entries or {}) do
+      if not (old_status_id == READING and tonumber(entry.book_id) == tonumber(book_id)) then
+        entries[#entries + 1] = entry
+      end
+    end
+    if new_status_id == READING then
+      local row = self:findShelfEntry(User:getId(), book_id)
+      if type(row) == "table" then
+        local card = {}
+        for k, v in pairs(row) do card[k] = v end
+        card.book_id = card.book_id or book_id
+        table.insert(entries, 1, card)
+      end
+    end
+    home:setReading(entries, true)
+  end
+
+  local stats = self:screens():open("stats")
+  if stats and stats.shell and stats.shell.active ~= "stats"
+    and (old_status_id == FINISHED or new_status_id == FINISHED) then
+    self:screens():discard("stats")
+  end
 end
 
 --
@@ -338,7 +368,7 @@ end
 -- moved are adjusted instead. All of it is done properly when the change is sent.
 --
 function Flows:shelfChanged(book_id, old_status_id, status_id, user_book_id, unsent)
-  self:moveShownCounts(old_status_id, status_id)
+  self:moveShownCounts(old_status_id, status_id, book_id)
   local store = self:shelves()
   local user_id = User:getId()
   if store then
