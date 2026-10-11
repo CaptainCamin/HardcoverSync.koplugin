@@ -323,6 +323,28 @@ check("moving a book to another shelf moves it in the saved shelves at once", fu
     "the shelves will not be asked about again")
 end)
 
+check("the counts on Home and the Shelves tab follow a book moved between shelves", function()
+  local m = newManager()
+  local function screen()
+    local o = { rows = { { status_id = 1, count = 4 }, { status_id = 2, count = 0 }, { status_id = 3, count = nil } } }
+    o.setRows = function(self, rows) self.rows = rows end
+    stack[#stack + 1] = o
+    return o
+  end
+  local home, shelves = screen(), screen()
+  m:screens():track("home", home)
+  m:screens():track("shelves", shelves)
+  m:shelfChanged(6, 1, 2, 106, true)
+  for _, s in ipairs({ home, shelves }) do
+    assert(s.rows[1].count == 3 and s.rows[2].count == 1, "counts: " .. tostring(s.rows[1].count) .. ", " .. tostring(s.rows[2].count))
+    assert(s.rows[3].count == nil, "an unknown count was invented")
+  end
+  m:shelfChanged(6, 2, nil, nil, true) -- off the library: only the shelf it left changes
+  assert(home.rows[2].count == 0 and home.rows[1].count == 3)
+  m:shelfChanged(6, nil, 3, 106) -- new to the library, counts for a shelf with none stay empty
+  assert(home.rows[3].count == nil)
+end)
+
 check("a rating sent from the queue is on the saved shelf at once", function()
   local m = newManager()
   m:ratingSent(106, { id = 106, book_id = 6, status_id = 3, rating = 3.5 })
