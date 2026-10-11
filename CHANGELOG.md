@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Read again.** A book marked Finished or Did not finish has a "Read again" button in the reader's panel. It asks first, then starts a new read from the page you are on (or from the start, on the last page). The finished read is kept.
 - **Book search source.** Settings > Book search picks which plugin the book screen's search button hands the book to: Z-library, Anna's Archive or Kindle Fetch (each has to be installed and enabled), or Automatic, which uses the first one installed. The button carries that plugin's name.
 - The plugin ships the Lato typeface (Medium and Black, SIL Open Font License) and copies it into KOReader's fonts folder the first time it runs, so the redesigned screens can use it. Lato then also shows in KOReader's font menu after a restart.
 - **New navigation bar (beta).** Settings > "New navigation bar (beta)" opens Hardcover to four tabs with a bar at the bottom: Home, Library (Shelves, Lists and Vibes), Goals and Stats. Home is one fixed screen that never scrolls: the search field, the books you are reading, a quiet line saying whether anything is waiting to sync, and your shelves; on a small screen the shelves go first, then the sync line, and the bar always stays. Each tab keeps where you left it. Back goes to Home, then leaves; with no Back key, Home has a close at the right of its top bar and the other tabs a back arrow to Home. Off by default; takes effect the next time Hardcover opens.
@@ -12,6 +13,7 @@
 
 ### Changed
 
+- **The reader panel says where the book is.** One line in words: "On your 'Currently Reading' shelf", "Not on a shelf", or "Shelf not checked yet". The "Update Hardcover as I read" switch is not offered for a Finished or Did not finish book; for a Want to Read book or one on no shelf, a line under it says that reading moves the book to Currently Reading. A finished book with no page saved no longer shows "Page 0".
 - **A book marked Finished or Did not finish on Hardcover is not changed by reaching its end.** The plugin no longer writes Finished over a book that is Finished or Did not finish when the book ends or its status is set to reading. A Did not finish book that ends on its own asks once per session whether to mark it as Read, with "Keep as Did not finish" as the other answer. A choice you make in KOReader's end-of-book dialog is applied, and a confirmation says so.
 - **Reading a Want to Read book, or one on no shelf, puts it on Currently Reading.** The first page turned sets the book to Currently Reading (a note says so), as a book not on a shelf already did. Finished and Did not finish books are still not sent progress.
 - Hardcover books in Bookshelf now show their description in the hero (when it is saved on the device), followed by a line saying that opening the book shows the full description on Hardcover.
