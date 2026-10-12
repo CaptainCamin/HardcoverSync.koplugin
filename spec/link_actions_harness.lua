@@ -83,6 +83,12 @@ for _, mode in ipairs({ { "online", true }, { "offline", false } }) do
     ok and dialog ~= nil and #dialog.items == 3 and dialog.items[1].text == "Change edition"
       and type(dialog.items[1].callback) == "function"
       and dialog.items[2].text == "Link a different book", "items missing")
+  local unlink = ok and dialog and dialog.items[3]
+  r.check("Unlink book is in the list and can be tapped (" .. mode[1] .. ")",
+    unlink and unlink.text == "Unlink book" and type(unlink.callback) == "function"
+      and unlink.enabled_func() == true, "unlink missing or disabled")
+  r.check("closing the list calls back (" .. mode[1] .. ")",
+    ok and type(dialog.on_close) == "function", "no on_close")
 end
 
 r.finish()
