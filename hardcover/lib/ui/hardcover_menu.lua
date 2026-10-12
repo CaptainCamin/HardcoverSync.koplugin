@@ -39,6 +39,13 @@ function HardcoverMenu:new(o)
   }, self)
 end
 
+local function findItem(items, prefix)
+  for _, item in ipairs(items) do
+    local text = item.text or (item.text_func and item.text_func())
+    if type(text) == "string" and text:find(prefix, 1, true) == 1 then return item end
+  end
+end
+
 -- What can be done to the file's link, as a list: change the edition, link a different book, unlink.
 -- The book page's Edition button opens it. `on_close` is called when the list is closed.
 function HardcoverMenu:showLinkActions(on_close)
@@ -145,13 +152,6 @@ local STATUS_LABELS = {
   [HARDCOVER.STATUS.FINISHED] = "Read",
   [HARDCOVER.STATUS.DNF] = "Did Not Finish",
 }
-
-local function findItem(items, prefix)
-  for _, item in ipairs(items) do
-    local text = item.text or (item.text_func and item.text_func())
-    if type(text) == "string" and text:find(prefix, 1, true) == 1 then return item end
-  end
-end
 
 function HardcoverMenu:showReaderPanel()
   if not (self.ui and self.ui.document) then
