@@ -1,12 +1,11 @@
 --[[--
-Reading goals: the card on Home (the goal that is nearest to ending and not done), the
-Goals screen (current goals as cards, past ones as rows), one goal opened, and the
+Reading goals: the Goals screen (current goals as cards, past ones as rows), one goal opened, and the
 same offline from the saved copy -- with a book finished offline counted.
 
 "Today" is whatever the emulator's clock says, so the screens are checked by what
 they say about the fixture goals relative to it, not by exact numbers.
 
-Screens: goals_home_top, goals_home (scrolled to the card), goals_screen, goals_one, goals_offline, goals_offline_one.
+Screens: goals_screen, goals_one, goals_offline, goals_offline_one.
 ]]
 
 local fixtures = require("fixtures")
@@ -31,17 +30,6 @@ local function tap_widget(emu, widget)
   assert(d and d.w and d.w > 0, "the widget has no painted rectangle")
   emu:tapExpecting(d.x + math.floor(d.w / 2), d.y + math.floor(d.h / 2))
   emu:pump()
-end
-
--- Home scrolls when it is taller than the screen: bring the bottom into view
-local function scroll_bottom(emu, home)
-  emu:pump()
-  emu:screenNodes()
-  if home.scroll then
-    home.scroll:scrollToRatio(0, 1)
-    UIManager:setDirty(home, "ui")
-    emu:screenNodes()
-  end
 end
 
 -- the TapRow under a goal's heading text, found by what it says
@@ -99,26 +87,19 @@ return {
     local manager, cache_path = new_manager(emu, settings, "goals", queue)
     os.remove(cache_path)
 
-    -- Home: the card appears once the goals are fetched; it is the 70-book goal (the
-    -- unfinished one), not the one that is already done, and not the page goal
-    manager:showHome()
+    -- the Goals screen: current goals, then past; archived ones absent. Tapping a card opens that
+    -- goal (the 70-book one, not the one that is already done); closing comes back
+    manager:showGoals()
     emu:pump()
-    local home = manager.home_dialog
     emu:pump()
-    emu:screenNodes()
-    emu:shot("goals_home_top")
-    scroll_bottom(emu, home)
-    emu:expectText("Goals")
+    local screen = UIManager:getTopmostVisibleWidget()
+    assert(screen and screen.name == "hardcover_goals", "the goals did not open: " .. tostring(screen and screen.name))
     emu:expectText("Year Reading Goal")
-    emu:expectText("/ 70 books") -- (Home's card)
     for _, node in ipairs(emu:screenNodes()) do
-      assert(not node.text:find("/ 30 books", 1, true), "Home showed the goal that is already done")
+      assert(not node.text:find("/ 30 books", 1, true), "the goal that is already done was shown as current")
     end
-    emu:shot("goals_home")
-
-    -- tapping the card opens that goal; closing comes back to Home
-    local card = find_tap(home, "Year Reading Goal")
-    assert(card, "no tappable goal card on Home")
+    local card = find_tap(screen, "Year Reading Goal")
+    assert(card, "no tappable goal card")
     tap_widget(emu, card)
     local one = UIManager:getTopmostVisibleWidget()
     assert(one and one.name == "hardcover_goal" and one.goal.target == 70, "the card did not open the 70-book goal: " .. tostring(one and one.name))
@@ -127,13 +108,7 @@ return {
     emu:shot("goals_one")
     one:onClose()
     emu:pump()
-    assert(UIManager:getTopmostVisibleWidget() == home)
-    scroll_bottom(emu, home)
-
-    -- the heading opens the Goals screen: current goals, then past; archived ones absent
-    tap_widget(emu, find_tap(home, "Goals"))
-    local screen = UIManager:getTopmostVisibleWidget()
-    assert(screen and screen.name == "hardcover_goals", "the heading did not open the goals: " .. tostring(screen and screen.name))
+    assert(UIManager:getTopmostVisibleWidget() == screen)
     emu:expectText("Pages this month")
     emu:expectText("of 3000 pages")
     emu:expectText("Behind")
@@ -152,8 +127,6 @@ return {
     end
     emu:shot("goals_past")
     screen:onClose()
-    emu:pump()
-    home:onClose()
     emu:pump()
 
     -- offline, from the saved copy, with a book finished offline counted
@@ -179,14 +152,6 @@ return {
     manager.goals_dialog:onClose()
     emu:pump()
 
-    -- Home offline shows the same saved card
-    manager:showHome()
-    emu:pump()
-    scroll_bottom(emu, manager.home_dialog)
-    emu:expectText("Year Reading Goal")
-    emu:expectText("+1 finished offline")
-    manager.home_dialog:onClose()
-    emu:pump()
     NetworkManager.isConnected = was
     NetworkManager.getConnectionState = was_state
 

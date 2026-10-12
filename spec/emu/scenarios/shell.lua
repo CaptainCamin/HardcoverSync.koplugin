@@ -49,7 +49,6 @@ return {
     local settings = fixtures.real_settings(emu)
     local SETTING = require("hardcover/lib/constants/settings")
     settings:updateSetting(SETTING.COMPATIBILITY_MODE, false)
-    settings:updateSetting(SETTING.NEW_NAVIGATION, true)
     fixtures.install({ settings = settings, goals_rows = rows })
 
     local LuaSettings = require("luasettings")
@@ -232,7 +231,5 @@ return {
     emu:pump()
     assert(UIManager:getTopmostVisibleWidget() ~= shell, "the close in the top bar did not leave")
     assert(not require("hardcover/lib/ui/live").shown(body), "the body is still live after its shell left")
-    -- the emulator keeps its settings between scenes: leave the beta off for the ones that follow
-    settings:updateSetting(SETTING.NEW_NAVIGATION, false)
   end,
 }

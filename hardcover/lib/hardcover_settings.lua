@@ -279,11 +279,6 @@ function HardcoverSettings:bookStatusFromSnapshot(filename)
   return book_status
 end
 
--- beta: Home, Library, Goals and Stats as tabs of one screen with a navigation bar
-function HardcoverSettings:newNavigation()
-  return self.settings:readSetting(SETTING.NEW_NAVIGATION) == true
-end
-
 -- which book-download plugin the book screen's search button uses: "auto" or a source id
 -- (see hardcover/lib/book_sources.lua)
 function HardcoverSettings:bookSource()

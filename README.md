@@ -21,8 +21,8 @@ actions and menus): remove `hardcoverapp.koplugin` from your plugins folder firs
 
 ## What this fork adds
 
-* **A home screen**: what you are currently reading (cover, author, progress), your shelves with their counts, and a
-  settings cog. Open it from the file browser menu or with the `Hardcover: Home` action, so another plugin or a
+* **A home screen** with a navigation bar (Home, Library, Goals, Stats): the book you are reading (cover, author,
+  progress), whether anything waits to sync, and your shelves with their counts. Open it from the file browser menu or with the `Hardcover: Home` action, so another plugin or a
   gesture can launch it.
 * **A separate menu for the reader and the file browser**: tracking and book information while reading; your library
   everywhere else.
@@ -241,19 +241,19 @@ details, sync, and the tracking settings. `Settings` there includes your account
 out, an `Account` entry also appears at the top level so you can sign in.
 
 **In the file browser** it is not a menu at all: choosing `Hardcover` opens your home screen. Everything that used to
-be on the first menu screen (sync, your account, the settings and About) is behind the cog in its title bar.
+be on the first menu screen (sync, your account, the settings and About) is behind the cog in the top bar.
 
 ### Home screen
 
-`Hardcover` in the file browser menu opens your home screen:
+`Hardcover` in the file browser menu opens your home screen, the first of four tabs with a bar at the bottom:
+Home, Library (Shelves, Lists and Vibes), Goals and Stats.
 
-* **Search books**: the button at the top opens a box for a title or author. Submitting shows the first 25 matches as
-  a list of covers; tap one for its details, and close the list to come back. It needs a connection.
-* **Currently reading**: a card for each book you are reading, with its cover, author and a progress bar
-  (`pages read / pages`). Tap a card to open that book's details.
+* **Search** and **Settings** are the icons in the top bar.
+* **Currently reading**: a card for the book you read most recently, with its cover, author, a progress bar and an
+  `Open book` button for its details. The other books you are reading are under Shelves > Currently Reading.
+* **Sync**: a box saying whether changes are waiting to send (with `Sync now`); tap it to see what is waiting.
 * **Shelves**: Currently Reading, Want to Read, Read and Did Not Finish, each with how many books are on it. Choose
   one to browse it; closing the shelf brings you back.
-* **The cog** in the upper left opens the settings.
 
 It opens with what it last saved, so it also works with no connection, and refreshes in the background (the screen
 only repaints if something changed).
@@ -263,7 +263,7 @@ menus), so you can open the home screen from anywhere, including while reading, 
 
 ### Settings screen
 
-The cog on the home screen opens the plugin's settings in a screen of their own, with `Sync` and your Hardcover
+The cog in the top bar of Home opens the plugin's settings in a screen of their own, with `Sync` and your Hardcover
 account (sign in, sign in again, sign out) at the top, then the options listed below, then `About` (version, latest
 release, project and settings file). Options show a tick when on;
 groups open and have a `Back` row. The same settings are in the Hardcover menu in the reader and file browser.
@@ -286,7 +286,7 @@ Every shelf is saved on the device, whether or not you have opened it: Home chec
 downloads only what changed, so they open at once, also with no connection. `Refresh` in a shelf's menu (upper left)
 downloads it again.
 
-**Your Hardcover lists.** `More lists` on the home screen opens your lists and the ones you follow; choose one to see
+**Your Hardcover lists.** The `Lists` tab of the Library opens your lists and the ones you follow; choose one to see
 its books (a ranked list is numbered). Every list is kept on the device, whether or not you have opened it: Home checks
 them each time it opens and downloads only what changed, so they all open with no connection, and a book on one of them
 opens with its whole synopsis. `Refresh` in a list's menu (upper left) downloads it again.

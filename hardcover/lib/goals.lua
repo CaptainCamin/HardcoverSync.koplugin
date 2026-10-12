@@ -1,7 +1,7 @@
 -- Reading goals, as plain data and arithmetic.
 --
 -- No KOReader requires, so it runs under stock Lua in the spec suite. The dialogs
--- (ui/goals_dialog.lua, ui/goal_dialog.lua and the card on the home screen) only
+-- (ui/goals_dialog.lua and ui/goal_dialog.lua) only
 -- draw what this returns.
 --
 -- Everything that is not fetched is worked out here, from a goal as it was last
@@ -228,22 +228,6 @@ function Goals.split(goals, today)
     return a.id < b.id
   end)
   return { current = current, past = past }
-end
-
--- The goal Home shows: the first current, running, unfinished BOOK goal (a reading
--- goal is "how many books"; a page goal is a side target), else the first such page
--- goal, else the first current goal. "First" is the order of Goals.split: nearest
--- to ending, then the bigger target.
-function Goals.pick(goals, today)
-  local current = Goals.split(goals, today).current
-  local fallback
-  for _, g in ipairs(current) do
-    if g.progress < g.target and today >= g.start_days then
-      if g.metric == "book" then return g end
-      fallback = fallback or g
-    end
-  end
-  return fallback or current[1]
 end
 
 --

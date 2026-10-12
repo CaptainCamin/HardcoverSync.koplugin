@@ -90,9 +90,9 @@ Written so a missing component is a decision, not an oversight. "Built" means a 
 | Component | Status |
 |---|---|
 | Button, Switch, Radio, Checkbox, Cards, Menus (popover), Dialog, Top app bar, Progress bar, Tabs, Separators, List, Bottom sheets, Loading, Scrollbar | Built and used |
-| Navigation bar | Built; behind the "New navigation bar (beta)" setting until verified on a device |
+| Navigation bar | Built; it is how the plugin opens |
 | Snackbar | Built; answers what the reader did (link, tracking, progress, goal saves, status messages). System events keep KOReader's plain toast |
-| Search | Built (`search_field.lua`): Home, and the query on the results screen. Typing is KOReader's box |
+| Search | Built (`search_field.lua`): the query on the results screen. Typing is KOReader's box |
 | Chips | Built for state only (`chip.lua`: goal standing, shelf status). No filter, input or suggestion chips: the Library has no filters (decision) |
 | Slider | Not built. The only candidate is the progress and rating entry, which uses KOReader's spin widgets; a slider needs drag handling and would replace a working widget, so it waits for a decision and a device |
 | Badge | Not built. The one count (changes waiting to sync) is already in the sync box, and the nav bar has no tab where a badge would sit |

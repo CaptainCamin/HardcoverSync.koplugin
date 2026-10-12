@@ -1,5 +1,5 @@
 --[[--
-Stats, from Home: the tile, the dashboard of charts (all time, then a year through the period
+Stats: the dashboard of charts (all time, then a year through the period
 chooser), the saved copy shown offline and kept when a refresh fails, the first-time
 messages, and an empty library.
 
@@ -28,14 +28,6 @@ return {
     local cache = ShelfCache:new { path = path, open = function(p) return LuaSettings:open(p) end }
     local DialogManager = require("hardcover/lib/ui/dialog_manager")
     local manager = DialogManager:new { settings = settings, shelf_cache = cache }
-
-    -- the tile on Home
-    manager:showHome()
-    emu:pump()
-    local found
-    for _, t in ipairs(manager.home_dialog.tiles) do if t.key == "stats" then found = t.tile end end
-    assert(found, "no Stats tile on Home")
-    emu:closeAll()
 
     -- all time
     manager:showStats()

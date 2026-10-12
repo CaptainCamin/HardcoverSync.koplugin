@@ -1,6 +1,6 @@
 -- The Shelves tab of the Library: one row per shelf (Want to Read, Currently Reading, Read, Did Not
 -- Finish) with how many books it holds. Tapping a row opens that shelf over the shell. Counts are
--- what Home last loaded (see DialogManager:showOldHome), pushed in with setRows.
+-- what Home last loaded (see DialogManager:showHomeBody), pushed in with setRows.
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")

@@ -1,8 +1,7 @@
 # The shell
 
 `hardcover/lib/ui/shell.lua`: Home, Library, Goals and Stats as tabs of one screen with a navigation bar
-(`components/nav_bar.lua`), behind Settings > "New navigation bar (beta)". With the setting off,
-`DialogManager:showHome` opens the old Home as before.
+(`components/nav_bar.lua`). `DialogManager:showHome` opens it on the Home tab.
 
 - **Bodies.** Each tab is a plain screen of the plugin built *hosted*: `shell`, `width`, `height` (and
   `parent` inside the Library) passed to its constructor, no title bar, no close, repaints through the

@@ -70,14 +70,14 @@ function HomeLoader.refresh(opts)
     end
   end
 
-  -- the "More lists" tile's number: yours plus the ones you follow; and each list's
+  -- the number of lists: yours plus the ones you follow; and each list's
   -- fingerprint, which the caller compares with the saved lists (see list_flows.lua)
   local list_count, list_marks = api:getListCount()
   if list_count and alive() then
     opts.on_list_count(list_count, list_marks)
   end
 
-  -- the goal card: fresh goals replace the saved ones
+  -- the goals: fresh goals replace the saved ones (the Goals tab and offline read them)
   if alive() then
     local goals = api:getGoals()
     if not goals and alive() then
@@ -88,7 +88,7 @@ function HomeLoader.refresh(opts)
     end
     if goals and alive() then
       if cache then cache:putGoals(user_id, goals) end
-      opts.on_goals(goals)
+      if opts.on_goals then opts.on_goals(goals) end
     end
   end
 end

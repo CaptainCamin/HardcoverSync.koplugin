@@ -1,7 +1,7 @@
 -- What the home screen lists, as plain data.
 --
--- No KOReader requires, so it runs under stock Lua in the spec suite; the dialog
--- (ui/home_dialog.lua) only draws what this returns.
+-- No KOReader requires, so it runs under stock Lua in the spec suite; the screen
+-- (ui/home_body.lua) only draws what this returns.
 
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local Shelf = require("hardcover/lib/shelf")
@@ -54,19 +54,11 @@ function Home.listOrder(rows)
   return out
 end
 
--- The text shown at the right of a row.
-function Home.countText(count)
-  if type(count) ~= "number" then
-    return ""
-  end
-  return string.format("%d", count)
-end
-
 --
 -- The "Currently reading" cards, from the entries Api:getCurrentlyReading returns
 -- (or the saved copy of them).
 --
--- Each card carries what the dialog draws and nothing it has to work out:
+-- Each card carries what the screen draws and nothing it has to work out:
 -- `fraction` is how far through the book you are, clamped to 0..1, or nil when
 -- the page count or the progress is unknown (the bar is then left out rather
 -- than drawn empty, which would say "not started"). `progress_text` is
@@ -136,16 +128,6 @@ function Home.sameCounts(a, b, ids)
     if tonumber(a[id]) ~= tonumber(b[id]) then return false end
   end
   return true
-end
-
--- The label of a shelf button: "Name  \194\183  count", or just the name when the
--- count is unknown.
-function Home.rowLabel(row)
-  local count = Home.countText(row.count)
-  if count == "" then
-    return row.title
-  end
-  return row.title .. "  \194\183  " .. count
 end
 
 return Home

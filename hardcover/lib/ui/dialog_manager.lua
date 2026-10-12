@@ -559,7 +559,7 @@ function DialogManager:shellTabs()
     end
   end
   return {
-    { id = "home", label = _("Home"), icon_name = "home", make = host("home", self.showOldHome),
+    { id = "home", label = _("Home"), icon_name = "home", make = host("home", self.showHomeBody),
       actions = {
         { icon = "search", callback = function() self:showSearchInput() end },
         { icon = "settings", callback = function() self:showSettings() end },
@@ -641,13 +641,11 @@ function DialogManager:showShell(active)
 end
 
 function DialogManager:showHome()
-  local settings = self.settings
-  if settings.newNavigation and settings:newNavigation() then return self:showShell("home") end
-  return self:showOldHome()
+  return self:showShell("home")
 end
 
 -- `host` ({ shell, width, height }) builds Home as the shell's first tab (ui/home_body.lua).
-function DialogManager:showOldHome(host)
+function DialogManager:showHomeBody(host)
   local user_id = User:getId()
   local cache = self.shelf_cache
   local ids = Home.statusIds()
@@ -666,9 +664,9 @@ function DialogManager:showOldHome(host)
     end)
   end
 
-  local dialog = require(host and "hardcover/lib/ui/home_body" or "hardcover/lib/ui/home_dialog"):new {
-    shell = host and host.shell, width = host and host.width, height = host and host.height,
-    parent = host and host.parent,
+  local dialog = require("hardcover/lib/ui/home_body"):new {
+    shell = host.shell, width = host.width, height = host.height,
+    parent = host.parent,
     pending_fn = function()
       return (self.sync_queue and self.sync_queue:pendingCount() or 0)
         + (self.goal_queue and self.goal_queue:count() or 0)
@@ -687,39 +685,9 @@ function DialogManager:showOldHome(host)
     open_book_cb = function(book_id)
       self:showBookDetail(book_id)
     end,
-    settings_cb = function()
-      self:showSettings()
-    end,
-    search_cb = function()
-      self:showSearchInput()
-    end,
-    lists_cb = function()
-      self:showLists()
-    end,
-    -- Hardcover's own recommendation lists (Top Picks, Recommendations, ...)
-    vibes_cb = function()
-      self:showVibes()
-    end,
-    stats_cb = function()
-      self:showStats()
-    end,
-    -- books suggested from your ratings; a setting turns the tile off
-    for_you_cb = self.settings:readSetting(SETTING.SHOW_FOR_YOU) ~= false and function()
-      self:showForYou()
-    end or nil,
-    -- the saved goals, so the card is there at once and offline
-    goals = self:shownGoals(cache and cache:goals(user_id) or nil),
-    finished_offline = self:finishedOffline(),
-    goal_cb = function(goal)
-      self:showGoal(goal, nil)
-    end,
-    goals_cb = function()
-      self:showGoals()
-    end,
   }
   self:screens():track("home", dialog)
 
-  if not host then UIManager:show(dialog) end
   self:checkForUpdate()
 
   if not Network.connected() then
@@ -754,17 +722,8 @@ function DialogManager:showOldHome(host)
       on_reading = function(shown)
         dialog:setReading(shown, true)
       end,
-      on_list_count = function(list_count, marks)
+      on_list_count = function(_list_count, marks)
         list_marks = marks
-        if dialog.list_count ~= list_count then
-          dialog.list_count = list_count
-          dialog:rebuildSoon()
-        end
-      end,
-      on_goals = function(goals)
-        dialog.goals = self:shownGoals(goals)
-        dialog.finished_offline = self:finishedOffline()
-        dialog:rebuildSoon()
       end,
     }
     -- then the lists and the shelves: anything that changed is downloaded now, after
@@ -1004,7 +963,7 @@ function DialogManager:showGoalForm(goal, on_saved)
 end
 
 -- The goals as they are now (a list), everywhere they are shown: saved for offline,
--- on the Goals screen, on Home's card, and on the goal screen if it is open.
+-- on the Goals screen, and on the goal screen if it is open.
 function DialogManager:applyGoals(goals, changed)
   local user_id = User:getId()
   if self.shelf_cache then self.shelf_cache:putGoals(user_id, goals) end

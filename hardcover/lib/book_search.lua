@@ -1,4 +1,4 @@
--- Pure helpers for the Home screen's book search (no widgets).
+-- Pure helpers for book search (no widgets).
 
 local BookSearch = {}
 

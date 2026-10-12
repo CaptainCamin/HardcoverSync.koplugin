@@ -1562,7 +1562,7 @@ function HardcoverMenu:getSettingsSubMenuItems()
     },
     {
       section = SECTION.DISPLAY,
-      text = _("Show \"For you\" on Home"),
+      text = _("Show \"For you\" in Vibes"),
       checked_func = function()
         return self.settings:readSetting(SETTING.SHOW_FOR_YOU) ~= false
       end,
@@ -1571,17 +1571,6 @@ function HardcoverMenu:getSettingsSubMenuItems()
           self.settings:readSetting(SETTING.SHOW_FOR_YOU) == false)
       end,
       keep_menu_open = true,
-    },
-    {
-      section = SECTION.DISPLAY,
-      text = _("New navigation bar (beta)"),
-      checked_func = function()
-        return self.settings:newNavigation()
-      end,
-      callback = function()
-        self.settings:updateSetting(SETTING.NEW_NAVIGATION, not self.settings:newNavigation())
-      end,
-      help = _("Open Hardcover to Home, Library, Goals and Stats tabs with a bar at the bottom. Takes effect the next time Hardcover opens."),
     },
     {
       section = SECTION.DISPLAY,
