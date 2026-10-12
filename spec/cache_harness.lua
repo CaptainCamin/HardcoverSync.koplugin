@@ -87,6 +87,7 @@ local function fakeSettings(snapshot)
   local saved = {}
   return {
     getFilePath = function() return "/books/current.epub" end,
+    readBookSettings = function(_, filename) return books[filename] or {} end,
     readBookSetting = function(_, filename, key)
       local b = books[filename]
       return b and b[key] or nil
@@ -354,6 +355,46 @@ check("saving with no filename is a no-op", function()
   local cache = newCache { settings = settings }
   cache:saveSnapshot(nil, { id = 1 })
   eq(next(settings.snapshots), nil, "snapshots written")
+end)
+
+print("\n== a status set from the reader moves the book on the saved shelves ==")
+
+local function shelfCalls(state, settings)
+  local calls = {}
+  local cache = Cache:new {
+    settings = settings or fakeSettings(nil),
+    state = state,
+    sync_queue = { enqueueStatus = function() end, get = function() end, save = function() end },
+    on_shelf_changed = function(...) calls[#calls + 1] = { ... } end,
+  }
+  return cache, calls
+end
+
+check("offline: the shelves are told, unsent, from the old status to the new", function()
+  local cache, calls = shelfCalls { book_status = { id = 501, book_id = 9001, status_id = HARDCOVER.STATUS.TO_READ } }
+  cache:updateBookStatus("/books/a.epub", HARDCOVER.STATUS.READING)
+  eq(#calls, 1, "calls")
+  eq(calls[1][1], 9001, "book")
+  eq(calls[1][2], HARDCOVER.STATUS.TO_READ, "from")
+  eq(calls[1][3], HARDCOVER.STATUS.READING, "to")
+  eq(calls[1][4], 501, "user book")
+  eq(calls[1][5], true, "unsent")
+end)
+
+check("a book never seen before still tells the shelves, with no old status", function()
+  local settings = fakeSettings(nil)
+  settings:writeBookSetting("/books/a.epub", "book_id", 9001)
+  local cache, calls = shelfCalls({ book_status = {} }, settings)
+  cache:updateBookStatus("/books/a.epub", HARDCOVER.STATUS.READING)
+  eq(#calls, 1, "calls")
+  eq(calls[1][2], nil, "from")
+  eq(calls[1][3], HARDCOVER.STATUS.READING, "to")
+end)
+
+check("a book that is not linked tells no one", function()
+  local cache, calls = shelfCalls { book_status = {} }
+  cache:updateBookStatus("/books/a.epub", HARDCOVER.STATUS.READING)
+  eq(#calls, 0, "calls")
 end)
 
 print("")

@@ -167,7 +167,21 @@ function Cache:queuePage(filename, edition_page)
   return entry
 end
 
+-- The book's shelf changed on this device: tell whoever keeps the saved shelves (the Library, Home's
+-- counts), as a change made there does. `unsent`: it is waiting in the sync queue, not made on
+-- Hardcover yet. `on_shelf_changed(book_id, old_status_id, status_id, user_book_id, unsent)` is set by
+-- the plugin; without it nothing is told.
+function Cache:shelfChanged(filename, old_status_id, status_id, unsent)
+  local notify = self.on_shelf_changed
+  if not (notify and status_id) then return end
+  local book_status = self.state.book_status or {}
+  local book_id = book_status.book_id or self.settings:readBookSetting(filename, "book_id")
+  if not book_id then return end
+  notify(book_id, old_status_id, status_id, book_status.id, unsent)
+end
+
 function Cache:updateBookStatus(filename, status, privacy_setting_id)
+  local old_status_id = self.state.book_status and self.state.book_status.status_id
   local settings = self.settings:readBookSettings(filename) or {}
   local book_id = settings.book_id
   local edition_id = settings.edition_id
@@ -180,6 +194,7 @@ function Cache:updateBookStatus(filename, status, privacy_setting_id)
   self:applyLocalStatus(filename, status, privacy_setting_id)
 
   local enqueue = function()
+    self:shelfChanged(filename, old_status_id, status, true)
     local payload = self:queueMeta(filename)
     payload.status_id = status
     payload.privacy_setting_id = privacy_setting_id
@@ -196,6 +211,7 @@ function Cache:updateBookStatus(filename, status, privacy_setting_id)
     self.state.book_status = result
     self.state.book_status_fetched = true
     self:saveSnapshot(filename, result)
+    self:shelfChanged(filename, old_status_id, status, false)
     if self.sync_queue then
       local entry = self.sync_queue:get(filename)
       if entry then
