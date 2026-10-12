@@ -62,6 +62,23 @@ local unknown_off = describe { sync_on = false }
 r.check("not checked yet, tracking off: switch, no note, no hint (nothing is known to change)",
   unknown_off.track == true and unknown_off.track_note == nil and unknown_off.hint == nil)
 
+print("\n== Asking the saved shelves ==")
+local function shelves(members, synced)
+  return {
+    member = function(_, _, book_id) return members[book_id] end,
+    synced = function() return synced end,
+  }
+end
+local ids = { S.TO_READ, S.READING, S.FINISHED, S.DNF }
+local sid, nos = Facts.fromShelves(shelves({ [7] = { status_id = S.TO_READ } }, false), 1, 7, ids)
+r.check("on a saved shelf: its status, even if the shelves are not all saved", sid == S.TO_READ and nos == nil)
+sid, nos = Facts.fromShelves(shelves({}, true), 1, 7, ids)
+r.check("on none of the shelves, all saved: not on a shelf", sid == nil and nos == true)
+sid, nos = Facts.fromShelves(shelves({}, false), 1, 7, ids)
+r.check("on none, shelves not all saved: unknown, so 'not checked'", sid == nil and nos == nil)
+r.check("no shelves or no book: unknown", select(2, Facts.fromShelves(nil, 1, 7, ids)) == nil
+  and select(2, Facts.fromShelves(shelves({}, true), 1, nil, ids)) == nil)
+
 print("\n== Finished and Did not finish ==")
 local done = describe { status_id = S.FINISHED, saved_page = 387, status_label = "Read" }
 r.check("finished, tracking on: Read again, no switch, no note", done.finished and not done.track and done.track_note == nil)
