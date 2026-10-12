@@ -164,10 +164,10 @@ function HomeBody:build()
   local column = VerticalGroup:new { align = "left" }
   local function inset(widget) return HorizontalGroup:new { Theme.hspan(side), widget } end
 
-  column[#column + 1] = Theme.span(px(16))
+  column[#column + 1] = Theme.span(px(8))
   column[#column + 1] = ListItem.section(_("Currently reading"), w, 0)
   column[#column + 1] = inset(card and self:readingCard(card, width) or self:emptyCard(width))
-  column[#column + 1] = Theme.span(px(14))
+  column[#column + 1] = Theme.span(px(10))
   local used = column:getSize().h
 
   -- the sync box, if there is room for it under the card
@@ -182,7 +182,7 @@ function HomeBody:build()
   -- then the shelves: the head and as many rows as fit
   local rows = {}
   for _i, row in ipairs(Home.listOrder(self.rows)) do rows[#rows + 1] = row end
-  local head = ListItem.section(_("Shelves"), w, px(6))
+  local head = ListItem.section(_("Shelves"), w, px(4))
   local shown_rows = 0
   if shown_note then
     local room = h - used - head:getSize().h
