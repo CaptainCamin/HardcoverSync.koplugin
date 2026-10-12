@@ -18,6 +18,7 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 
 local Draw = require("hardcover/lib/ui/components/draw")
+local Passthrough = require("hardcover/lib/ui/components/passthrough")
 local Theme = require("hardcover/lib/ui/theme")
 
 local Screen = Device.screen
@@ -66,6 +67,12 @@ function Overlay:onTapOutsideOverlay(_, ges)
   if not self.modal then return false end
   self:dismiss()
   return true
+end
+
+-- Gestures the overlay does not use (swipes, corner taps) go on to the window below.
+function Overlay:handleEvent(event)
+  if InputContainer.handleEvent(self, event) then return true end
+  return Passthrough.forward(self, event)
 end
 
 function Overlay:onBack()

@@ -21,6 +21,7 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 
 local NavBar = require("hardcover/lib/ui/components/nav_bar")
+local Passthrough = require("hardcover/lib/ui/components/passthrough")
 local Theme = require("hardcover/lib/ui/theme")
 local TopBar = require("hardcover/lib/ui/components/top_bar")
 
@@ -135,6 +136,13 @@ function Shell:remount(id, body)
     self:build()
     UIManager:setDirty(self, "ui")
   end
+end
+
+-- KOReader's gestures (swipes, corner taps) still work on the screens of the shell: what it does
+-- not use goes on to the file browser or reader underneath.
+function Shell:handleEvent(event)
+  if InputContainer.handleEvent(self, event) then return true end
+  return Passthrough.forward(self, event)
 end
 
 function Shell:onBack()
