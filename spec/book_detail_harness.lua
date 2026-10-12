@@ -273,7 +273,7 @@ end)
 check("the cover is asked for at the size of its box: large, at exactly that box", function()
   local loader = fakeLoader()
   local d = BookDetailDialog:new { detail = detail(FULL), image_loader = loader }
-  local bw, bh = BookDetailDialog.coverBox(1000)
+  local bw, bh = BookDetailDialog.coverBox(1000, d.reserve_gutter == true)
   local box = d.cover_cell[1].dimen
   assert(box.w == bw and box.h == bh, "the box " .. box.w .. "x" .. box.h .. " is not coverBox's " .. bw .. "x" .. bh)
   local opts = loader.batches[1].opts
@@ -994,6 +994,50 @@ check("setStatus(nil) after a removal clears status, rating and the record", fun
   d:setStatus(nil, nil)
   assert(d.status_text[1].text == "Not on a shelf", "label or status line kept")
   assert(d.detail.user_book_id == nil and d.detail.user_rating == nil)
+end)
+
+print("\n== the strip kept for the scroll bar ==")
+
+-- the stand-in groups are 20 high whatever they hold; a page "taller than the screen" is one whose
+-- column reports more than the 1400-high screen has room for
+local function withColumnHeight(h, fn)
+  local VGroup = widgets["ui/widget/verticalgroup"]
+  local before = VGroup.getSize
+  VGroup.getSize = function(self) return { w = self.width or 0, h = h } end
+  local ok, err = pcall(fn)
+  VGroup.getSize = before
+  assert(ok, err)
+end
+
+local SCREEN_W, M = 1000, Theme.margin
+local FULL_WIDTH = SCREEN_W - 2 * M
+
+check("a page that fits the screen reaches the right margin: buttons, rating and About use it all", function()
+  local d = BookDetailDialog:new { detail = detail(FULL), on_reviews = function() end, on_edition = function() end }
+  assert(d.reserve_gutter ~= true, "kept a strip for a scroll bar the page does not have")
+  assert(d.content_width == FULL_WIDTH, "content " .. d.content_width .. " of " .. FULL_WIDTH)
+  assert(d.reviews_button.width == FULL_WIDTH, "Reviews is " .. d.reviews_button.width)
+  assert(d.add_button.width + Theme.space.s + d.edition_button.width >= FULL_WIDTH - 1,
+    "Add and Edition stop short of the edge")
+  assert(d.description_text.width == FULL_WIDTH, "About is " .. tostring(d.description_text.width))
+end)
+
+check("a page taller than the screen keeps the strip for the scroll bar", function()
+  withColumnHeight(5000, function()
+    local d = BookDetailDialog:new { detail = detail(FULL), on_reviews = function() end }
+    local ScrollControl = real_require("hardcover/lib/ui/components/scroll_control")
+    assert(d.reserve_gutter == true, "did not reserve the strip")
+    assert(d.content_width == FULL_WIDTH - ScrollControl.gutter(), "content " .. d.content_width)
+    assert(d.reviews_button.width == d.content_width, "Reviews is " .. d.reviews_button.width)
+  end)
+end)
+
+check("the strip is decided again when the page is rebuilt", function()
+  local d
+  withColumnHeight(5000, function() d = BookDetailDialog:new { detail = detail(FULL) } end)
+  assert(d.reserve_gutter == true)
+  d:rebuild()
+  assert(d.reserve_gutter ~= true and d.content_width == FULL_WIDTH, "kept the strip for a page that now fits")
 end)
 
 r.finish()

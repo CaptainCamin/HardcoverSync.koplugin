@@ -57,9 +57,13 @@ vertically, its vertical scrollbar takes 3 * scroll_bar_width off that
 viewport. Content as wide as the page is therefore always "too wide" by that
 gutter. Everything on the page is laid out in this width, which leaves it free;
 the left margin is added by an inset around the whole column.
+
+A page that fits the screen does not scroll, so it has no vertical scrollbar and no
+gutter to keep free: `reserve` is false for it and the content reaches the right margin.
+`reserve` defaults to true (the page that scrolls).
 ]]
-local function contentWidth(screen_w)
-  local gutter = ScrollControl.gutter()
+local function contentWidth(screen_w, reserve)
+  local gutter = reserve == false and 0 or ScrollControl.gutter()
   return screen_w - 2 * Theme.margin - gutter
 end
 
@@ -105,8 +109,8 @@ local BookDetailDialog = FocusManager:extend {
 -- the cover's share of the page's width: a thumbnail, so the title and the buttons are on the first screen
 BookDetailDialog.COVER_SHARE = 0.27
 
-function BookDetailDialog.coverBox(screen_w)
-  local cover_width = math.floor(contentWidth(screen_w) * BookDetailDialog.COVER_SHARE)
+function BookDetailDialog.coverBox(screen_w, reserve)
+  local cover_width = math.floor(contentWidth(screen_w, reserve) * BookDetailDialog.COVER_SHARE)
   return cover_width, math.floor(cover_width * 1.5)
 end
 
@@ -178,7 +182,11 @@ function BookDetailDialog:init()
   local book = (self.detail or {}).book or {}
 
   -- everything below is laid out in this width (see contentWidth above)
-  local width = contentWidth(screen_w)
+  -- The strip at the right is kept for the scroll control only when the page scrolls. That is not
+  -- known until the page is built, so it is built without the strip first and built again with it
+  -- when it turns out taller than the screen (see the end of init).
+  local reserve = self.reserve_gutter == true
+  local width = contentWidth(screen_w, reserve)
   self.content_width = width
 
   --[[--
@@ -191,7 +199,7 @@ function BookDetailDialog:init()
   -- The cover box is always there, so every book's header looks the same: the
   -- picture when there is one, and a generic book icon while it loads, if it
   -- never does (offline, a failed fetch), or when the book has no cover at all.
-  local cover_width, cover_height = BookDetailDialog.coverBox(screen_w)
+  local cover_width, cover_height = BookDetailDialog.coverBox(screen_w, reserve)
   local cover_gap = Theme.space.l
   -- the frame around the cover adds its border on both sides of the picture box
   local cover_border = Theme.line.hair
@@ -561,6 +569,11 @@ function BookDetailDialog:init()
   end
   table.insert(self.layout, { self.close_button })
 
+  if not reserve and content:getSize().h > screen_h - title_bar:getSize().h then
+    self.reserve_gutter = true
+    return self:init()
+  end
+
   self[1] = self.frame
 
   if self.kept_cover then
@@ -785,6 +798,8 @@ function BookDetailDialog:rebuild(keep_cover)
   end
   self[1] = nil
 
+  -- the page is measured again: what it holds may have changed (a status, a series, a rating)
+  self.reserve_gutter = nil
   self:init()
 
   UIManager:setDirty(self, "ui")
