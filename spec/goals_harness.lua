@@ -135,18 +135,6 @@ check("current goals come before past, nearest end first, then not-done, then th
   assert(#s.past == 1 and s.past[1].id == 5)
 end)
 
-check("Home shows the nearest-ending goal that is not finished", function()
-  local gs = Goals.normalize({ row({ id = 1, goal = 30 }), row({ id = 2, goal = 70 }) })
-  assert(Goals.pick(gs, TODAY).id == 2, "the unfinished one, not the one already done")
-  assert(Goals.pick(Goals.normalize({ row({ id = 1, goal = 30 }) }), TODAY).id == 1, "all done: still shows one")
-  -- a page goal that ends sooner does not take the place of the book goal
-  local mixed = Goals.normalize({ row({ id = 1 }), row({ id = 9, metric = "page", goal = 3000, progress = 150, start_date = "2026-10-01", end_date = "2026-11-01" }) })
-  assert(Goals.pick(mixed, TODAY).id == 1)
-  assert(Goals.pick({ mixed[2] }, TODAY).id == 9, "with only a page goal, that is the one")
-  assert(Goals.pick({}, TODAY) == nil)
-  assert(Goals.pick(Goals.normalize({ row({ start_date = "2025-01-01", end_date = "2026-01-01" }) }), TODAY) == nil, "nothing current")
-end)
-
 print("\n== finished offline ==")
 
 check("a book finished offline counts toward a running book goal, not a page or past one", function()

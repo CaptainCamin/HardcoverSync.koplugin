@@ -198,7 +198,14 @@ end
 fakeClass("hardcover/lib/ui/lists_dialog", "lists")
 fakeClass("hardcover/lib/ui/shelf_dialog", "shelf")
 fakeClass("hardcover/lib/ui/book_detail_dialog", "detail")
-fakeClass("hardcover/lib/ui/home_dialog", "home")
+fakeClass("hardcover/lib/ui/home_body", "home")
+
+-- Home is a tab of the shell: a shell that is up, for the loaders' "is it still there" check
+local function homeHost()
+  local shell = {}
+  stack[#stack + 1] = shell
+  return { shell = shell }
+end
 
 local clock = 10000
 local db
@@ -460,7 +467,7 @@ end)
 check("opening Home runs the check after Home's own requests", function()
   local m = newManager()
   m.checkForUpdate = function() end
-  m:showHome()
+  m:showHomeBody(homeHost())
   local last_home = 0
   for i, c in ipairs(calls) do
     if c == "getListCount" or c == "getGoals" then last_home = i end

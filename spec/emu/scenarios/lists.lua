@@ -1,5 +1,5 @@
 --[[--
-Lists, from the home screen's "More lists" tile: the index (yours, then the ones you
+Lists: the index (yours, then the ones you
 follow, each with covers, a name and its small print), opening a list in the shelf
 screen (a ranked list is numbered), an empty list, the failed and offline states.
 
@@ -47,24 +47,11 @@ return {
     fixtures.install({ settings = settings })
     local manager = new_manager(emu, settings)
 
-    -- the tile on Home, with the number the count request found
-    manager:showHome()
-    emu:pump()
-    emu:expectText("More lists")
-    local home = manager.home_dialog
-    assert(home.list_count == 5, "the tile's count is yours plus followed: " .. tostring(home.list_count))
-    emu:expectText("5")
-
-    -- tapping it opens the index
-    -- (the tile's own rectangle: text drawn inside a scrolling page is not positioned in
-    -- screen coordinates)
-    local tile
-    for _, t in ipairs(home.tiles) do if t.key == "lists" then tile = t.tile.dimen end end
-    assert(tile, "no More lists tile")
-    emu:tapExpecting(tile.x + math.floor(tile.w / 2), tile.y + math.floor(tile.h / 2))
+    -- the index
+    manager:showLists()
     emu:pump()
     local dialog = manager.lists_dialog
-    assert(dialog and UIManager:isWidgetShown(dialog), "the tile did not open the lists")
+    assert(dialog and UIManager:isWidgetShown(dialog), "the lists did not open")
     for _, expected in ipairs({
       "Your lists", "To Read - SciFi", "7 books \194\183 ranked", "Books that made me grin", "4 books",
       "Research", "1 book \194\183 private", "Someday", "0 books", "Following",
@@ -124,10 +111,10 @@ return {
     UIManager:getTopmostVisibleWidget():onClose()
     emu:pump()
 
-    -- closing the index comes back to Home
+    -- closing the index leaves it
     dialog:onClose()
     emu:pump()
-    assert(UIManager:getTopmostVisibleWidget() == home, "closing the lists did not come back to Home")
+    assert(not UIManager:isWidgetShown(dialog), "closing the lists left them on screen")
     emu:closeAll()
 
     -- no lists at all

@@ -171,7 +171,14 @@ local function fakeClass(path)
 end
 fakeClass("hardcover/lib/ui/shelf_dialog")
 fakeClass("hardcover/lib/ui/book_detail_dialog")
-fakeClass("hardcover/lib/ui/home_dialog")
+fakeClass("hardcover/lib/ui/home_body")
+
+-- Home is a tab of the shell: a shell that is up, for the loaders' "is it still there" check
+local function homeHost()
+  local shell = {}
+  stack[#stack + 1] = shell
+  return { shell = shell }
+end
 
 local store_data
 -- the stores' clock, so a test can let time pass
@@ -506,7 +513,7 @@ check("it opens at once with the counts that were saved", function()
   online = true
   local m = newManager()
   m.shelf_cache:putCounts(1, { [1] = 42, [2] = 3 })
-  m:showHome()
+  m:showHomeBody(homeHost())
   local d = fake[1]
   assert(d and d.rows, "no screen")
   assert(rowFor(d, 1).count == 42 and rowFor(d, 2).count == 3, "saved counts not shown")
@@ -517,7 +524,7 @@ check("online, fresh counts replace them and are saved", function()
   local m = newManager()
   m.shelf_cache:putCounts(1, { [1] = 42 })
   count_results = { { [1] = 45, [2] = 4, [3] = 130, [5] = 2 } }
-  m:showHome()
+  m:showHomeBody(homeHost())
   local d = fake[1]
   assert(seen_in_coroutine, "the request ran on the main thread (it would freeze the UI)")
   assert(rowFor(d, 1).count == 45 and rowFor(d, 3).count == 130, "counts were not refreshed")
@@ -528,7 +535,7 @@ check("offline, it opens with the saved counts and makes no request", function()
   online = false
   local m = newManager()
   m.shelf_cache:putCounts(1, { [1] = 42 })
-  m:showHome()
+  m:showHomeBody(homeHost())
   assert(rowFor(fake[1], 1).count == 42)
   assert(count_calls == 0, "made a request while offline")
 end)
@@ -536,7 +543,7 @@ end)
 check("offline with nothing saved, it still opens, with no counts", function()
   online = false
   local m = newManager()
-  m:showHome()
+  m:showHomeBody(homeHost())
   assert(fake[1] and #fake[1].rows == 4 and rowFor(fake[1], 1).count == nil)
 end)
 
@@ -544,7 +551,7 @@ check("a shelf that was loaded in full gives its count offline", function()
   online = false
   local m = newManager()
   m.shelf_cache:put(1, 2, { { book_id = 1 }, { book_id = 2 }, { book_id = 3 } }, true)
-  m:showHome()
+  m:showHomeBody(homeHost())
   assert(rowFor(fake[1], 2).count == 3)
 end)
 
@@ -553,7 +560,7 @@ check("a failed refresh leaves the saved counts on screen", function()
   local m = newManager()
   m.shelf_cache:putCounts(1, { [1] = 42 })
   count_results = {} -- the stub answers a failure
-  m:showHome()
+  m:showHomeBody(homeHost())
   assert(rowFor(fake[1], 1).count == 42 and (fake[1].row_updates or 0) == 0, "the saved counts were replaced")
 end)
 
@@ -565,7 +572,7 @@ check("it opens at once with the reading list that was saved", function()
   online = false
   local m = newManager()
   m.shelf_cache:putReading(1, { reading(7, "Seven", 10, 100) })
-  m:showHome()
+  m:showHomeBody(homeHost())
   assert(fake[1].entries and fake[1].entries[1].title == "Seven", "saved reading list not shown")
 end)
 
@@ -574,7 +581,7 @@ check("online, the fresh reading list replaces it and is saved", function()
   local m = newManager()
   m.shelf_cache:putReading(1, { reading(7, "Seven", 10, 100) })
   reading_results = { { reading(7, "Seven", 55, 100), reading(8, "Eight", 1, 50) } }
-  m:showHome()
+  m:showHomeBody(homeHost())
   assert(seen_in_coroutine, "the request ran on the main thread (it would freeze the UI)")
   assert(#fake[1].entries == 2 and fake[1].entries[1].progress_pages == 55, "reading list not refreshed")
   assert(#m.shelf_cache:reading(1) == 2, "fresh reading list not saved")
@@ -583,7 +590,7 @@ end)
 check("offline, no reading request is made", function()
   online = false
   local m = newManager()
-  m:showHome()
+  m:showHomeBody(homeHost())
   assert(reading_calls == 0, "made a request while offline")
 end)
 
@@ -594,7 +601,7 @@ check("a refresh that changed nothing repaints nothing", function()
   m.shelf_cache:putCounts(1, { [1] = 42, [2] = 3, [3] = 130, [5] = 2 })
   reading_results = { { reading(7, "Seven", 10, 100) } }
   count_results = { { [1] = 42, [2] = 3, [3] = 130, [5] = 2 } }
-  m:showHome()
+  m:showHomeBody(homeHost())
   assert((fake[1].reading_updates or 0) == 0, "repainted the same cards")
   assert((fake[1].row_updates or 0) == 0, "repainted the same counts")
 end)
@@ -604,7 +611,7 @@ check("failed counts do not stop the reading list refreshing", function()
   local m = newManager()
   count_results = {} -- fails
   reading_results = { { reading(7, "Seven", 10, 100) } }
-  m:showHome()
+  m:showHomeBody(homeHost())
   assert(fake[1].entries and #fake[1].entries == 1, "the reading list was skipped")
 end)
 
@@ -612,14 +619,14 @@ check("a failed reading refresh leaves the saved list on screen", function()
   online = true
   local m = newManager()
   m.shelf_cache:putReading(1, { reading(7, "Seven", 10, 100) })
-  m:showHome()
+  m:showHomeBody(homeHost())
   assert(fake[1].entries[1].title == "Seven" and (fake[1].reading_updates or 0) == 0)
 end)
 
 check("tapping a card opens that book", function()
   online = true
   local m = newManager()
-  m:showHome()
+  m:showHomeBody(homeHost())
   assert(type(fake[1].open_book_cb) == "function", "no open_book_cb given to the screen")
   fake[1].open_book_cb(7)
   local detail
@@ -630,7 +637,7 @@ end)
 check("choosing a shelf opens that shelf", function()
   online = true
   local m = newManager()
-  m:showHome()
+  m:showHomeBody(homeHost())
   fake[1].select_cb({ status_id = 2, title = "Currently Reading" })
   local shelf
   for _, d in ipairs(fake) do if d.status_id == 2 then shelf = d end end
@@ -642,11 +649,12 @@ check("counts that arrive after the screen was closed are ignored", function()
   local m = newManager()
   count_results = { { [1] = 99 } }
   local real = Api.getShelfCounts
+  local host = homeHost()
   Api.getShelfCounts = function(...)
-    UIManager_close(fake[1])
+    UIManager_close(host.shell) -- Home goes when its shell does
     return real(...)
   end
-  m:showHome()
+  m:showHomeBody(host)
   Api.getShelfCounts = real
   assert((fake[1].row_updates or 0) == 0, "updated a screen that was closed")
 end)

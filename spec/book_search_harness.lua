@@ -257,17 +257,16 @@ check("offline: a clear message and no request", function()
   assert(loadings == 0 and #results_dialogs == 0)
 end)
 
-print("\n== the home screen's button ==")
-check("showHome gives the home screen a search callback that opens the input", function()
+print("\n== the home tab's button ==")
+check("the Home tab has a search button that opens the input", function()
   local m = manager()
   m.shelf_cache = nil
   online = false
-  local home_class = real_require("hardcover/lib/ui/home_dialog")
-  local built
-  home_class.new = function(_, o) built = o; return o end
-  m:showHome()
-  assert(type(built.search_cb) == "function", "no search callback")
-  built.search_cb()
+  local actions = m:shellTabs()[1].actions
+  local search
+  for _, a in ipairs(actions) do if a.icon == "search" then search = a end end
+  assert(search and type(search.callback) == "function", "no search action on the Home tab")
+  search.callback()
   assert(#inputs == 1, "the callback did not open the input")
 end)
 

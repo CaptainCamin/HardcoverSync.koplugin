@@ -1,5 +1,5 @@
 --[[--
-Vibes, from Home: the tile, the index (Hardcover's own, then yours, each with covers), a
+Vibes: the index (Hardcover's own, then yours, each with covers), a
 vibe opening in the shelf screen in its ranking, a sign-in without the permission getting
 the way to fix it, and the failed and offline cases.
 
@@ -32,14 +32,6 @@ return {
 
     local DialogManager = require("hardcover/lib/ui/dialog_manager")
     local manager = DialogManager:new { settings = settings }
-
-    -- the tile on Home
-    manager:showHome()
-    emu:pump()
-    local tile
-    for _, t in ipairs(manager.home_dialog.tiles) do if t.key == "vibes" then tile = t.tile end end
-    assert(tile, "no Vibes tile on Home")
-    emu:closeAll()
 
     -- the index
     manager:showVibes()

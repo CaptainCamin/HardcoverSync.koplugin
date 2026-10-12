@@ -11,14 +11,15 @@
 -- It fills the room it is given: the card first, then the sync box, then as many shelf rows as fit.
 -- The nav bar is not part of this body, so it can never be what gives way.
 --
--- It is the old Home's data holder (HomeDialog: rows, entries, cover cells, the loaders' setRows /
--- setReading / rebuildSoon) with a different layout and no scrolling.
+-- It also holds Home's data (rows, entries, cover cells) for the loaders' setRows / setReading /
+-- rebuildSoon.
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
+local InputContainer = require("ui/widget/container/inputcontainer")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
@@ -29,7 +30,6 @@ local CoverCells = require("hardcover/lib/ui/cover_cells")
 local Draw = require("hardcover/lib/ui/components/draw")
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local Home = require("hardcover/lib/home")
-local HomeDialog = require("hardcover/lib/ui/home_dialog")
 local Hosted = require("hardcover/lib/ui/hosted")
 local ListItem = require("hardcover/lib/ui/components/list_item")
 local Note = require("hardcover/lib/ui/components/note")
@@ -37,8 +37,12 @@ local Theme = require("hardcover/lib/ui/theme")
 
 local px = Theme.px
 
-local HomeBody = HomeDialog:extend {
+local HomeBody = InputContainer:extend {
   name = "hardcover_home_body",
+  rows = {},          -- Home.rows: the shelves and how many books are on each
+  entries = {},       -- the books being read, as Api:getCurrentlyReading returns them
+  select_cb = nil,    -- called with a shelf's row when it is tapped
+  open_book_cb = nil, -- called with the book id when Open book is tapped
   pending_fn = nil, -- returns how many changes are waiting to sync
   sync_cb = nil,    -- Sync now
   pending_cb = nil, -- a tap on the sync box: what is waiting
@@ -53,6 +57,12 @@ function HomeBody:init()
     loader = function() return self.image_loader or require("hardcover/lib/ui/image_loader") end,
   }
   self:build()
+end
+
+-- A cover box of the given size: the generic book icon until the picture arrives, so nothing moves
+-- when it does.
+function HomeBody:coverCell(card, w, h)
+  return self.covers:cell(card.cover_url, w, h)
 end
 
 local function booksText(n)
@@ -143,7 +153,6 @@ end
 
 function HomeBody:build()
   self.covers:begin()
-  self.tiles = {}
   self.built_entries = self.entries
 
   local w, h = Hosted.size(self)
@@ -191,7 +200,6 @@ function HomeBody:build()
     end
   end
   self.layout = { card = card ~= nil, note = shown_note, shelves = shown_rows } -- what fitted
-  self.search_button, self.reading_header = nil, nil
   column:resetLayout()
 
   self.frame = FrameContainer:new {
@@ -215,6 +223,41 @@ function HomeBody:rebuild()
 end
 
 function HomeBody:onShow() end
+
+-- Stop fetching and give back the pictures' memory.
+function HomeBody:releaseCovers()
+  self.covers:release()
+end
+
+-- Swap in fresh counts once they arrive.
+-- `soon` (the data loading in the background) waits for the others to arrive instead of redrawing
+-- at once; see rebuildSoon.
+function HomeBody:setRows(rows, soon)
+  self.rows = rows or {}
+  if soon then self:rebuildSoon() else self:rebuild() end
+end
+
+-- Swap in the reading list (entries as Api:getCurrentlyReading returns them).
+function HomeBody:setReading(entries, soon)
+  self.entries = entries or {}
+  if soon then self:rebuildSoon() else self:rebuild() end
+end
+
+-- How long a background load waits for more data before redrawing. Opening Home asks for the
+-- counts, the reading list and the goals one after another; redrawing for each is a visible refresh
+-- on e-ink each, so what arrives inside this window is drawn together.
+HomeBody.REBUILD_DELAY = 1.5
+
+function HomeBody:rebuildSoon()
+  self.rebuild_due = true
+  if self.rebuild_timer then return end
+  self.rebuild_timer = function()
+    self.rebuild_timer = nil
+    if self.closed or not self.rebuild_due then return end
+    self:rebuild()
+  end
+  UIManager:scheduleIn(HomeBody.REBUILD_DELAY, self.rebuild_timer)
+end
 
 function HomeBody:onCloseWidget()
   self.closed = true

@@ -1,10 +1,9 @@
 --[[--
-"For you", from Home: a tile, the screen it opens (books suggested from your ratings, each
-with why under it), the saved picks shown at once and kept when a refresh fails or there is
-no connection, the empty state when nothing is rated 4 or more, and the setting that turns
-the tile off.
+"For you": the screen (books suggested from your ratings, each with why under it), the saved
+picks shown at once and kept when a refresh fails or there is no connection, and the empty
+state when nothing is rated 4 or more.
 
-Screens: for_you_home, for_you_list, for_you_empty.
+Screens: for_you_list, for_you_empty.
 ]]
 
 local fixtures = require("fixtures")
@@ -37,17 +36,7 @@ return {
     local DialogManager = require("hardcover/lib/ui/dialog_manager")
     local manager = DialogManager:new { settings = settings, shelf_cache = cache }
 
-    -- the tile on Home
-    manager:showHome()
-    emu:pump()
-    local home = manager.home_dialog
-    -- the tile is the last one, below the first screenful (a tap there is not answered until
-    -- the page is scrolled to it), so the tile's own action is run
-    local tile
-    for _, t in ipairs(home.tiles) do if t.key == "for_you" then tile = t.tile end end
-    assert(tile, "no For you tile on Home")
-    emu:shot("for_you_home")
-    tile.callback()
+    manager:showForYou()
     for _ = 1, 5 do emu:pump() end
 
     -- the screen: the picks, in order, with why
@@ -100,12 +89,5 @@ return {
     emu:shot("for_you_empty")
     emu:closeAll()
     fixtures.for_you_note = nil
-
-    -- the setting turns the tile off
-    settings:updateSetting(SETTING.SHOW_FOR_YOU, false)
-    manager:showHome()
-    emu:pump()
-    for _, t in ipairs(manager.home_dialog.tiles) do assert(t.key ~= "for_you", "the tile is still there") end
-    emu:closeAll()
   end,
 }

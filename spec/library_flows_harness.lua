@@ -158,7 +158,14 @@ end
 fakeClass("hardcover/lib/ui/book_detail_dialog", "detail")
 fakeClass("hardcover/lib/ui/shelf_dialog", "shelf")
 fakeClass("hardcover/lib/ui/stats_dialog", "stats")
-fakeClass("hardcover/lib/ui/home_dialog", "home")
+fakeClass("hardcover/lib/ui/home_body", "home")
+
+-- Home is a tab of the shell: a shell that is up, for the loaders' "is it still there" check
+local function homeHost()
+  local shell = {}
+  stack[#stack + 1] = shell
+  return { shell = shell }
+end
 fakeClass("hardcover/lib/ui/lists_dialog", "lists")
 
 local function UIManagerShown(w) for _, x in ipairs(stack) do if x == w then return true end end return false end
@@ -475,7 +482,7 @@ end)
 check("opening Home checks the shelves after its own requests", function()
   local m = newManager { synced = false }
   m.checkForUpdate = function() end
-  m:showHome()
+  m:showHomeBody(homeHost())
   assert(named("getShelfCounts") == 1)
   local first_download
   for i, c in ipairs(calls) do

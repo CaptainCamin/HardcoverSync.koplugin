@@ -8,7 +8,6 @@ local Settings = {
   BOOK_SOURCE = "book_source",
   LINK_BY_TITLE = "link_by_title",
   MENU_CONFIRMATION = "menu_confirmation",
-  NEW_NAVIGATION = "new_navigation",
   PURE_BLACK_TEXT = "pure_black_text",
   SHELF_SORT = "shelf_sort",
   START_READING_PAGES = "start_reading_pages",
