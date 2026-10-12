@@ -636,7 +636,10 @@ function DialogManager:showShell(active)
   self:screens():discard("shell")
   local shell = require("hardcover/lib/ui/shell"):new { tabs = self:shellTabs(), active = active }
   self:screens():track("shell", shell)
-  UIManager:show(shell)
+  -- A flashing "full" refresh as it opens: shown with no mode, the shell is drawn by a partial
+  -- refresh over whatever was on screen (the file browser, the book), which leaves it ghosting.
+  -- Every way in (the gesture, the Hardcover menu entry) comes through here.
+  UIManager:show(shell, "full")
   return shell
 end
 
