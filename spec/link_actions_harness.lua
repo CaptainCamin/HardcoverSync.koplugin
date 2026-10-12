@@ -91,4 +91,27 @@ for _, mode in ipairs({ { "online", true }, { "offline", false } }) do
     ok and type(dialog.on_close) == "function", "no on_close")
 end
 
+-- Unlink only forgets the link on this device: a confirm, then a local settings write.
+-- It must work with no connection and must not call the API.
+online = false
+local Api = real_require("hardcover/lib/hardcover_api")
+local api_calls = 0
+for k, v in pairs(Api) do
+  if type(v) == "function" then Api[k] = function() api_calls = api_calls + 1 end end
+end
+local written, refreshed, confirmed
+local m = newMenu()
+m.ui = { document = { file = "/books/a.epub" } }
+m.settings.updateBookSetting = function(_, file, change) written = { file = file, change = change } end
+m.dialog_manager = { confirm = function(_, opts) confirmed = opts; opts.ok_callback() end }
+local ok, err = pcall(function()
+  m:getUnlinkMenuItem().callback({ updateItems = function() refreshed = true end })
+end)
+r.check("Unlink book works offline", ok, err)
+r.check("it asks first, then deletes the link from this book's settings only",
+  confirmed ~= nil and written and written.file == "/books/a.epub"
+    and written.change._delete[1] == "book_id", "no local write")
+r.check("it refreshes the menu and makes no API call", refreshed == true and api_calls == 0,
+  "api calls: " .. api_calls)
+
 r.finish()
