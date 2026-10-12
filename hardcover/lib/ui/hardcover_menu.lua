@@ -192,6 +192,14 @@ function HardcoverMenu:showReaderPanel()
     local file = self.ui.document and self.ui.document.file
     local pending = file and self.sync_queue:get(file)
     local status_id = (pending and pending.status_id) or status.status_id
+    local not_on_shelf = status.not_on_shelf
+    if not status_id and not not_on_shelf and linked then
+      -- no saved status for this book (never synced from here, or offline): the saved shelves may know
+      local dm = self.dialog_manager
+      local shelves = dm and dm.shelves and dm:shelves()
+      status_id, not_on_shelf = require("hardcover/lib/reader_panel_facts").fromShelves(
+        shelves, User:getId(), self.settings:getLinkedBookId(), require("hardcover/lib/home").statusIds())
+    end
     local doc_title = self.ui.doc_props and self.ui.doc_props.display_title
     local title = (linked and self.settings:getLinkedTitle()) or doc_title or _("This book")
 
@@ -216,7 +224,7 @@ function HardcoverMenu:showReaderPanel()
     local facts = require("hardcover/lib/reader_panel_facts").describe {
       linked = linked,
       status_id = status_id,
-      not_on_shelf = status.not_on_shelf,
+      not_on_shelf = not_on_shelf,
       saved_page = read and read.progress_pages,
       pages = self.settings:pages(),
       sync_on = self.settings:syncEnabled(),

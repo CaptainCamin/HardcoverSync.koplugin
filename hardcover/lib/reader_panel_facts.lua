@@ -34,6 +34,17 @@ local function fill(text, ...)
   return (text:gsub("%%(%d)", function(i) return tostring(args[tonumber(i)]) end))
 end
 
+-- Where the saved shelves put a book, for when nothing better is known (offline, a book never synced
+-- from here): its shelf's status id, or not_on_shelf = true once every shelf in `status_ids` is saved
+-- whole and none holds it. Both nil when the shelves cannot say (the panel then says "not checked").
+function Facts.fromShelves(shelves, user_id, book_id, status_ids)
+  if not (shelves and book_id) then return nil, nil end
+  local m = shelves:member(user_id, book_id)
+  if m and m.status_id then return m.status_id, nil end
+  if shelves:synced(user_id, status_ids) then return nil, true end
+  return nil, nil
+end
+
 function Facts.describe(o)
   local out = {}
   if not o.linked then
