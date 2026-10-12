@@ -978,7 +978,9 @@ function HardcoverMenu:startReread()
 
   Background.run(function()
     if not Network.connected() then
+      local old_status_id = self.state.book_status and self.state.book_status.status_id
       self.cache:applyLocalStatus(file, HARDCOVER.STATUS.READING)
+      self.cache:shelfChanged(file, old_status_id, HARDCOVER.STATUS.READING, true)
       self.cache:applyLocalPage(page, payload.edition_id, os.date("%Y-%m-%d"), nil)
       self:refreshReaderPanel()
       StatusDialogs.info(_("Reading again. It will be sent when you are back online."), 3)
