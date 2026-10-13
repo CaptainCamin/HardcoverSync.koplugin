@@ -82,9 +82,8 @@ function Flows:showBookDetail(book_id, edition_id, opts)
     end,
   }
 
-  UIManager:show(dialog)
   -- the latest details screen, for a change that is sent while it is up (see shelfSent)
-  self:screens():track("book", dialog)
+  self:openScreen("book", dialog)
 
   local user_id = User:getId()
   -- What is saved about the book, shown when the network cannot supply it: its details
@@ -301,7 +300,7 @@ function Flows:showReviews(book_id, summary)
     hint = hint,
     fetch_page = fetch_page,
   }
-  UIManager:show(dialog)
+  self:openScreen(nil, dialog)
 
   fetch_page(0, Reviews.PAGE_SIZE, function(rows, _err, raw_count)
     if not rows then
