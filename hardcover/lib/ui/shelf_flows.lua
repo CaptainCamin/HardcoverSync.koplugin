@@ -208,8 +208,7 @@ function Flows:showShelf(status_id, title)
       { text = _("Refresh"), callback = function() refresh() end },
     } or nil,
   }
-  self:screens():track("shelf", dialog)
-  UIManager:show(dialog)
+  self:openScreen("shelf", dialog)
 
   local function show(entries, complete)
     if complete and #entries == 0 then

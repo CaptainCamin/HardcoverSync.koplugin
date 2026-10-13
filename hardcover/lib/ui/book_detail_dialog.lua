@@ -401,7 +401,7 @@ function BookDetailDialog:init()
       self.about_more = Button.new {
         label = _("Read more"), w = more_w, h = Theme.px(48), size = 18, viewport = viewport,
         callback = function()
-          UIManager:show(TextScreen:new { title = _("About"), heading = summary.title, text = summary.description })
+          UIManager:show(TextScreen:new { title = _("About"), heading = summary.title, text = summary.description }, "full")
         end,
       }
       table.insert(about, Theme.span("s"))
@@ -508,7 +508,7 @@ function BookDetailDialog:init()
       self.all_details = TapRow:new {
         viewport = viewport,
         callback = function()
-          UIManager:show(DetailsScreen:new { title = _("All details"), rows = extra })
+          UIManager:show(DetailsScreen:new { title = _("All details"), rows = extra }, "full")
         end,
         row,
       }
@@ -627,7 +627,7 @@ function BookDetailDialog:tagsBlock(width, viewport, title)
         for _i, s in ipairs(sections) do
           parts[#parts + 1] = s.name .. "\n" .. table.concat(s.labels, " · ")
         end
-        UIManager:show(TextScreen:new { title = _("Tags"), heading = title, text = table.concat(parts, "\n\n") })
+        UIManager:show(TextScreen:new { title = _("Tags"), heading = title, text = table.concat(parts, "\n\n") }, "full")
       end,
     }
     self.tags_more = more
