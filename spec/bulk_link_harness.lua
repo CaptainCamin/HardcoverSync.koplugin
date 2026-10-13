@@ -155,4 +155,22 @@ failing.deps.store = function() error("disk full") end
 BulkLink.step(failing)
 r.check("a failed save is an error, not a link", failing.errors == 1 and #failing.linked == 0)
 
+-- ------------------------------------------------------------ shelves after linking
+local asked = {}
+local function ask(status_id) asked[#asked + 1] = status_id end
+r.check("shelves are downloaded for every status once books were linked",
+  BulkLink.syncShelves(scan, { 1, 2, 3 }, ask) == 3 and #asked == 3 and asked[2] == 2)
+r.check("the summary says the shelves are being saved",
+  BulkLink.summary(scan):find("shelves are being saved", 1, true) ~= nil)
+asked = {}
+local none = scanOf({ "/a.epub" }, {}, {})
+r.check("no shelves are downloaded when nothing was linked",
+  BulkLink.syncShelves(none, { 1, 2 }, ask) == 0 and #asked == 0
+  and BulkLink.summary(none):find("shelves", 1, true) == nil)
+local flaky = scanOf({ "/a.epub" }, { ["/a.epub"] = "isbn13:9780441172719" },
+  { ["9780441172719"] = { book_id = 1, title = "X" } })
+BulkLink.step(flaky)
+r.check("a shelf that fails to start does not stop the others",
+  BulkLink.syncShelves(flaky, { 1, 2 }, function(id) if id == 1 then error("x") end end) == 1)
+
 r.finish()

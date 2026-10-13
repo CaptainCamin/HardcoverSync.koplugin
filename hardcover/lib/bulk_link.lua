@@ -239,6 +239,20 @@ function BulkLink.step(scan)
   return true
 end
 
+-- After books were linked, save their shelves on the device so they show offline. Linking only
+-- stores the Hardcover ids; the shelves come from the same download Home's check uses, passed
+-- in as `download(status_id)`. Does nothing when no book was linked. Returns how many shelves
+-- were asked for.
+function BulkLink.syncShelves(scan, status_ids, download)
+  if #scan.linked == 0 or type(download) ~= "function" then return 0 end
+  local started = 0
+  for _index, status_id in ipairs(status_ids or {}) do
+    if pcall(download, status_id) then started = started + 1 end
+  end
+  scan.shelves_synced = started
+  return started
+end
+
 -- The words for the end of a scan.
 function BulkLink.summary(scan)
   local lines = {}
@@ -248,6 +262,7 @@ function BulkLink.summary(scan)
   add(string.format("No match on Hardcover: %d", #scan.no_match))
   add(string.format("No Hardcover or ISBN identifier in the file: %d", scan.no_id))
   if scan.errors > 0 then add(string.format("Could not check: %d", scan.errors)) end
+  if (scan.shelves_synced or 0) > 0 then add("Your shelves are being saved for offline.") end
   return table.concat(lines, "\n")
 end
 
