@@ -710,9 +710,11 @@ function HardcoverMenu:getSyncConflictsMenuItem()
 end
 
 -- Unlink and discard were long presses only; they are rows now (the long press stays a shortcut).
--- Links every unlinked EPUB under the home folder that carries an ISBN or Hardcover identifier
--- (see hardcover/lib/bulk_link.lua), one book per tick so the screen stays responsive and the
--- progress message can be tapped to stop it.
+-- Links every unlinked EPUB under the home folder (see hardcover/lib/bulk_link.lua), one book per
+-- tick so the screen stays responsive and the progress message can be tapped to stop it. In two
+-- phases: first the exact match (an ISBN or Hardcover identifier in the file); then, if any books
+-- are left and the reader says yes, a title-and-author guess for those, each marked so it can be
+-- reviewed and undone.
 function HardcoverMenu:linkAllBooks()
   local BulkLink = require("hardcover/lib/bulk_link")
   local ConfirmBox = require("ui/widget/confirmbox")
@@ -733,37 +735,51 @@ function HardcoverMenu:linkAllBooks()
     return
   end
 
-  local scan = BulkLink.new(items, {
-    read_identifiers = function(file) return BulkLink.readEpubIdentifiers(file) end,
-    lookup = function(parsed) return Api:findBookByIdentifiers(parsed, User:getId()) end,
-    store = function(file, config) self.settings:updateBookSetting(file, config, true) end,
-  })
+  local store = function(file, config) self.settings:updateBookSetting(file, config, true) end
 
-  local progress
-  local armed = false
-  local function closeProgress()
-    if progress then
-      progress.dismiss_callback = nil
-      UIManager:close(progress)
-      progress = nil
+  -- Runs `scan` a book per tick with `step`, then `on_finish(scan)`.
+  local function run(scan, step, heading, on_finish)
+    local progress
+    local armed = false
+    local function closeProgress()
+      if progress then
+        progress.dismiss_callback = nil
+        UIManager:close(progress)
+        progress = nil
+      end
     end
+    local function showProgress()
+      closeProgress()
+      progress = InfoMessage:new {
+        text = T(_("%1\n\n%2 of %3 checked, %4 linked\n\n(tap to stop)"), heading,
+          tostring(scan.index), tostring(BulkLink.total(scan)), tostring(#scan.linked)),
+        dismiss_callback = function()
+          -- the tap that started the scan can land on this message and stop it at once
+          if armed then scan.cancelled = true end
+        end,
+      }
+      UIManager:show(progress)
+    end
+    local function tick()
+      if BulkLink.done(scan) then
+        closeProgress()
+        return on_finish(scan)
+      end
+      local used_network = step(scan)
+      if used_network or scan.index % 10 == 0 or BulkLink.done(scan) then showProgress() end
+      if used_network then
+        UIManager:scheduleIn(BulkLink.RATE, tick)
+      else
+        UIManager:nextTick(tick)
+      end
+    end
+    showProgress()
+    UIManager:scheduleIn(0.6, function() armed = true end)
+    UIManager:nextTick(tick)
   end
-  local function showProgress()
-    closeProgress()
-    progress = InfoMessage:new {
-      text = T(_("Linking books to Hardcover...\n\n%1 of %2 checked, %3 linked\n\n(tap to stop)"),
-        tostring(scan.index), tostring(BulkLink.total(scan)), tostring(#scan.linked)),
-      dismiss_callback = function()
-        -- the tap that started the scan can land on this message and stop it at once
-        if armed then scan.cancelled = true end
-      end,
-    }
-    UIManager:show(progress)
-  end
-  local function finish()
-    closeProgress()
-    UIManager:show(InfoMessage:new { text = BulkLink.summary(scan) })
-    -- the existing Library sync: saves the shelves so the linked books show offline
+
+  -- the existing Library sync: saves the shelves so the linked books show offline
+  local function saveShelves(scan)
     local dm = self.dialog_manager
     if dm and dm.downloadShelf then
       BulkLink.syncShelves(scan, require("hardcover/lib/home").statusIds(), function(status_id, opts)
@@ -771,27 +787,72 @@ function HardcoverMenu:linkAllBooks()
       end)
     end
   end
-  local function tick()
-    if BulkLink.done(scan) then return finish() end
-    local used_network = BulkLink.step(scan)
-    if used_network or scan.index % 10 == 0 or BulkLink.done(scan) then showProgress() end
-    if used_network then
-      UIManager:scheduleIn(BulkLink.RATE, tick)
-    else
-      UIManager:nextTick(tick)
+
+  local function finishGuesses(scan)
+    saveShelves(scan)
+    if #scan.linked == 0 then
+      UIManager:show(InfoMessage:new { text = BulkLink.guessSummary(scan) })
+      return
     end
+    UIManager:show(ConfirmBox:new {
+      text = BulkLink.guessSummary(scan) .. "\n\n" ..
+        _("Guesses can be wrong. Check them now? You can also do it later in Settings > Linking."),
+      ok_text = _("Check them"),
+      cancel_text = _("Later"),
+      ok_callback = function() self:reviewGuessedLinks() end,
+    })
+  end
+
+  local function guess(unmatched)
+    local scan = BulkLink.newGuess(unmatched, {
+      read_metadata = function(file) return BulkLink.readEpubMetadata(file) end,
+      search = function(title, author) return Api:findBooks(title, author, User:getId()) end,
+      store = store,
+    })
+    run(scan, BulkLink.stepGuess, _("Guessing books by title and author..."), finishGuesses)
+  end
+
+  local function finishExact(scan)
+    saveShelves(scan)
+    local summary = BulkLink.summary(scan)
+    if scan.cancelled or #scan.unmatched == 0 then
+      UIManager:show(InfoMessage:new { text = summary })
+      return
+    end
+    UIManager:show(ConfirmBox:new {
+      text = summary .. "\n\n" .. T(_("Try to guess the other %1 from their title and author? A guess can be wrong, so each one is marked and you can check and undo them."),
+        tostring(#scan.unmatched)),
+      ok_text = _("Guess"),
+      cancel_text = _("Not now"),
+      ok_callback = function() guess(scan.unmatched) end,
+    })
   end
 
   UIManager:show(ConfirmBox:new {
-    text = T(_("Link %1 books to Hardcover?\n\nOnly EPUBs with an ISBN or Hardcover identifier can be matched. This talks to Hardcover, about %2 seconds per book, and can be stopped."),
+    text = T(_("Link %1 books to Hardcover?\n\nFirst it matches EPUBs that carry an ISBN or Hardcover identifier. Then it asks whether to guess the rest from their title and author. This talks to Hardcover, about %2 seconds per book, and can be stopped."),
       tostring(#items), tostring(BulkLink.RATE)),
     ok_text = _("Link"),
     ok_callback = function()
-      showProgress()
-      UIManager:scheduleIn(0.6, function() armed = true end)
-      UIManager:nextTick(tick)
+      local scan = BulkLink.new(items, {
+        read_identifiers = function(file) return BulkLink.readEpubIdentifiers(file) end,
+        lookup = function(parsed) return Api:findBookByIdentifiers(parsed, User:getId()) end,
+        store = store,
+      })
+      run(scan, BulkLink.step, _("Linking books to Hardcover..."), finishExact)
     end,
   })
+end
+
+-- One book at a time: is this guessed link right?
+function HardcoverMenu:reviewGuessedLinks(menu_instance)
+  local BulkLink = require("hardcover/lib/bulk_link")
+  if #BulkLink.guessedBooks(self.settings:readSetting("books")) == 0 then return end
+  require("hardcover/lib/ui/guess_review_dialog").show {
+    settings = self.settings,
+    on_done = function()
+      if menu_instance and menu_instance.updateItems then menu_instance:updateItems() end
+    end,
+  }
 end
 
 function HardcoverMenu:unlinkBook(menu_instance)
@@ -802,7 +863,7 @@ function HardcoverMenu:unlinkBook(menu_instance)
     ok_text = _("Unlink"),
     ok_callback = function()
       self.settings:updateBookSetting(self.ui.document.file,
-        { _delete = { 'book_id', 'edition_id', 'edition_format', 'pages', 'title' } })
+        { _delete = { 'book_id', 'edition_id', 'edition_format', 'pages', 'title', 'guessed_book_id' } })
       menu_instance:updateItems()
     end,
   })
@@ -1641,6 +1702,20 @@ function HardcoverMenu:getSettingsSubMenuItems()
         if menu_instance then UIManager:close(menu_instance) end
         self:linkAllBooks()
       end,
+    },
+    {
+      section = SECTION.LINKING,
+      text_func = function()
+        local count = #require("hardcover/lib/bulk_link").guessedBooks(self.settings:readSetting("books"))
+        if count == 0 then return _("Check guessed links") end
+        return T(_("Check guessed links (%1)"), tostring(count))
+      end,
+      enabled_func = function()
+        return #require("hardcover/lib/bulk_link").guessedBooks(self.settings:readSetting("books")) > 0
+      end,
+      help = _("Links made by \"Link all books on this device\" from a title and author are guesses. This goes through them one at a time: keep the link if it is right, unlink the book if it is not."),
+      callback = function(menu_instance) self:reviewGuessedLinks(menu_instance) end,
+      keep_menu_open = true,
     },
     {
       section = SECTION.LINKING,

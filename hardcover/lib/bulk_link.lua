@@ -4,8 +4,11 @@
 -- (https://github.com/AndyHazz/bookshelf.koplugin, AGPL-3.0, lib/bookshelf_settings.lua and
 -- lib/bookshelf_hardcover.lua): the way it reads an EPUB's embedded ISBN / Hardcover
 -- identifiers from the OPF, and its paced, cancellable, one-book-per-tick scan with a report
--- at the end. Only the exact-match mode is carried over (an embedded identifier); there is no
--- title-and-author guess.
+-- at the end. The second pass is adapted from Bookshelf's "best guess" mode: for books with no
+-- usable identifier, a title-and-author search on Hardcover. Ours is stricter (a guess must match
+-- the title exactly once subtitles and punctuation are ignored, and the author's name), and
+-- every guessed link is marked in the book's settings (`guessed_book_id`) so it can be reviewed
+-- and undone.
 --
 -- Everything that touches KOReader or the network is passed in, so the scan can be driven
 -- from a spec: `lookup` finds the Hardcover book for parsed identifiers, `read_identifiers`
@@ -87,9 +90,9 @@ function BulkLink.identifiersFromOpf(opf)
   return #tokens > 0 and table.concat(tokens, "\n") or nil
 end
 
--- The identifiers inside an EPUB, read by the system `unzip`. nil for any other format, a book
--- without an OPF, or a device without unzip.
-function BulkLink.readEpubIdentifiers(filepath, popen)
+-- The text of an EPUB's OPF, read by the system `unzip`. nil for any other format, a book without
+-- an OPF, or a device without unzip.
+function BulkLink.readEpubOpf(filepath, popen)
   popen = popen or io.popen
   if type(filepath) ~= "string" or not filepath:lower():match("%.epub$") then return nil end
 
@@ -112,7 +115,30 @@ function BulkLink.readEpubIdentifiers(filepath, popen)
     chunks[#chunks + 1] = chunk
   end
   read:close()
-  return BulkLink.identifiersFromOpf(table.concat(chunks, "\n"))
+  return table.concat(chunks, "\n")
+end
+
+-- The identifiers inside an EPUB, one per line, or nil.
+function BulkLink.readEpubIdentifiers(filepath, popen)
+  return BulkLink.identifiersFromOpf(BulkLink.readEpubOpf(filepath, popen))
+end
+
+-- The title and first author in an OPF document ({ title =, author = }, either may be nil), or nil
+-- when it has neither.
+function BulkLink.metadataFromOpf(opf)
+  if type(opf) ~= "string" or opf == "" then return nil end
+  local function first(tag)
+    local value = opf:match("<%s*[%w_%-]*:?" .. tag .. "[^>]*>(.-)</%s*[%w_%-]*:?" .. tag .. "%s*>")
+    value = value and xmlDecode((value:gsub("<[^>]*>", ""))) or ""
+    return value ~= "" and value or nil
+  end
+  local title, author = first("title"), first("creator")
+  if not title and not author then return nil end
+  return { title = title, author = author }
+end
+
+function BulkLink.readEpubMetadata(filepath, popen)
+  return BulkLink.metadataFromOpf(BulkLink.readEpubOpf(filepath, popen))
 end
 
 -- The per-book settings that link a file to `book` (a normalised Hardcover book), in the shape
@@ -186,6 +212,9 @@ function BulkLink.new(items, deps)
     linked = {},
     no_id = 0,
     no_match = {},
+    -- the files the exact pass could not match (no identifier, or Hardcover does not know it):
+    -- the books a guess pass can try
+    unmatched = {},
     errors = 0,
   }
 end
@@ -217,6 +246,7 @@ function BulkLink.step(scan)
   local parsed = identifiers and Book:parseIdentifiers(identifiers) or {}
   if not (parsed.isbn_13 or parsed.isbn_10 or parsed.book_slug or parsed.edition_id) then
     scan.no_id = scan.no_id + 1
+    scan.unmatched[#scan.unmatched + 1] = file
     return false
   end
 
@@ -227,6 +257,7 @@ function BulkLink.step(scan)
   end
   if not (book and book.book_id) then
     scan.no_match[#scan.no_match + 1] = { name = nameOf(file) }
+    scan.unmatched[#scan.unmatched + 1] = file
     return true
   end
 
@@ -237,6 +268,184 @@ function BulkLink.step(scan)
     scan.errors = scan.errors + 1
   end
   return true
+end
+
+-- ------------------------------------------------------------ guessing by title and author
+--
+-- A guess must be safe to keep without a look, or easy to see wrong: it links only when the
+-- title matches exactly (after case, punctuation, a subtitle and a leading "the" are ignored)
+-- and the author (surname, and first initial if given) is one of the book's authors. A file with
+-- no author links only if exactly one result has that title. Anything else is left unlinked.
+
+local function normalize(text)
+  text = tostring(text or ""):lower()
+  text = text:gsub("%b()", " "):gsub("%b[]", " ")
+  text = text:gsub(":.*$", "")
+  text = text:gsub("[^%w%s]", " ")
+  text = text:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+  text = text:gsub("^the ", ""):gsub("^an? ", "")
+  return text
+end
+BulkLink.normalize = normalize
+
+-- The surname and first initial of "Frank Herbert" or "Herbert, Frank" (lower case; the initial is
+-- nil when no first name is given), or nil for an empty name.
+local function person(author)
+  author = tostring(author or "")
+  local last, given
+  local before, after = author:match("^([^,]+),%s*(.*)$")
+  if before then
+    last, given = before:match("(%S+)%s*$"), after
+  else
+    last = author:match("(%S+)%s*$")
+    given = author:match("^%s*(%S+)%s+%S")
+  end
+  last = normalize(last or "")
+  if last == "" then return nil end
+  local initial = normalize(given or ""):sub(1, 1)
+  return { surname = last, initial = initial ~= "" and initial or nil }
+end
+
+-- The author names on a Hardcover book (the structured `contributions`).
+local function authorNames(book)
+  local names = {}
+  local contributions = book.contributions
+  if type(contributions) == "table" then
+    if contributions.author then contributions = { contributions } end
+    for _index, contribution in ipairs(contributions) do
+      local author = type(contribution) == "table" and contribution.author
+      if type(author) == "table" and author.name then
+        names[#names + 1] = author.name
+      elseif type(author) == "string" then
+        names[#names + 1] = author
+      end
+    end
+  end
+  return names
+end
+BulkLink.authorNames = authorNames
+
+-- Is `wanted` (from person()) one of the book's authors: the same surname, and the same first
+-- initial when both give one (so "Frank Herbert" is not "Brian Herbert").
+local function hasAuthor(book, wanted)
+  for _index, name in ipairs(authorNames(book)) do
+    local candidate = person(name)
+    if candidate and candidate.surname == wanted.surname
+      and (not candidate.initial or not wanted.initial or candidate.initial == wanted.initial) then
+      return true
+    end
+  end
+  return false
+end
+
+-- The result to link for a file called `title` by `author`, or nil when none is safe.
+function BulkLink.pickGuess(results, title, author)
+  local wanted_title = normalize(title)
+  if wanted_title == "" or type(results) ~= "table" then return nil end
+  local wanted_author = person(author)
+  local same_title = {}
+  for _index, book in ipairs(results) do
+    if book.book_id and normalize(book.title) == wanted_title then
+      same_title[#same_title + 1] = book
+    end
+  end
+  if wanted_author then
+    for _index, book in ipairs(same_title) do
+      if hasAuthor(book, wanted_author) then return book end
+    end
+    return nil
+  end
+  return #same_title == 1 and same_title[1] or nil
+end
+
+-- A scan that guesses for `items` (files). `deps` is { read_metadata, search, store }:
+-- `read_metadata(file)` gives { title, author } or nil, `search(title, author)` gives Hardcover's
+-- results (nil when the call failed), `store(file, config)` writes the link.
+function BulkLink.newGuess(items, deps)
+  local scan = BulkLink.new(items, deps)
+  scan.guess = true
+  scan.no_title = 0
+  return scan
+end
+
+-- Handle the next book of a guess scan. Returns true when it called Hardcover.
+function BulkLink.stepGuess(scan)
+  if BulkLink.done(scan) then return false end
+  scan.index = scan.index + 1
+  local file = scan.items[scan.index]
+  local deps = scan.deps
+
+  local ok_read, meta = pcall(deps.read_metadata, file)
+  if not ok_read then
+    scan.errors = scan.errors + 1
+    return false
+  end
+  if not (meta and meta.title and normalize(meta.title) ~= "") then
+    scan.no_title = scan.no_title + 1
+    return false
+  end
+
+  local ok_search, results = pcall(deps.search, meta.title, meta.author)
+  if not ok_search or results == nil then
+    scan.errors = scan.errors + 1
+    return true
+  end
+  local book = BulkLink.pickGuess(results, meta.title, meta.author)
+  if not book then
+    scan.no_match[#scan.no_match + 1] = { name = nameOf(file) }
+    return true
+  end
+
+  local config = BulkLink.linkConfig(book)
+  config.guessed_book_id = book.book_id
+  if pcall(deps.store, file, config) then
+    scan.linked[#scan.linked + 1] = { name = nameOf(file), matched = book.title,
+      authors = table.concat(authorNames(book), ", ") }
+  else
+    scan.errors = scan.errors + 1
+  end
+  return true
+end
+
+-- ------------------------------------------------------------ reviewing guesses
+
+-- Books whose link is a guess that nobody has confirmed: `books` is the saved per-book settings
+-- (filename -> settings). A guess counts only while the book is still the one guessed, so linking
+-- a different book by hand ends it.
+function BulkLink.guessedBooks(books)
+  local out = {}
+  for file, setting in pairs(books or {}) do
+    if type(setting) == "table" and setting.guessed_book_id ~= nil
+      and setting.guessed_book_id == setting.book_id then
+      out[#out + 1] = { file = file, name = nameOf(file), title = setting.title, book_id = setting.book_id }
+    end
+  end
+  table.sort(out, function(a, b)
+    if a.name:lower() ~= b.name:lower() then return a.name:lower() < b.name:lower() end
+    return a.file < b.file
+  end)
+  return out
+end
+
+-- Settings changes for the two answers to a guess: it was right (keep the link, drop the mark),
+-- or wrong (forget the link).
+function BulkLink.confirmGuessConfig()
+  return { _delete = { "guessed_book_id" } }
+end
+
+function BulkLink.undoGuessConfig()
+  return { _delete = { "book_id", "edition_id", "edition_format", "pages", "title", "guessed_book_id" } }
+end
+
+-- The words for the end of a guess scan.
+function BulkLink.guessSummary(scan)
+  local lines = {}
+  lines[#lines + 1] = scan.cancelled and "Guessing stopped." or "Guessing finished."
+  lines[#lines + 1] = string.format("Linked by guess: %d", #scan.linked)
+  lines[#lines + 1] = string.format("No confident match: %d", #scan.no_match)
+  lines[#lines + 1] = string.format("No title in the file: %d", scan.no_title or 0)
+  if scan.errors > 0 then lines[#lines + 1] = string.format("Could not check: %d", scan.errors) end
+  return table.concat(lines, "\n")
 end
 
 -- After linking: a Library sync, so the linked books' shelves are saved on the device and show

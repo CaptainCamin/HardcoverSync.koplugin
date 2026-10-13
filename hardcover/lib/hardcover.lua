@@ -103,6 +103,9 @@ function Hardcover:linkBook(book)
     end
   end
 
+  -- a link chosen here is not a bulk-link guess any more
+  table.insert(delete, "guessed_book_id")
+
   local new_settings = {
     book_id = book.book_id,
     edition_id = book.edition_id,
