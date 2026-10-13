@@ -169,7 +169,7 @@ end
 
 -- The book's shelf changed on this device: tell whoever keeps the saved shelves (the Library, Home's
 -- counts), as a change made there does. `unsent`: it is waiting in the sync queue, not made on
--- Hardcover yet. `on_shelf_changed(book_id, old_status_id, status_id, user_book_id, unsent)` is set by
+-- Hardcover yet. `on_shelf_changed(book_id, old_status_id, status_id, user_book_id, unsent, info)` is set by
 -- the plugin; without it nothing is told.
 function Cache:shelfChanged(filename, old_status_id, status_id, unsent)
   local notify = self.on_shelf_changed
@@ -177,7 +177,13 @@ function Cache:shelfChanged(filename, old_status_id, status_id, unsent)
   local book_status = self.state.book_status or {}
   local book_id = book_status.book_id or self.settings:readBookSetting(filename, "book_id")
   if not book_id then return end
-  notify(book_id, old_status_id, status_id, book_status.id, unsent)
+  -- what is known of the book here, for a book the saved shelves have no row for
+  local title = self.settings:readBookSetting(filename, "title")
+  if type(title) ~= "string" or title == "" then
+    local name = type(filename) == "string" and filename:match("([^/]+)$")
+    title = name and (name:gsub("%.[^.]*$", "")) or nil
+  end
+  notify(book_id, old_status_id, status_id, book_status.id, unsent, { title = title })
 end
 
 function Cache:updateBookStatus(filename, status, privacy_setting_id)
@@ -197,6 +203,7 @@ function Cache:updateBookStatus(filename, status, privacy_setting_id)
     self:shelfChanged(filename, old_status_id, status, true)
     local payload = self:queueMeta(filename)
     payload.status_id = status
+    payload.from_status_id = old_status_id
     payload.privacy_setting_id = privacy_setting_id
     self.sync_queue:enqueueStatus(filename, payload)
     return { queued = true }

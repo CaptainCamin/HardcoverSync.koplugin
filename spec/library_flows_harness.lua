@@ -394,6 +394,47 @@ check("a book removed from the library leaves its saved shelf", function()
   assert(m.shelf_store:member(1, 6) == nil)
 end)
 
+check("a book with no saved row still shows on its shelf, with the title from its file", function()
+  local m = newManager()
+  m:shelfChanged(77, nil, 2, nil, true, { title = "From The File" })
+  local entries = m.shelf_store:entries(1, 2)
+  local found
+  for _, e in ipairs(entries) do if e.book_id == 77 then found = e end end
+  assert(found and found.title == "From The File", "the book is missing from the shelf's list")
+end)
+
+check("a saved row is not overwritten by the title from the file", function()
+  local m = newManager()
+  m:shelfChanged(6, 3, 2, 106, true, { title = "file name" })
+  local found
+  for _, e in ipairs(m.shelf_store:entries(1, 2)) do if e.book_id == 6 then found = e end end
+  assert(found and found.title == "Six")
+end)
+
+check("cancelling a reader-made change puts the book and the counts back", function()
+  local m = newManager()
+  m:shelfChanged(6, 3, 2, 106, true, { title = "Six" })
+  assert(m.shelf_store:member(1, 6).status_id == 2)
+  m:pendingUndone { kind = "page", shelf_op = { kind = "status", book_id = 6, user_book_id = 106,
+    status_id = 2, from_status_id = 3, known = true } }
+  assert(m.shelf_store:member(1, 6).status_id == 3, "still on Currently Reading")
+  for _, e in ipairs(m.shelf_store:entries(1, 2)) do assert(e.book_id ~= 6, "still listed") end
+end)
+
+check("cancelling a change for a book that was on no shelf takes it off the shelf", function()
+  local m = newManager()
+  m:shelfChanged(77, nil, 2, nil, true, { title = "New" })
+  m:pendingUndone { kind = "status", shelf_op = { kind = "status", book_id = 77, status_id = 2, known = true } }
+  assert(m.shelf_store:member(1, 77) == nil)
+end)
+
+check("a change queued before the origin was recorded is left alone", function()
+  local m = newManager()
+  m:shelfChanged(6, 3, 2, 106, true)
+  m:pendingUndone { kind = "status", shelf_op = { kind = "status", book_id = 6, status_id = 2, known = false } }
+  assert(m.shelf_store:member(1, 6).status_id == 2)
+end)
+
 print("\n== a tab that fails to load ==")
 
 check("as a tab of the shell, cancelling a failed load says so instead of loading for good", function()

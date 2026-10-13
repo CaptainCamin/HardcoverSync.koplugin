@@ -145,4 +145,47 @@ check("cancelling something already gone is false, not an error", function()
   assert(q.goal_queue:cancel("local:9") == false and q.rating_queue:cancel(1) == false)
 end)
 
+print("\n== putting the shelves back ==")
+
+check("a status change carries the shelf the book came from, so cancelling can undo it", function()
+  local q = queues()
+  q.sync_queue:enqueueStatus("/b/dune.epub", { status_id = HARDCOVER.STATUS.READING, book_id = 7, title = "Dune",
+    from_status_id = HARDCOVER.STATUS.FINISHED })
+  local row = PendingChanges.list(q)[1]
+  assert(row.shelf_op and row.shelf_op.from_status_id == HARDCOVER.STATUS.FINISHED and row.shelf_op.known)
+  assert(row.shelf_op.status_id == HARDCOVER.STATUS.READING and row.shelf_op.book_id == 7)
+end)
+
+check("a book that was on no shelf is remembered as such", function()
+  local q = queues()
+  q.sync_queue:enqueueStatus("/b/new.epub", { status_id = HARDCOVER.STATUS.READING, book_id = 8, title = "New" })
+  local op = PendingChanges.list(q)[1].shelf_op
+  assert(op.known and op.from_status_id == nil)
+end)
+
+check("a second change keeps the shelf the first one started from", function()
+  local q = queues()
+  q.sync_queue:enqueueStatus("/b/a.epub", { status_id = HARDCOVER.STATUS.TO_READ, book_id = 7, from_status_id = HARDCOVER.STATUS.FINISHED })
+  q.sync_queue:enqueueStatus("/b/a.epub", { status_id = HARDCOVER.STATUS.READING, book_id = 7, from_status_id = HARDCOVER.STATUS.TO_READ })
+  assert(PendingChanges.list(q)[1].shelf_op.from_status_id == HARDCOVER.STATUS.FINISHED)
+end)
+
+check("a re-read's page line carries the shelf op, and cancelling it forgets the origin", function()
+  local q = queues()
+  q.sync_queue:startReread("/b/dune.epub", { mapped_page = 3, book_id = 7, title = "Dune",
+    from_status_id = HARDCOVER.STATUS.FINISHED })
+  local rows = PendingChanges.list(q)
+  assert(#rows == 1 and rows[1].kind == "page" and rows[1].shelf_op.from_status_id == HARDCOVER.STATUS.FINISHED)
+  rows[1].cancel()
+  assert(not q.sync_queue:hasPending("/b/dune.epub"))
+  q.sync_queue:enqueueStatus("/b/dune.epub", { status_id = HARDCOVER.STATUS.TO_READ, book_id = 7 })
+  assert(PendingChanges.list(q)[1].shelf_op.from_status_id == nil, "an old origin leaked into a new change")
+end)
+
+check("a plain page change has no shelf op", function()
+  local q = queues()
+  q.sync_queue:enqueuePage("/b/dune.epub", { mapped_page = 12, book_id = 7 })
+  assert(PendingChanges.list(q)[1].shelf_op == nil)
+end)
+
 r.finish()
