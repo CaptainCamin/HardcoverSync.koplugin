@@ -710,6 +710,83 @@ function HardcoverMenu:getSyncConflictsMenuItem()
 end
 
 -- Unlink and discard were long presses only; they are rows now (the long press stays a shortcut).
+-- Links every unlinked EPUB under the home folder that carries an ISBN or Hardcover identifier
+-- (see hardcover/lib/bulk_link.lua), one book per tick so the screen stays responsive and the
+-- progress message can be tapped to stop it.
+function HardcoverMenu:linkAllBooks()
+  local BulkLink = require("hardcover/lib/bulk_link")
+  local ConfirmBox = require("ui/widget/confirmbox")
+  local InfoMessage = require("ui/widget/infomessage")
+  local lfs = require("libs/libkoreader-lfs")
+
+  if not Network.connected() then
+    UIManager:show(InfoMessage:new { text = _("Connect to the internet to link your books.") })
+    return
+  end
+
+  local home = G_reader_settings:readSetting("home_dir")
+  local items = BulkLink.candidates(BulkLink.findFiles(home, lfs), function(file)
+    return self.settings:readBookSetting(file, "book_id") ~= nil
+  end)
+  if #items == 0 then
+    UIManager:show(InfoMessage:new { text = _("No unlinked EPUBs found in your home folder.") })
+    return
+  end
+
+  local scan = BulkLink.new(items, {
+    read_identifiers = function(file) return BulkLink.readEpubIdentifiers(file) end,
+    lookup = function(parsed) return Api:findBookByIdentifiers(parsed, User:getId()) end,
+    store = function(file, config) self.settings:updateBookSetting(file, config, true) end,
+  })
+
+  local progress
+  local armed = false
+  local function closeProgress()
+    if progress then
+      progress.dismiss_callback = nil
+      UIManager:close(progress)
+      progress = nil
+    end
+  end
+  local function showProgress()
+    closeProgress()
+    progress = InfoMessage:new {
+      text = T(_("Linking books to Hardcover...\n\n%1 of %2 checked, %3 linked\n\n(tap to stop)"),
+        tostring(scan.index), tostring(BulkLink.total(scan)), tostring(#scan.linked)),
+      dismiss_callback = function()
+        -- the tap that started the scan can land on this message and stop it at once
+        if armed then scan.cancelled = true end
+      end,
+    }
+    UIManager:show(progress)
+  end
+  local function finish()
+    closeProgress()
+    UIManager:show(InfoMessage:new { text = BulkLink.summary(scan) })
+  end
+  local function tick()
+    if BulkLink.done(scan) then return finish() end
+    local used_network = BulkLink.step(scan)
+    if used_network or scan.index % 10 == 0 or BulkLink.done(scan) then showProgress() end
+    if used_network then
+      UIManager:scheduleIn(BulkLink.RATE, tick)
+    else
+      UIManager:nextTick(tick)
+    end
+  end
+
+  UIManager:show(ConfirmBox:new {
+    text = T(_("Link %1 books to Hardcover?\n\nOnly EPUBs with an ISBN or Hardcover identifier can be matched. This talks to Hardcover, about %2 seconds per book, and can be stopped."),
+      tostring(#items), tostring(BulkLink.RATE)),
+    ok_text = _("Link"),
+    ok_callback = function()
+      showProgress()
+      UIManager:scheduleIn(0.6, function() armed = true end)
+      UIManager:nextTick(tick)
+    end,
+  })
+end
+
 function HardcoverMenu:unlinkBook(menu_instance)
   if not self.settings:bookLinked() then return end
   self.dialog_manager:confirm({
@@ -1547,6 +1624,15 @@ function HardcoverMenu:getSettingsSubMenuItems()
       callback = function()
         local setting = self.settings:readSetting(SETTING.LINK_BY_TITLE) == true
         self.settings:updateSetting(SETTING.LINK_BY_TITLE, not setting)
+      end,
+    },
+    {
+      section = SECTION.LINKING,
+      text = _("Link all books on this device"),
+      help = _("Looks through your home folder for EPUBs that carry an ISBN or a Hardcover identifier and links each to its Hardcover book, so shelves show them as on this device. Needs a connection; it can be stopped."),
+      callback = function(menu_instance)
+        if menu_instance then UIManager:close(menu_instance) end
+        self:linkAllBooks()
       end,
     },
     {
