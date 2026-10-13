@@ -41,6 +41,7 @@
 
 ### Fixed
 
+- **Every full-screen screen opens with a full refresh.** Book details, the lists and shelves, Reviews, Settings and the other full-screen screens are shown through one path that flashes the screen clear, instead of being drawn over whatever was beneath, which ghosted on e-ink.
 - **Offline status changes from the reader now show correctly on the shelves.** Cancelling a pending "Read again" or status change in Pending changes puts the book back on the shelf it came from (it used to stay on Currently Reading, and Home's count disagreed with the list). A book with no saved details, set to Currently Reading offline, now appears in that shelf's list with the title from its file.
 - **Home fits the Read shelf on a small screen.** The gaps above the reading card, under it and above the Shelves heading are a little tighter (14 scaled pixels in all), so Want to Read, Currently Reading and Read fit together on a Kindle with a two-line book title.
 - Changing the edition of a book that is on your shelf could wipe its saved status when Hardcover did not answer, and a page waiting to be sent went to the old edition. The change now waits for Hardcover, and a waiting page moves with the edition.
