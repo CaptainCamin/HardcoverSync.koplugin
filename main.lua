@@ -200,7 +200,7 @@ function HardcoverApp:init()
     state = self.state,
     sync_queue = self.sync_queue,
     -- a status set from the reader moves the book on the saved shelves, as one set in the Library does
-    on_shelf_changed = function(book_id, old_status_id, status_id, user_book_id, unsent)
+    on_shelf_changed = function(book_id, old_status_id, status_id, user_book_id, unsent, info)
       local dm = self.dialog_manager
       if not (dm and dm.shelfChanged) then return end
       if old_status_id == nil then
@@ -209,7 +209,7 @@ function HardcoverApp:init()
         local m = store and store:member(User:getId(), book_id)
         old_status_id = m and m.status_id
       end
-      dm:shelfChanged(book_id, old_status_id, status_id, user_book_id, unsent)
+      dm:shelfChanged(book_id, old_status_id, status_id, user_book_id, unsent, info)
     end,
   }
   self.page_mapper = PageMapper:new {

@@ -123,14 +123,29 @@ end
 -- finished read is never written. Only the page is queued, not a status: a READING status queued
 -- ahead of the page would make the page land on the finished read.
 function SyncQueue:startReread(filepath, payload)
+  local held = self:shelfChangeWaiting(filepath)
+  local origin = held and self:get(filepath).from_status_id
   local entry = self:enqueuePage(filepath, payload)
   entry.reread = true
+  entry.from_status_id = origin or payload.from_status_id or 0
   self:persist()
   return entry
 end
 
+-- Is a change of the book's shelf (a status, or a re-read) waiting for this file?
+function SyncQueue:shelfChangeWaiting(filepath)
+  local entry = self:get(filepath)
+  return type(entry) == "table" and (entry.status_id ~= nil or entry.reread == true)
+end
+
+-- `payload.from_status_id` is the shelf the book was on before the change (nil: on none), kept
+-- as `from_status_id` (0 for none) so that cancelling the change can put the saved shelves back.
+-- When a change is already waiting, the shelf it started from is kept.
 function SyncQueue:enqueueStatus(filepath, payload)
+  local held = self:shelfChangeWaiting(filepath)
+  local origin = held and self:get(filepath).from_status_id
   local entry = self:_ensure(filepath, payload)
+  entry.from_status_id = origin or payload.from_status_id or 0
   entry.status_id = payload.status_id
   entry.status_updated_at = os.time()
   entry.failures = nil
@@ -158,6 +173,7 @@ function SyncQueue:cancelPage(filepath)
   if type(entry) ~= "table" then return false end
   entry.mapped_page, entry.page_updated_at = nil, nil
   entry.force_page, entry.first_page_date, entry.reread = nil, nil, nil
+  if entry.status_id == nil then entry.from_status_id = nil end
   entry.conflict, entry.failures = nil, nil
   self:save(filepath, entry)
   return true
@@ -170,6 +186,7 @@ function SyncQueue:cancelStatus(filepath)
   if type(entry) ~= "table" then return false end
   entry.status_id, entry.status_updated_at = nil, nil
   entry.privacy_setting_id, entry.failures = nil, nil
+  if not entry.reread then entry.from_status_id = nil end
   self:save(filepath, entry)
   return true
 end
@@ -265,7 +282,7 @@ function SyncQueue:applyToReading(entries, lookup)
   -- books started (or put back to Currently Reading) offline, the newest first
   local fresh = {}
   for id, q in pairs(queued) do
-    if q.status_id == HARDCOVER.STATUS.READING and not have[id] then fresh[#fresh + 1] = { id = id, q = q } end
+    if (q.status_id == HARDCOVER.STATUS.READING or q.reread) and not have[id] then fresh[#fresh + 1] = { id = id, q = q } end
   end
   table.sort(fresh, function(a, b)
     return (a.q.status_updated_at or 0) > (b.q.status_updated_at or 0)

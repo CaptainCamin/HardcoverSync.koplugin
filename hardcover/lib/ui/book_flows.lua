@@ -82,9 +82,8 @@ function Flows:showBookDetail(book_id, edition_id, opts)
     end,
   }
 
-  UIManager:show(dialog)
   -- the latest details screen, for a change that is sent while it is up (see shelfSent)
-  self:screens():track("book", dialog)
+  self:openScreen("book", dialog)
 
   local user_id = User:getId()
   -- What is saved about the book, shown when the network cannot supply it: its details
@@ -301,7 +300,7 @@ function Flows:showReviews(book_id, summary)
     hint = hint,
     fetch_page = fetch_page,
   }
-  UIManager:show(dialog)
+  self:openScreen(nil, dialog)
 
   fetch_page(0, Reviews.PAGE_SIZE, function(rows, _err, raw_count)
     if not rows then
@@ -867,11 +866,15 @@ end
 -- and the saved copies are marked out of date so Hardcover's word replaces them online.
 -- `row.op` is the cancelled op.
 function Flows:pendingUndone(row)
-  local op = row.op
+  local op = row.op or row.shelf_op
   if type(op) ~= "table" then return end
   local user_id = User:getId()
 
-  if row.kind == "shelf" then
+  -- a status set or a re-read started from the reader waits in the sync queue, with the shelf
+  -- the book was on; a change queued before that was recorded cannot be put back
+  if row.shelf_op and row.shelf_op.known == false then return end
+
+  if row.kind == "shelf" or row.shelf_op then
     local now = op.kind == "status" and op.status_id or nil
     self:shelfChanged(op.book_id, now, op.from_status_id, op.user_book_id, true)
     local shelves = self:shelves()

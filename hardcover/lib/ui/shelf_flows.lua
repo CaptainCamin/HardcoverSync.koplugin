@@ -208,8 +208,7 @@ function Flows:showShelf(status_id, title)
       { text = _("Refresh"), callback = function() refresh() end },
     } or nil,
   }
-  self:screens():track("shelf", dialog)
-  UIManager:show(dialog)
+  self:openScreen("shelf", dialog)
 
   local function show(entries, complete)
     if complete and #entries == 0 then
@@ -367,11 +366,18 @@ end
 -- forgotten, which offline would leave Home with no counts at all: the two counts that
 -- moved are adjusted instead. All of it is done properly when the change is sent.
 --
-function Flows:shelfChanged(book_id, old_status_id, status_id, user_book_id, unsent)
+function Flows:shelfChanged(book_id, old_status_id, status_id, user_book_id, unsent, info)
   self:moveShownCounts(old_status_id, status_id, book_id)
   local store = self:shelves()
   local user_id = User:getId()
   if store then
+    -- a book no shelf ever held has no row to show; `info` ({ title }) from the book's file
+    -- gives it one, or the change would be on the shelf's count and missing from its list
+    local books = self.book_store
+    if status_id and type(info) == "table" and info.title and books
+        and #books:missing({ book_id }) > 0 then
+      books:saveRows({ { book_id = book_id, title = info.title } })
+    end
     if status_id then
       store:moveBook(user_id, book_id, status_id, user_book_id, unsent)
     else

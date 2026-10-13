@@ -349,7 +349,7 @@ function ReviewsDialog:showFull(review)
     title = _("Review"),
     heading = Reviews.headline(review),
     text = review.text,
-  })
+  }, "full")
 end
 
 --

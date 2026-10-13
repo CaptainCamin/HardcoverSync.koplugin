@@ -140,7 +140,7 @@ function DialogManager:buildSearchDialog(title, items, active_item, book_callbac
     search_value = search
   }
 
-  UIManager:show(self.search_dialog)
+  UIManager:show(self.search_dialog, "full")
 end
 
 --
@@ -181,7 +181,7 @@ function DialogManager:buildLoadingSearchDialog(title, fetch, active_item, book_
     edition_rows = edition_rows,
   }
 
-  UIManager:show(self.search_dialog)
+  UIManager:show(self.search_dialog, "full")
 
   local loading = StatusDialogs.loading(_("Loading…"))
 
@@ -632,6 +632,21 @@ function DialogManager:queueChanged()
   if home and home.rebuild then home:rebuild() end
 end
 
+-- The one way a plugin screen goes up. A full-screen screen shown with no refresh mode is
+-- drawn by a partial refresh over whatever was beneath, which ghosts on e-ink, so it is shown
+-- with a flashing "full" one here instead of every caller having to remember. A screen
+-- mounted in the shell (`host`) is placed in it, and the shell was opened full already.
+-- `kind` is what the screen registry remembers it as; nil for a screen nothing else reaches.
+function DialogManager:openScreen(kind, dialog, host)
+  if kind then self:screens():track(kind, dialog) end
+  if not host then
+    UIManager:show(dialog, "full")
+  elseif host.remount then
+    Hosted.remount(host, dialog)
+  end
+  return dialog
+end
+
 function DialogManager:showShell(active)
   self:screens():discard("shell")
   local shell = require("hardcover/lib/ui/shell"):new { tabs = self:shellTabs(), active = active }
@@ -816,8 +831,7 @@ function DialogManager:showGoals(host)
   if cached and #(self:shownGoals(cached)) == 0 then
     dialog.message = require("hardcover/lib/ui/goals_dialog").NO_GOALS
   end
-  self:screens():track("goals", dialog)
-  if not host then UIManager:show(dialog) elseif host.remount then Hosted.remount(host, dialog) end
+  self:openScreen("goals", dialog, host)
   if not online then return dialog end
 
   Api:getGoalsAsync(function(goals, err)
@@ -874,8 +888,7 @@ function DialogManager:showStats(host)
   else
     dialog.message = _("Stats need an internet connection the first time.")
   end
-  self:screens():track("stats", dialog)
-  if not host then UIManager:show(dialog) elseif host.remount then Hosted.remount(host, dialog) end
+  self:openScreen("stats", dialog, host)
   if not online then return dialog end
 
   -- The saved stats are still right while the Read shelf has not changed (its
@@ -938,8 +951,7 @@ function DialogManager:showGoal(goal, note)
       self:archiveGoal(dialog, current, nil)
     end,
   }
-  self:screens():track("goal", dialog)
-  UIManager:show(dialog)
+  self:openScreen("goal", dialog)
 end
 
 --
@@ -960,8 +972,7 @@ function DialogManager:showGoalForm(goal, on_saved)
       self:archiveGoal(dialog, goal, on_saved)
     end or nil,
   }
-  self:screens():track("goal_form", dialog)
-  UIManager:show(dialog)
+  self:openScreen("goal_form", dialog)
   return dialog
 end
 
@@ -1140,8 +1151,7 @@ function DialogManager:showForYou()
       self:showBookDetail(entry.book_id)
     end,
   }
-  self:screens():track("for_you", dialog)
-  UIManager:show(dialog)
+  self:openScreen("for_you", dialog)
 
   if not Network.connected() then
     if saved and #saved > 0 then
@@ -1231,8 +1241,7 @@ function DialogManager:showVibes(host)
       if row.for_you then self:showForYou() else self:showVibe(row.vibe) end
     end,
   }
-  self:screens():track("vibes", dialog)
-  if not host then UIManager:show(dialog) elseif host.remount then Hosted.remount(host, dialog) end
+  self:openScreen("vibes", dialog, host)
 
   if scopeMissing(Vibes.SCOPE) then
     dialog:setMessage(_("Sign out and back in (Settings > Account) to see your vibes."))
@@ -1295,7 +1304,7 @@ function DialogManager:showVibe(vibe)
       self:showBookDetail(entry.book_id)
     end,
   }
-  UIManager:show(dialog)
+  self:openScreen(nil, dialog)
 
   if not Network.connected() then
     StatusDialogs.info(_("Vibes need an internet connection."))

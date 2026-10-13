@@ -316,7 +316,7 @@ local SettingsDialog = {}
 
 function SettingsDialog.show(opts)
   local screen = SettingsScreen:new { opts = opts }
-  UIManager:show(screen)
+  UIManager:show(screen, "full")
   return screen
 end
 

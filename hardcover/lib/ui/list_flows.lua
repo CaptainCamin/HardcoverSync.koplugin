@@ -13,7 +13,6 @@ local _ = require("gettext")
 local T = require("ffi/util").template
 
 local UIManager = require("ui/uimanager")
-local Hosted = require("hardcover/lib/ui/hosted")
 local Live = require("hardcover/lib/ui/live")
 
 local Api = require("hardcover/lib/hardcover_api")
@@ -179,8 +178,7 @@ function Flows:showLists(host)
       self:showList(row)
     end,
   }
-  self:screens():track("lists", dialog)
-  if not host then UIManager:show(dialog) elseif host.remount then Hosted.remount(host, dialog) end
+  self:openScreen("lists", dialog, host)
 
   if saved and #saved.mine == 0 and #saved.following == 0 then
     dialog:setMessage(noLists())
@@ -275,7 +273,7 @@ function Flows:showList(row)
       { text = _("Refresh"), callback = function() refresh() end },
     } or nil,
   }
-  UIManager:show(dialog)
+  self:openScreen(nil, dialog)
 
   local function show(entries, complete)
     if complete and #entries == 0 then
