@@ -155,4 +155,13 @@ failing.deps.store = function() error("disk full") end
 BulkLink.step(failing)
 r.check("a failed save is an error, not a link", failing.errors == 1 and #failing.linked == 0)
 
+-- ------------------------------------------------------------ shelf sync after linking
+local calls = {}
+local function record(id, opts) calls[#calls + 1] = { id = id, check = opts and opts.check } end
+r.check("no shelf sync when nothing was linked", BulkLink.syncShelves(cancelled, { 1, 2, 3 }, record) == 0 and #calls == 0)
+r.check("each shelf is synced, checking first", BulkLink.syncShelves(scan, { 1, 2, 3 }, record) == 3
+  and #calls == 3 and calls[1].id == 1 and calls[3].check == true)
+r.check("the summary mentions saving shelves", summary:find("shelves", 1, true) ~= nil)
+r.check("no shelf note without a link", BulkLink.summary(cancelled):find("shelves", 1, true) == nil)
+
 r.finish()
