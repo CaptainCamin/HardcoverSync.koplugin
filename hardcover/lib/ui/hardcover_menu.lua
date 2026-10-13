@@ -762,6 +762,13 @@ function HardcoverMenu:linkAllBooks()
   end
   local function finish()
     closeProgress()
+    -- the Library sync step: linking saved only the ids, so download the shelves now
+    local dm = self.dialog_manager
+    if dm and dm.downloadShelf and Network.connected() then
+      BulkLink.syncShelves(scan, require("hardcover/lib/home").statusIds(), function(status_id)
+        dm:downloadShelf(status_id, { check = true })
+      end)
+    end
     UIManager:show(InfoMessage:new { text = BulkLink.summary(scan) })
   end
   local function tick()

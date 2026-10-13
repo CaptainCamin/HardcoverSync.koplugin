@@ -4,7 +4,7 @@
 
 ### Added
 
-- **Link all books on this device.** Settings > Linking > "Link all books on this device" looks through the home folder for EPUBs that carry an ISBN or a Hardcover identifier and links each to its Hardcover book, one at a time, with progress you can tap to stop and a count of what was linked, not found and unreadable at the end. Books already linked are skipped. The approach (reading the identifiers from the EPUB's OPF, and the paced scan) is adapted from Bookshelf's "Auto-link all books"; there is no title-and-author guess yet.
+- **Link all books on this device.** Settings > Linking > "Link all books on this device" looks through the home folder for EPUBs that carry an ISBN or a Hardcover identifier and links each to its Hardcover book, one at a time, with progress you can tap to stop and a count of what was linked, not found and unreadable at the end. Books already linked are skipped. When any were linked, your shelves are then downloaded (the same download Home runs), so the linked books show on their shelves offline. The approach (reading the identifiers from the EPUB's OPF, and the paced scan) is adapted from Bookshelf's "Auto-link all books"; there is no title-and-author guess yet.
 
 - **Hold to jump.** Holding the up triangle of the scroll bar jumps to the start of the screen, holding the down triangle to the end (the last page, on a shelf). Tapping still steps one page.
 - **Read again.** A book marked Finished or Did not finish has a "Read again" button in the reader's panel. It asks first, then starts a new read from the page you are on (or from the start, on the last page). The finished read is kept.
