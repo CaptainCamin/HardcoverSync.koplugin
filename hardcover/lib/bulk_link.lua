@@ -239,6 +239,21 @@ function BulkLink.step(scan)
   return true
 end
 
+-- After linking: a Library sync, so the linked books' shelves are saved on the device and show
+-- offline (linking saves only the Hardcover id, not the shelves). `download(status_id, opts)` is
+-- the existing shelf download (Flows:downloadShelf); each shelf is asked about first (`check`)
+-- and fetched only if it differs from the saved copy. Nothing to do when no book was linked.
+-- Returns how many shelves were queued.
+function BulkLink.syncShelves(scan, status_ids, download)
+  if not scan or #scan.linked == 0 then return 0 end
+  local queued = 0
+  for _index, status_id in ipairs(status_ids or {}) do
+    download(status_id, { check = true })
+    queued = queued + 1
+  end
+  return queued
+end
+
 -- The words for the end of a scan.
 function BulkLink.summary(scan)
   local lines = {}
@@ -248,6 +263,7 @@ function BulkLink.summary(scan)
   add(string.format("No match on Hardcover: %d", #scan.no_match))
   add(string.format("No Hardcover or ISBN identifier in the file: %d", scan.no_id))
   if scan.errors > 0 then add(string.format("Could not check: %d", scan.errors)) end
+  if #scan.linked > 0 then add("Saving their shelves on this device.") end
   return table.concat(lines, "\n")
 end
 
