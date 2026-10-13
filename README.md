@@ -311,6 +311,10 @@ when a new document is opened, if no book has been linked already. These options
 * **Automatically link by title**: If the document metadata contains a title, choose the first book returned from
   hardcover search results for that title and document author (if available).
 
+* **Link all books on this device**: Looks through your home folder for EPUBs that carry an ISBN or a Hardcover
+  identifier and links each unlinked one to its Hardcover book in a single pass. It needs a connection, goes at about
+  one book every few seconds, and can be stopped by tapping the progress message.
+
 ### Track progress settings
 
 By default, (when enabled) updates will be sent to hardcover at a frequency you can select, no more often than once per
@@ -366,3 +370,8 @@ the real Hardcover API with an access token file you supply
 **Packaging.** `./spec/package_release.sh [output-dir]` builds and verifies `hardcoversync.koplugin.zip` (the name
 comes from `_meta.lua`). Pushing a version tag runs the same script in the release workflow and publishes the zip as
 a GitHub Release, which is what KOReader's App Store installs from.
+
+## License
+
+GNU Affero General Public License v3.0 (see [LICENSE](LICENSE)). The plugin began as a fork of an MIT-licensed
+plugin; that original notice (Copyright (c) 2024 Billiam) is kept in [LICENSE-MIT](LICENSE-MIT).
