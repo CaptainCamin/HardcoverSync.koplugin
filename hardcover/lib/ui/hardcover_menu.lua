@@ -673,7 +673,8 @@ function HardcoverMenu:pendingCancelled(row)
   if row.kind == "goal" and self.dialog_manager and self.dialog_manager.applyGoals then
     self.dialog_manager:applyGoals(self.dialog_manager:savedGoals())
   end
-  if (row.kind == "shelf" or row.kind == "list") and self.dialog_manager and self.dialog_manager.pendingUndone then
+  if (row.kind == "shelf" or row.kind == "list" or row.shelf_op)
+      and self.dialog_manager and self.dialog_manager.pendingUndone then
     self.dialog_manager:pendingUndone(row)
   end
   if (row.kind == "page" or row.kind == "status" or row.kind == "rating")
@@ -974,6 +975,7 @@ function HardcoverMenu:startReread()
 
   local payload = self.cache:queueMeta(file)
   payload.mapped_page = page
+  payload.from_status_id = self.state.book_status and self.state.book_status.status_id
   self.sync_queue:startReread(file, payload)
 
   Background.run(function()

@@ -53,16 +53,27 @@ function PendingChanges.list(queues)
       local entry = sync:get(filepath)
       local title = SyncConflicts.title(filepath, entry)
       local note = stuck(entry)
+      -- what the saved shelves need to put the book back where it was if this is cancelled
+      local shelf_op
+      if (entry.status_id ~= nil or entry.reread) and tonumber(entry.book_id) then
+        local from = tonumber(entry.from_status_id)
+        shelf_op = {
+          kind = "status", book_id = tonumber(entry.book_id), user_book_id = entry.user_book_id,
+          status_id = entry.status_id or HARDCOVER.STATUS.READING,
+          from_status_id = (from and from ~= 0) and from or nil,
+          known = entry.from_status_id ~= nil,
+        }
+      end
       if entry.status_id ~= nil then
         rows[#rows + 1] = {
-          kind = "status", title = title, note = note,
+          kind = "status", title = title, note = note, shelf_op = shelf_op,
           text = T(_("%1: mark as %2"), title, statusText(entry.status_id)),
           cancel = function() return sync:cancelStatus(filepath) end,
         }
       end
       if entry.mapped_page ~= nil then
         rows[#rows + 1] = {
-          kind = "page", title = title, note = note,
+          kind = "page", title = title, note = note, shelf_op = entry.reread and shelf_op or nil,
           text = T(_("%1: page %2"), title, entry.mapped_page),
           cancel = function() return sync:cancelPage(filepath) end,
         }
