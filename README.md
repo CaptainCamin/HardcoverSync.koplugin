@@ -366,3 +366,11 @@ the real Hardcover API with an access token file you supply
 **Packaging.** `./spec/package_release.sh [output-dir]` builds and verifies `hardcoversync.koplugin.zip` (the name
 comes from `_meta.lua`). Pushing a version tag runs the same script in the release workflow and publishes the zip as
 a GitHub Release, which is what KOReader's App Store installs from.
+
+## License
+
+The plugin is licensed under the GNU Affero General Public License v3.0 ([LICENSE](LICENSE)).
+
+It is a fork of Billiam's [hardcoverapp.koplugin](https://github.com/Billiam/hardcoverapp.koplugin), which was
+released under the MIT License. That original notice is kept in [LICENSE-MIT](LICENSE-MIT) and applies to the
+code that came from it.
