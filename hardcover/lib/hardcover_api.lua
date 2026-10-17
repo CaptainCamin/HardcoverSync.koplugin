@@ -258,10 +258,11 @@ function HardcoverApi:hydrateBookFromEdition(edition_id, user_id)
       }
     }]] .. edition_fragment
 
-  local editions = self:query(editionSearch, { id = edition_id, userId = user_id })
+  local editions, err = self:query(editionSearch, { id = edition_id, userId = user_id })
   if editions and editions.editions and #editions.editions > 0 then
     return self:normalizedEdition(editions.editions[1])
   end
+  if not editions then return nil, err or { completed = false } end
 end
 
 function HardcoverApi:findBookBySlug(slug, user_id)
@@ -272,10 +273,11 @@ function HardcoverApi:findBookBySlug(slug, user_id)
       }
     }]] .. book_fragment
 
-  local books = self:query(slugSearch, { slug = slug, userId = user_id })
+  local books, err = self:query(slugSearch, { slug = slug, userId = user_id })
   if books and books.books and #books.books > 0 then
     return books.books[1]
   end
+  if not books then return nil, err or { completed = false } end
 end
 
 function HardcoverApi:findEditions(book_id, user_id)
@@ -354,7 +356,11 @@ function HardcoverApi:search(title, author, userId, page)
     return nil, error
   end
 
-  if not results or not _t.dig(results, "search", "ids") then
+  -- no answer at all (offline, not signed in) is a failure, not "nothing found"
+  if not results then
+    return nil, { completed = false }
+  end
+  if not _t.dig(results, "search", "ids") then
     return {}
   end
 
@@ -362,21 +368,27 @@ function HardcoverApi:search(title, author, userId, page)
   return self:hydrateBooks(ids, userId)
 end
 
+-- The book for some identifiers, or nil. When nil, a second value says the call itself failed
+-- (offline, rate limit, expired token), so "Hardcover has no such book" can be told apart from "could
+-- not ask". A later identifier that answers still wins over an earlier failure.
 function HardcoverApi:findBookByIdentifiers(identifiers, user_id)
   local isbnKey
+  local failure
 
   if identifiers.edition_id then
-    local book = self:hydrateBookFromEdition(identifiers.edition_id, user_id)
+    local book, err = self:hydrateBookFromEdition(identifiers.edition_id, user_id)
     if book then
       return book
     end
+    failure = failure or err
   end
 
   if identifiers.book_slug then
-    local book = self:findBookBySlug(identifiers.book_slug, user_id)
+    local book, err = self:findBookBySlug(identifiers.book_slug, user_id)
     if book then
       return book
     end
+    failure = failure or err
   end
 
   if identifiers.isbn_13 then
@@ -393,11 +405,14 @@ function HardcoverApi:findBookByIdentifiers(identifiers, user_id)
         }
       }]] .. edition_fragment
 
-    local editions = self:query(editionSearch, { isbn = tostring(identifiers[isbnKey]), userId = user_id })
+    local editions, err = self:query(editionSearch, { isbn = tostring(identifiers[isbnKey]), userId = user_id })
     if editions and editions.editions and #editions.editions > 0 then
       return self:normalizedEdition(editions.editions[1])
     end
+    if not editions then failure = failure or err or { completed = false } end
   end
+
+  return nil, failure
 end
 
 function HardcoverApi:normalizedEdition(edition)

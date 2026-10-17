@@ -83,9 +83,16 @@ function BulkLink.identifiersFromOpf(opf)
   for attrs, value in opf:gmatch("<%s*[%w_%-:]*identifier([^>]*)>(.-)</%s*[%w_%-:]*identifier%s*>") do
     add(identifierToken(attrs, value))
   end
-  -- A Hardcover reference written anywhere else in the package (a meta tag, a comment).
-  for token in opf:gmatch("[Hh][Aa][Rr][Dd][Cc][Oo][Vv][Ee][Rr][%w_-]*%s*:%s*[%w_-]+") do
-    add((token:gsub("%s*:%s*", ":")))
+  -- A Hardcover reference in a <meta> tag's content ("hardcover:slug"). Not anywhere else: the
+  -- words "Hardcover: Penguin" in a description are not an identifier.
+  for attrs in opf:gmatch("<%s*meta%s([^>]*)>") do
+    local content = attr(attrs, "content")
+    if content then
+      content = xmlDecode(content)
+      if content:lower():match("^hardcover[%w_-]*%s*:%s*[%w_-]+$") then
+        add((content:gsub("%s*:%s*", ":")))
+      end
+    end
   end
   return #tokens > 0 and table.concat(tokens, "\n") or nil
 end
@@ -250,8 +257,10 @@ function BulkLink.step(scan)
     return false
   end
 
-  local ok_lookup, book = pcall(deps.lookup, parsed)
-  if not ok_lookup then
+  -- `lookup` gives the book, nil when Hardcover has no such book, or nil and an error when the
+  -- call itself failed (offline, rate limit, expired token): that is not "no match".
+  local ok_lookup, book, lookup_error = pcall(deps.lookup, parsed)
+  if not ok_lookup or (not book and lookup_error) then
     scan.errors = scan.errors + 1
     return true
   end
@@ -277,15 +286,18 @@ end
 -- and the author (surname, and first initial if given) is one of the book's authors. A file with
 -- no author links only if exactly one result has that title. Anything else is left unlinked.
 
-local function normalize(text)
+local function normalizeWith(text, keep_subtitle)
   text = tostring(text or ""):lower()
   text = text:gsub("%b()", " "):gsub("%b[]", " ")
-  text = text:gsub(":.*$", "")
+  if not keep_subtitle then text = text:gsub(":.*$", "") end
   text = text:gsub("[^%w%s]", " ")
   text = text:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
   text = text:gsub("^the ", ""):gsub("^an? ", "")
   return text
 end
+-- The title without its subtitle; `full` keeps the subtitle.
+local function normalize(text) return normalizeWith(text, false) end
+local function full(text) return normalizeWith(text, true) end
 BulkLink.normalize = normalize
 
 -- The surname and first initial of "Frank Herbert" or "Herbert, Frank" (lower case; the initial is
@@ -338,24 +350,36 @@ local function hasAuthor(book, wanted)
   return false
 end
 
--- The result to link for a file called `title` by `author`, or nil when none is safe.
+-- The result to link for a file called `title` by `author`, or nil when none is safe. The whole
+-- title is matched first, so "Dune: Messiah" is never "Dune". A file whose title has no subtitle
+-- may also match a result that only adds one ("The Hobbit" and "The Hobbit: Or There and Back
+-- Again"), but only when exactly one result does: a series ("Star Wars: Thrawn", "Star Wars:
+-- Heir to the Empire") is not told apart by its first words.
 function BulkLink.pickGuess(results, title, author)
   local wanted_title = normalize(title)
   if wanted_title == "" or type(results) ~= "table" then return nil end
+  local wanted_full = full(title)
+  local has_subtitle = wanted_full ~= wanted_title
   local wanted_author = person(author)
-  local same_title = {}
-  for _index, book in ipairs(results) do
-    if book.book_id and normalize(book.title) == wanted_title then
-      same_title[#same_title + 1] = book
-    end
+
+  local function acceptable(book)
+    return not wanted_author or hasAuthor(book, wanted_author)
   end
-  if wanted_author then
-    for _index, book in ipairs(same_title) do
-      if hasAuthor(book, wanted_author) then return book end
+  local function matching(same)
+    local out = {}
+    for _index, book in ipairs(results) do
+      if book.book_id and same(book) and acceptable(book) then out[#out + 1] = book end
     end
-    return nil
+    return out
   end
-  return #same_title == 1 and same_title[1] or nil
+
+  local whole = matching(function(book) return full(book.title) == wanted_full end)
+  if wanted_author and #whole > 0 then return whole[1] end
+  if #whole == 1 then return whole[1] end
+  if #whole > 1 or has_subtitle then return nil end
+
+  local started = matching(function(book) return normalize(book.title) == wanted_title end)
+  return #started == 1 and started[1] or nil
 end
 
 -- A scan that guesses for `items` (files). `deps` is { read_metadata, search, store }:

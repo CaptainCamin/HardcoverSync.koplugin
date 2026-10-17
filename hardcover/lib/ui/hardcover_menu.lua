@@ -806,7 +806,8 @@ function HardcoverMenu:linkAllBooks()
   local function guess(unmatched)
     local scan = BulkLink.newGuess(unmatched, {
       read_metadata = function(file) return BulkLink.readEpubMetadata(file) end,
-      search = function(title, author) return Api:findBooks(title, author, User:getId()) end,
+      -- the whole title, subtitle included: findBooks cuts it at the colon, which a series needs kept
+      search = function(title, author) return Api:search(title, author, User:getId()) end,
       store = store,
     })
     run(scan, BulkLink.stepGuess, _("Guessing books by title and author..."), finishGuesses)

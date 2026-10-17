@@ -28,8 +28,12 @@ r.check("a prefixed identifier is kept as written", ids:find("isbn13:97803064061
 r.check("an OPF with no usable identifier gives nil",
   BulkLink.identifiersFromOpf("<package><dc:identifier>urn:uuid:1</dc:identifier></package>") == nil)
 r.check("no OPF gives nil", BulkLink.identifiersFromOpf(nil) == nil)
-r.check("a bare Hardcover reference elsewhere in the package is found",
-  (BulkLink.identifiersFromOpf("<meta content='x'/><!-- hardcover : dune -->") or ""):find("hardcover:dune", 1, true) ~= nil)
+r.check("a Hardcover reference in a meta tag is found",
+  (BulkLink.identifiersFromOpf('<meta name="hardcover" content="hardcover:dune"/>') or ""):find("hardcover:dune", 1, true) ~= nil)
+r.check("'Hardcover: ...' in a description is not an identifier",
+  BulkLink.identifiersFromOpf("<dc:description>Hardcover: Penguin, 336 pages</dc:description>") == nil)
+r.check("'hardcover:' in a comment or stray text is not an identifier",
+  BulkLink.identifiersFromOpf("<!-- hardcover : dune --><p>Hardcover: 336 pages</p>") == nil)
 r.check("entities in a value are decoded",
   (BulkLink.identifiersFromOpf('<dc:identifier opf:scheme="isbn">978&amp;0</dc:identifier>') or ""):find("isbn:978&0", 1, true) ~= nil)
 
@@ -110,6 +114,7 @@ local function scanOf(files, identifiers, books)
       lookups[#lookups + 1] = parsed
       local book = books[parsed.isbn_13 or parsed.isbn_10 or parsed.book_slug]
       if book == "error" then error("offline") end
+      if book == "failed" then return nil, { status = 429 } end
       return book
     end,
     store = function(file, cfg) stored[file] = cfg end,
@@ -164,6 +169,12 @@ r.check("each shelf is synced, checking first", BulkLink.syncShelves(scan, { 1, 
 r.check("the summary mentions saving shelves", summary:find("shelves", 1, true) ~= nil)
 r.check("no shelf note without a link", BulkLink.summary(cancelled):find("shelves", 1, true) == nil)
 
+-- a lookup that fails is an error, not "no match", and is not offered for guessing
+local failed = scanOf({ "/Down.epub" }, { ["/Down.epub"] = "isbn13:9780000000004" },
+  { ["9780000000004"] = "failed" })
+r.check("a lookup that returns an error counts as an error", BulkLink.step(failed) == true and failed.errors == 1)
+r.check("it is not 'no match' and is not offered for a guess", #failed.no_match == 0 and #failed.unmatched == 0)
+
 -- ------------------------------------------------------------ the exact pass keeps the books to guess
 r.check("books with no identifier and no match are kept for a guess",
   #scan.unmatched == 2 and scan.unmatched[1] == "/Plain.epub" and scan.unmatched[2] == "/Lost.epub",
@@ -207,6 +218,22 @@ r.check("with no author, two books with that title are too many",
   BulkLink.pickGuess({ dune, book(8, "Dune", "Brian Herbert") }, "Dune", nil) == nil)
 r.check("no results, no title, no guess", BulkLink.pickGuess({}, "Dune", "x") == nil
   and BulkLink.pickGuess(results, "", "x") == nil and BulkLink.pickGuess(nil, "Dune", "x") == nil)
+
+local function title_of(picked) return picked and picked.title or nil end
+local messiah = book(2, "Dune: Messiah", "Frank Herbert")
+r.check("the whole title wins over a title that only starts the same",
+  title_of(BulkLink.pickGuess({ dune, messiah }, "Dune: Messiah", "Frank Herbert")) == "Dune: Messiah")
+r.check("a file with a subtitle needs the whole title",
+  BulkLink.pickGuess({ dune }, "Dune: Messiah", "Frank Herbert") == nil)
+r.check("a series with the same start does not pick the first of its books",
+  title_of(BulkLink.pickGuess({ book(4, "Star Wars: Heir to the Empire", "Timothy Zahn"),
+    book(5, "Star Wars: Thrawn", "Timothy Zahn") }, "Star Wars: Thrawn", "Timothy Zahn")) == "Star Wars: Thrawn")
+r.check("a plain title with several subtitled books is too many to choose from",
+  BulkLink.pickGuess({ book(4, "Star Wars: Heir to the Empire", "Timothy Zahn"),
+    book(5, "Star Wars: Thrawn", "Timothy Zahn") }, "Star Wars", "Timothy Zahn") == nil)
+r.check("a title with no author and no exact result is not guessed from subtitled ones",
+  BulkLink.pickGuess({ book(4, "Star Wars: Heir to the Empire", "Timothy Zahn"),
+    book(5, "Star Wars: Thrawn", "Timothy Zahn") }, "Star Wars", nil) == nil)
 
 -- ------------------------------------------------------------ the guess scan
 local function guessScanOf(files, metas, searches)
