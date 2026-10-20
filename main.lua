@@ -792,6 +792,7 @@ function HardcoverApp:on_flush_sync_queue()
   if self.goal_queue then self.goal_queue:retryHeld() end
   if self.shelf_queue then self.shelf_queue:retryHeld() end
   if self.list_queue then self.list_queue:retryHeld() end
+  if self.rating_queue then self.rating_queue:retryHeld() end
   local pending = self.sync_queue:pendingCount() + (self.goal_queue and self.goal_queue:count() or 0)
     + (self.rating_queue and self.rating_queue:count() or 0)
     + (self.shelf_queue and self.shelf_queue:count() or 0)
@@ -932,7 +933,8 @@ function HardcoverApp:_flushRatings()
   local waiting = queue:flush(Api, function(user_book_id, user_book)
     self.dialog_manager:ratingSent(user_book_id, user_book)
   end)
-  return waiting == 0
+  -- (held ones wait for the user, as shelf and list changes do)
+  return waiting <= queue:heldCount()
 end
 
 -- Send the shelf changes made offline. Returns false while any is still waiting for another
@@ -987,6 +989,8 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
 
   local run = function()
     Trapper:wrap(function()
+      -- a status changed on both the reader and the details screen: only the newer is sent
+      if self.shelf_queue then self.shelf_queue:settleWith(self.sync_queue) end
       local success = self.sync_queue:flush(Api, {
         user_id = User:getId(),
         settings = self.settings,

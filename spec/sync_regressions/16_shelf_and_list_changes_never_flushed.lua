@@ -35,6 +35,7 @@ local function newApp(shelf_queue, list_queue, told)
     sync_queue = {
       hasPending = function() return false end,
       pendingCount = function() return 0 end,
+      filepaths = function() return {} end,
       flush = function() return true end,
     },
     shelf_queue = shelf_queue,
