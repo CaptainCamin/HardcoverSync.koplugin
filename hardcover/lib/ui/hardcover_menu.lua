@@ -1037,6 +1037,15 @@ function HardcoverMenu:startReread()
   end)
 end
 
+-- The book's status as the reader sees it: a change still waiting in the sync queue counts, as
+-- on the reader panel (the saved state may not have it yet, e.g. a book set to Reading offline
+-- and opened again before the state is rebuilt).
+function HardcoverMenu:currentStatusId()
+  local file = self.ui and self.ui.document and self.ui.document.file
+  local pending = file and self.sync_queue and self.sync_queue:get(file)
+  return (type(pending) == "table" and pending.status_id) or (self.state.book_status or {}).status_id
+end
+
 function HardcoverMenu:refreshReaderPanel()
   if self.reader_panel and UIManager:isWidgetShown(self.reader_panel) then
     self.reader_panel:render()
@@ -1048,11 +1057,13 @@ function HardcoverMenu:savePage(current_read, edition_page, menu_instance)
     local result
 
     -- offline there is nothing to wait for: straight to the queue
+    -- (a read made offline has no id yet, and a book set to Reading offline no user book: the
+    -- queue creates both when it is sent, so there is nothing to ask Hardcover about yet)
     if Network.connected() then
-      if current_read then
+      if current_read and current_read.id then
         result = Api:updatePage(current_read.id, current_read.edition_id, edition_page,
           current_read.started_at)
-      else
+      elseif self.state.book_status.id then
         local start_date = os.date("%Y-%m-%d")
         result = Api:createRead(self.state.book_status.id, self.state.book_status.edition_id, edition_page,
           start_date)
@@ -1232,7 +1243,7 @@ function HardcoverMenu:getStatusSubMenuItems()
         return T(_("Update page: %1 of %2"), current_page, max_pages)
       end,
       enabled_func = function()
-        return self.enabled and self.state.book_status.status_id == HARDCOVER.STATUS.READING and self.settings:pages()
+        return self.enabled and self:currentStatusId() == HARDCOVER.STATUS.READING
       end,
       callback = function(menu_instance)
         local reads = self.state.book_status.user_book_reads
@@ -1242,7 +1253,9 @@ function HardcoverMenu:getStatusSubMenuItems()
         local document_page = self.ui:getCurrentPage()
         local document_pages = self.ui.document:getPageCount()
 
-        local remote_pages = self.settings:pages()
+        -- an edition with no page count: the pages of the file stand in, as they do when the
+        -- page is tracked automatically
+        local remote_pages = self.settings:pages() or document_pages
         local mapped_page = self.page_mapper:getMappedPage(document_page, document_pages, remote_pages)
 
         local left_text = "Edition"

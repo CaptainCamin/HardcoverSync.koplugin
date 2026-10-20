@@ -225,7 +225,8 @@ function SyncQueue:applyPending(filepath, book_status)
       -- The server may already be ahead (read on another device): never show
       -- the book as further back than the cloud says.
       local shown = tonumber(reads[#reads].progress_pages)
-      if not shown or shown < entry.mapped_page then
+      -- (unless the reader set this page by hand: that is theirs to move backwards)
+      if not shown or shown < entry.mapped_page or entry.force_page then
         reads[#reads].progress_pages = entry.mapped_page
       end
       if entry.edition_id then
@@ -273,7 +274,7 @@ function SyncQueue:applyToReading(entries, lookup)
       for k, v in pairs(entry) do card[k] = v end
       if q and q.mapped_page ~= nil then
         local shown = tonumber(card.progress_pages)
-        if not shown or shown < q.mapped_page then card.progress_pages = q.mapped_page end
+        if not shown or shown < q.mapped_page or q.force_page then card.progress_pages = q.mapped_page end
       end
       out[#out + 1] = card
     end
