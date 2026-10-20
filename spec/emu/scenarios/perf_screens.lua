@@ -206,8 +206,9 @@ return {
     within("shelf open", results.shelf, 2, 2.4)
     within("shelf page turn", results.shelf_page, 1, 1.3)
     -- details: the loading screen, the book, the series; covers are boxes; the similar strip is
-    -- in the book's own draw (a placeholder) and filled in place
-    within("book details", results.detail, 2, 2.4)
+    -- in the book's own draw (a placeholder) and filled in place. The open itself is a flashing
+    -- full refresh since d8123ed, which is the third.
+    within("book details", results.detail, 3, 3.4)
     -- the sign-in bar stepping: the bar and its line, nothing else
     within("sign-in bar", results.signin, 0, 0.1)
     -- the panel is a sheet over the page: never the whole panel. Stacked buttons (three actions and

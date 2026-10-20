@@ -571,6 +571,9 @@ function BookDetailDialog:init()
 
   if not reserve and content:getSize().h > screen_h - title_bar:getSize().h then
     self.reserve_gutter = true
+    -- the strips of this first build have started fetching their covers; the second build makes
+    -- its own, and these would decode again and refresh a box that is never on screen
+    self:releaseCover()
     return self:init()
   end
 
