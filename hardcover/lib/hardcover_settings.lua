@@ -52,7 +52,11 @@ function HardcoverSettings:readBookSetting(filename, key)
   end
 end
 
-function HardcoverSettings:updateBookSetting(filename, config)
+-- `silent` saves without telling the subscribers: for a pass over many books that are not open,
+-- where what they do for the open book (highlight menu, queued progress) has nothing to act on.
+-- The book that is open in the reader is the exception: it is always announced, so a link made
+-- from outside it reaches its state at once.
+function HardcoverSettings:updateBookSetting(filename, config, silent)
   local books = self.settings:readSetting("books", {})
   if not books[filename] then
     books[filename] = {}
@@ -73,6 +77,7 @@ function HardcoverSettings:updateBookSetting(filename, config)
 
   self.settings:flush()
 
+  if silent and not (self.ui and self.ui.document and self.ui.document.file == filename) then return end
   self:notify(SETTING.BOOKS, { filename = filename, config = config }, original_value)
 end
 
