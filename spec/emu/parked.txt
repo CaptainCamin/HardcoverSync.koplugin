@@ -10,7 +10,5 @@ goal_offline
 # The scenarios predate the Home-inside-the-shell change (903bf0b).
 offline_lists
 offline_book_changes
-# Whole-panel refreshes: book details 7 (budget 2). Maybe a real regression, check on a device.
-perf_screens
 # The offline read's page is not shown after "read again".
 reader_panel_read_again
