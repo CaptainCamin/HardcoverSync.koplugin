@@ -1668,6 +1668,15 @@ function HardcoverMenu:getBookSourceSubMenuItems()
   return items
 end
 
+-- Close the menu a callback was given so a long job can show its progress. The settings screen hands
+-- its callbacks a stand-in (a table with updateItems), not a widget, and closing that crashes
+-- KOReader; only a real widget (KOReader's own touch menu) is closed.
+local function closeMenu(menu_instance)
+  if type(menu_instance) == "table" and type(menu_instance.handleEvent) == "function" then
+    UIManager:close(menu_instance)
+  end
+end
+
 function HardcoverMenu:getSettingsSubMenuItems()
   return {
     {
@@ -1777,7 +1786,7 @@ function HardcoverMenu:getSettingsSubMenuItems()
       text = _("Link all books on this device"),
       help = _("Looks through your home folder for EPUBs that carry an ISBN or a Hardcover identifier and links each to its Hardcover book, so shelves show them as on this device. Needs a connection; it can be stopped."),
       callback = function(menu_instance)
-        if menu_instance then UIManager:close(menu_instance) end
+        closeMenu(menu_instance)
         self:linkAllBooks()
       end,
     },
@@ -1786,7 +1795,7 @@ function HardcoverMenu:getSettingsSubMenuItems()
       text = _("Save details of linked books"),
       help = _("Saves the description, ratings, editions and the rest of the details screen for the books you have linked, so they open without a connection. Opening a book's details does this for that book."),
       callback = function(menu_instance)
-        if menu_instance then UIManager:close(menu_instance) end
+        closeMenu(menu_instance)
         self:saveLinkedDetails()
       end,
     },
