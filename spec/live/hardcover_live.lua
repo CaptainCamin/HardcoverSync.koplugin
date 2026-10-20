@@ -177,6 +177,24 @@ step("getBookDetail", function()
   is_table(detail, "book detail")
 end)
 
+step("findBooksByIdentifiers: edition, ISBN and slug in one batch", function()
+  local detail = is_table(Api:getBookDetail(need(ctx.book_id, "book id"), ctx.user_id, ctx.edition_id), "book detail")
+  local isbn = detail.book.isbn_13 or detail.book.isbn_10
+  local list = {
+    { edition_id = need(ctx.edition_id, "edition id") },
+    { isbn_13 = "9780000000002" },       -- a valid-looking ISBN nobody has
+    { book_slug = "dune" },
+  }
+  if isbn then list[#list + 1] = detail.book.isbn_13 and { isbn_13 = isbn } or { isbn_10 = isbn } end
+  local answers = is_table(Api:findBooksByIdentifiers(list, ctx.user_id), "answers")
+  if #answers ~= #list then error("expected " .. #list .. " answers, got " .. #answers, 0) end
+  if not (answers[1] and tonumber(answers[1].edition_id) == ctx.edition_id) then
+    error("the edition was not found by its id", 0)
+  end
+  if answers[2] ~= false then error("an unknown ISBN was matched", 0) end
+  if isbn and not (answers[4] and answers[4].book_id) then error("the edition's own ISBN was not found", 0) end
+end)
+
 step("findDefaultEdition", function()
   is_table(Api:findDefaultEdition(need(ctx.book_id, "book id"), ctx.user_id), "default edition")
 end)
