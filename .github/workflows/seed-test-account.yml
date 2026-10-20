@@ -1,0 +1,32 @@
+name: seed-test-account
+
+# One-off: seeds the throwaway Hardcover test account (spec/seed/seed_test_account.sh). Shares the
+# live-hardcover concurrency group with live.yml so the two never write to the account at once.
+on:
+  push:
+    branches: [claude/project-thread-tmt74q]  # TEMPORARY: remove before merging
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-hardcover
+  cancel-in-progress: false
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Seed the test account
+        env:
+          HARDCOVER_DEV_KEY: ${{ secrets.HARDCOVER_DEV_KEY }}
+        run: |
+          if [ -z "$HARDCOVER_DEV_KEY" ]; then
+            echo "HARDCOVER_DEV_KEY is not set as a repository secret"
+            exit 1
+          fi
+          bash spec/seed/seed_test_account.sh
