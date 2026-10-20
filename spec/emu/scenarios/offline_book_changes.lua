@@ -172,7 +172,7 @@ return {
     emu:expectText("Offline: the shelf change is kept")
     assert(dialog.detail.status_id == 1, "the screen did not change")
     dismiss(dialog)
-    emu:expectText("Change shelf")
+    emu:expectText("Want to Read")
     emu:shot("offline_book_changes_detail")
 
     -- both are in the pending list, and say what they are

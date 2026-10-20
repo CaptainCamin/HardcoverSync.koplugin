@@ -33,3 +33,41 @@ jobs:
 
       - name: Run Busted
         uses: lunarmodules/busted@v2.2.0
+
+  # Renders the plugin's screens with the real KOReader frontend, headless (spec/emu/README.md).
+  # Scenarios that fail today are listed with their reasons in spec/emu/parked.txt.
+  emulator:
+    runs-on: ubuntu-latest
+    env:
+      KOREADER_VERSION: v2025.10
+      KOREADER_SHA256: 712f94c014a4e24420b7da1935759861cb286d3207a094e5a849be9077c620b9
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download KOReader
+        run: |
+          curl -fsSL -o koreader.AppImage \
+            "https://github.com/koreader/koreader/releases/download/${KOREADER_VERSION}/koreader-appimage-x86_64-${KOREADER_VERSION}.AppImage"
+          echo "${KOREADER_SHA256}  koreader.AppImage" | sha256sum -c -
+          chmod +x koreader.AppImage
+          ./koreader.AppImage --appimage-extract > /dev/null
+
+      # The plugin copies its Lato fonts into KOReader's fonts folder the first time it runs, after
+      # KOReader has already tried to load them; put them there first so no run starts without.
+      - name: Install the plugin's fonts
+        run: cp fonts/Lato-Medium.ttf fonts/Lato-Black.ttf squashfs-root/fonts/
+
+      - name: Run the emulator scenarios
+        env:
+          KO_EMU_APP: ${{ github.workspace }}/squashfs-root
+          KO_EMU_HOME: ${{ runner.temp }}/ko-home
+          KO_EMU_OUT: ${{ runner.temp }}/ko-out
+        run: spec/emu/run.sh --ci
+
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-screens
+          path: ${{ runner.temp }}/ko-out
+          if-no-files-found: ignore

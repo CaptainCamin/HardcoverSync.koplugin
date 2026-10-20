@@ -8,6 +8,7 @@
 #   spec/emu/run.sh                 # every scenario
 #   spec/emu/run.sh shelf journal   # just these
 #   spec/emu/run.sh --list
+#   spec/emu/run.sh --ci            # every scenario not in parked.txt (what CI runs)
 #
 # Environment:
 #   KO_EMU_APP   KOReader install (default /Applications/KOReader.app)
@@ -74,6 +75,17 @@ for f in "$EMU_DIR"/scenarios/*.lua; do
   [ -e "$f" ] || continue
   SCENARIOS+=("$(basename "$f" .lua)")
 done
+
+# --ci: skip the scenarios listed in parked.txt (known failures, each with its reason there)
+if [ "${1:-}" = "--ci" ]; then
+  shift
+  PARKED="$(grep -v -e '^#' -e '^$' "$EMU_DIR/parked.txt")"
+  KEEP=()
+  for s in "${SCENARIOS[@]}"; do
+    if ! printf '%s\n' "$PARKED" | grep -qx "$s"; then KEEP+=("$s"); fi
+  done
+  SCENARIOS=("${KEEP[@]}")
+fi
 
 if [ "${1:-}" = "--list" ]; then
   printf '%s\n' "${SCENARIOS[@]}"
