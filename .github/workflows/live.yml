@@ -1,0 +1,43 @@
+name: live
+
+# Runs the plugin's real API layer against the real Hardcover API, on a throwaway account
+# (spec/live/hardcover_live.lua). The fake-API harnesses in the test workflow cannot see
+# Hardcover changing under the plugin; this can. Not run for pull requests: the token must
+# never reach a fork's code.
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+    inputs:
+      goals:
+        description: 'Also create and archive a reading goal (leaves an archived goal on the account)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-hardcover
+  cancel-in-progress: false
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LuaJIT
+        run: sudo apt-get install -y luajit
+
+      - name: Check the plugin against the live Hardcover API
+        env:
+          HARDCOVER_DEV_KEY: ${{ secrets.HARDCOVER_DEV_KEY }}
+          HARDCOVER_LIVE_GOALS: ${{ inputs.goals && '1' || '' }}
+        run: |
+          if [ -z "$HARDCOVER_DEV_KEY" ]; then
+            echo "HARDCOVER_DEV_KEY is not set as a repository secret"
+            exit 1
+          fi
+          luajit spec/live/hardcover_live.lua .
