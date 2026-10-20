@@ -37,6 +37,10 @@ fi
 
 FAILED=0
 FAILED_LIST=()
+# Totals for the summary: files run, and the "N passed, M failed" lines the harnesses print.
+FILES_RUN=0
+ASSERT_PASSED=0
+ASSERT_FAILED=0
 
 echo "== interpreter =="
 if [ -z "$LUA" ]; then
@@ -91,19 +95,34 @@ for h in spec/*_harness.lua; do
   else
     echo "$out" | tail -1 | sed 's/^/    /'
   fi
+  FILES_RUN=$((FILES_RUN + 1))
+  # Add up the counts: the harnesses end with "N passed, M failed" (a few plain scripts print "... OK"
+  # and count as a file only).
+  counts="$(echo "$out" | grep -E '[0-9]+ passed, [0-9]+ failed' | tail -1)"
+  if [ -n "$counts" ]; then
+    ASSERT_PASSED=$((ASSERT_PASSED + $(echo "$counts" | sed -E 's/^\s*([0-9]+) passed.*/\1/')))
+    ASSERT_FAILED=$((ASSERT_FAILED + $(echo "$counts" | sed -E 's/.* ([0-9]+) failed.*/\1/')))
+  fi
 done
 
 echo
 echo "== offline sync regressions =="
+REGRESSIONS_RUN=0
 for h in spec/sync_regressions/[0-9]*.lua; do
   [ -e "$h" ] || continue
   printf '  %s\n' "$h"
+  REGRESSIONS_RUN=$((REGRESSIONS_RUN + 1))
   if ! out="$("$LUA" "$h" "$ROOT" 2>&1)"; then
     FAILED=1
     FAILED_LIST+=("$h")
     echo "$out" | sed 's/^/    /'
   fi
 done
+
+echo
+echo "== totals =="
+echo "  $FILES_RUN harness files: $ASSERT_PASSED assertions passed, $ASSERT_FAILED failed"
+echo "  $REGRESSIONS_RUN sync regressions"
 
 echo
 if [ "$FAILED" -eq 0 ]; then

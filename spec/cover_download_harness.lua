@@ -12,10 +12,7 @@ local r = support.reporter()
 local json = dofile(PLUGIN .. "/spec/json.lua")
 package.preload["json"] = function() return json end
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 local function make()
   return setmetatable({}, {

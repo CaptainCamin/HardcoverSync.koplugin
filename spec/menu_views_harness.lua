@@ -96,10 +96,7 @@ local function has(list, wanted)
   return false
 end
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 local function shown(list) return table.concat(list, " | ") end
 

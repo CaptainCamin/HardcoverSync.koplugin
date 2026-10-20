@@ -235,10 +235,7 @@ local function newManager()
   }, { __index = DialogManager })
 end
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 local function rowNamed(manager, name)
   for _, row in ipairs(ListStore.allRows(manager.list_store:index(1))) do

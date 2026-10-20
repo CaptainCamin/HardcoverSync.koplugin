@@ -116,10 +116,7 @@ local function manager()
   return m
 end
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 local function books(n)
   local out = {}
   for i = 1, n do out[i] = { book_id = i, title = "B" .. i } end

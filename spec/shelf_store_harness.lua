@@ -22,10 +22,7 @@ local ShelfStore = require("hardcover/lib/shelf_store")
 local ShelfCache = require("hardcover/lib/shelf_cache")
 local Shelf = require("hardcover/lib/shelf")
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 local clock = 5000
 local function stores()

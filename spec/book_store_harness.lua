@@ -21,10 +21,7 @@ local BookStore = require("hardcover/lib/book_store")
 local ListStore = require("hardcover/lib/list_store")
 local Lists = require("hardcover/lib/lists")
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 local clock = 1000
 local function stores()

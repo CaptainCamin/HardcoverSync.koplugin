@@ -90,10 +90,7 @@ _G.require = function(name)
   return make()
 end
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 -- An instance whose methods come from the class table only, so a missing
 -- onCloseWidget is nil rather than the permissive stand-in's fake.

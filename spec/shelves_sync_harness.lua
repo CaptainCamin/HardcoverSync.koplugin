@@ -18,10 +18,7 @@ local ShelfStore = require("hardcover/lib/shelf_store")
 local ShelfCache = require("hardcover/lib/shelf_cache")
 local ShelvesSync = require("hardcover/lib/shelves_sync")
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 local FP1 = "2|T1|4.0"
 local FP2 = "3|T2|4.0"

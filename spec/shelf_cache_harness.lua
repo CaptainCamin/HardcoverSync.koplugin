@@ -12,10 +12,7 @@ local r = support.reporter()
 local ShelfCache = require("hardcover/lib/shelf_cache")
 local Shelf = require("hardcover/lib/shelf")
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 -- A LuaSettings stand-in backed by a table; counts flushes.
 local function newStore()

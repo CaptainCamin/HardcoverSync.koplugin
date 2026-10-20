@@ -60,10 +60,7 @@ Background.run = function(fn) fn() end
 local infos = {}
 StatusDialogs.info = function(text) infos[#infos + 1] = text end
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 local shown, reopened
 local function newManager(opts)

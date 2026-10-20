@@ -57,10 +57,7 @@ package.preload["hardcover_version"] = function() return { "0", "0", "0", "spec"
 local Api = require("hardcover/lib/hardcover_api")
 
 local r = support.reporter()
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 local function newAuth()
   local auth = { calls = 0, called_in_child = false }

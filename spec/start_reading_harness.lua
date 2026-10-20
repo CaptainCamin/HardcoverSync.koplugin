@@ -11,10 +11,7 @@ local support = dofile(PLUGIN .. "/spec/support.lua")
 support.preload_koreader_stubs()
 local r = support.reporter()
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 local StartReading = require("hardcover/lib/start_reading")
 package.preload["version"] = package.preload["version"] or function() return { getNormalizedCurrentVersion = function() return 0 end } end
