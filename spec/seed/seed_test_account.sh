@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-off seed for the throwaway Hardcover test account: about a dozen books across the shelves,
-# two lists and a reading goal. Idempotent: a re-run adds only what is missing. The token comes
+# one list and a reading goal. Idempotent: a re-run adds only what is missing. The token comes
 # from HARDCOVER_DEV_KEY and is never printed. Run by .github/workflows/seed-test-account.yml.
 set -euo pipefail
 
@@ -47,14 +47,14 @@ BOOKS=(
   'The Left Hand of Darkness|Ursula K. Le Guin|3|4|2026-05-28|2026-06-14|'
   'Project Hail Mary|Andy Weir|3|5|2026-07-30|2026-08-08|'
   'The Hobbit|J.R.R. Tolkien|3|4|2026-01-03|2026-01-12|'
-  'The Name of the Wind|Patrick Rothfuss|2|||2026-10-02||120'
-  'Piranesi|Susanna Clarke|2|||2026-10-14||40'
-  'Mistborn: The Final Empire|Brandon Sanderson|2|||2026-09-20||75'
+  'The Name of the Wind|Patrick Rothfuss|2||2026-10-02||120'
+  'Piranesi|Susanna Clarke|2||2026-10-14||40'
+  'Mistborn: The Final Empire|Brandon Sanderson|2||2026-09-20||75'
   'Neuromancer|William Gibson|1||||'
   'The Fifth Season|N. K. Jemisin|1||||'
   'Circe|Madeline Miller|1||||'
   'Anathem|Neal Stephenson|1||||'
-  'Moby-Dick|Herman Melville|5|||2026-03-01||180'
+  'Moby-Dick|Herman Melville|5||2026-03-01||180'
 )
 LIST_NAME="Seed: favourite classics"
 LIST_TITLES=('Pride and Prejudice' 'The Left Hand of Darkness' 'Project Hail Mary')
