@@ -35,6 +35,7 @@ local PageMapper = require("hardcover/lib/page_mapper")
 local Scheduler = require("hardcover/lib/scheduler")
 local ShelfCache = require("hardcover/lib/shelf_cache")
 local BookshelfSources = require("hardcover/lib/bookshelf_sources")
+local BookshelfModules = require("hardcover/lib/bookshelf_modules")
 local FileDialog = require("hardcover/lib/file_dialog")
 local ShelfStore = require("hardcover/lib/shelf_store")
 local SqliteStore = require("hardcover/lib/sqlite_store")
@@ -290,6 +291,9 @@ function HardcoverApp:init()
   if not BookshelfSources.register(self) then
     UIManager:nextTick(function() BookshelfSources.register(self) end)
   end
+
+  -- Bookshelf loads spec files from its settings folder; this feeds it the goal and stats cards.
+  pcall(BookshelfModules.install, self)
 
   FileDialog.register(self)
 
