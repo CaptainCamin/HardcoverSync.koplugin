@@ -315,6 +315,8 @@ when a new document is opened, if no book has been linked already. These options
   identifier and links each unlinked one to its Hardcover book in a single pass. It needs a connection, asks Hardcover
   about 25 books at a time, and can be stopped by tapping the progress message.
   When it finishes it also saves the linked books' details and shelves so they open offline.
+  Books it could not match are offered for a guess from their title and author; each guessed link is marked, and
+  **Check guessed links** goes through them so you can keep or undo each one.
 
 * **Save details of linked books**: Saves the details screen's contents (description, ratings, editions, ISBN) for
   linked books that have none saved, 25 to a request. The device keeps the details of 500 books.
