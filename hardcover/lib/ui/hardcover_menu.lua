@@ -742,12 +742,119 @@ function HardcoverMenu:getSyncConflictsMenuItem()
 end
 
 -- Unlink and discard were long presses only; they are rows now (the long press stays a shortcut).
+-- Runs `scan` to its end without freezing the screen, showing a message that can be tapped to stop
+-- it. `opts`: heading, step(scan) (true when it used the network), done(scan), rate (seconds to wait
+-- after a network step), progress(scan) (the line under the heading), on_finish(scan).
+-- Work that does not call Hardcover (reading a file) gives the screen a turn between steps; the
+-- requests run in Background.run so they do not block it either.
+function HardcoverMenu:runScan(scan, opts)
+  local InfoMessage = require("ui/widget/infomessage")
+  local progress
+  local armed = false
+  local function closeProgress()
+    if progress then
+      progress.dismiss_callback = nil
+      UIManager:close(progress)
+      progress = nil
+    end
+  end
+  local function showProgress()
+    closeProgress()
+    progress = InfoMessage:new {
+      text = opts.heading .. "\n\n" .. opts.progress(scan) .. "\n\n" .. _("(tap to stop)"),
+      dismiss_callback = function()
+        -- the tap that started the scan can land on this message and stop it at once
+        if armed then scan.cancelled = true end
+      end,
+    }
+    UIManager:show(progress)
+  end
+
+  showProgress()
+  UIManager:scheduleIn(0.6, function() armed = true end)
+  Background.run(function()
+    local rounds = 0
+    while not opts.done(scan) do
+      local used_network = opts.step(scan)
+      rounds = rounds + 1
+      if used_network or rounds % 10 == 0 then showProgress() end
+      Background.sleep(used_network and opts.rate or 0)
+    end
+    closeProgress()
+    opts.on_finish(scan)
+  end)
+end
+
+-- Saves the details of the books in `settings` (see DetailsSync.pending) that have none saved, so
+-- they open offline: BATCH books to a request. `on_finish(scan)` gets the finished scan.
+function HardcoverMenu:saveDetails(settings, on_finish)
+  local DetailsSync = require("hardcover/lib/details_sync")
+  local store = self.book_store
+  local items = store and DetailsSync.pending(settings, function(book_id, edition_id)
+    return store:hasDetail(book_id, edition_id)
+  end) or {}
+  if #items == 0 then return on_finish(nil) end
+
+  local scan = DetailsSync.new(items, {
+    fetch = function(batch) return Api:getBookDetails(batch, User:getId()) end,
+    save = function(book_id, edition_id, detail) return store:saveDetail(book_id, edition_id, detail, true) end,
+  })
+  self:runScan(scan, {
+    heading = _("Saving book details..."),
+    step = DetailsSync.step,
+    done = DetailsSync.done,
+    rate = DetailsSync.RATE,
+    progress = function(running)
+      return T(_("%1 of %2 books"), tostring(running.index), tostring(DetailsSync.total(running)))
+    end,
+    on_finish = function(finished)
+      store:evict()
+      on_finish(finished)
+    end,
+  })
+end
+
+-- Settings > Linking > Save details of linked books: for books linked earlier, or whose details
+-- were not saved when they were linked.
+function HardcoverMenu:saveLinkedDetails()
+  local ConfirmBox = require("ui/widget/confirmbox")
+  local DetailsSync = require("hardcover/lib/details_sync")
+  local InfoMessage = require("ui/widget/infomessage")
+
+  if not Network.connected() then
+    UIManager:show(InfoMessage:new { text = _("Connect to the internet to save book details.") })
+    return
+  end
+  local store = self.book_store
+  local settings = self.settings:readSetting("books") or {}
+  local pending = store and DetailsSync.pending(settings, function(book_id, edition_id)
+    return store:hasDetail(book_id, edition_id)
+  end) or {}
+  if #pending == 0 then
+    UIManager:show(InfoMessage:new { text = _("The details of every linked book are saved already.") })
+    return
+  end
+  UIManager:show(ConfirmBox:new {
+    text = T(_("Save the details of %1 linked books?\n\nThey will open on this device without a connection. This asks Hardcover about %2 books at a time, and can be stopped."),
+      tostring(math.min(#pending, DetailsSync.MAX)), tostring(DetailsSync.BATCH)),
+    ok_text = _("Save"),
+    ok_callback = function()
+      self:saveDetails(settings, function(scan)
+        if scan then UIManager:show(InfoMessage:new { text = DetailsSync.summary(scan) }) end
+      end)
+    end,
+  })
+end
+
 -- Links every unlinked EPUB under the home folder that carries an ISBN or Hardcover identifier
 -- (see hardcover/lib/bulk_link.lua). Files are read one per tick so the screen stays responsive, and
--- looked up on Hardcover BATCH at a time; the progress message can be tapped to stop it.
+-- looked up on Hardcover BATCH at a time; the progress message can be tapped to stop it. Then the
+-- linked books' details are saved (saveDetails) and their shelves (the existing Library sync), so
+-- they show offline.
 function HardcoverMenu:linkAllBooks()
   local BulkLink = require("hardcover/lib/bulk_link")
   local ConfirmBox = require("ui/widget/confirmbox")
+  local DetailsSync = require("hardcover/lib/details_sync")
   local InfoMessage = require("ui/widget/infomessage")
   local lfs = require("libs/libkoreader-lfs")
 
@@ -771,50 +878,44 @@ function HardcoverMenu:linkAllBooks()
     store = function(file, config) self.settings:updateBookSetting(file, config, true) end,
   })
 
-  local progress
-  local armed = false
-  local function closeProgress()
-    if progress then
-      progress.dismiss_callback = nil
-      UIManager:close(progress)
-      progress = nil
-    end
-  end
-  local function showProgress()
-    closeProgress()
-    progress = InfoMessage:new {
-      text = T(_("Linking books to Hardcover...\n\n%1 of %2 checked, %3 linked\n\n(tap to stop)"),
-        tostring(scan.checked), tostring(BulkLink.total(scan)), tostring(#scan.linked)),
-      dismiss_callback = function()
-        -- the tap that started the scan can land on this message and stop it at once
-        if armed then scan.cancelled = true end
-      end,
-    }
-    UIManager:show(progress)
-  end
-  local function finish()
-    closeProgress()
-    UIManager:show(InfoMessage:new { text = BulkLink.summary(scan) })
-  end
-  local function tick()
-    if BulkLink.done(scan) then return finish() end
-    local used_network = BulkLink.step(scan)
-    if used_network or scan.index % 10 == 0 or BulkLink.done(scan) then showProgress() end
-    if used_network then
-      UIManager:scheduleIn(BulkLink.RATE, tick)
-    else
-      UIManager:nextTick(tick)
+  -- the existing Library sync: saves the shelves so the linked books show offline
+  local function saveShelves()
+    local dm = self.dialog_manager
+    if dm and dm.downloadShelf then
+      BulkLink.syncShelves(scan, require("hardcover/lib/home").statusIds(), function(status_id, opts)
+        dm:downloadShelf(status_id, opts)
+      end)
     end
   end
 
+  local function finish()
+    local function show(details)
+      saveShelves()
+      local text = BulkLink.summary(scan)
+      if details then text = text .. "\n\n" .. DetailsSync.summary(details) end
+      UIManager:show(InfoMessage:new { text = text })
+    end
+    -- a stopped scan stops there; otherwise the details of what was just linked come next
+    if scan.cancelled or #scan.linked == 0 then return show(nil) end
+    self:saveDetails(BulkLink.linkedSettings(scan), show)
+  end
+
   UIManager:show(ConfirmBox:new {
-    text = T(_("Link %1 books to Hardcover?\n\nOnly EPUBs with an ISBN or Hardcover identifier can be matched. This asks Hardcover about %2 books at a time, and can be stopped."),
+    text = T(_("Link %1 books to Hardcover?\n\nOnly EPUBs with an ISBN or Hardcover identifier can be matched. This asks Hardcover about %2 books at a time, then saves the linked books' details and shelves so they show offline. It can be stopped."),
       tostring(#items), tostring(BulkLink.BATCH)),
     ok_text = _("Link"),
     ok_callback = function()
-      showProgress()
-      UIManager:scheduleIn(0.6, function() armed = true end)
-      UIManager:nextTick(tick)
+      self:runScan(scan, {
+        heading = _("Linking books to Hardcover..."),
+        step = BulkLink.step,
+        done = BulkLink.done,
+        rate = BulkLink.RATE,
+        progress = function(running)
+          return T(_("%1 of %2 checked, %3 linked"),
+            tostring(running.checked), tostring(BulkLink.total(running)), tostring(#running.linked))
+        end,
+        on_finish = function() finish() end,
+      })
     end,
   })
 end
@@ -1567,6 +1668,15 @@ function HardcoverMenu:getBookSourceSubMenuItems()
   return items
 end
 
+-- Close the menu a callback was given so a long job can show its progress. The settings screen hands
+-- its callbacks a stand-in (a table with updateItems), not a widget, and closing that crashes
+-- KOReader; only a real widget (KOReader's own touch menu) is closed.
+local function closeMenu(menu_instance)
+  if type(menu_instance) == "table" and type(menu_instance.handleEvent) == "function" then
+    UIManager:close(menu_instance)
+  end
+end
+
 function HardcoverMenu:getSettingsSubMenuItems()
   return {
     {
@@ -1676,8 +1786,17 @@ function HardcoverMenu:getSettingsSubMenuItems()
       text = _("Link all books on this device"),
       help = _("Looks through your home folder for EPUBs that carry an ISBN or a Hardcover identifier and links each to its Hardcover book, so shelves show them as on this device. Needs a connection; it can be stopped."),
       callback = function(menu_instance)
-        if menu_instance then UIManager:close(menu_instance) end
+        closeMenu(menu_instance)
         self:linkAllBooks()
+      end,
+    },
+    {
+      section = SECTION.LINKING,
+      text = _("Save details of linked books"),
+      help = _("Saves the description, ratings, editions and the rest of the details screen for the books you have linked, so they open without a connection. Opening a book's details does this for that book."),
+      callback = function(menu_instance)
+        closeMenu(menu_instance)
+        self:saveLinkedDetails()
       end,
     },
     {

@@ -314,6 +314,10 @@ when a new document is opened, if no book has been linked already. These options
 * **Link all books on this device**: Looks through your home folder for EPUBs that carry an ISBN or a Hardcover
   identifier and links each unlinked one to its Hardcover book in a single pass. It needs a connection, asks Hardcover
   about 25 books at a time, and can be stopped by tapping the progress message.
+  When it finishes it also saves the linked books' details and shelves so they open offline.
+
+* **Save details of linked books**: Saves the details screen's contents (description, ratings, editions, ISBN) for
+  linked books that have none saved, 25 to a request. The device keeps the details of 500 books.
 
 ### Track progress settings
 

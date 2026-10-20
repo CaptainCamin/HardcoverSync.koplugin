@@ -127,7 +127,9 @@ end
 -- fetched without an edition also refreshes the book's row, so the numbers a list shows
 -- (community rating, readers) catch up whenever the book is opened.
 --
-function BookStore:saveDetail(book_id, edition_id, detail)
+-- `keep_all`: do not drop old details to make room (see OPENED_CAP); the caller saving many
+-- at once calls `evict` itself when it is done.
+function BookStore:saveDetail(book_id, edition_id, detail, keep_all)
   local book = type(detail) == "table" and detail.book
   book_id = tonumber(book_id) or (type(book) == "table" and tonumber(book.book_id))
   if type(book) ~= "table" or not book_id then return false end
@@ -148,8 +150,14 @@ function BookStore:saveDetail(book_id, edition_id, detail)
     row.user_book_id, row.status_id, row.user_rating, row.date_added = nil, nil, nil, nil
     self:saveRows({ row })
   end
-  self.db:evict(BookStore.OPENED_CAP)
+  if not keep_all then self.db:evict(BookStore.OPENED_CAP) end
   return ok
+end
+
+-- Are this book's details (this edition's, or the book's own when no edition) saved?
+function BookStore:hasDetail(book_id, edition_id)
+  book_id = tonumber(book_id)
+  return book_id ~= nil and self.db:getDetail(book_id, tonumber(edition_id) or 0) ~= nil
 end
 
 --

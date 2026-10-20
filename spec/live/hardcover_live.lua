@@ -197,6 +197,19 @@ step("findBooksByIdentifiers: edition, ISBN and slug in one batch", function()
   if isbn and not (answers[4] and answers[4].book_id) then error("the edition's own ISBN was not found", 0) end
 end)
 
+step("getBookDetails: a book and an edition in one batch", function()
+  local answers = is_table(Api:getBookDetails({
+    { book_id = need(ctx.book_id, "book id") },
+    { book_id = ctx.book_id, edition_id = need(ctx.edition_id, "edition id") },
+  }, ctx.user_id), "answers")
+  if #answers ~= 2 then error("expected 2 answers, got " .. #answers, 0) end
+  for _, answer in ipairs(answers) do
+    is_table(answer.detail, "detail")
+    need(answer.detail.book.title, "title")
+    if answer.detail.book.editions_count == nil then error("no editions_count in the answer", 0) end
+  end
+end)
+
 step("findDefaultEdition", function()
   is_table(Api:findDefaultEdition(need(ctx.book_id, "book id"), ctx.user_id), "default edition")
 end)
