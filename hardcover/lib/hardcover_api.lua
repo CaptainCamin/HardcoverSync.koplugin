@@ -424,7 +424,11 @@ function HardcoverApi:normalizedEdition(edition)
   return result
 end
 
+-- Hardcover answers a read it does not know (a deleted or wrong id) with an error and no read.
 function HardcoverApi:normalizeUserBookRead(user_book_read)
+  if type(user_book_read) ~= "table" or type(user_book_read.user_book) ~= "table" then
+    return nil
+  end
   local user_book = user_book_read.user_book
   user_book_read.user_book = nil
   user_book.user_book_reads = { user_book_read }

@@ -121,6 +121,24 @@ function Cache:syncPage(filename, mapped_page)
     return enqueue()
   end
 
+  -- Hardcover makes a read itself when a book goes on Currently Reading. Creating a second one
+  -- leaves the journal following the new read while the book keeps showing the old one, so with
+  -- no read in hand ask what is on Hardcover first, and when that cannot be asked, queue.
+  if not (current_read and current_read.id) and book_status.id then
+    local book_id = book_status.book_id or self.settings:readBookSetting(filename, "book_id")
+    local found, lookup_err = Api:findUserBook(book_id, User:getId())
+    if lookup_err ~= nil then
+      return enqueue()
+    end
+    local server_reads = found and found.user_book_reads
+    local latest = server_reads and server_reads[#server_reads]
+    if latest and latest.id and latest.finished_at == nil then
+      current_read = latest
+      edition_id = latest.edition_id or edition_id
+      started_at = latest.started_at
+    end
+  end
+
   local result
   if current_read and current_read.id then
     result = Api:updatePage(current_read.id, edition_id, mapped_page, started_at)
