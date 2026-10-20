@@ -182,7 +182,7 @@ step("findBooksByIdentifiers: edition, ISBN and slug in one batch", function()
   local isbn = detail.book.isbn_13 or detail.book.isbn_10
   local list = {
     { edition_id = need(ctx.edition_id, "edition id") },
-    { isbn_13 = "9780000000002" },       -- a valid-looking ISBN nobody has
+    { isbn_13 = "9780000000009" },       -- a wrong check digit: no edition has it
     { book_slug = "dune" },
   }
   if isbn then list[#list + 1] = detail.book.isbn_13 and { isbn_13 = isbn } or { isbn_10 = isbn } end
@@ -191,7 +191,9 @@ step("findBooksByIdentifiers: edition, ISBN and slug in one batch", function()
   if not (answers[1] and tonumber(answers[1].edition_id) == ctx.edition_id) then
     error("the edition was not found by its id", 0)
   end
-  if answers[2] ~= false then error("an unknown ISBN was matched", 0) end
+  if answers[2] ~= false then
+    error("an unknown ISBN was matched: " .. tostring(type(answers[2]) == "table" and answers[2].title), 0)
+  end
   if isbn and not (answers[4] and answers[4].book_id) then error("the edition's own ISBN was not found", 0) end
 end)
 
