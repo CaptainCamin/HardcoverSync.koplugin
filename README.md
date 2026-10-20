@@ -312,8 +312,8 @@ when a new document is opened, if no book has been linked already. These options
   hardcover search results for that title and document author (if available).
 
 * **Link all books on this device**: Looks through your home folder for EPUBs that carry an ISBN or a Hardcover
-  identifier and links each unlinked one to its Hardcover book in a single pass. It needs a connection, goes at about
-  one book every few seconds, and can be stopped by tapping the progress message.
+  identifier and links each unlinked one to its Hardcover book in a single pass. It needs a connection, asks Hardcover
+  about 25 books at a time, and can be stopped by tapping the progress message.
 
 ### Track progress settings
 
