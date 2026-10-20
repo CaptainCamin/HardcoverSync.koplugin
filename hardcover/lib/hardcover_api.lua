@@ -258,10 +258,11 @@ function HardcoverApi:hydrateBookFromEdition(edition_id, user_id)
       }
     }]] .. edition_fragment
 
-  local editions = self:query(editionSearch, { id = edition_id, userId = user_id })
+  local editions, err = self:query(editionSearch, { id = edition_id, userId = user_id })
   if editions and editions.editions and #editions.editions > 0 then
     return self:normalizedEdition(editions.editions[1])
   end
+  if not editions then return nil, err or { completed = false } end
 end
 
 function HardcoverApi:findBookBySlug(slug, user_id)
@@ -272,10 +273,11 @@ function HardcoverApi:findBookBySlug(slug, user_id)
       }
     }]] .. book_fragment
 
-  local books = self:query(slugSearch, { slug = slug, userId = user_id })
+  local books, err = self:query(slugSearch, { slug = slug, userId = user_id })
   if books and books.books and #books.books > 0 then
     return books.books[1]
   end
+  if not books then return nil, err or { completed = false } end
 end
 
 function HardcoverApi:findEditions(book_id, user_id)
@@ -354,7 +356,11 @@ function HardcoverApi:search(title, author, userId, page)
     return nil, error
   end
 
-  if not results or not _t.dig(results, "search", "ids") then
+  -- no answer at all (offline, not signed in) is a failure, not "nothing found"
+  if not results then
+    return nil, { completed = false }
+  end
+  if not _t.dig(results, "search", "ids") then
     return {}
   end
 
@@ -362,21 +368,27 @@ function HardcoverApi:search(title, author, userId, page)
   return self:hydrateBooks(ids, userId)
 end
 
+-- The book for some identifiers, or nil. When nil, a second value says the call itself failed
+-- (offline, rate limit, expired token), so "Hardcover has no such book" can be told apart from "could
+-- not ask". A later identifier that answers still wins over an earlier failure.
 function HardcoverApi:findBookByIdentifiers(identifiers, user_id)
   local isbnKey
+  local failure
 
   if identifiers.edition_id then
-    local book = self:hydrateBookFromEdition(identifiers.edition_id, user_id)
+    local book, err = self:hydrateBookFromEdition(identifiers.edition_id, user_id)
     if book then
       return book
     end
+    failure = failure or err
   end
 
   if identifiers.book_slug then
-    local book = self:findBookBySlug(identifiers.book_slug, user_id)
+    local book, err = self:findBookBySlug(identifiers.book_slug, user_id)
     if book then
       return book
     end
+    failure = failure or err
   end
 
   if identifiers.isbn_13 then
@@ -393,11 +405,84 @@ function HardcoverApi:findBookByIdentifiers(identifiers, user_id)
         }
       }]] .. edition_fragment
 
-    local editions = self:query(editionSearch, { isbn = tostring(identifiers[isbnKey]), userId = user_id })
+    local editions, err = self:query(editionSearch, { isbn = tostring(identifiers[isbnKey]), userId = user_id })
     if editions and editions.editions and #editions.editions > 0 then
       return self:normalizedEdition(editions.editions[1])
     end
+    if not editions then failure = failure or err or { completed = false } end
   end
+
+  return nil, failure
+end
+
+-- findBookByIdentifiers for many files at once: `list` is a list of parsed identifiers, and the
+-- answer a list of the same length (a book, or false where Hardcover has none of that file's
+-- identifiers). At most four requests however long the list: the editions, the slugs, the ISBN-13s and
+-- the ISBN-10s asked for. A file's identifiers are tried in the same order as there (edition, slug,
+-- ISBN-13, ISBN-10). Returns nil and an error when any request failed, as nothing is then known.
+function HardcoverApi:findBooksByIdentifiers(list, user_id)
+  local function collect(field)
+    local values, seen = {}, {}
+    for _, identifiers in ipairs(list) do
+      local value = identifiers[field]
+      if value ~= nil and not seen[tostring(value)] then
+        seen[tostring(value)] = true
+        values[#values + 1] = value
+      end
+    end
+    return values
+  end
+
+  -- one request: the rows of `field` (a Hardcover column of the table) in `values`, keyed by it
+  local function ask(table_name, column, variable_type, values, fragment_name, fragment)
+    local out = {}
+    if #values == 0 then return out end
+    local results, err = self:query([[
+      query ($values: []] .. variable_type .. [[!], $userId: Int!) {
+        ]] .. table_name .. [[(where: { ]] .. column .. [[: { _in: $values }}) {
+          ]] .. column .. [[
+          ...]] .. fragment_name .. [[
+
+        }
+      }]] .. fragment, { values = values, userId = user_id })
+    if not results then return nil, err or { completed = false } end
+    for _, row in ipairs(results[table_name] or {}) do
+      local key = tostring(row[column])
+      -- the first row for a value wins, as it does for one book
+      if out[key] == nil then out[key] = row end
+    end
+    return out
+  end
+
+  local editions, err = ask("editions", "id", "Int", collect("edition_id"), "EditionParts", edition_fragment)
+  if not editions then return nil, err end
+  local slugs
+  slugs, err = ask("books", "slug", "String", collect("book_slug"), "BookParts", book_fragment)
+  if not slugs then return nil, err end
+  local isbn13
+  isbn13, err = ask("editions", "isbn_13", "String", collect("isbn_13"), "EditionParts", edition_fragment)
+  if not isbn13 then return nil, err end
+  local isbn10
+  isbn10, err = ask("editions", "isbn_10", "String", collect("isbn_10"), "EditionParts", edition_fragment)
+  if not isbn10 then return nil, err end
+
+  local answers = {}
+  for i, identifiers in ipairs(list) do
+    local by_edition = identifiers.edition_id and editions[tostring(identifiers.edition_id)]
+    local by_slug = identifiers.book_slug and slugs[tostring(identifiers.book_slug)]
+    local by_isbn = (identifiers.isbn_13 and isbn13[tostring(identifiers.isbn_13)])
+      or (identifiers.isbn_10 and isbn10[tostring(identifiers.isbn_10)])
+    if by_edition then
+      answers[i] = self:normalizedEdition(by_edition)
+    elseif by_slug then
+      answers[i] = by_slug
+    elseif by_isbn then
+      answers[i] = self:normalizedEdition(by_isbn)
+    else
+      answers[i] = false
+    end
+  end
+  return answers
 end
 
 function HardcoverApi:normalizedEdition(edition)

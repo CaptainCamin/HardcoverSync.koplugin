@@ -311,6 +311,10 @@ when a new document is opened, if no book has been linked already. These options
 * **Automatically link by title**: If the document metadata contains a title, choose the first book returned from
   hardcover search results for that title and document author (if available).
 
+* **Link all books on this device**: Looks through your home folder for EPUBs that carry an ISBN or a Hardcover
+  identifier and links each unlinked one to its Hardcover book in a single pass. It needs a connection, asks Hardcover
+  about 25 books at a time, and can be stopped by tapping the progress message.
+
 ### Track progress settings
 
 By default, (when enabled) updates will be sent to hardcover at a frequency you can select, no more often than once per

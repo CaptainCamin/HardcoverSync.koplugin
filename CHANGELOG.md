@@ -5,6 +5,7 @@
 ### Added
 
 - **Hardcover details from the file list.** A book linked to Hardcover has a "Hardcover details" button in the file manager's long-press dialog, and in Bookshelf's book menu under Plugin actions. It opens the book's Hardcover page.
+- **Link all books on this device.** Settings > Linking > "Link all books on this device" looks through the home folder for EPUBs that carry an ISBN or a Hardcover identifier and links each to its Hardcover book. It reads the files first, then asks Hardcover about 25 books at a time, with progress you can tap to stop and a count of what was linked, not found and unreadable at the end. A dropped connection is reported as "could not check", not as "no match". Books already linked are skipped. The approach (reading the identifiers from the EPUB's OPF) is adapted from Bookshelf's "Auto-link all books"; there is no title-and-author guess yet.
 - **Hold to jump.** Holding the up triangle of the scroll bar jumps to the start of the screen, holding the down triangle to the end (the last page, on a shelf). Tapping still steps one page.
 - **Read again.** A book marked Finished or Did not finish has a "Read again" button in the reader's panel. It asks first, then starts a new read from the page you are on (or from the start, on the last page). The finished read is kept.
 - **Book search source.** Settings > Book search picks which plugin the book screen's search button hands the book to: Z-library, Anna's Archive or Kindle Fetch (each has to be installed and enabled), or Automatic, which uses the first one installed. The button carries that plugin's name.
@@ -15,6 +16,7 @@
 
 ### Changed
 
+- **The plugin is licensed under the GNU Affero General Public License v3.0** (it was MIT). The original MIT notice is kept in `LICENSE-MIT`.
 - **The old Home screen is gone.** The navigation bar is no longer a beta setting: Settings > "New navigation bar (beta)" is removed and Hardcover always opens to the tabs. The old Home's scrolling page of tiles and its goal card are replaced by the Goals, Library and Stats tabs. Settings > "Show 'For you' on Home" is now "Show 'For you' in Vibes".
 - **One Add button on a book's details screen.** The separate Shelf and Lists buttons are now one "Add" button. It opens a sheet with "Add to shelf" / "Change shelf" and "Lists" (Lists only when signed in with OAuth); without Lists it goes straight to the shelf sheet. The button takes half the row, leaving the other half free.
 - **The edition of a linked book is changed from the reader's panel.** The panel has an Edition button (Edition: Kindle, or Edition: not chosen) that opens Change edition, Link a different book and Unlink book. The panel's More button is gone: the link actions it held are behind this button. A shelved book's edition changes on Hardcover first, so if Hardcover does not answer nothing changes and you are asked to try again. Pages move to the same share of the new edition's pages, the page count may differ, and the progress with it, which the confirmation says.
