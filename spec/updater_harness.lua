@@ -37,6 +37,23 @@ check("a remembered beta shows only while beta updates are on", function()
   assert(Updater.available(off, { 1, 0, 0 }) == nil, "shown with betas off")
 end)
 
+print("\n== installing a branch ==")
+
+check("a branch name or PR number becomes a GitHub archive address", function()
+  local b = Updater.branchRelease(" claude/foo-1.x ")
+  assert(b.zip_url == "https://github.com/CaptainCamin/HardcoverSync.koplugin/archive/refs/heads/claude/foo-1.x.zip", b.zip_url)
+  local p = Updater.branchRelease("#42")
+  assert(p.zip_url:find("/archive/refs/pull/42/head.zip", 1, true), p.zip_url)
+  assert(Updater.branchRelease("7").version == "PR #7")
+end)
+
+check("names that are not branches are refused", function()
+  for _, bad in ipairs({ "", "  ", "a b", "../x", "a;rm", "-x", "x/", "a'b" }) do
+    local rel, why = Updater.branchRelease(bad)
+    assert(rel == nil and why, "accepted: " .. bad)
+  end
+end)
+
 print("\n== when to ask ==")
 
 check("a first run asks, and so does a check over a day old", function()

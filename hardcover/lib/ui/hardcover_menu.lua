@@ -520,6 +520,33 @@ function HardcoverMenu:showRelease(release)
   }
 end
 
+-- Developer option: install a branch (or pull request) straight from GitHub's archive.
+function HardcoverMenu:installFromBranch()
+  local InputDialog = require("ui/widget/inputdialog")
+  local input
+  input = InputDialog:new {
+    title = _("Branch or pull request"),
+    input = self.settings:readSetting(SETTING.UPDATE_BRANCH) or "main",
+    description = _("A branch name, or a pull request number like #123."),
+    buttons = { {
+      { text = _("Cancel"), id = "close", callback = function() UIManager:close(input) end },
+      { text = _("Install"), is_enter_default = true, callback = function()
+          local ref = input:getInputText()
+          UIManager:close(input)
+          local release, why = Updater.branchRelease(ref)
+          if not release then
+            StatusDialogs.info(_(why))
+            return
+          end
+          self.settings:updateSetting(SETTING.UPDATE_BRANCH, ref)
+          self:installUpdate(release)
+        end },
+    } },
+  }
+  UIManager:show(input)
+  if input.onShowKeyboard then input:onShowKeyboard() end
+end
+
 function HardcoverMenu:getUpdateMenuItems()
   return {
     {
@@ -570,6 +597,11 @@ function HardcoverMenu:getUpdateMenuItems()
         -- ask again at the next chance, not tomorrow: the answer is different now
         self.settings:updateSetting(SETTING.UPDATE_LAST_CHECK, 0)
       end,
+      keep_menu_open = true,
+    },
+    {
+      text = _("Install from branch (developer)"),
+      callback = function() self:installFromBranch() end,
       keep_menu_open = true,
     },
   }

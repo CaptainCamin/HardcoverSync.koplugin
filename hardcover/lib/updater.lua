@@ -12,6 +12,7 @@ local SETTING = require("hardcover/lib/constants/settings")
 local Updater = {}
 
 local DAY = 24 * 60 * 60
+local REPO_ARCHIVE = "https://github.com/CaptainCamin/HardcoverSync.koplugin/archive/refs/"
 
 -- Ask GitHub if checking is on (default on) and the last check was over a day ago.
 function Updater.due(settings, now)
@@ -45,6 +46,22 @@ function Updater.available(settings, current)
   local beta = settings:readSetting(SETTING.UPDATE_BETA) == true
   if not require("hardcover/lib/github").newerVersion(found.version, current, beta) then return nil end
   return found
+end
+
+-- A release-shaped table for a branch ("main", "claude/foo") or a pull request ("#123", "123"),
+-- to install what is on GitHub right now with no release built. Returns nil and a reason for a
+-- name that can't be one.
+function Updater.branchRelease(ref)
+  ref = tostring(ref or ""):match("^%s*(.-)%s*$")
+  if ref == "" then return nil, "type a branch name or a pull request number" end
+  local pr = ref:match("^#?(%d+)$")
+  if pr then
+    return { version = "PR #" .. pr, zip_url = REPO_ARCHIVE .. "pull/" .. pr .. "/head.zip" }
+  end
+  if ref:find("[^%w%._/%-]") or ref:find("..", 1, true) or ref:find("^[/%-]") or ref:find("/$") then
+    return nil, "that is not a branch name"
+  end
+  return { version = "branch " .. ref, zip_url = REPO_ARCHIVE .. "heads/" .. ref .. ".zip" }
 end
 
 -- Where the plugin is installed, from where this file was loaded.

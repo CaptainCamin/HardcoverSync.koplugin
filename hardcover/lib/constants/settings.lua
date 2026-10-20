@@ -21,6 +21,7 @@ local Settings = {
   },
   UPDATE_AVAILABLE = "update_available",
   SHOW_FOR_YOU = "show_for_you",
+  UPDATE_BRANCH = "update_branch",
   UPDATE_BETA = "update_beta",
   UPDATE_CHECK = "update_check",
   UPDATE_LAST_CHECK = "update_last_check",
