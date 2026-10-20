@@ -424,7 +424,11 @@ function HardcoverApi:normalizedEdition(edition)
   return result
 end
 
+-- Hardcover answers a read it does not know (a deleted or wrong id) with an error and no read.
 function HardcoverApi:normalizeUserBookRead(user_book_read)
+  if type(user_book_read) ~= "table" or type(user_book_read.user_book) ~= "table" then
+    return nil
+  end
   local user_book = user_book_read.user_book
   user_book_read.user_book = nil
   user_book.user_book_reads = { user_book_read }
@@ -1052,12 +1056,16 @@ function HardcoverApi:createRead(user_book_id, edition_id, page, started_at)
 end
 
 function HardcoverApi:updatePage(user_read_id, edition_id, page, started_at)
+  -- A variable that is not sent reads as null, and null clears the read's start date (and the
+  -- date on the journal's "started" entry), so without a date the field is left out.
+  local started_var = started_at ~= nil and ", $startedAt: date" or ""
+  local started_field = started_at ~= nil and "started_at: $startedAt," or ""
   local query = [[
-    mutation UpdateBookProgress($id: Int!, $pages: Int, $editionId: Int, $startedAt: date) {
+    mutation UpdateBookProgress($id: Int!, $pages: Int, $editionId: Int]] .. started_var .. [[) {
       update_user_book_read(id: $id, object: {
         progress_pages: $pages,
         edition_id: $editionId,
-        started_at: $startedAt,
+        ]] .. started_field .. [[
       }) {
         error
         user_book_read {

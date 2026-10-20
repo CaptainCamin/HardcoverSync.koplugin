@@ -42,6 +42,10 @@
 
 ### Fixed
 
+- **Progress could land on a second read.** Hardcover makes a read itself when a book goes on Currently Reading; the plugin, holding no read, made another. The journal then followed the new read while the book kept showing the old page. Before it creates a read it now asks Hardcover for the unfinished one and updates that; if it cannot ask, the page waits in the queue.
+- A page update for a read with no start date cleared the date on Hardcover (and on the journal's "started" entry). It now leaves the date alone.
+- A progress update for a read Hardcover does not have raised an error instead of failing quietly and queueing.
+
 - **Every full-screen screen opens with a full refresh.** Book details, the lists and shelves, Reviews, Settings and the other full-screen screens are shown through one path that flashes the screen clear, instead of being drawn over whatever was beneath, which ghosted on e-ink.
 - **Offline status changes from the reader now show correctly on the shelves.** Cancelling a pending "Read again" or status change in Pending changes puts the book back on the shelf it came from (it used to stay on Currently Reading, and Home's count disagreed with the list). A book with no saved details, set to Currently Reading offline, now appears in that shelf's list with the title from its file.
 - **Home fits the Read shelf on a small screen.** The gaps above the reading card, under it and above the Shelves heading are a little tighter (14 scaled pixels in all), so Want to Read, Currently Reading and Read fit together on a Kindle with a two-line book title.
