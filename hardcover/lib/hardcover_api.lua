@@ -677,6 +677,64 @@ local BOOK_DETAIL_FIELDS = [[
   }
 ]]
 
+-- The edition's own part of the same answer, laid over the book by `overlayEdition`.
+local EDITION_DETAIL_FIELDS = [[
+  id
+  edition_format
+  reading_format_id
+  pages
+  audio_seconds
+  isbn_13
+  isbn_10
+  release_date
+  publisher {
+    name
+  }
+  language {
+    code2
+    language
+  }
+  book {
+    ]] .. BOOK_DETAIL_FIELDS .. [[
+  }
+]]
+
+-- An edition's fields are more precise than the book level equivalents, so they are laid
+-- over the book before it goes to the display layer. Returns the book row, or nil.
+local function overlayEdition(edition)
+  if not edition then
+    return nil
+  end
+  local row = edition.book or {}
+  row.edition_id = edition.id
+  row.edition_format = edition.edition_format
+  row.reading_format_id = edition.reading_format_id
+  row.publisher = edition.publisher
+  row.language = edition.language
+  row.isbn_13 = edition.isbn_13
+  row.isbn_10 = edition.isbn_10
+  row.release_date = edition.release_date
+
+  if edition.pages then
+    row.pages = edition.pages
+  end
+  if edition.audio_seconds then
+    row.audio_seconds = edition.audio_seconds
+  end
+  return row
+end
+
+-- What getBookDetail answers for a book row: the book, and your status and rating on it.
+local function detailOf(row)
+  local user_book = _t.dig(row, "user_books", 1)
+  return {
+    book = row,
+    user_book_id = user_book and user_book.id,
+    status_id = user_book and user_book.status_id,
+    user_rating = user_book and user_book.rating,
+  }
+end
+
 function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
   local query
 
@@ -684,24 +742,7 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
     query = [[
       query ($editionId: Int!, $userId: Int!) {
         editions(where: { id: { _eq: $editionId } }) {
-          id
-          edition_format
-          reading_format_id
-          pages
-          audio_seconds
-          isbn_13
-          isbn_10
-          release_date
-          publisher {
-            name
-          }
-          language {
-            code2
-            language
-          }
-          book {
-            ]] .. BOOK_DETAIL_FIELDS .. [[
-          }
+          ]] .. EDITION_DETAIL_FIELDS .. [[
         }
       }
     ]]
@@ -732,29 +773,7 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
 
   local row
   if edition_id then
-    local edition = _t.dig(results, "editions", 1)
-    if not edition then
-      return nil
-    end
-
-    -- edition fields are more precise than the book level equivalents, so
-    -- overlay them onto the book before handing it to the display layer
-    row = edition.book or {}
-    row.edition_id = edition.id
-    row.edition_format = edition.edition_format
-    row.reading_format_id = edition.reading_format_id
-    row.publisher = edition.publisher
-    row.language = edition.language
-    row.isbn_13 = edition.isbn_13
-    row.isbn_10 = edition.isbn_10
-    row.release_date = edition.release_date
-
-    if edition.pages then
-      row.pages = edition.pages
-    end
-    if edition.audio_seconds then
-      row.audio_seconds = edition.audio_seconds
-    end
+    row = overlayEdition(_t.dig(results, "editions", 1))
   else
     row = _t.dig(results, "books", 1)
   end
@@ -763,14 +782,62 @@ function HardcoverApi:getBookDetail(book_id, user_id, edition_id)
     return nil
   end
 
-  local user_book = _t.dig(row, "user_books", 1)
+  return detailOf(row)
+end
 
-  return {
-    book = row,
-    user_book_id = user_book and user_book.id,
-    status_id = user_book and user_book.status_id,
-    user_rating = user_book and user_book.rating,
-  }
+-- The details of many books in one go: two requests however many books, one for the books
+-- asked for by themselves and one for those asked for through a linked edition.
+-- `items` is { { book_id =, edition_id = (optional) }, ... }. Returns a list of
+-- { book_id =, edition_id = (nil for a book asked for by itself), detail = what getBookDetail
+-- gives }, with no entry for a book Hardcover does not have, or nil when a request failed
+-- (nothing is then known about any of them).
+function HardcoverApi:getBookDetails(items, user_id)
+  local book_ids, edition_ids = {}, {}
+  for _, item in ipairs(items or {}) do
+    if item.edition_id then
+      edition_ids[#edition_ids + 1] = item.edition_id
+    elseif item.book_id then
+      book_ids[#book_ids + 1] = item.book_id
+    end
+  end
+
+  local out = {}
+  if #book_ids > 0 then
+    local results = self:query([[
+      query ($ids: [Int!], $userId: Int!) {
+        books(where: { id: { _in: $ids } }) {
+          ]] .. BOOK_DETAIL_FIELDS .. [[
+        }
+      }
+    ]], { ids = book_ids, userId = user_id })
+    if not results then
+      return nil
+    end
+    for _, row in ipairs(results.books or {}) do
+      out[#out + 1] = { book_id = row.book_id, detail = detailOf(row) }
+    end
+  end
+
+  if #edition_ids > 0 then
+    local results = self:query([[
+      query ($ids: [Int!], $userId: Int!) {
+        editions(where: { id: { _in: $ids } }) {
+          ]] .. EDITION_DETAIL_FIELDS .. [[
+        }
+      }
+    ]], { ids = edition_ids, userId = user_id })
+    if not results then
+      return nil
+    end
+    for _, edition in ipairs(results.editions or {}) do
+      local row = overlayEdition(edition)
+      if row then
+        out[#out + 1] = { book_id = row.book_id, edition_id = edition.id, detail = detailOf(row) }
+      end
+    end
+  end
+
+  return out
 end
 
 --

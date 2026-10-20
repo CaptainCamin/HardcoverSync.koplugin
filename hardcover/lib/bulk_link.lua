@@ -255,7 +255,8 @@ local function lookup(scan)
     if not (book and book.book_id) then
       scan.no_match[#scan.no_match + 1] = { name = nameOf(entry.file) }
     elseif pcall(scan.deps.store, entry.file, BulkLink.linkConfig(book)) then
-      scan.linked[#scan.linked + 1] = { name = nameOf(entry.file), matched = book.title }
+      scan.linked[#scan.linked + 1] = { name = nameOf(entry.file), matched = book.title,
+        file = entry.file, book_id = book.book_id, edition_id = book.edition_id }
     else
       scan.errors = scan.errors + 1
     end
@@ -288,6 +289,32 @@ function BulkLink.step(scan)
   end
   scan.queue[#scan.queue + 1] = { file = file, parsed = parsed }
   return false
+end
+
+-- After linking: a Library sync, so the linked books' shelves are saved on the device and show
+-- offline (linking saves only the Hardcover id, not the shelves). `download(status_id, opts)` is
+-- the existing shelf download (Flows:downloadShelf); each shelf is asked about first (`check`) and
+-- fetched only if it differs from the saved copy. Nothing to do when no book was linked.
+-- Returns how many shelves were queued.
+function BulkLink.syncShelves(scan, status_ids, download)
+  if not scan or #scan.linked == 0 then return 0 end
+  local queued = 0
+  for _index, status_id in ipairs(status_ids or {}) do
+    download(status_id, { check = true })
+    queued = queued + 1
+  end
+  return queued
+end
+
+-- The books a details run should fetch for what a scan linked: `settings` shaped like the saved
+-- per-book settings ({ [file] = { book_id =, edition_id = } }), which is what
+-- DetailsSync.pending reads.
+function BulkLink.linkedSettings(scan)
+  local out = {}
+  for _index, link in ipairs(scan.linked) do
+    if link.file then out[link.file] = { book_id = link.book_id, edition_id = link.edition_id } end
+  end
+  return out
 end
 
 -- The words for the end of a scan.
