@@ -8,6 +8,7 @@ Screens: offline_book_changes_lists, offline_book_changes_detail.
 ]]
 
 local fixtures = require("fixtures")
+local perf = require("perf")
 local UIManager = require("ui/uimanager")
 
 local T1 = "2026-10-08T15:22:25.183388+00:00"
@@ -60,6 +61,10 @@ return {
     settings:updateSetting(SETTING.COMPATIBILITY_MODE, false)
     fixtures.install({ settings = settings, lists_me = stamp(copy(fixtures.lists_me)) })
     Api.auth = fixtures.fake_auth(true)
+    -- Home loads in the background from inside the shell's own build, before the shell is on
+    -- screen, and stops when it is not shown. A device's first request yields to the event loop
+    -- (so the shell is up when it answers) and the fixtures do not: make it yield.
+    perf.slow_network({ "getShelfCounts" })
 
     local db = SqliteStore:new { path = path }
     local books = BookStore:new { db = db }
@@ -78,11 +83,6 @@ return {
     }
     local list_store = manager.list_store
 
-    -- Add opens a sheet when the book can go on lists too: tap its row (shelf rows are "Add to shelf" / "Change shelf")
-    local function tapAdd(dialog, row)
-      tapButton(dialog.add_button)
-      if dialog.on_lists then tapText(row) end
-    end
     local function count(name)
       local n = 0
       for _, c in ipairs(fixtures.calls or {}) do if c.name == name then n = n + 1 end end
@@ -108,6 +108,11 @@ return {
       emu:tapExpecting(d.x + math.floor(d.w / 2), d.y + math.floor(d.h / 2))
       emu:pump()
     end
+    -- Add opens a sheet when the book can go on lists too: tap its row (shelf rows are "Add to shelf" / "Change shelf")
+    local function tapAdd(dialog, row)
+      tapButton(dialog.add_button)
+      if dialog.on_lists then tapText(row) end
+    end
     -- close the message on top (an InfoMessage waits for its timeout, which does not run here)
     local function dismiss(expected_under)
       local top = topmost()
@@ -119,7 +124,7 @@ return {
 
     -- online: Home saves every list, and the book's details are opened (and so kept)
     manager:showHome()
-    emu:pump()
+    perf.run_loop()
     emu:closeAll()
     local book = fixtures.shelf_books[1] -- on lists 1, 2 and 3; not on list 4 ("Someday", empty)
     local book_id = book.book_id
