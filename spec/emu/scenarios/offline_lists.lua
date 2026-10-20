@@ -9,6 +9,7 @@ Screens: offline_lists_index, offline_lists_list, offline_lists_detail.
 ]]
 
 local fixtures = require("fixtures")
+local perf = require("perf")
 local UIManager = require("ui/uimanager")
 
 local T1 = "2026-10-08T15:22:25.183388+00:00"
@@ -119,6 +120,10 @@ return {
     settings:updateSetting(SETTING.COMPATIBILITY_MODE, false)
     local lists_me = stamp(copy(fixtures.lists_me))
     fixtures.install({ settings = settings, lists_me = lists_me })
+    -- Home loads in the background, from inside the shell's own build, before the shell is on
+    -- screen; it stops when the shell is not shown. A device's first request yields to the event
+    -- loop (so the shell is up by the time it answers) and the fixtures do not: make it yield.
+    perf.slow_network({ "getShelfCounts" })
 
     local LuaSettings = require("luasettings")
     local ShelfCache = require("hardcover/lib/shelf_cache")
@@ -135,7 +140,7 @@ return {
 
     -- online, Home: every list is saved without one being opened
     manager:showHome()
-    emu:pump()
+    perf.run_loop()
     local list_count = #lists_me[1].lists + #lists_me[1].followed_lists
     assert(since(0, "getLists") == 1, "Home did not fetch the lists")
     assert(since(0, "getListBooks") == list_count, "lists saved: " .. since(0, "getListBooks") .. " of " .. list_count)

@@ -5,10 +5,5 @@
 # InputDialog under it (setInputText is missing on it). Written against another KOReader version?
 goal_edit
 goal_offline
-# Home loads the lists in a background block that checks the shell is shown before each step. The
-# emulator's fake requests never yield, so the block runs before the shell is shown and stops.
-# The scenarios predate the Home-inside-the-shell change (903bf0b).
-offline_lists
-offline_book_changes
 # The offline read's page is not shown after "read again".
 reader_panel_read_again
