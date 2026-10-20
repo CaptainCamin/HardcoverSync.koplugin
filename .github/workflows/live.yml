@@ -5,6 +5,8 @@ name: live
 # Hardcover changing under the plugin; this can. Not run for pull requests: the token must
 # never reach a fork's code.
 on:
+  push:
+    branches: [claude/live-api-check]  # TEMPORARY: remove before merging
   schedule:
     - cron: '17 4 * * *'
   workflow_dispatch:
