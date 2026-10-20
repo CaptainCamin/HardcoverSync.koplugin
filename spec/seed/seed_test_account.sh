@@ -13,14 +13,19 @@ if [ -z "$TOKEN" ]; then
   exit 2
 fi
 
-# gql QUERY VARIABLES_JSON: prints the "data" object, or fails with the first GraphQL error
+# gql QUERY VARIABLES_JSON: prints the "data" object, or fails with the first GraphQL error.
+# A 429 (rate limit) is retried with a growing pause.
 gql() {
-  local payload out code body
+  local payload out code body attempt
   payload=$(jq -cn --arg q "$1" --argjson v "$2" '{query: $q, variables: $v}')
-  out=$(printf '%s' "$payload" | curl -sS --max-time 30 -w '\n%{http_code}' \
-    -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" \
-    --data-binary @- "$API")
-  code=${out##*$'\n'}
+  for attempt in 1 2 3 4 5; do
+    out=$(printf '%s' "$payload" | curl -sS --max-time 30 -w '\n%{http_code}' \
+      -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" \
+      --data-binary @- "$API")
+    code=${out##*$'\n'}
+    [ "$code" = 429 ] || break
+    sleep $((attempt * 15))
+  done
   body=${out%$'\n'*}
   if [[ $code != 2* ]]; then
     echo "HTTP $code from the API" >&2
