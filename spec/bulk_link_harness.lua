@@ -275,44 +275,84 @@ r.check("a title with no author and no exact result is not guessed from subtitle
     book(5, "Star Wars: Thrawn", "Timothy Zahn") }, "Star Wars", nil) == nil)
 
 -- ------------------------------------------------------------ the guess scan
-local function guessScanOf(files, metas, searches)
-  local stored = {}
+local function guessScanOf(files, metas, searches, titles)
+  local stored, calls = {}, { titles = {}, searches = {} }
   local g = BulkLink.newGuess(files, {
     read_metadata = function(file)
       local m = metas[file]
       if m == "error" then error("unreadable") end
       return m
     end,
+    search_titles = function(list)
+      calls.titles[#calls.titles + 1] = list
+      if titles == "error" then error("offline") end
+      return titles
+    end,
     search = function(title)
+      calls.searches[#calls.searches + 1] = title
       local found = searches[title]
       if found == "error" then error("offline") end
       return found
     end,
     store = function(file, cfg) stored[file] = cfg end,
   })
-  return g, stored
+  return g, stored, calls
 end
-local g, gstored = guessScanOf(
-  { "/Dune.epub", "/Untitled.epub", "/Wrong.epub", "/Broken.epub", "/Offline.epub", "/Failed.epub" },
+local function runGuess(g)
+  local network = 0
+  while not BulkLink.done(g) do
+    if BulkLink.stepGuess(g) then network = network + 1 end
+  end
+  return network
+end
+
+local g, gstored, gcalls = guessScanOf(
+  { "/Dune.epub", "/Untitled.epub", "/Wrong.epub", "/Broken.epub", "/Offline.epub", "/Failed.epub", "/Loose.epub" },
   { ["/Dune.epub"] = { title = "Dune", author = "Frank Herbert" }, ["/Untitled.epub"] = nil,
     ["/Wrong.epub"] = { title = "Emma", author = "Jane Austen" }, ["/Broken.epub"] = "error",
-    ["/Offline.epub"] = { title = "Offline" }, ["/Failed.epub"] = { title = "Failed" } },
-  { Dune = { dune }, Emma = { book(5, "Emma", "Somebody Else") }, Offline = "error" })
-r.check("a guess calls Hardcover", BulkLink.stepGuess(g) == true)
+    ["/Offline.epub"] = { title = "Offline" }, ["/Failed.epub"] = { title = "Failed" },
+    ["/Loose.epub"] = { title = "loose title", author = "Frank Herbert" } },
+  { Emma = { book(5, "Emma", "Somebody Else") }, Offline = "error",
+    ["loose title"] = { book(6, "Loose Title", "Frank Herbert") } },
+  { Dune = { dune } })
+r.check("reading a file does not call Hardcover", BulkLink.stepGuess(g) == false and #gcalls.titles == 0)
+local gnetwork = runGuess(g)
+r.check("every title is asked for in one request", #gcalls.titles == 1 and #gcalls.titles[1] == 5, #gcalls.titles)
 r.check("the guess is stored with its mark",
   gstored["/Dune.epub"] and gstored["/Dune.epub"].book_id == 1 and gstored["/Dune.epub"].guessed_book_id == 1)
-r.check("a book with no title does not call Hardcover", BulkLink.stepGuess(g) == false and g.no_title == 1)
-r.check("a result that does not match is reported, not linked",
-  BulkLink.stepGuess(g) == true and #g.no_match == 1 and gstored["/Wrong.epub"] == nil)
-r.check("an unreadable file is an error", BulkLink.stepGuess(g) == false and g.errors == 1)
-r.check("a failed search is an error", BulkLink.stepGuess(g) == true and g.errors == 2)
-r.check("a search with no answer (nil) is an error, not 'no match'",
-  BulkLink.stepGuess(g) == true and g.errors == 3 and #g.no_match == 1)
-r.check("the guess scan is done", BulkLink.done(g) and #g.linked == 1 and g.linked[1].authors == "Frank Herbert")
+r.check("a book settled by the batch is not searched for", not tostring(table.concat(gcalls.searches, ",")):find("Dune", 1, true))
+r.check("a book the batch could not settle is searched for, one request each",
+  table.concat(gcalls.searches, ",") == "Emma,Offline,Failed,loose title", table.concat(gcalls.searches, ","))
+r.check("a spelling only search finds is still linked", gstored["/Loose.epub"] and gstored["/Loose.epub"].book_id == 6)
+r.check("a request for the batch and one for each search", gnetwork == 5, gnetwork)
+r.check("a book with no title does not call Hardcover", g.no_title == 1)
+r.check("a result that does not match is reported, not linked", gstored["/Wrong.epub"] == nil and #g.no_match == 1)
+r.check("an unreadable file is an error", g.errors >= 1)
+r.check("a failed search is an error, a search with no answer (nil) too", g.errors == 3, g.errors)
+r.check("every book was counted once", g.checked == 7, g.checked)
+r.check("the guess scan is done", BulkLink.done(g) and #g.linked == 2 and g.linked[1].authors == "Frank Herbert")
 local gsummary = BulkLink.guessSummary(g)
-r.check("the guess summary counts each outcome", gsummary:find("Linked by guess: 1", 1, true)
+r.check("the guess summary counts each outcome", gsummary:find("Linked by guess: 2", 1, true)
   and gsummary:find("No confident match: 1", 1, true) and gsummary:find("No title in the file: 1", 1, true)
   and gsummary:find("Could not check: 3", 1, true), gsummary)
+
+do
+  local files, metas = {}, {}
+  for i = 1, 30 do
+    files[i] = "/b" .. i .. ".epub"
+    metas[files[i]] = { title = "T" .. i, author = "A B" }
+  end
+  local scan, _, calls = guessScanOf(files, metas, {}, {})
+  runGuess(scan)
+  r.check("titles are asked for BATCH at a time", #calls.titles == 2 and #calls.titles[1] == BulkLink.BATCH
+    and #calls.titles[2] == 30 - BulkLink.BATCH, #calls.titles)
+  r.check("a titles request that fails falls back to searching every book", #calls.searches == 30)
+  local failing, _, fcalls = guessScanOf({ "/a.epub" }, { ["/a.epub"] = { title = "Dune", author = "Frank Herbert" } },
+    { Dune = { dune } }, "error")
+  runGuess(failing)
+  r.check("a titles call that raises is a fallback to search, not an error",
+    #failing.linked == 1 and failing.errors == 0 and #fcalls.searches == 1)
+end
 
 -- ------------------------------------------------------------ reviewing guesses
 local saved = {

@@ -72,10 +72,19 @@ return {
       end
       return out
     end
-    Api.search = function(_, title)
-      if title == "Guessable Book" then
-        return { { book_id = 900, title = "Guessable Book", contributions = { { author = { name = "Ann Author" } } } } }
+    -- guesses: the exact titles are asked for at once, and what that does not settle is searched for
+    local title_requests, searches = {}, {}
+    local guessable = { book_id = 900, title = "Guessable Book", contributions = { { author = { name = "Ann Author" } } } }
+    Api.findBooksByTitles = function(_, titles)
+      title_requests[#title_requests + 1] = #titles
+      local out = {}
+      for _, title in ipairs(titles) do
+        if title == "Guessable Book" then out[title] = { guessable } end
       end
+      return out
+    end
+    Api.search = function(_, title)
+      searches[#searches + 1] = title
       return {}
     end
     Api.getBookDetails = function(_, items)
@@ -180,6 +189,8 @@ return {
     emu:shot("link_all_guessed")
     emu:expectText("Linked by guess: 1")
     assert(settings:readBookSetting(files[4], "book_id") == 900, "the guess was not linked")
+    assert(#title_requests == 1 and title_requests[1] == 2, "titles asked for at once: " .. table.concat(title_requests, ","))
+    assert(#searches == 1, "searches for what the titles did not settle: " .. #searches)
     assert(settings:readBookSetting(files[4], "guessed_book_id") == 900, "the guess was not marked")
     assert(settings:readBookSetting(files[3], "book_id") == nil, "a book with no match was linked")
     assert(#detail_requests == 2 and detail_requests[2] == 1, "the guess's details: " .. table.concat(detail_requests, ","))

@@ -240,7 +240,8 @@ function BulkLink.total(scan)
 end
 
 function BulkLink.done(scan)
-  return scan.cancelled or (scan.index >= #scan.items and #scan.queue == 0)
+  return scan.cancelled
+    or (scan.index >= #scan.items and #scan.queue == 0 and not (scan.fallback and #scan.fallback > 0))
 end
 
 local function nameOf(file)
@@ -416,55 +417,111 @@ function BulkLink.pickGuess(results, title, author)
   return #started == 1 and started[1] or nil
 end
 
--- A scan that guesses for `items` (files). `deps` is { read_metadata, search, store }:
--- `read_metadata(file)` gives { title, author } or nil, `search(title, author)` gives Hardcover's
--- results (nil when the call failed), `store(file, config)` writes the link.
+-- A scan that guesses for `items` (files). `deps` is { read_metadata, search_titles, search, store }:
+-- `read_metadata(file)` gives { title, author } or nil, `search_titles(titles)` gives Hardcover's
+-- books for many exact titles at once (a table from title to books; nil when the call failed),
+-- `search(title, author)` gives the results of searching for one (nil when the call failed), and
+-- `store(file, config)` writes the link.
+--
+-- Titles are tried BATCH at a time first, which settles most books in one request. A book that
+-- batch could not settle (spelled differently, an author that does not match, several candidates) is
+-- then searched for on its own, as before.
 function BulkLink.newGuess(items, deps)
   local scan = BulkLink.new(items, deps)
   scan.guess = true
   scan.no_title = 0
+  -- { file =, meta = } for books the batch did not settle: searched for one by one
+  scan.fallback = {}
   return scan
 end
 
--- Handle the next book of a guess scan. Returns true when it called Hardcover.
-function BulkLink.stepGuess(scan)
-  if BulkLink.done(scan) then return false end
-  scan.index = scan.index + 1
-  scan.checked = scan.checked + 1
-  local file = scan.items[scan.index]
-  local deps = scan.deps
-
-  local ok_read, meta = pcall(deps.read_metadata, file)
-  if not ok_read then
-    scan.errors = scan.errors + 1
-    return false
-  end
-  if not (meta and meta.title and normalize(meta.title) ~= "") then
-    scan.no_title = scan.no_title + 1
-    return false
-  end
-
-  local ok_search, results = pcall(deps.search, meta.title, meta.author)
-  if not ok_search or results == nil then
-    scan.errors = scan.errors + 1
-    return true
-  end
-  local book = BulkLink.pickGuess(results, meta.title, meta.author)
-  if not book then
-    scan.no_match[#scan.no_match + 1] = { name = nameOf(file) }
-    return true
-  end
-
+local function link(scan, file, book)
   local config = BulkLink.linkConfig(book)
   config.guessed_book_id = book.book_id
-  if pcall(deps.store, file, config) then
+  if pcall(scan.deps.store, file, config) then
     scan.linked[#scan.linked + 1] = { name = nameOf(file), matched = book.title,
       authors = table.concat(authorNames(book), ", "),
       file = file, book_id = book.book_id, edition_id = book.edition_id }
   else
     scan.errors = scan.errors + 1
   end
-  return true
+end
+
+-- Try the next BATCH queued books by exact title in one request.
+local function guessBatch(scan)
+  local batch, titles, seen = {}, {}, {}
+  for _index = 1, math.min(BulkLink.BATCH, #scan.queue) do
+    local entry = table.remove(scan.queue, 1)
+    batch[#batch + 1] = entry
+    if not seen[entry.meta.title] then
+      seen[entry.meta.title] = true
+      titles[#titles + 1] = entry.meta.title
+    end
+  end
+
+  local ok, found = pcall(scan.deps.search_titles, titles)
+  if not ok or type(found) ~= "table" then found = {} end
+
+  for _index, entry in ipairs(batch) do
+    local book = BulkLink.pickGuess(found[entry.meta.title], entry.meta.title, entry.meta.author)
+    if book then
+      scan.checked = scan.checked + 1
+      link(scan, entry.file, book)
+    else
+      scan.fallback[#scan.fallback + 1] = entry
+    end
+  end
+end
+
+-- Search for one book the batch could not settle.
+local function guessOne(scan)
+  local entry = table.remove(scan.fallback, 1)
+  scan.checked = scan.checked + 1
+  local meta = entry.meta
+  local ok_search, results = pcall(scan.deps.search, meta.title, meta.author)
+  if not ok_search or results == nil then
+    scan.errors = scan.errors + 1
+    return
+  end
+  local book = BulkLink.pickGuess(results, meta.title, meta.author)
+  if not book then
+    scan.no_match[#scan.no_match + 1] = { name = nameOf(entry.file) }
+    return
+  end
+  link(scan, entry.file, book)
+end
+
+-- Do the next piece of work: try a full batch of titles, else read the next book's title, else try
+-- what is left of the batch, else search for one of the books still unsettled. Returns true when it
+-- called Hardcover.
+function BulkLink.stepGuess(scan)
+  if BulkLink.done(scan) then return false end
+
+  if #scan.queue >= BulkLink.BATCH or (scan.index >= #scan.items and #scan.queue > 0) then
+    guessBatch(scan)
+    return true
+  end
+
+  if scan.index >= #scan.items then
+    guessOne(scan)
+    return true
+  end
+
+  scan.index = scan.index + 1
+  local file = scan.items[scan.index]
+  local ok_read, meta = pcall(scan.deps.read_metadata, file)
+  if not ok_read then
+    scan.errors = scan.errors + 1
+    scan.checked = scan.checked + 1
+    return false
+  end
+  if not (meta and meta.title and normalize(meta.title) ~= "") then
+    scan.no_title = scan.no_title + 1
+    scan.checked = scan.checked + 1
+    return false
+  end
+  scan.queue[#scan.queue + 1] = { file = file, meta = meta }
+  return false
 end
 
 -- ------------------------------------------------------------ reviewing guesses
