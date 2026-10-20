@@ -125,10 +125,7 @@ local function newBook(overrides)
   return book
 end
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 check("a shelved book moves on Hardcover, its read and its queued page to the new edition", function()
   resetApi({ updatePage = { id = 77, progress_pages = 160, edition_id = 20 },

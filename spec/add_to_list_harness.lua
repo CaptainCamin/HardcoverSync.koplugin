@@ -95,10 +95,7 @@ local Lists = real_require("hardcover/lib/lists")
 local DialogManager = real_require("hardcover/lib/ui/dialog_manager")
 User.getId = function() return 1 end
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 -- ------------------------------------------------------------ pure data
 print("\n== which lists a book is on ==")

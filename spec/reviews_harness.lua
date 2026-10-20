@@ -16,10 +16,7 @@ support.preload_ui_stubs()
 support.preload_http_stubs()
 support.preload_json(PLUGIN)
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 local ELLIPSIS = "\226\128\166"
 

@@ -21,10 +21,7 @@ local Cache = require("hardcover/lib/cache")
 local SyncQueue = require("hardcover/lib/sync_queue")
 
 local r = KB.support.reporter()
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 local function eq(a, b, label)
   if a ~= b then error((label or "value") .. ": expected " .. tostring(b) .. ", got " .. tostring(a), 2) end
 end

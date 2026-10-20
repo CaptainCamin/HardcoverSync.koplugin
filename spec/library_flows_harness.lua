@@ -206,10 +206,7 @@ local function newManager(opts)
   return m
 end
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 local function settledDetail(id, extra)
   local book = { book_id = id, title = "Book " .. id, description = "A synopsis", cached_image = { url = "u" },

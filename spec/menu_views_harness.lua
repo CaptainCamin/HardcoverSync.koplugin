@@ -44,6 +44,27 @@ package.preload["ffi/util"] = function()
   }
   return util
 end
+-- A stand-in for the real window manager. Closing something that is not a widget fails the way the
+-- real one does (it asks the widget to handle events), which is what crashed KOReader when a settings
+-- row closed the stand-in "menu instance" the settings screen hands to callbacks.
+local ui_calls = { closed = {}, shown = 0 }
+package.preload["ui/uimanager"] = function()
+  return {
+    show = function() ui_calls.shown = ui_calls.shown + 1 end,
+    close = function(_, widget)
+      if type(widget) ~= "table" or type(widget.handleEvent) ~= "function" then
+        error("attempt to call method 'handleEvent' (a nil value)", 2)
+      end
+      ui_calls.closed[#ui_calls.closed + 1] = widget
+    end,
+    scheduleIn = function() end, nextTick = function() end, unschedule = function() end,
+    setDirty = function() end,
+  }
+end
+package.preload["libs/libkoreader-lfs"] = function()
+  return { dir = function() return function() return nil end end, attributes = function() return nil end }
+end
+
 local real_require = require
 _G.require = function(name)
   if name:match("^hardcover/") or package.preload[name] or package.loaded[name] then
@@ -96,10 +117,7 @@ local function has(list, wanted)
   return false
 end
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 local function shown(list) return table.concat(list, " | ") end
 
@@ -322,6 +340,48 @@ end)
 check("the old shelf entries are gone (Home replaces them)", function()
   local m = labels(true)
   assert(not has(m, "Want to Read list") and not has(m, "Currently Reading list"), shown(m))
+end)
+
+print("\n== the settings screen's rows ==")
+
+check("a row's callback gets a stand-in menu, not a widget: no row may close it", function()
+  _G.G_reader_settings = _G.G_reader_settings or { readSetting = function() return nil end }
+  local SettingsItems = real_require("hardcover/lib/settings_items")
+  local menu = newMenu()
+  menu.settings.readBookSetting = function() return nil end
+  menu.settings.readSetting = function() return nil end
+  local asked = 0
+  local wanted = {}
+  for _, item in ipairs(menu:getHomeSettingsItems()) do
+    if item.text == "Link all books on this device" or item.text == "Save details of linked books" then
+      wanted[#wanted + 1] = item
+    end
+  end
+  local rows = SettingsItems.rows(wanted, function() end, function() asked = asked + 1 end)
+  local tried = {}
+  for _, row in ipairs(rows) do
+    local text = row.text
+    if text == "Link all books on this device" or text == "Save details of linked books" then
+      tried[#tried + 1] = text
+      row.choose()
+    end
+  end
+  assert(#tried == 2, "the two linking rows were not both found: " .. table.concat(tried, ", "))
+  assert(#ui_calls.closed == 0, "a row closed a widget it was not given")
+end)
+
+check("KOReader's own touch menu, a real widget, is still closed so progress can show", function()
+  local menu = newMenu()
+  menu.settings.readBookSetting = function() return nil end
+  menu.settings.readSetting = function() return nil end
+  local touch_menu = { handleEvent = function() end, updateItems = function() end }
+  for _, item in ipairs(menu:getHomeSettingsItems()) do
+    if item.text == "Link all books on this device" then
+      local before = #ui_calls.closed
+      item.callback(touch_menu)
+      assert(#ui_calls.closed == before + 1 and ui_calls.closed[#ui_calls.closed] == touch_menu)
+    end
+  end
 end)
 
 r.finish()

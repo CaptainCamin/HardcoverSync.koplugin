@@ -64,10 +64,7 @@ local function syncItem(menu)
   end
 end
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 print("\n== the sync button ==")
 

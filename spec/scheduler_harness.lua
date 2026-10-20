@@ -13,10 +13,7 @@ local support = dofile(PLUGIN .. "/spec/support.lua")
 support.preload_koreader_stubs()
 local r = support.reporter()
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 -- what is waiting to run: job -> { when = seconds or "tick" }
 local waiting

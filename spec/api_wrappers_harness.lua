@@ -45,10 +45,7 @@ local Api = require("hardcover/lib/hardcover_api")
 Api.auth = nil
 
 local r = support.reporter()
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 local function deliver_ticks()
   while #ticks > 0 do table.remove(ticks, 1)() end

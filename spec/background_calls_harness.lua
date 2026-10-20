@@ -70,10 +70,7 @@ local function probe(name, result)
   end
 end
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 local function reset() blocking = {}; ticks = {} end
 local function pump() while #ticks > 0 do table.remove(ticks, 1)() end end

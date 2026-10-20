@@ -263,6 +263,7 @@ function HardcoverApp:init()
     enabled = true,
 
     auth = self.auth,
+    book_store = self.book_store,
     cache = self.cache,
     dialog_manager = self.dialog_manager,
     hardcover = self.hardcover,

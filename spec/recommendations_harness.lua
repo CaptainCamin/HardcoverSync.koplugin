@@ -50,10 +50,7 @@ local real_query = Api.query
 local Goals = real_require("hardcover/lib/goals")
 local Lists = real_require("hardcover/lib/lists")
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 -- a scripted Api:query: each call takes the next answer, and every request is kept
 local sent, script

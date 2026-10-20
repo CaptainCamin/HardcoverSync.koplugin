@@ -167,10 +167,7 @@ local function many(n)
   return rows
 end
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 -- ---------------------------------------------------------------- the rows
 print("\n== the rows the plugin builds ==")

@@ -10,10 +10,7 @@ package.path = PLUGIN .. "/?.lua;" .. PLUGIN .. "/?/init.lua;" .. package.path
 local support = dofile(PLUGIN .. "/spec/support.lua")
 local r = support.reporter()
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 local ScreenRegistry = require("hardcover/lib/screen_registry")
 

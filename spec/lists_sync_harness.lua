@@ -18,10 +18,7 @@ local ListStore = require("hardcover/lib/list_store")
 local Lists = require("hardcover/lib/lists")
 local ListsSync = require("hardcover/lib/lists_sync")
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 local T1 = "2026-10-08T15:22:25.183388+00:00"
 local T2 = "2026-10-09T09:00:00.000001+00:00"
