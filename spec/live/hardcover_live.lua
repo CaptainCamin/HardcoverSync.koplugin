@@ -228,7 +228,11 @@ step("createRead and updatePage", function()
   end
   ctx.read_id = need(tonumber(reads[#reads].id), "read id")
   local updated = is_table(Api:updatePage(ctx.read_id, ctx.edition_id, 25, today), "updated read")
-  if tonumber(updated.progress_pages) ~= 25 then error("progress_pages is " .. tostring(updated.progress_pages), 0) end
+  -- updatePage answers with the user book (see normalizeUserBookRead), the read inside it
+  local pages = is_table(updated.user_book_reads, "reads of the updated book")[1]
+  if tonumber(pages and pages.progress_pages) ~= 25 then
+    error("progress_pages is " .. tostring(pages and pages.progress_pages), 0)
+  end
 end)
 
 step("updateRating, then clear it", function()
@@ -289,7 +293,12 @@ end
 step("getShelf", function()
   eventually("shelf", function()
     local entries = is_table(Api:getShelf(ctx.user_id, 2, 0, 10), "shelf")
-    if #entries == 0 then error("the book just added is not on the Currently reading shelf", 0) end
+    if #entries == 0 then
+      local all = Api:getShelf(ctx.user_id, nil, 0, 10)
+      local ub = Api:findUserBook(ctx.book_id, ctx.user_id)
+      error(string.format("the book just added is not on the Currently reading shelf (whole library: %s books; the book's status_id is %s)",
+        all and #all or "?", tostring(type(ub) == "table" and ub.status_id)), 0)
+    end
   end)
 end)
 
