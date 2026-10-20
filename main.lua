@@ -35,6 +35,7 @@ local PageMapper = require("hardcover/lib/page_mapper")
 local Scheduler = require("hardcover/lib/scheduler")
 local ShelfCache = require("hardcover/lib/shelf_cache")
 local BookshelfSources = require("hardcover/lib/bookshelf_sources")
+local FileDialog = require("hardcover/lib/file_dialog")
 local ShelfStore = require("hardcover/lib/shelf_store")
 local SqliteStore = require("hardcover/lib/sqlite_store")
 local SyncQueue = require("hardcover/lib/sync_queue")
@@ -289,6 +290,8 @@ function HardcoverApp:init()
   if not BookshelfSources.register(self) then
     UIManager:nextTick(function() BookshelfSources.register(self) end)
   end
+
+  FileDialog.register(self)
 
   self:onDispatcherRegisterActions()
   self:initializePageUpdate()
