@@ -60,7 +60,7 @@ Api.transport = {
     local cmd = "curl -sS --max-time 30 -w '\\n%{http_code}'"
       .. " -H 'Content-Type: application/json'"
       .. " -H 'User-Agent: " .. agent .. "'"
-      .. " -H \"Authorization: Bearer ${HARDCOVER_DEV_KEY#Bearer }\""
+      .. " -H \"Authorization: Bearer $(printf %s \"$HARDCOVER_DEV_KEY\" | sed 's/^[[:space:]]*[Bb]earer[[:space:]]*//' | tr -d '[:space:]\"')\""
       .. " --data-binary @- '" .. url .. "'"
     local tmp = os.tmpname()
     local f = assert(io.open(tmp, "w"))
@@ -120,6 +120,11 @@ step("me: id and username", function()
 end)
 
 if not ctx.user_id then
+  -- say what shape the token has, never what it is
+  local key = os.getenv("HARDCOVER_DEV_KEY")
+  print(string.format("  token shape: %d characters, %d dots, %s a Bearer prefix, %s surrounding whitespace or quotes",
+    #key, select(2, key:gsub("%.", "")), key:match("^%s*[Bb]earer") and "has" or "no",
+    (key:match("^[%s\"']") or key:match("[%s\"']$")) and "has" or "no"))
   print("cannot continue without a user (is the token valid?)")
   r.finish()
 end
