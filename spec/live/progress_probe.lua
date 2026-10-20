@@ -79,23 +79,27 @@ local edition_id = tonumber(eds[1].edition_id or eds[1].id)
 local left = Api:findUserBook(book_id, uid)
 if type(left) == "table" and left.id then Api:removeUserBook(left.id) end
 
-local Q_BOOK = [[query($b:Int!,$u:Int!){ user_books(where:{book_id:{_eq:$b},user_id:{_eq:$u}}){ id status_id edition_id updated_at last_read_date
-  user_book_reads(order_by:{id:asc}){ id started_at finished_at progress_pages edition_id updated_at } } }]]
-local Q_J = [[query($b:Int!,$u:Int!){ reading_journals(where:{book_id:{_eq:$b},user_id:{_eq:$u}},order_by:{id:asc}){ id event entry action_at metadata created_at } }]]
-local Q_CR = [[query($u:Int!){ user_books(where:{user_id:{_eq:$u},status_id:{_eq:2}},order_by:{updated_at:desc}){ id user_book_reads(order_by:{id:desc},limit:1){ id progress_pages } } }]]
-
+local Q_BOOK = [[query($b:Int!,$u:Int!){ user_books(where:{book_id:{_eq:$b},user_id:{_eq:$u}}){ id status_id edition_id
+  user_book_reads(order_by:{id:asc}){ id started_at finished_at progress_pages edition_id } } }]]
+local Q_J = [[query($b:Int!,$u:Int!){ reading_journals(where:{book_id:{_eq:$b},user_id:{_eq:$u}},order_by:{id:asc}){ id event metadata action_at } }]]
 local today = os.date("!%Y-%m-%d")
-local ub = Api:updateUserBook(book_id, 2, nil, edition_id)
-show("A added", ub)
-show("A raw", Api:query(Q_BOOK, { b = book_id, u = uid }))
-local read = Api:createRead(ub.id, edition_id, 10, today)
-show("B createRead", read)
-show("B journal", Api:query(Q_J, { b = book_id, u = uid }))
-show("C updatePage", Api:updatePage(read.id, edition_id, 25, today))
-show("C raw", Api:query(Q_BOOK, { b = book_id, u = uid }))
-show("C journal", Api:query(Q_J, { b = book_id, u = uid }))
-show("C currently-reading", Api:query(Q_CR, { u = uid }))
-show("D updatePage nil started_at", Api:updatePage(read.id, edition_id, 40, nil))
-show("D raw", Api:query(Q_BOOK, { b = book_id, u = uid }))
-show("D journal", Api:query(Q_J, { b = book_id, u = uid }))
-Api:removeUserBook(ub.id)
+local ok, err = pcall(function()
+  local ub = Api:updateUserBook(book_id, 2, nil, edition_id)
+  show("A added (status reading)", ub)
+  local r1 = ub.user_book_reads[1].id
+  show("B update auto read to 10", Api:updatePage(r1, edition_id, 10, today))
+  show("B raw", Api:query(Q_BOOK, { b = book_id, u = uid }))
+  show("B journal", Api:query(Q_J, { b = book_id, u = uid }))
+  show("C update auto read to 25", Api:updatePage(r1, edition_id, 25, today))
+  show("C journal", Api:query(Q_J, { b = book_id, u = uid }))
+  show("D update with nil started_at to 40", Api:updatePage(r1, edition_id, 40, nil))
+  show("D raw", Api:query(Q_BOOK, { b = book_id, u = uid }))
+  show("D journal", Api:query(Q_J, { b = book_id, u = uid }))
+  show("E createRead 50 (second read)", Api:createRead(ub.id, edition_id, 50, today))
+  show("E raw", Api:query(Q_BOOK, { b = book_id, u = uid }))
+  show("E journal", Api:query(Q_J, { b = book_id, u = uid }))
+  Api:removeUserBook(ub.id)
+end)
+if not ok then print("PROBE ERROR", err) end
+local left2 = Api:findUserBook(book_id, uid)
+if type(left2) == "table" and left2.id then Api:removeUserBook(left2.id) end
