@@ -15,6 +15,16 @@ jobs:
         with:
           luaVersion: "5.1"
 
+      - name: Install LuaRocks and luacheck
+        uses: leafo/gh-actions-luarocks@v4
+
+      - run: luarocks install luacheck
+
+      # Undefined and accidentally global variables (a typo, a missing require) in code no test reaches.
+      # What it ignores, and why, is in .luacheckrc.
+      - name: Lint
+        run: luacheck .
+
       - name: Syntax-check every Lua file
         run: |
           status=0
