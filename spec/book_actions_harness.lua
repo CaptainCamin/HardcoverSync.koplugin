@@ -11,10 +11,7 @@ local support = dofile(PLUGIN .. "/spec/support.lua")
 support.preload_koreader_stubs()
 local r = support.reporter()
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 local BookActions = require("hardcover/lib/book_actions")
 local HARDCOVER = require("hardcover/lib/constants/hardcover")

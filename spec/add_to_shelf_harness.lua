@@ -110,10 +110,7 @@ local Shelf = real_require("hardcover/lib/shelf")
 local DialogManager = real_require("hardcover/lib/ui/dialog_manager")
 User.getId = function() return 1 end
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 -- ------------------------------------------------------------ pure helpers
 print("\n== statuses ==")

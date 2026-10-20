@@ -31,6 +31,13 @@ function support.reporter()
     return ok
   end
 
+  -- Run `fn` and record it as one check: it passes when it does not raise, and a failure's detail
+  -- is the error. The usual way to write a harness: `local check = r.test`.
+  function r.test(label, fn)
+    local ok, err = pcall(fn)
+    return r.check(label, ok, err)
+  end
+
   function r.finish()
     print(string.format("\n  %d passed, %d failed", r.pass, r.fail))
     os.exit(r.fail == 0 and 0 or 1)

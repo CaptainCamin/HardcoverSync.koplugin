@@ -217,10 +217,7 @@ local function newManager()
   }, { __index = DialogManager })
 end
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 local function book(id, title) return { book_id = id, title = title, status_id = 1, description = "d" } end
 
 local function page(n, from)

@@ -121,10 +121,7 @@ local Theme = real_require("hardcover/lib/ui/theme")
 local Shelf = real_require("hardcover/lib/shelf")
 local Api = real_require("hardcover/lib/hardcover_api")
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 local function kinds(group)
   local out = {}

@@ -216,10 +216,7 @@ local function newManager()
   return m
 end
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 -- a details screen that records what it is told
 local function detailScreen(m, detail)

@@ -15,10 +15,7 @@ local App = KB.load_main()
 local support = KB.support
 local r = support.reporter()
 
-local function check(label, fn)
-  local ok, err = pcall(fn)
-  r.check(label, ok, err)
-end
+local check = r.test
 
 local function newApp(overrides)
   local app = KB.new_app {
