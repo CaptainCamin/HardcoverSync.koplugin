@@ -110,7 +110,8 @@ end
 -- Trapper:wrap. The resized cover; once more if it failed (the image service sometimes
 -- answers a 502 the first time it makes a size); then the cover as uploaded. A download
 -- cancelled by a tap (not completed) is respected: nothing more is tried. `background`:
--- not cancellable by a tap. `stopped()`: whether to give up between tries.
+-- not cancellable by a tap (a screen's covers use it, so its taps reach the screen).
+-- `stopped()`: whether to give up between tries.
 -- Returns completed, success, content, and the key it was downloaded as.
 --
 function ImageLoader:download(url, size, background, stopped, box)
@@ -241,7 +242,10 @@ function Batch:loadImages(urls, size, box)
     Trapper:wrap(function()
       if stop_loading then return end
 
-      local completed, success, content, saved_as = ImageLoader:download(url, size, false,
+      -- Not cancellable by a tap: a cancellable download covers the whole screen with a
+      -- widget that takes the tap, so turning the page would only cancel one cover, and
+      -- the next cover's download would take the next tap.
+      local completed, success, content, saved_as = ImageLoader:download(url, size, true,
         function() return stop_loading end, box)
 
       if completed and success then

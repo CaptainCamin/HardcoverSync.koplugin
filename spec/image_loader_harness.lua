@@ -106,11 +106,15 @@ package.preload["ui/uimanager"] = function()
   }
 end
 local fetched = {}
+local traps = {}
 local fail_urls = {}
 package.preload["ui/trapper"] = function()
   return {
     wrap = function(_, fn) fn() end,
-    dismissableRunInSubprocess = function(_, fn) return true, fn() end,
+    dismissableRunInSubprocess = function(_, fn, trap)
+      traps[#traps + 1] = trap == nil and "dismissable" or "background"
+      return true, fn()
+    end,
   }
 end
 package.preload["hardcover/vendor/url_content"] = function()
@@ -136,7 +140,7 @@ local pinned_dir = dir .. "_pinned"
 os.execute("mkdir -p '" .. pinned_dir .. "'")
 local function reset()
   os.execute("rm -f '" .. dir .. "'/* '" .. pinned_dir .. "'/*")
-  mtimes = {}; ticks = {}; scheduled = {}; fetched = {}; fail_urls = {}
+  mtimes = {}; ticks = {}; scheduled = {}; fetched = {}; traps = {}; fail_urls = {}
   ImageLoader.cache = new_cache()
   ImageLoader.pinned = ImageCache:new { dir = pinned_dir, lfs = fake_lfs, hash = hash, max_bytes = false,
     make_dir = function() return true end }
@@ -277,6 +281,16 @@ check("the image service failing once is tried again; failing twice, the cover a
   expect(#fetched == 3 and fetched[1] == small and fetched[2] == small and fetched[3] == COVER,
     table.concat(fetched, " | "))
   expect(got == "IMG:" .. COVER and ImageLoader.cache:get(COVER), "the original was not used and kept")
+end)
+
+check("a list's cover downloads do not take the taps meant for the list", function()
+  -- a dismissable download puts a full-screen trap over the screen, so the tap that turns
+  -- the page only cancels the cover being fetched, once per cover
+  reset()
+  ImageLoader:loadImages({ COVER, COVER .. "2" }, function() end)
+  drain()
+  expect(#traps >= 2, "downloaded " .. #traps)
+  for _, t in ipairs(traps) do expect(t == "background", "a download can be cancelled by a tap") end
 end)
 
 check("a download cancelled by a tap is not tried again", function()
