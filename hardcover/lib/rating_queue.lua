@@ -44,7 +44,8 @@ function RatingQueue:list()
   local out = {}
   for _, op in pairs(self:ops()) do
     if valid(op) then
-      out[#out + 1] = { user_book_id = op.user_book_id, rating = tonumber(op.rating), title = op.title }
+      out[#out + 1] = { user_book_id = op.user_book_id, rating = tonumber(op.rating), title = op.title,
+        held = op.held, reason = op.reason }
     end
   end
   table.sort(out, function(a, b) return tostring(a.user_book_id) < tostring(b.user_book_id) end)
@@ -61,8 +62,10 @@ function RatingQueue:cancel(user_book_id)
 end
 
 -- Send what is waiting, one request each. A rating Hardcover did not answer for
--- stays queued for the next try. `on_sent(user_book_id, user_book)` is called for
--- each one that went through. Returns the number still waiting.
+-- stays queued for the next try and stops the flush. One it refused is counted and the
+-- rest go on; the third refusal in a row holds it until the user presses Sync (retryHeld).
+-- `on_sent(user_book_id, user_book)` is called for each one that went through. Returns
+-- the number still waiting (held ones included).
 function RatingQueue:flush(api, on_sent)
   -- a second flush while one is out waits for the first (each rating is sent once)
   return self:withFlushLock(function() return self:count() end, function()
@@ -75,15 +78,31 @@ function RatingQueue:flush(api, on_sent)
 
     for _, key in ipairs(keys) do
       local op = ops[key]
-      local user_book = api:updateRating(op.user_book_id, tonumber(op.rating))
-      if not user_book then break end
-      -- a newer rating made while this one was in flight stays
-      if ops[key] == op then ops[key] = nil end
-      self:persist()
-      if on_sent then on_sent(op.user_book_id, user_book) end
+      if not op.held then
+        local user_book, err = api:updateRating(op.user_book_id, tonumber(op.rating))
+        if user_book then
+          -- a newer rating made while this one was in flight stays
+          if ops[key] == op then ops[key] = nil end
+          self:persist()
+          if on_sent then on_sent(op.user_book_id, user_book) end
+        elseif OfflineQueue.transient(err) then
+          break
+        else
+          OfflineQueue.reject(op, err)
+          self:persist()
+        end
+      end
     end
     return self:count()
   end)
+end
+
+-- Let held ratings try again (pressing Sync).
+function RatingQueue:retryHeld()
+  for _, op in pairs(self:ops()) do
+    if type(op) == "table" then op.held, op.failures, op.reason = nil, nil, nil end
+  end
+  self:persist()
 end
 
 return RatingQueue

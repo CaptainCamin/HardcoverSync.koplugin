@@ -103,7 +103,7 @@ check("GoalQueue counts its list of ops, and the held ones among them", function
   assert(queue:heldCount() == 0)
 end)
 
-check("RatingQueue counts ratings and never holds any", function()
+check("RatingQueue counts ratings and holds none until one is refused", function()
   local queue = RatingQueue:new { settings = settings() }
   queue:queue(5, 4.5, "A book")
   queue:queue(6, 0, "Another")

@@ -89,6 +89,7 @@ function PendingChanges.list(queues)
         kind = "rating", title = title,
         text = (r.rating or 0) > 0 and T(_("%1: rating %2"), title, tostring(r.rating))
           or T(_("%1: clear the rating"), title),
+        note = heldNote(r),
         cancel = function() return ratings:cancel(r.user_book_id) end,
       }
     end

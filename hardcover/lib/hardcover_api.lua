@@ -1154,10 +1154,13 @@ function HardcoverApi:updateRating(user_book_id, rating)
     rating = json.util.null
   end
 
-  local result = self:query(query, { id = user_book_id, rating = rating })
+  local result, err = self:query(query, { id = user_book_id, rating = rating })
   if result and result.update_user_book then
-    return result.update_user_book.user_book
+    local updated = result.update_user_book
+    if updated.user_book then return updated.user_book end
+    return nil, updated.error
   end
+  return nil, err
 end
 
 function HardcoverApi:removeRead(user_book_id)

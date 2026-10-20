@@ -128,6 +128,29 @@ function ShelfQueue:retryHeld()
   self:persist()
 end
 
+--
+-- A book's status can also be changed from the reader, which keeps it in the progress queue
+-- (SyncQueue, one entry per file, with the page). When both queues hold a status change for
+-- the same book, only the newer is sent: the other would land after it and undo it. The
+-- older one is dropped (a page waiting in the progress queue stays). `at` stamps are whole
+-- seconds; on a tie the reader's change stands.
+--
+function ShelfQueue:settleWith(sync_queue)
+  if not sync_queue then return end
+  for _, filepath in ipairs(sync_queue:filepaths()) do
+    local entry = sync_queue:get(filepath)
+    local op = type(entry) == "table" and entry.status_id ~= nil and entry.book_id ~= nil
+      and self:get(entry.book_id)
+    if op then
+      if (tonumber(op.at) or 0) > (tonumber(entry.status_updated_at) or 0) then
+        sync_queue:cancelStatus(filepath)
+      else
+        self:cancel(op.book_id)
+      end
+    end
+  end
+end
+
 -- Throw everything waiting away.
 function ShelfQueue:clear()
   local ops = self:ops()
