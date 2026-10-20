@@ -27,6 +27,27 @@ local support = dofile(PLUGIN .. "/spec/support.lua")
 support.preload_ui_stubs()
 support.preload_http_stubs()
 support.preload_json(PLUGIN)
+
+-- KOReader's json has json.util (null, InitArray) and writes an empty table as an object; the
+-- specs' stand-in has neither, so wrap it: the decoder is theirs, the encoder is this one.
+local spec_json = require("json")
+local NULL, ARRAY = setmetatable({}, { __tostring = function() return "null" end }), {}
+local function encode(v)
+  local t = type(v)
+  if v == nil or v == NULL then return "null" end
+  if t ~= "table" then return spec_json.encode(v) end
+  local out = {}
+  if getmetatable(v) == ARRAY or #v > 0 then
+    for i, item in ipairs(v) do out[i] = encode(item) end
+    return "[" .. table.concat(out, ",") .. "]"
+  end
+  for k, item in pairs(v) do out[#out + 1] = spec_json.encode(tostring(k)) .. ":" .. encode(item) end
+  return "{" .. table.concat(out, ",") .. "}"
+end
+package.loaded["json"] = setmetatable({
+  encode = encode,
+  util = { null = NULL, InitArray = function(t) return setmetatable(t, ARRAY) end },
+}, { __index = spec_json })
 package.preload["ui/network/manager"] = function()
   return { isConnected = function() return true end, isOnline = function() return true end }
 end
@@ -66,11 +87,18 @@ Api.transport = {
     local f = assert(io.open(tmp, "w"))
     f:write(json.encode(body))
     f:close()
-    local p = assert(io.popen(cmd .. " < " .. tmp, "r"))
-    local out = p:read("*a")
-    p:close()
+    local content, code
+    -- Hardcover allows 60 requests a minute: keep under it, and wait out a 429 if one comes anyway
+    for attempt = 1, 4 do
+      os.execute("sleep 1.1")
+      local p = assert(io.popen(cmd .. " < " .. tmp, "r"))
+      local out = p:read("*a")
+      p:close()
+      content, code = out:match("^(.*)\n(%d+)$")
+      if code ~= "429" then break end
+      os.execute("sleep " .. (attempt * 8))
+    end
     os.remove(tmp)
-    local content, code = out:match("^(.*)\n(%d+)$")
     if not code then return "0:" end
     if not code:match("^2") then
       failures_http[#failures_http + 1] = code
