@@ -218,8 +218,15 @@ step("findUserBook: the added book is found", function()
 end)
 
 step("createRead and updatePage", function()
-  local read = is_table(Api:createRead(need(ctx.user_book_id, "user book"), ctx.edition_id, 10, today), "read")
-  ctx.read_id = need(tonumber(read.id), "read id")
+  -- Hardcover starts a read itself when a book becomes "currently reading"; the plugin only
+  -- creates one when there is none, so do the same (see how book_actions finds it)
+  local ub = is_table(Api:findUserBook(ctx.book_id, ctx.user_id), "user book")
+  local reads = is_table(ub.user_book_reads, "reads")
+  if #reads == 0 then
+    local read = is_table(Api:createRead(ctx.user_book_id, ctx.edition_id, 10, today), "created read")
+    reads = is_table(read.user_book_reads, "created read's reads")
+  end
+  ctx.read_id = need(tonumber(reads[#reads].id), "read id")
   local updated = is_table(Api:updatePage(ctx.read_id, ctx.edition_id, 25, today), "updated read")
   if tonumber(updated.progress_pages) ~= 25 then error("progress_pages is " .. tostring(updated.progress_pages), 0) end
 end)
@@ -267,15 +274,30 @@ step("getListCount and getListBooks", function()
   end
 end)
 
--- Shelves and what is built on them
+-- Shelves and what is built on them. Hardcover's shelf reads can trail a write by a moment.
+local function eventually(what, fn)
+  local last
+  for _ = 1, 4 do
+    local ok, err = pcall(fn)
+    if ok then return end
+    last = err
+    os.execute("sleep 4")
+  end
+  error(tostring(last) .. " (" .. what .. ", still, after 16 s)", 0)
+end
+
 step("getShelf", function()
-  local entries = is_table(Api:getShelf(ctx.user_id, 2, 0, 10), "shelf")
-  if #entries == 0 then error("the book just added is not on the Currently reading shelf", 0) end
+  eventually("shelf", function()
+    local entries = is_table(Api:getShelf(ctx.user_id, 2, 0, 10), "shelf")
+    if #entries == 0 then error("the book just added is not on the Currently reading shelf", 0) end
+  end)
 end)
 
 step("getShelfCounts", function()
-  local counts = is_table(Api:getShelfCounts(ctx.user_id, { 1, 2, 3, 4, 5 }), "counts")
-  if (counts[2] or 0) < 1 then error("Currently reading count is " .. tostring(counts[2]), 0) end
+  eventually("count", function()
+    local counts = is_table(Api:getShelfCounts(ctx.user_id, { 1, 2, 3, 4, 5 }), "counts")
+    if (counts[2] or 0) < 1 then error("Currently reading count is " .. tostring(counts[2]), 0) end
+  end)
 end)
 
 step("getShelfMembers and getCurrentlyReading", function()
