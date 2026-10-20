@@ -1,9 +1,3 @@
 # Scenarios that fail today and are skipped by `spec/emu/run.sh --ci` (one name per line, with why).
 # Fix one, delete its line. A scenario that is not listed here fails CI when it fails.
-#
-# These two open a text box and the scenario finds KOReader's VirtualKeyboard on top, not the
-# InputDialog under it (setInputText is missing on it). Written against another KOReader version?
-goal_edit
-goal_offline
-# The offline read's page is not shown after "read again".
-reader_panel_read_again
+# Nothing is parked at the moment.

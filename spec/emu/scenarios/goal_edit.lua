@@ -17,7 +17,8 @@ local UIManager = require("ui/uimanager")
 local function top()
   for i = #UIManager._window_stack, 1, -1 do
     local w = UIManager._window_stack[i].widget
-    if w and not (w.toast or w.snackbar) then return w end
+    -- an input dialog opens KOReader's on-screen keyboard above itself; the dialog is what is wanted
+    if w and not (w.toast or w.snackbar or w.name == "VirtualKeyboard") then return w end
   end
 end
 
@@ -34,6 +35,13 @@ local function find_button(root, label, seen)
 end
 
 local function tap_button(emu, label)
+  -- the on-screen keyboard covers the dialog's buttons at this screen size, and a tap goes to the
+  -- window on top: put the keyboard away first, as a reader would
+  local dialog = top()
+  if dialog and dialog.onCloseKeyboard and dialog.keyboard_visible then
+    dialog:onCloseKeyboard()
+    emu:pump()
+  end
   emu:screenNodes()
   local b = find_button(top(), label)
   assert(b, "no button '" .. label .. "' on top (" .. tostring(top() and top().name) .. "):\n" .. emu:screenText())

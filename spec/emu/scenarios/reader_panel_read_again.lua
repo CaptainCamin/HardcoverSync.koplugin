@@ -51,6 +51,7 @@ return {
         cache = {
           queueMeta = function() return { book_id = 328491, edition_id = 3, user_book_id = 503 } end,
           applyLocalStatus = function(_, _, status) calls.local_status = status end,
+          shelfChanged = function() end,
           applyLocalPage = function(_, page) calls.local_page = page end,
           cacheUserBook = function() calls.refreshed = true end,
           updateBookStatus = function() end,
