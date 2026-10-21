@@ -209,6 +209,7 @@ function HardcoverMenu:showReaderPanel()
     local note_item = findItem(status_items, "Add a note")
     local settings_item = findItem(view, "Settings")
     local link_item = findItem(view, "Linked book") or findItem(view, "Link book")
+    local edition_item = findItem(view, "Change edition")
     -- just the statuses (and Remove); page, note and rating have buttons of their own
     local status_item = findItem(view, "Update status") and {
       text = _("Update status"),
@@ -269,10 +270,23 @@ function HardcoverMenu:showReaderPanel()
     -- the mock has nothing else; status, note, reviews and settings are on the book page
     -- and in the Hardcover menu
 
+    -- the gear at the top right: linking, the edition, and all of the plugin's settings
+    local menu_rows = {
+      { text = linked and _("Link a different book") or _("Link this book"), enabled = enabled(link_item),
+        run = function() run(link_item) end },
+    }
+    if linked then
+      menu_rows[#menu_rows + 1] = { text = _("Change edition"), enabled = enabled(edition_item),
+        run = function() run(edition_item) end }
+    end
+    menu_rows[#menu_rows + 1] = { text = _("All Hardcover settings"),
+      run = function() self.dialog_manager:showSettings() end }
+
     return {
       title = title,
       linked = linked,
       pills = {},
+      menu = { title = _("Settings"), rows = menu_rows },
       line = facts.line,
       shelf = facts.shelf,
       shelf_action = shelf_action,

@@ -14,6 +14,7 @@
 --     shelf_action (nil, or { text, run }: a button beside the shelf line),
 --     hint (string or nil: what reading will do, where there is no switch),
 --     track = { checked, toggle, note (string or nil) } or nil,
+--     menu = { title, rows = { { text, enabled, run }, ... } } or nil (the gear at the top right),
 --     actions = { { text, enabled, primary, run }, ... } }
 --
 -- Tapping above the sheet, or the Back key, closes it.
@@ -80,6 +81,30 @@ function ReaderPanel:buildShelfRow(text, action, width)
     Theme.hspan(width - label:getSize().w - button_w), button }
 end
 
+-- the settings gear: an icon in a TOUCH_MIN square that opens the panel's menu as a list sheet
+function ReaderPanel:buildGear(menu)
+  local size = Theme.TOUCH_MIN
+  return TapRow:new { callback = function() self:openMenu(menu) end,
+    dimen = Geom:new { w = size, h = size },
+    CenterContainer:new { dimen = Geom:new { w = size, h = size }, Theme.icon("settings", Theme.px(28)) } }
+end
+
+function ReaderPanel:openMenu(menu)
+  local Picker = require("hardcover/lib/ui/picker")
+  local picker
+  local rows = {}
+  for _i, item in ipairs(menu.rows) do
+    rows[#rows + 1] = { text = item.text, disabled = item.enabled == false,
+      callback = function()
+        UIManager:close(picker)
+        item.run()
+      end }
+  end
+  picker = Picker.new { title = menu.title, rows = rows }
+  UIManager:show(picker)
+  return picker
+end
+
 function ReaderPanel:render()
   local model = self.opts.model()
   local screen_w, screen_h = Screen:getWidth(), Screen:getHeight()
@@ -100,15 +125,23 @@ function ReaderPanel:render()
         label = pill.text, selected = pill.filled, size = 15, width = width })
     end
   end
-  local title = Theme.mmdText(model.title, "strong", 25, { width = width })
+  -- the gear sits at the top right of the sheet, a touch target square; the title gives it room
+  local gear = model.menu and self:buildGear(model.menu)
+  local gear_w = gear and gear:getSize().w or 0
+  local title = Theme.mmdText(model.title, "strong", 25, { width = width - gear_w })
+  local head = HorizontalGroup:new { align = "top", title }
   if landscape and pill_row then
-    table.insert(content, HorizontalGroup:new { align = "center", title, Theme.hspan(Theme.px(20)), pill_row })
-  else
-    table.insert(content, title)
-    if pill_row then
-      table.insert(content, Theme.span("s"))
-      table.insert(content, pill_row)
-    end
+    table.insert(head, Theme.hspan(Theme.px(20)))
+    table.insert(head, pill_row)
+  end
+  if gear then
+    table.insert(head, Theme.hspan(math.max(0, width - head:getSize().w - gear_w)))
+    table.insert(head, gear)
+  end
+  table.insert(content, head)
+  if pill_row and not landscape then
+    table.insert(content, Theme.span("s"))
+    table.insert(content, pill_row)
   end
 
   -- what the book is: how far or how long, right under the title, then where it is; each line only
