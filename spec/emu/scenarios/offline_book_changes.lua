@@ -151,7 +151,11 @@ return {
     emu:shot("offline_book_changes_lists")
 
     tapText("Someday (0)")
-    -- the message says what happened; the tick and the size are under it
+    -- a tick only marks the row: nothing is kept or said until Done
+    assert(list_queue:count() == 0, "a tick kept the change before Done")
+    emu:shot("offline_book_changes_lists_ticked")
+    tapText("Done")
+    -- one message says what happened
     emu:expectText("Offline: added to")
     assert(#fixtures.calls == mark, "ticking a list offline asked the network")
     assert(list_queue:count() == 1 and list_queue:get(4, book_id).kind == "add", "the add was not kept")
@@ -159,11 +163,9 @@ return {
     local row4
     for _, row in ipairs(list_store:index(User:getId()).mine) do if row.id == 4 then row4 = row end end
     assert(row4 and row4.count == 1, "the list's size did not follow")
-    dismiss(picker)
-    emu:expectText("Someday (1)")
-
-    -- Done: the details name the lists
-    tapText("Done")
+    UIManager:close(topmost())
+    emu:pump()
+    assert(topmost() == dialog, "the message did not leave the details on top")
     emu:expectText("Someday")
 
     -- ---------------------------------------------------------------- a shelf
