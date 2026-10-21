@@ -123,6 +123,15 @@ Theme.mmd = {
   button = { radius = px(8), border = math.max(2, px(2)) },
   chip = { radius = px(20), border = math.max(2, px(2)), pad = px(14), pad_y = px(4), text = 18 },
   search = { h = px(48), icon = px(20), icon_touch = px(28), clear = px(28), clear_touch = px(48) },
+  -- a floating action button: a rounded square (radius in unscaled units, as Theme.box scales it), a
+  -- white halo around it, the icon about 40% of the side; `margin` is its distance from the edges
+  fab = {
+    size = { small = px(48), medium = px(64), large = px(72) },
+    radius = { small = 14, medium = 18, large = 18 },
+    halo = { small = px(2), medium = px(3), large = px(4) },
+    icon = { small = px(24), medium = px(28), large = px(28) },
+    border = math.max(2, px(2)), margin = px(16),
+  },
 }
 
 -- type: sizes in points, all one family so nothing fights
