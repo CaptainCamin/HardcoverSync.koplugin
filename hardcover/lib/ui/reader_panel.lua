@@ -84,25 +84,28 @@ end
 -- the settings gear: an icon in a TOUCH_MIN square that opens the panel's menu as a list sheet
 function ReaderPanel:buildGear(menu)
   local size = Theme.TOUCH_MIN
-  return TapRow:new { callback = function() self:openMenu(menu) end,
+  self.gear = TapRow:new { callback = function() self:openMenu(menu) end,
     dimen = Geom:new { w = size, h = size },
     CenterContainer:new { dimen = Geom:new { w = size, h = size }, Theme.icon("settings", Theme.px(28)) } }
+  return self.gear
 end
 
+-- the gear's menu: a small popup under the gear (its right edge on the gear's), not a sheet
 function ReaderPanel:openMenu(menu)
-  local Picker = require("hardcover/lib/ui/picker")
-  local picker
-  local rows = {}
+  local Popover = require("hardcover/lib/ui/components/popover")
+  local screen_w = Screen:getWidth()
+  local at = self.gear and self.gear.dimen
+  local items = {}
   for _i, item in ipairs(menu.rows) do
-    rows[#rows + 1] = { text = item.text, disabled = item.enabled == false,
-      callback = function()
-        UIManager:close(picker)
-        item.run()
-      end }
+    items[#items + 1] = { label = item.text, disabled = item.enabled == false, callback = item.run }
   end
-  picker = Picker.new { title = menu.title, rows = rows }
-  UIManager:show(picker)
-  return picker
+  -- (before the gear has been painted it has no place yet: the top right of the sheet stands in)
+  local x = at and at.x and (at.x + at.w) or (screen_w - Theme.px(20))
+  local y = at and at.y and (at.y + at.h) or ((self.sheet_top or 0) + Theme.TOUCH_MIN)
+  self.menu_popup = Popover.show { items = items, x = x, y = y,
+    width = math.min(Theme.px(420), screen_w - Theme.px(16)),
+    on_dismiss = function() self.menu_popup = nil end }
+  return self.menu_popup
 end
 
 function ReaderPanel:render()
