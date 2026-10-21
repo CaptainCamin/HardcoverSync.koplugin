@@ -91,7 +91,7 @@ Written so a missing component is a decision, not an oversight. "Built" means a 
 |---|---|
 | Button, Switch, Radio, Checkbox, Cards, Menus (popover), Dialog, Top app bar, Progress bar, Tabs, Separators, List, Bottom sheets, Loading, Scrollbar | Built and used |
 | Navigation bar | Built; it is how the plugin opens |
-| Snackbar | Built; answers what the reader did (link, tracking, progress, goal saves, status messages). System events keep KOReader's plain toast |
+| Snackbar | Built; answers what the reader did (link, tracking, progress, goal saves, status messages). It is a KOReader toast: only a tap on the bar is taken, the rest of the screen stays live. System events keep KOReader's plain toast |
 | Search | Built (`search_field.lua`): the query on the results screen. Typing is KOReader's box |
 | Chips | Built for state only (`chip.lua`: goal standing, shelf status). No filter, input or suggestion chips: the Library has no filters (decision) |
 | Slider | Not built. The only candidate is the progress and rating entry, which uses KOReader's spin widgets; a slider needs drag handling and would replace a working widget, so it waits for a decision and a device |

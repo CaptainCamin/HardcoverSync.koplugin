@@ -151,19 +151,41 @@ return {
     assert(answer == "keep", "dialog button did not run")
     assert(UIManager:getTopmostVisibleWidget() == page, "dialog stayed open")
 
-    -- snackbar: a tap elsewhere closes it (and is spent doing so); its action runs
+    -- snackbar: the rest of the screen keeps working; only the bar takes taps, and its action runs
     local undone
     Snackbar.show { message = "Moved to Read", action = { label = "Undo", callback = function() undone = true end } }
     emu:pump()
     emu:shot("components_snackbar")
-    tapText("Undo")
+    local snack = UIManager:getTopmostVisibleWidget()
+    assert(snack.snackbar, "the snackbar is not on top")
+    local covers = state.covers
+    emu:tap(covers_row.x + 5, covers_row.y + 5)
+    assert(state.covers ~= covers, "a tap on the page was blocked while the snackbar was up")
+    assert(UIManager:getTopmostVisibleWidget() == snack, "a tap elsewhere closed the snackbar")
+    local node = emu:expectText("Undo")
+    emu:tap(node.x + 5, node.y + 5)
     assert(undone, "the snackbar action did not run")
     assert(UIManager:getTopmostVisibleWidget() == page, "the snackbar stayed after its action")
+
+    -- a tap on the bar is spent there: a window under it (a row, a page-turn zone) never hears it
+    local InputContainer = require("ui/widget/container/inputcontainer")
+    local GestureRange = require("ui/gesturerange")
+    local Geom = require("ui/geometry")
+    local heard = 0
+    local probe = InputContainer:new { dimen = Geom:new { x = 0, y = 0, w = SW, h = SH } }
+    probe.ges_events = { Tap = { GestureRange:new { ges = "tap", range = probe.dimen } } }
+    function probe:onTap() heard = heard + 1 return true end
+    UIManager:show(probe)
     Snackbar.show { message = "Saved" }
     emu:pump()
-    emu:tapExpecting(covers_row.x + 5, covers_row.y + 5)
-    assert(UIManager:getTopmostVisibleWidget() == page, "a tap elsewhere did not close the snackbar")
-    assert(state.covers == false, "the closing tap also reached the page")
+    emu:tap(SW / 2, SH - Theme.px(10))
+    assert(heard == 0, "a tap on the snackbar also reached the window under it")
+    emu:tap(SW / 2, Theme.px(300))
+    assert(heard == 1, "a tap off the snackbar did not reach the window under it")
+    UIManager:close(UIManager:getTopmostVisibleWidget()) -- the snackbar
+    UIManager:close(probe)
+    emu:pump()
+    assert(UIManager:getTopmostVisibleWidget() == page, "the snackbar did not close")
 
     UIManager:close(page)
     emu:pump()

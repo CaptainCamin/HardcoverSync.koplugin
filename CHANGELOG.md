@@ -18,6 +18,7 @@
 
 ### Changed
 
+- **A snackbar no longer blocks the screen.** While a snackbar is up, taps, page turns and Back work on the page as usual; only a tap on the bar itself (its action or X) is taken by it. A tap elsewhere used to close the snackbar and do nothing else. Snackbars also go away sooner: a notice after 2 seconds (was 3), an error after 4 (was 5).
 - **The plugin is licensed under the GNU Affero General Public License v3.0** (it was MIT). The original MIT notice is kept in `LICENSE-MIT`.
 - **The old Home screen is gone.** The navigation bar is no longer a beta setting: Settings > "New navigation bar (beta)" is removed and Hardcover always opens to the tabs. The old Home's scrolling page of tiles and its goal card are replaced by the Goals, Library and Stats tabs. Settings > "Show 'For you' on Home" is now "Show 'For you' in Vibes".
 - **One Add button on a book's details screen.** The separate Shelf and Lists buttons are now one "Add" button. It opens a sheet with "Add to shelf" / "Change shelf" and "Lists" (Lists only when signed in with OAuth); without Lists it goes straight to the shelf sheet. The button takes half the row, leaving the other half free.
@@ -46,6 +47,7 @@
 
 ### Fixed
 
+- **Lists could not be paged while covers loaded.** Covers already on the device were drawn one task after another, and KOReader reads no input until the last task is done, so a tap waited until every cover on the page was drawn. They are now drawn together, and covers still downloading no longer put a widget over the list that takes the tap.
 - **Progress could land on a second read.** Hardcover makes a read itself when a book goes on Currently Reading; the plugin, holding no read, made another. The journal then followed the new read while the book kept showing the old page. Before it creates a read it now asks Hardcover for the unfinished one and updates that; if it cannot ask, the page waits in the queue.
 - A page update for a read with no start date cleared the date on Hardcover (and on the journal's "started" entry). It now leaves the date alone.
 - A progress update for a read Hardcover does not have raised an error instead of failing quietly and queueing.

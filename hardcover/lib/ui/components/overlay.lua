@@ -7,6 +7,11 @@
 --           "point"    the child's top-right corner at (x, y): a popover under its icon
 --   modal   a tap outside the child dismisses it and goes no further (default); false leaves it
 --           to the child's own taps only
+--   toast   the page stays usable: KOReader sends every event to the toast first and then on to the
+--           window below, whatever the toast does with it. A gesture that lands on the child is taken
+--           here (marked spent, so the window below ignores it); anywhere else it passes untouched,
+--           and neither a tap outside nor Back dismisses it. Keep `modal` true with it: KOReader
+--           also reads that flag to stack a window, and a non-modal toast lands under an open sheet.
 --
 -- The child's own taps are tried first (its rows are TapRows); what no child takes is handled here.
 
@@ -30,6 +35,7 @@ local Overlay = InputContainer:extend {
   y = 0,
   on_dismiss = nil, -- tap outside, or Back
   covers_fullscreen = false,
+  toast = false,
   snackbar = false, -- set by Snackbar.show, so a caller can tell the notice from the window under it
 }
 
@@ -61,15 +67,32 @@ function Overlay:paintTo(bb)
   self[1]:paintTo(bb, self.region.x, self.region.y)
 end
 
+-- What a toast's own gesture handling leaves: UIManager hands the same gesture table to the window
+-- below even after the toast took it, so a tap on "Undo" would also press whatever is under the bar.
+-- Renaming the gesture makes every GestureRange below miss it.
+local SPENT = "hardcover_spent"
+
+function Overlay:handleEvent(event)
+  local handled = InputContainer.handleEvent(self, event)
+  if self.toast and event.handler == "onGesture" then
+    local ges = event.args and event.args[1]
+    if ges and ges.pos and ges.pos:intersectWith(self.region) then
+      ges.ges = SPENT
+      return true
+    end
+  end
+  return handled
+end
+
 function Overlay:onTapOutsideOverlay(_, ges)
   if ges and ges.pos and ges.pos:intersectWith(self.region) then return true end -- on the child, not a row
-  if not self.modal then return false end
+  if self.toast or not self.modal then return false end
   self:dismiss()
   return true
 end
 
 function Overlay:onBack()
-  if not self.modal then return false end
+  if self.toast or not self.modal then return false end
   self:dismiss()
   return true
 end
