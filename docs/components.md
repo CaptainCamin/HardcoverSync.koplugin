@@ -26,7 +26,7 @@ checks the numbers.
 | `popover.lua` | anchored menu under its icon, dotted dividers, tick on the current choice | sort (shelf screen) |
 | `choice_sheet.lua` | radio list with an X, no Cancel | sort |
 | `action_sheet.lua` | outlined buttons plus one filled Cancel | 10 |
-| `dialog.lua` | centred, title + text, one or two buttons | 5 |
+| `dialog.lua` | centred, heading + text, none to two stacked full-width buttons (an X when none); `warning` adds the triangle and centres the text | 5 |
 | `snackbar.lua` | bottom message with at most one action, closes itself | 5 |
 | `progress_bar.lua` | thin outlined track, thick black fill with round ends, an optional tick (where you should be) with a white edge; goals | 7 |
 | `section.lua` | a dotted rule and a small Black label, optional count at the right; one block of a page | 4, 7, 8 |

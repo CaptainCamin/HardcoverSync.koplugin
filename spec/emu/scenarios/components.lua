@@ -140,7 +140,7 @@ return {
     assert(ran == "remove", "action sheet button did not run")
     assert(UIManager:getTopmostVisibleWidget() == page, "action sheet stayed open")
 
-    -- dialog: two buttons, X
+    -- dialog: two stacked buttons, the filled one first
     local answer
     Dialog.show { title = "Discard queued changes?", text = "Three changes have not reached Hardcover yet. They will be lost.",
       buttons = { { label = "Discard", primary = true, callback = function() answer = "discard" end },
@@ -150,6 +150,21 @@ return {
     tapText("Keep")
     assert(answer == "keep", "dialog button did not run")
     assert(UIManager:getTopmostVisibleWidget() == page, "dialog stayed open")
+
+    -- the warning configurations: a single action, and the X with no buttons
+    local acknowledged
+    Dialog.show { warning = true, title = "Reset progress?", text = "This cannot be undone.",
+      buttons = { { label = "Proceed with reset", callback = function() acknowledged = true end } } }
+    emu:pump()
+    emu:shot("components_dialog_warning")
+    tapText("Proceed with reset")
+    assert(acknowledged, "single-action button did not run")
+    assert(UIManager:getTopmostVisibleWidget() == page, "warning dialog stayed open")
+    Dialog.show { warning = true, title = "Sync is paused", text = "Changes will wait until you are online." }
+    emu:pump()
+    emu:shot("components_dialog_close")
+    UIManager:getTopmostVisibleWidget():dismiss()
+    assert(UIManager:getTopmostVisibleWidget() == page, "close-only dialog stayed open")
 
     -- snackbar: the rest of the screen keeps working; only the bar takes taps, and its action runs
     local undone
