@@ -129,13 +129,16 @@ function ReaderPanel:render()
   local gear = model.menu and self:buildGear(model.menu)
   local gear_w = gear and gear:getSize().w or 0
   local title = Theme.mmdText(model.title, "strong", 25, { width = width - gear_w })
+  -- (a group measures itself once, so the width is added up here before anything is put in it)
+  local used = title:getSize().w
   local head = HorizontalGroup:new { align = "top", title }
   if landscape and pill_row then
+    used = used + Theme.px(20) + pill_row:getSize().w
     table.insert(head, Theme.hspan(Theme.px(20)))
     table.insert(head, pill_row)
   end
   if gear then
-    table.insert(head, Theme.hspan(math.max(0, width - head:getSize().w - gear_w)))
+    table.insert(head, Theme.hspan(math.max(0, width - used - gear_w)))
     table.insert(head, gear)
   end
   table.insert(content, head)
