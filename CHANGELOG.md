@@ -47,6 +47,7 @@
 
 ### Fixed
 
+- **Lists could not be paged while covers loaded.** Covers already on the device were drawn one task after another, and KOReader reads no input until the last task is done, so a tap waited until every cover on the page was drawn. They are now drawn together, and covers still downloading no longer put a widget over the list that takes the tap.
 - **Progress could land on a second read.** Hardcover makes a read itself when a book goes on Currently Reading; the plugin, holding no read, made another. The journal then followed the new read while the book kept showing the old page. Before it creates a read it now asks Hardcover for the unfinished one and updates that; if it cannot ask, the page waits in the queue.
 - A page update for a read with no start date cleared the date on Hardcover (and on the journal's "started" entry). It now leaves the date alone.
 - A progress update for a read Hardcover does not have raised an error instead of failing quietly and queueing.
