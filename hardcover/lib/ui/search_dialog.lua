@@ -7,7 +7,7 @@
 -- setItems, setEmptyState, onClose, and the two callbacks. The row handed to select_book_cb is the
 -- ListRow row they have always read (book_id, edition_id, edition_format, pages, title, ...).
 
-local InputDialog = require("ui/widget/inputdialog")
+local InputDialog = require("hardcover/lib/ui/components/input_dialog")
 local UIManager = require("ui/uimanager")
 local _ = require("gettext")
 
@@ -70,19 +70,16 @@ function HardcoverSearchDialog:promptSearch(initial)
   search_dialog = InputDialog:new {
     title = _("New search"),
     input = initial or self.search_value,
-    save_button_text = _("Search"),
-    buttons = { {
+    buttons = {
       {
-        text = _("Cancel"),
+        label = _("Cancel"),
         callback = function()
           UIManager:close(search_dialog)
         end,
       },
       {
-        text = _("Search"),
-        -- button with is_enter_default set to true will be
-        -- triggered after user press the enter key from keyboard
-        is_enter_default = true,
+        label = _("Search"),
+        primary = true, -- also what Enter runs
         callback = function()
           local result = self.search_callback(search_dialog:getInputText())
           if result then
@@ -90,7 +87,7 @@ function HardcoverSearchDialog:promptSearch(initial)
           end
         end,
       }
-    } }
+    }
   }
 
   UIManager:show(search_dialog)
