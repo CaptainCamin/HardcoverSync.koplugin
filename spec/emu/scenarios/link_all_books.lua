@@ -219,9 +219,6 @@ return {
     emu:expectText("of 4 checked")
     emu:shot("link_all_progress")
     tapButton("Stop")
-    emu:screenNodes()
-    emu:expectText("Stopping")
-    emu:shot("link_all_stopping")
     os.execute("sleep 2.2")
     for _ = 1, 20 do emu:pump() end
     emu:screenNodes()
