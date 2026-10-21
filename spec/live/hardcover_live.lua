@@ -663,8 +663,14 @@ for i = #cleanup, 1, -1 do
 end
 step("the added book is gone", function()
   if added then
-    local left = Api:findUserBook(ctx.book_id, ctx.user_id)
-    if type(left) == "table" and left.id then error("user book " .. tostring(left.id) .. " is still on the account", 0) end
+    -- a read just after a delete can still see the row (seen once in five runs): look again
+    local left
+    for _ = 1, 4 do
+      left = Api:findUserBook(ctx.book_id, ctx.user_id)
+      if not (type(left) == "table" and left.id) then return end
+      os.execute("sleep 3")
+    end
+    error("user book " .. tostring(left.id) .. " is still on the account", 0)
   end
 end)
 
