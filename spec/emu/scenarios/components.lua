@@ -174,10 +174,16 @@ return {
       buttons = { { label = "Cancel", callback = function() UIManager:close(box) end },
                   { label = "Set", primary = true, callback = function() typed = box:getInputText(); UIManager:close(box) end } } }
     UIManager:show(box)
+    emu:pump()
+    emu:expectText("Goal name")
+    emu:shot("components_input")
+    -- the keyboard is a window of its own on top: look at it, then put it down to tap the dialog
     box:onShowKeyboard()
     emu:pump()
-    emu:shot("components_input")
-    emu:expectText("Goal name")
+    emu:shot("components_input_keyboard")
+    assert(box:isKeyboardVisible(), "the keyboard did not come up")
+    box:onCloseKeyboard()
+    emu:pump()
     box:setInputText("Twelve books")
     tapText("Set")
     assert(typed == "Twelve books", "the input dialog returned " .. tostring(typed))
