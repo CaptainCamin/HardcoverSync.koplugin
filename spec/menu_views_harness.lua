@@ -125,7 +125,7 @@ print("\n== the reader menu: tracking and this book ==")
 
 check("it offers linking, tracking, status and book details", function()
   local m = labels(true)
-  for _, wanted in ipairs({ "Link book", "Automatically track progress", "Update status", "Book details", "Sync now", "Settings" }) do
+  for _, wanted in ipairs({ "Link book", "Update status", "Book details", "Sync now", "Settings" }) do
     assert(has(m, wanted), "missing '" .. wanted .. "': " .. shown(m))
   end
 end)
@@ -319,7 +319,7 @@ end)
 
 check("it has nothing about a book, because none is open", function()
   local m = homeSettingsLabels()
-  for _, unwanted in ipairs({ "Link book", "Book details", "Update status", "Automatically track progress" }) do
+  for _, unwanted in ipairs({ "Link book", "Book details", "Update status" }) do
     assert(not has(m, unwanted), "'" .. unwanted .. "' is in the settings screen: " .. shown(m))
   end
 end)

@@ -152,7 +152,9 @@ journal entry form, prefilled with the selected text and page.
 ### Automatically track progress
 
 Automatic progress tracking is optional: book status and reading progress can instead be
-[updated manually](#update-reading-status) from the `Update status` menu.
+[updated manually](#update-reading-status) from the `Update status` menu. It is switched on or off per book
+with the `Track automatically` switch in the `Update page` dialog, which is available while the book is
+marked Currently Reading.
 
 When track progress is enabled for a book which has been linked ([manually](#linking-a-book)
 or [automatically](#automatic-linking)),
