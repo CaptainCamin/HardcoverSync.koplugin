@@ -29,6 +29,8 @@ checks the numbers.
 | `dialog.lua` | a floating box (60% of the screen wide, 364 to 520) with a rounded outline, heading + text, none to two stacked full-width buttons (an X when none); `warning` adds the triangle and centres the text | 5 |
 | `input_dialog.lua` | a dialog with a field, sitting on top of KOReader's keyboard, the same box as Dialog with tighter spacing (the keyboard leaves little height); Enter runs the filled one, Back hides the keyboard then cancels | 5 |
 | `progress_dialog.lua` | a locked dialog for a long job: heading, one line, a progress bar, a visible Stop that is answered with "Stopping…" | 5 |
+| `stepper_dialog.lua` | a dialog with one or two number steppers: a big value between a 72 square minus and plus, an optional second row that moves by a larger step (nothing relies on a long press), Cancel and Save; the two fields can follow each other (edition page and local page) | 5 |
+| `date_picker.lua` | a dialog with a month stepper, a year stepper and a six-week grid of 48 square days (Sunday first, the chosen day filled black), after MMD's DatePicker | 5 |
 | `snackbar.lua` | bottom message with at most one action, closes itself | 5 |
 | `progress_bar.lua` | thin outlined track, thick black fill with round ends, an optional tick (where you should be) with a white edge; goals | 7 |
 | `section.lua` | a dotted rule and a small Black label, optional count at the right; one block of a page | 4, 7, 8 |

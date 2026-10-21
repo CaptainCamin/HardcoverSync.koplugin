@@ -726,28 +726,20 @@ function Flows:rateBook(dialog)
   end
 
   local rating = tonumber(detail.user_rating)
-  local SpinWidget = require("ui/widget/spinwidget")
-  UIManager:show(SpinWidget:new {
-    ok_always_enabled = rating == nil,
-    value = rating or 2.5,
-    value_min = 0,
-    value_max = 5,
-    value_step = 0.5,
-    value_hold_step = 2,
-    precision = "%.1f",
-    ok_text = _("Save"),
-    title_text = _("Set Rating"),
-    -- 0 clears the rating
-    callback = function(spin)
-      queue:queue(detail.user_book_id, spin.value, detail.book.title)
-      if Live.shown(dialog) then dialog:setRating(spin.value) end
+  require("hardcover/lib/ui/components/stepper_dialog").show {
+    title = _("Set rating"),
+    text = _("0 clears the rating."),
+    value = rating or 2.5, min = 0, max = 5, step = 0.5,
+    on_save = function(value)
+      queue:queue(detail.user_book_id, value, detail.book.title)
+      if Live.shown(dialog) then dialog:setRating(value) end
       if Network.connected() then
         if self.flush_goals then self.flush_goals() end
       else
         StatusDialogs.info(_("You're offline. Your rating is kept and will be sent when you're connected."))
       end
     end,
-  })
+  }
 end
 
 -- A queued rating went through: the saved shelf shows the new one at once.

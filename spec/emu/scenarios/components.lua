@@ -4,8 +4,8 @@ a top bar, tabs, list items (switch, checkbox, radio, chevron) and a nav bar, th
 shelf-like page: the popover, the choice sheet, the action sheet, the dialog and the snackbar. Every tap
 is made with the real gesture path and checked against what it should do.
 
-Screens: components_page, components_popover, components_choice, components_action, components_dialog,
-components_snackbar.
+Screens: components_page, components_popover, components_choice, components_action, components_dialog, components_stepper,
+components_date_picker, components_snackbar.
 ]]
 
 local fixtures = require("fixtures")
@@ -207,6 +207,35 @@ return {
     emu:expectText("Stopping")
     job:close()
     assert(UIManager:getTopmostVisibleWidget() == page, "the progress dialog stayed open")
+
+    -- stepper dialog: plus moves the value by a step, Save hands it over
+    local StepperDialog = require("hardcover/lib/ui/components/stepper_dialog")
+    local stepped
+    StepperDialog.show { title = "Set rating", text = "0 clears the rating.", value = 2.5, min = 0, max = 5, step = 0.5,
+      on_save = function(v) stepped = v end }
+    emu:pump()
+    emu:expectText("2.5")
+    emu:shot("components_stepper")
+    tapText("plus")
+    emu:expectText("3.0")
+    tapText("Save")
+    assert(stepped == 3, "the stepper saved " .. tostring(stepped))
+    assert(UIManager:getTopmostVisibleWidget() == page, "the stepper stayed open")
+
+    -- date picker: a month back, a day chosen, Set date hands over the date
+    local DatePicker = require("hardcover/lib/ui/components/date_picker")
+    local picked
+    DatePicker.show { title = "First day", year = 2026, month = 10, day = 2, save_label = "Set date",
+      on_save = function(y, m, d) picked = y .. "-" .. m .. "-" .. d end }
+    emu:pump()
+    emu:expectText("October")
+    emu:shot("components_date_picker")
+    tapText("minus")
+    emu:expectText("September")
+    tapText("15")
+    tapText("Set date")
+    assert(picked == "2026-9-15", "the date picker returned " .. tostring(picked))
+    assert(UIManager:getTopmostVisibleWidget() == page, "the date picker stayed open")
 
     -- snackbar: the rest of the screen keeps working; only the bar takes taps, and its action runs
     local undone

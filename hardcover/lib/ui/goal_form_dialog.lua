@@ -10,7 +10,7 @@
 
 local Blitbuffer = require("ffi/blitbuffer")
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
-local DateTimeWidget = require("ui/widget/datetimewidget")
+local DatePicker = require("hardcover/lib/ui/components/date_picker")
 local Device = require("device")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
@@ -304,14 +304,11 @@ end
 function GoalFormDialog:pickDates()
   local function show(title, days, done)
     local y, m, d = Goals.civil(days)
-    UIManager:show(DateTimeWidget:new {
-      year = y, month = m, day = d,
-      ok_text = _("Set date"),
-      title_text = title,
-      callback = function(t)
-        done(Goals.days(t.year, t.month, t.day))
-      end,
-    })
+    DatePicker.show {
+      title = title, year = y, month = m, day = d,
+      save_label = _("Set date"),
+      on_save = function(year, month, day) done(Goals.days(year, month, day)) end,
+    }
   end
   local start_days = Goals.parseDate(self.form.start_date) or self.today
   local end_days = Goals.parseDate(self.form.end_date) or (start_days + 365)
