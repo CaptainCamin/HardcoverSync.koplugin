@@ -386,7 +386,10 @@ function ShelfDialog:setPage(n)
   local page = math.max(1, math.min(n, self.pages))
   if page == self.page then return end
   self.page = page
+  local loader = require("hardcover/lib/ui/image_loader")
+  local t0 = loader.nowMs()
   self:rebuild(false)
+  loader.trace("shelf page", page, "built in", loader.nowMs() - t0, "ms")
 end
 
 function ShelfDialog:onNextPage()
