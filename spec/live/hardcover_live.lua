@@ -307,17 +307,199 @@ step("updateRating, then clear it", function()
   is_table(Api:updateRating(ctx.user_book_id, 0), "cleared user book")
 end)
 
-step("createJournalEntry", function()
-  local entry = is_table(Api:createJournalEntry({
+-- Journal writes. The create path is inherited from the original plugin; these steps are what
+-- proves it works against the real API: each entry is read back, not just acknowledged. Entries
+-- are private (privacy_setting_id 3). They are deleted again when Hardcover has a delete for
+-- them (see the probe below); otherwise a private entry is left behind.
+local JOURNAL_FIELDS = "id event entry privacy_setting_id book_id edition_id metadata"
+
+local function readJournal(id)
+  -- the id goes into the text: its column type (Int or bigint) is not known, a literal fits either
+  local rows = Api:query([[
+    query {
+      reading_journals(where: { id: { _eq: ]] .. math.floor(id) .. [[ } }) { ]] .. JOURNAL_FIELDS .. [[ }
+    }
+  ]])
+  return rows and rows.reading_journals and rows.reading_journals[1]
+end
+
+local function createJournal(event, text, extra)
+  local object = {
     book_id = need(ctx.book_id, "book id"),
-    event = "note",
-    entry = "hardcoversync live check",
+    event = event,
+    entry = text,
     edition_id = ctx.edition_id,
     privacy_setting_id = 3,
     tags = json.util.InitArray({}),
-  }), "journal entry")
-  need(entry.id, "journal entry id")
+  }
+  for k, v in pairs(extra or {}) do object[k] = v end
+  local entry = is_table(Api:createJournalEntry(object), "journal entry")
+  ctx.journal_ids = ctx.journal_ids or {}
+  ctx.journal_ids[#ctx.journal_ids + 1] = need(tonumber(entry.id), "journal entry id")
+  return tonumber(entry.id)
+end
+
+step("createJournalEntry: a note, read back", function()
+  local id = createJournal("note", "hardcoversync live check: note")
+  local row = is_table(readJournal(id), "the note read back")
+  if row.event ~= "note" then error("event is " .. tostring(row.event), 0) end
+  if row.entry ~= "hardcoversync live check: note" then error("entry is " .. tostring(row.entry), 0) end
+  if tonumber(row.privacy_setting_id) ~= 3 then error("privacy is " .. tostring(row.privacy_setting_id), 0) end
+  if tonumber(row.book_id) ~= ctx.book_id then error("book_id is " .. tostring(row.book_id), 0) end
 end)
+
+step("createJournalEntry: a quote with a page and tags, read back", function()
+  local id = createJournal("quote", "hardcoversync live check: quote", {
+    metadata = { position = { type = "pages", value = 12, possible = 400 } },
+    tags = {
+      { category = "Tag", tag = "live check", spoiler = false },
+      { category = "Tag", tag = "live check hidden", spoiler = true },
+    },
+  })
+  local row = is_table(readJournal(id), "the quote read back")
+  if row.event ~= "quote" then error("event is " .. tostring(row.event), 0) end
+  local position = is_table(is_table(row.metadata, "metadata").position, "metadata.position")
+  if tonumber(position.value) ~= 12 or tonumber(position.possible) ~= 400 then
+    error("position is " .. json.encode(position), 0)
+  end
+end)
+
+-- Exploratory, never fails the run: what Hardcover calls the things the plugin does not use yet
+-- (journal reads and deletes, the review fields, an activity feed). Each answer is printed so the
+-- run's log is the record, and docs/hardcover-journal-api.md is written from it. A refused
+-- query is expected here, so the error hook is switched off while a probe runs.
+local function probe(label, query, variables)
+  local saved = Api.on_error
+  Api.on_error = function() end
+  local ok, result, err = pcall(function() return Api:query(query, variables) end)
+  Api.on_error = saved
+  if not ok then
+    print("  probe " .. label .. ": raised " .. tostring(result))
+  elseif result == nil then
+    print("  probe " .. label .. ": refused " .. (type(err) == "table" and json.encode(err) or tostring(err)))
+  else
+    print("  probe " .. label .. ": " .. json.encode(result))
+  end
+  return ok and result or nil
+end
+
+local function typeFields(name)
+  return probe("type " .. name, [[
+    query ($name: String!) {
+      __type(name: $name) {
+        name kind
+        fields { name type { kind name ofType { kind name ofType { kind name } } } }
+        inputFields { name type { kind name ofType { kind name ofType { kind name } } } }
+      }
+    }
+  ]], { name = name })
+end
+
+step("probe: the schema around journals, reviews and activity (prints only)", function()
+  local roots = probe("roots", [[
+    { __schema {
+        queryType { fields { name } }
+        mutationType { fields { name args { name type { kind name ofType { kind name ofType { kind name } } } } } }
+    } }
+  ]])
+  local names = {}
+  if roots then
+    for _, f in ipairs(roots.__schema.queryType.fields) do names[#names + 1] = f.name end
+    print("  query roots: " .. table.concat(names, " "))
+    for _, f in ipairs(roots.__schema.mutationType.fields) do
+      if f.name:find("journal") or f.name:find("user_book") or f.name:find("activit") or f.name:find("review") then
+        print("  mutation " .. f.name .. ": " .. json.encode(f.args))
+      end
+    end
+  end
+  for _, name in ipairs({
+    "reading_journals", "ReadingJournalCreateType", "ReadingJournalUpdateType", "UserBookUpdateType",
+    "UserBookCreateType", "activities", "Activity", "reading_journals_bool_exp",
+  }) do
+    typeFields(name)
+  end
+end)
+
+step("probe: reading the journal for this book (prints only)", function()
+  probe("reading_journals mine", [[
+    query ($bookId: Int!, $userId: Int!) {
+      reading_journals(
+        where: { book_id: { _eq: $bookId }, user_id: { _eq: $userId } }
+        order_by: { id: desc }
+        limit: 5
+      ) { ]] .. JOURNAL_FIELDS .. [[ created_at action_at }
+    }
+  ]], { bookId = ctx.book_id, userId = ctx.user_id })
+  probe("me.reading_journals", [[
+    { me { reading_journals(limit: 5, order_by: { id: desc }) { ]] .. JOURNAL_FIELDS .. [[ } } }
+  ]])
+end)
+
+step("probe: activity feed shapes (prints only)", function()
+  probe("activities mine", [[
+    query ($userId: Int!) {
+      activities(where: { user_id: { _eq: $userId } }, order_by: { id: desc }, limit: 5) {
+        id event user_id book_id created_at data
+      }
+    }
+  ]], { userId = ctx.user_id })
+  probe("activity_feed", [[
+    query { activity_feed(limit: 5) { id event data created_at } }
+  ]])
+  probe("me.followed_users", [[
+    { me { followed_users(limit: 3) { followed_user_id } } }
+  ]])
+end)
+
+step("probe: a review written and cleared on the user book (prints only)", function()
+  local ub = need(ctx.user_book_id, "user book")
+  probe("set review_raw", [[
+    mutation ($id: Int!) {
+      update_user_book(id: $id, object: { review_raw: "hardcoversync live check", review_has_spoilers: false }) {
+        error user_book { id review_raw review_has_spoilers has_review reviewed_at }
+      }
+    }
+  ]], { id = ub })
+  probe("set review_slate", [[
+    mutation ($id: Int!) {
+      update_user_book(id: $id, object: { review_slate: { document: { object: "document", children: [] } } }) {
+        error user_book { id review_raw has_review }
+      }
+    }
+  ]], { id = ub })
+  probe("clear review", [[
+    mutation ($id: Int!) {
+      update_user_book(id: $id, object: { review_raw: null }) {
+        error user_book { id review_raw has_review }
+      }
+    }
+  ]], { id = ub })
+end)
+
+step("probe: deleting and updating a journal entry (prints only)", function()
+  local id = createJournal("note", "hardcoversync live check: to delete")
+  probe("update_reading_journal", [[
+    mutation {
+      update_reading_journal(id: ]] .. math.floor(id) .. [[, object: { entry: "changed" }) { id }
+    }
+  ]])
+  local deleted = probe("delete_reading_journal", [[
+    mutation { delete_reading_journal(id: ]] .. math.floor(id) .. [[) { id } }
+  ]])
+  ctx.can_delete_journal = deleted ~= nil
+end)
+
+-- leave nothing behind when Hardcover lets us delete
+cleanup[#cleanup + 1] = function()
+  if not ctx.can_delete_journal then
+    print("  (journal entries left on the account, private: " .. #(ctx.journal_ids or {}) .. ")")
+    return true
+  end
+  for _, id in ipairs(ctx.journal_ids or {}) do
+    probe("clean up journal " .. id, [[mutation { delete_reading_journal(id: ]] .. math.floor(id) .. [[) { id } }]])
+  end
+  return true
+end
 
 step("getBookLists and getLists", function()
   is_table(Api:getBookLists(need(ctx.book_id, "book id")), "book lists")
