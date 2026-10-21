@@ -306,26 +306,28 @@ function BookDetailDialog:init()
   -- what you make of it: five visible stars (half ones too), the whole row a tap to rate
   local mine = tonumber((self.detail or {}).user_rating) or 0
   local star_cell = Theme.TOUCH_MIN
-  local stars = HorizontalGroup:new { align = "center" }
+  -- a star opens the rating at that star; the label opens it at the rating there is
+  self.rating_tap = nil
+  local label = LeftContainer:new {
+    dimen = Geom:new { w = width - 5 * star_cell, h = star_cell },
+    Theme.mmdText(_("Your rating"), "strong", 21, { width = width - 5 * star_cell }),
+  }
+  local rating_row = HorizontalGroup:new { align = "center" }
+  if self.on_rating then
+    label = TapRow:new { callback = function() self:on_rating() end, viewport = viewport, label }
+    self.rating_tap = label
+  end
+  table.insert(rating_row, label)
   for i = 1, 5 do
     local name = mine >= i and "star-filled" or (mine >= i - 0.5 and "star-half" or "star")
-    table.insert(stars, CenterContainer:new {
+    local star = CenterContainer:new {
       dimen = Geom:new { w = star_cell, h = star_cell },
       Theme.icon(name, Theme.px(28)),
-    })
-  end
-  local rating_row = HorizontalGroup:new {
-    align = "center",
-    LeftContainer:new {
-      dimen = Geom:new { w = width - 5 * star_cell, h = star_cell },
-      Theme.mmdText(_("Your rating"), "strong", 21, { width = width - 5 * star_cell }),
-    },
-    stars,
-  }
-  self.rating_tap = nil
-  if self.on_rating then
-    rating_row = TapRow:new { callback = function() self:on_rating() end, viewport = viewport, rating_row }
-    self.rating_tap = rating_row
+    }
+    if self.on_rating then
+      star = TapRow:new { callback = function() self:on_rating(i) end, viewport = viewport, star }
+    end
+    table.insert(rating_row, star)
   end
 
   -- the buttons, one slot after another: Open (filled) when the book is on this device, else Find on

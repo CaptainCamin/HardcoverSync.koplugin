@@ -218,6 +218,7 @@ return {
     emu:shot("components_stepper")
     tapText("plus")
     emu:expectText("3.0")
+    emu:shot("components_stepper_plus")
     tapText("Save")
     assert(stepped == 3, "the stepper saved " .. tostring(stepped))
     assert(UIManager:getTopmostVisibleWidget() == page, "the stepper stayed open")

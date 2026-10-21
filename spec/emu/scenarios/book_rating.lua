@@ -132,5 +132,12 @@ return {
     tapText("Save")
     assert(flushed == 1, "an online rating did not trigger a send")
     assert(queue:get(9103) == 4, "the online rating was not queued: " .. tostring(queue:get(9103)))
+
+    -- a star opens the stepper at that star
+    top():on_rating(5)
+    emu:pump()
+    emu:expectText("Set rating")
+    emu:expectText("5.0")
+    tapText("Cancel")
   end,
 }

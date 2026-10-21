@@ -65,7 +65,7 @@ function Flows:showBookDetail(book_id, edition_id, opts)
     source_label = BookSources.label(self.ui, self:bookSourceChoice()),
     on_shelf = function(d) self:chooseShelf(d) end,
     -- tapping your rating: works offline, the rating waits to be sent
-    on_rating = function(d) self:rateBook(d) end,
+    on_rating = function(d, stars) self:rateBook(d, stars) end,
     -- only when signed in with OAuth (the write scope is an OAuth thing)
     on_lists = self:canChooseLists() and function(d) self:chooseLists(d) end or nil,
     -- only for the book that is open in the reader: its link is what changes
@@ -711,7 +711,7 @@ end
 -- Rate the book on the details screen. The rating is shown at once and kept in
 -- the rating queue, so it works without a connection; it is sent now if there is
 -- one, or when the connection is back.
-function Flows:rateBook(dialog)
+function Flows:rateBook(dialog, stars)
   local detail = dialog.detail
   local queue = self.rating_queue
   local gate = BookActions.ratingGate(detail, queue ~= nil)
@@ -729,7 +729,7 @@ function Flows:rateBook(dialog)
   require("hardcover/lib/ui/components/stepper_dialog").show {
     title = _("Set rating"),
     text = _("0 clears the rating."),
-    value = rating or 2.5, min = 0, max = 5, step = 0.5,
+    value = stars or rating or 2.5, min = 0, max = 5, step = 0.5,
     on_save = function(value)
       queue:queue(detail.user_book_id, value, detail.book.title)
       if Live.shown(dialog) then dialog:setRating(value) end
