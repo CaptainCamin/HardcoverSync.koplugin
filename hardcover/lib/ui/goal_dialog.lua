@@ -34,6 +34,7 @@ local GoalDialog = InputContainer:extend {
   finished_offline = 0,
   note = nil,
   edit_cb = nil,          -- the "Edit goal" button appears when this is set
+  books_cb = nil,         -- "See all books" appears when this is set; called with the goal and Goals.books's rows
   archive_cb = nil,       -- the "Archive goal" button appears when this is set; called with the goal once confirmed
   message = nil,          -- why the last change did not go through (shown above the goal)
   busy = false,           -- an archive is on its way to Hardcover
@@ -129,10 +130,12 @@ function GoalDialog:buildContent(width, viewport)
   return c
 end
 
--- The books behind a book goal's number (Goals.books: a best match of Hardcover's count). One
--- single-line row each, so the rows keep one height; a note says when the list is not the whole
--- story.
-function GoalDialog:booksSection(goal, width)
+-- The books behind a book goal's number (Goals.books: a best match of Hardcover's count): the
+-- latest few, one single-line row each so the rows keep one height, and a button to the whole list
+-- when there are more. A note says when the list is not the whole story.
+local PREVIEW = 2
+
+function GoalDialog:booksSection(goal, width, viewport)
   local b = Section.new(_("Books counting toward this goal"), width)
   local function note(str)
     table.insert(b, Theme.mmdText(str, "text", 15, { secondary = true, width = width }))
@@ -150,12 +153,20 @@ function GoalDialog:booksSection(goal, width)
   if #books.rows == 0 then
     note(_("No finished books in this period yet."))
   end
-  for _i, row in ipairs(books.rows) do
+  for i, row in ipairs(books.rows) do
+    if i > PREVIEW then break end
     table.insert(b, Theme.mmdText(row.title or _("Untitled"), "strong", 18, { width = width }))
     local meta = { Goals.dateLabel(row.date) }
     if row.author then table.insert(meta, 1, row.author) end
     table.insert(b, Theme.mmdText(table.concat(meta, "  \194\183  "), "text", 15, { secondary = true, width = width }))
     table.insert(b, Theme.span("s"))
+  end
+  if #books.rows > PREVIEW and self.books_cb then
+    table.insert(b, Button.new {
+      label = string.format(_("See all %d books"), #books.rows), w = width, h = Theme.px(56), size = 21,
+      viewport = viewport, callback = function() self.books_cb(goal, books) end,
+    })
+    table.insert(b, Theme.span("m"))
   end
   if not books.match then
     note(string.format(_("Hardcover counts %d; this list shows %d. Books it dates differently, or counts twice, can differ."),
