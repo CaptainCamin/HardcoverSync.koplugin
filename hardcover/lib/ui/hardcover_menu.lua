@@ -13,7 +13,6 @@ local NetworkMgr = require("ui/network/manager")
 local logger = require("logger")
 
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
-local SpinWidget = require("ui/widget/spinwidget")
 
 local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
@@ -1528,41 +1527,24 @@ function HardcoverMenu:getStatusSubMenuItems()
           left_text = left_text .. ": was " .. last_hardcover_page
         end
 
-        local UpdateDoubleSpinWidget = require("hardcover/lib/ui/update_double_spin_widget")
-        local spinner = UpdateDoubleSpinWidget:new {
-          ok_always_enabled = true,
-
-          left_text = left_text,
-          left_value = mapped_page,
-          left_min = 0,
-          left_max = remote_pages,
-          left_step = 1,
-          left_hold_step = 20,
-
-          right_text = "Local page",
-          right_value = document_page,
-          right_min = 0,
-          right_max = document_pages,
-          right_step = 1,
-          right_hold_step = 20,
-
-          update_callback = function(new_edition_page, new_document_page, edition_page_changed)
-            if edition_page_changed then
-              local new_mapped_page = self.page_mapper:getUnmappedPage(new_edition_page, document_pages, remote_pages)
-              return new_edition_page, new_mapped_page
-            else
-              local new_mapped_page = self.page_mapper:getMappedPage(new_document_page, document_pages, remote_pages)
-              return new_mapped_page, new_document_page
+        require("hardcover/lib/ui/components/stepper_dialog").show {
+          title = _("Set current page"),
+          fields = {
+            { label = left_text, value = mapped_page, min = 0, max = remote_pages, step = 1, big_step = 20 },
+            { label = _("Local page"), value = document_page, min = 0, max = document_pages, step = 1, big_step = 20 },
+          },
+          -- the two pages follow each other through the page map
+          on_change = function(values, moved)
+            if moved == 1 then
+              return { values[1], self.page_mapper:getUnmappedPage(values[1], document_pages, remote_pages) }
             end
+            return { self.page_mapper:getMappedPage(values[2], document_pages, remote_pages), values[2] }
           end,
-          ok_text = _("Set page"),
-          title_text = _("Set current page"),
-
-          callback = function(edition_page, _document_page)
+          save_label = _("Set page"),
+          on_save = function(edition_page)
             self:savePage(current_read, edition_page, menu_instance)
-          end
+          end,
         }
-        UIManager:show(spinner)
       end,
       keep_menu_open = true
     },
@@ -1611,21 +1593,12 @@ function HardcoverMenu:getStatusSubMenuItems()
       callback = function(menu_instance)
         local rating = self.state.book_status.rating
 
-        local spinner = SpinWidget:new {
-          ok_always_enabled = rating == nil,
-          value = rating or 2.5,
-          value_min = 0,
-          value_max = 5,
-          value_step = 0.5,
-          value_hold_step = 2,
-          precision = "%.1f",
-          ok_text = _("Save"),
-          title_text = _("Set Rating"),
-          callback = function(spin)
-            self:saveRating(spin.value, menu_instance)
-          end
+        require("hardcover/lib/ui/components/stepper_dialog").show {
+          title = _("Set rating"),
+          text = _("0 clears the rating."),
+          value = rating or 2.5, min = 0, max = 5, step = 0.5,
+          on_save = function(value) self:saveRating(value, menu_instance) end,
         }
-        UIManager:show(spinner)
       end,
       hold_callback = function(menu_instance)
         self:saveRating(0, menu_instance, true)
@@ -1675,21 +1648,14 @@ function HardcoverMenu:getTrackingSubMenuItems()
         return self.settings:trackByTime()
       end,
       callback = function(menu_instance)
-        local spinner = SpinWidget:new {
-          value = self.settings:trackFrequency(),
-          value_min = 1,
-          value_max = 120,
-          value_step = 1,
-          value_hold_step = 6,
-          ok_text = _("Save"),
-          title_text = _("Set track frequency"),
-          callback = function(spin)
-            self.settings:updateSetting(SETTING.TRACK_FREQUENCY, spin.value)
+        require("hardcover/lib/ui/components/stepper_dialog").show {
+          title = _("Track every how many minutes?"),
+          value = self.settings:trackFrequency(), min = 1, max = 120, step = 1, big_step = 10,
+          on_save = function(value)
+            self.settings:updateSetting(SETTING.TRACK_FREQUENCY, value)
             menu_instance:updateItems()
-          end
+          end,
         }
-
-        UIManager:show(spinner)
       end,
       keep_menu_open = true
     },
@@ -1711,21 +1677,14 @@ function HardcoverMenu:getTrackingSubMenuItems()
         return self.settings:trackByProgress()
       end,
       callback = function(menu_instance)
-        local spinner = SpinWidget:new {
-          value = self.settings:trackPercentageInterval(),
-          value_min = 1,
-          value_max = 50,
-          value_step = 1,
-          value_hold_step = 10,
-          ok_text = _("Save"),
-          title_text = _("Set track progress"),
-          callback = function(spin)
-            self.settings:changeTrackPercentageInterval(spin.value)
+        require("hardcover/lib/ui/components/stepper_dialog").show {
+          title = _("Track every how many percent?"),
+          value = self.settings:trackPercentageInterval(), min = 1, max = 50, step = 1, big_step = 10,
+          on_save = function(value)
+            self.settings:changeTrackPercentageInterval(value)
             menu_instance:updateItems()
-          end
+          end,
         }
-
-        UIManager:show(spinner)
       end,
       keep_menu_open = true
     },
@@ -1793,19 +1752,14 @@ function HardcoverMenu:getSettingsSubMenuItems()
       end,
       help = _("A book that is not on your Currently Reading shelf is not tracked. After this many pages in one sitting you are asked whether to start it."),
       callback = function(menu_instance)
-        UIManager:show(SpinWidget:new {
-          value = self.settings:startReadingPages(),
-          value_min = 1,
-          value_max = 100,
-          value_step = 1,
-          value_hold_step = 10,
-          ok_text = _("Save"),
-          title_text = _("Pages before asking to start reading"),
-          callback = function(spin)
-            self.settings:updateSetting(SETTING.START_READING_PAGES, spin.value)
+        require("hardcover/lib/ui/components/stepper_dialog").show {
+          title = _("Pages before asking to start reading"),
+          value = self.settings:startReadingPages(), min = 1, max = 100, step = 1, big_step = 10,
+          on_save = function(value)
+            self.settings:updateSetting(SETTING.START_READING_PAGES, value)
             if menu_instance and menu_instance.updateItems then menu_instance:updateItems() end
           end,
-        })
+        }
       end,
       keep_menu_open = true,
     },

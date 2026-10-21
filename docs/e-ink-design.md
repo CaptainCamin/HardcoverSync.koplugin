@@ -80,7 +80,7 @@ Settled, with the date and where it is built. If something here disagrees with a
 - `Theme.hatchRect` paints at 40% opacity, so its stripes anti-alias to grey; nothing calls it yet.
 - Search: `components/search_field.lua` is the field (Home, the query on the results screen, and the two pickers, "Select book" and "Select edition"). Tapping it opens KOReader's `InputDialog` for the typing; there is no inline typing. Mock 3's search icon on a shelf is still not built. A picker's field has no clear X: a picker has to end in a choice.
 - The pickers are not in the mocks. They reuse the shelf screen with a radio at the right end for the chosen row (filled, as in the choice sheets: no state by grey alone), and no chevron, since a tap chooses rather than opens. The edition's second line is its format and pages, because the title and author are the same for every edition.
-- KOReader's own widgets are still used for typing and numbers: the text and number boxes, the date picker and the rating/page spinner. Everything else is on the new components.
+- KOReader's own widgets are still used for typing (the text field and keyboard inside the input dialog) and in the journal dialog. Numbers are set with the stepper dialog and dates with the date picker; everything else is on the new components.
 
 ## Which catalog components the plugin uses
 
@@ -168,3 +168,7 @@ The approved whole-UI mockup is `docs/redesign/index.html`; the build is judged 
 Throwaway comparison scenes for the headless emulator (`spec/emu/scenarios/proto_*.lua`) live on branch
 `claude/mmd-prototypes`. They are for deciding, not shipping. The emulator cannot show ghosting or refresh
 latency; finalists need a look on a real Kobo or Kindle.
+
+## Refreshing overlays
+
+A dialog or sheet refreshes the full width of the screen across its height (and a few pixels more), with the same fast "ui" waveform as KOReader's own boxes. Refreshing exactly its box lost the right edge of a dialog on a real panel until the next full redraw. A toast keeps its exact box. The refresh is queued when the overlay closes, whoever closes it (`UIManager:close(picker)` as well as `overlay:close()`), as KOReader's own widgets do in `onCloseWidget`; a sheet closed without one stayed on the panel until something else redrew that area. A dialog that redraws as it changes (the progress dialog, the date picker) shows the new box first and closes the old one without a refresh (`Overlay:close(new)`), so a change is one refresh of the box, not two.

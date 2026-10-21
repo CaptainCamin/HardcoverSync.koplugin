@@ -125,10 +125,6 @@ drive("hardcover/lib/ui/signin_dialog", "sign in: cancel", signin, "onCancel")
 drive("hardcover/lib/ui/signin_dialog", "sign in: success", signin, "onSuccess")
 drive("hardcover/lib/ui/signin_dialog", "sign in: declined or expired", signin, "onFinish", "declined")
 
--- UpdateDoubleSpinWidget is not listed: it extends KOReader's DoubleSpinWidget,
--- which defines onClose and onCloseWidget, and this harness does not model
--- inheritance from KOReader classes.
-
 print("\n== replacing a dialog does not leave the old one on the stack ==")
 
 local DialogManager = real_require("hardcover/lib/ui/dialog_manager")

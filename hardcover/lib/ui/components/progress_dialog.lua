@@ -16,7 +16,7 @@ ProgressDialog.__index = ProgressDialog
 local _ = require("gettext")
 
 function ProgressDialog:_show()
-  if self.overlay then self.overlay:close() end
+  local old = self.overlay
   local o = self.opts
   local buttons
   if o.stop and not self.stopping then
@@ -33,6 +33,8 @@ function ProgressDialog:_show()
     buttons = buttons,
     locked = true,
   }
+  -- the new one is up before the old one goes, so a change of text is one refresh, not two
+  if old then old:close(self.overlay) end
 end
 
 function ProgressDialog.show(opts)

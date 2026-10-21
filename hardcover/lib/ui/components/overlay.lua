@@ -102,16 +102,47 @@ function Overlay:dismiss()
   if self.on_dismiss then self.on_dismiss() end
 end
 
+-- The region a refresh covers. A refresh of exactly the box lost the right edge of a dialog on a real
+-- panel (the border was missing the moment it opened, and came back with a full redraw), so a dialog
+-- or sheet refreshes the whole width of the screen across its height, plus a few pixels above and
+-- below; the page behind is repainted there unchanged. A toast keeps its exact box.
+local PAD = 8
+function Overlay:refreshRegion()
+  local sw, sh = Screen:getWidth(), Screen:getHeight()
+  local r = self.region
+  if self.toast then return r end
+  local y = math.max(0, r.y - PAD)
+  return Geom:new { x = 0, y = y, w = sw, h = math.min(sh, r.y + r.h + PAD) - y }
+end
+
 function Overlay:show()
-  UIManager:show(self, "ui", self.region)
+  UIManager:show(self, "ui", self:refreshRegion())
   return self
 end
 
-function Overlay:close()
+-- `replaced_by` (an overlay already shown over this one, same box): close without a refresh, since the
+-- new one is refreshed over the same area. Closing the old one first and showing the new one is two
+-- refreshes of the same box, which is the flicker and ghost of a dialog that redraws as it changes.
+-- Whoever closes an overlay (this class's close, or UIManager:close(overlay) as the plugin's pickers
+-- and sheets are closed in many places) gets the box's area refreshed, as KOReader's own widgets do
+-- in onCloseWidget; without it the sheet stayed on the panel after it was gone, until something
+-- else redrew that area.
+function Overlay:onCloseWidget()
+  if self.quiet_close then return end
+  UIManager:setDirty(nil, function() return "ui", self:refreshRegion() end)
+end
+
+function Overlay:close(replaced_by)
   if self.closed then return end
   self.closed = true
   if self.timeout_task then UIManager:unschedule(self.timeout_task) end
-  UIManager:close(self, "ui", self.region)
+  if replaced_by and replaced_by.region and replaced_by.region:equalSize(self.region)
+    and replaced_by.region.x == self.region.x and replaced_by.region.y == self.region.y then
+    self.quiet_close = true
+    UIManager:close(self)
+    return
+  end
+  UIManager:close(self)
 end
 
 -- The mark on top of anything laid over a page: a 2 white band (so the black does not run into the

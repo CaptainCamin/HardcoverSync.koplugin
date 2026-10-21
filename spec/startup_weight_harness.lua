@@ -21,7 +21,6 @@ local HEAVY = {
   "hardcover/lib/ui/book_detail_dialog",
   "hardcover/lib/ui/journal_dialog",
   "hardcover/lib/ui/signin_dialog",
-  "hardcover/lib/ui/update_double_spin_widget",
   "hardcover/lib/ui/image_loader",
   -- the screens built later: each pulls in the theme and a pile of widgets
   "hardcover/lib/ui/home_body",

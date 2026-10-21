@@ -1,6 +1,6 @@
 --[[--
 Rating a book from its details screen, with no connection: tapping "your rating"
-opens the spinner, saving shows the new rating at once and sends nothing, and the
+opens the stepper, saving shows the new rating at once and sends nothing, and the
 rating goes to Hardcover when the queue is flushed.
 
 Screens: book_rating_spinner, book_rating_offline.
@@ -86,18 +86,17 @@ return {
     emu:tapExpecting(d.x + math.floor(d.w / 2), d.y + math.floor(d.h / 2))
     emu:pump()
 
-    local spinner = top()
-    assert(spinner and spinner.value_widget, "tapping the rating did not open the spinner (top: " .. tostring(spinner and spinner.name) .. ")")
-    emu:expectText("Set Rating")
+    local function tapText(text)
+      local node = emu:expectText(text)
+      emu:tapExpecting(node.x + 5, node.y + 5)
+      emu:pump()
+    end
+    emu:expectText("Set rating")
     emu:shot("book_rating_spinner")
 
     -- up one half star, then Save
-    spinner:onSpinButtonPressed({ 1, false })
-    emu:screenNodes()
-    local save = find_button(spinner, "Save")
-    assert(save, "no Save button:\n" .. emu:screenText())
-    emu:tapExpecting(save.dimen.x + math.floor(save.dimen.w / 2), save.dimen.y + math.floor(save.dimen.h / 2))
-    emu:pump()
+    tapText("plus")
+    tapText("Save")
 
     emu:expectText("kept and will be sent")
     UIManager:close(UIManager._window_stack[#UIManager._window_stack].widget)
@@ -128,13 +127,17 @@ return {
     go(true)
     manager:rateBook(top())
     emu:pump()
-    local sp = top()
-    sp:onSpinButtonPressed({ -1, false })
-    emu:screenNodes()
-    local b = find_button(sp, "Save")
-    emu:tapExpecting(b.dimen.x + math.floor(b.dimen.w / 2), b.dimen.y + math.floor(b.dimen.h / 2))
-    emu:pump()
+    emu:expectText("Set rating")
+    tapText("minus")
+    tapText("Save")
     assert(flushed == 1, "an online rating did not trigger a send")
     assert(queue:get(9103) == 4, "the online rating was not queued: " .. tostring(queue:get(9103)))
+
+    -- a star opens the stepper at that star
+    top():on_rating(5)
+    emu:pump()
+    emu:expectText("Set rating")
+    emu:expectText("5.0")
+    tapText("Cancel")
   end,
 }
