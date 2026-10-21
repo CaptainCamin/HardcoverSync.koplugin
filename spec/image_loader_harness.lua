@@ -155,6 +155,19 @@ check("every url is delivered once, in order", function()
   expect(table.concat(got, ",") == "u1=IMG:u1,u2=IMG:u2,u3=IMG:u3", table.concat(got, ","))
 end)
 
+check("covers already on the device are drawn in one task, not one task each", function()
+  -- a task that schedules a task due after the next repaint keeps KOReader from reading input
+  reset()
+  for _, u in ipairs({ "u1", "u2", "u3", "u4" }) do ImageLoader.cache:put(u, "C" .. u) end
+  local got = 0
+  ImageLoader:loadImages({ "u1", "u2", "u3", "u4" }, function() got = got + 1 end)
+  local first = table.remove(ticks, 1)
+  first()
+  expect(got == 4, "the first task drew " .. got)
+  expect(#ticks == 0 and #scheduled == 0, "it left tasks behind")
+  expect(not ImageLoader:isLoading(), "the batch never finished")
+end)
+
 check("duplicate urls are downloaded and delivered once", function()
   reset()
   local n = 0

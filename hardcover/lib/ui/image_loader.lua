@@ -7,35 +7,6 @@ local Trapper = require("ui/trapper")
 
 local ImageLoader = {}
 
--- Timing trace (to KOReader's crash.log), to find what holds up taps while covers load.
-local function now_ms()
-  local ok, time = pcall(require, "ui/time")
-  if ok and time and time.now and time.to_ms then return time.to_ms(time.now()) end
-  return os.time() * 1000
-end
-ImageLoader.nowMs = now_ms
-
-local function trace(...)
-  if logger.info then logger.info("HARDCOVER covers", ...) end
-end
-ImageLoader.trace = trace
-
--- While covers load, check every 200 ms how late the main loop runs the check. A long gap
--- is a stretch in which no tap could be read.
-local function watch(batch_id, is_loading)
-  local expected = now_ms() + 200
-  local tick
-  tick = function()
-    local late = now_ms() - expected
-    if late > 300 then trace("batch", batch_id, "main loop was busy for", late, "ms") end
-    if is_loading() then
-      expected = now_ms() + 200
-      UIManager:scheduleIn(0.2, tick)
-    end
-  end
-  UIManager:scheduleIn(0.2, tick)
-end
-
 function ImageLoader:isLoading()
   return self.loading == true
 end
@@ -193,10 +164,20 @@ function Batch:new(o)
   return setmetatable(o or {}, self)
 end
 
--- Cached images cost no network and no subprocess, so they are delivered on
--- the next tick; only a real download waits between requests.
-local CACHED_DELAY = nil
+-- Covers already on the device cost no network and no subprocess. They are drawn together in
+-- one task, up to this long, and the rest wait the pause after it. KOReader's main loop reads
+-- no input for as long as a task it ran has scheduled another that is due once the screen has
+-- been redrawn (one e-ink refresh takes 200 ms or more), so one task per cover, however short
+-- the delay, held every tap until the last cover of a page was drawn.
+local LOCAL_BUDGET_MS = 250
+local LOCAL_PAUSE = 0.5
 local FETCH_DELAY = 0.05
+
+local function now_ms()
+  local ok, time = pcall(require, "ui/time")
+  if ok and time and time.now and time.to_ms then return time.to_ms(time.now()) end
+  return os.clock() * 1000
+end
 
 function Batch:loadImages(urls, size, box)
   if self.loading then
@@ -218,12 +199,6 @@ function Batch:loadImages(urls, size, box)
 
   self.loading = true
 
-  ImageLoader.batch_count = (ImageLoader.batch_count or 0) + 1
-  local batch_id = ImageLoader.batch_count
-  local started = now_ms()
-  trace("batch", batch_id, "start,", #url_queue, "covers")
-  watch(batch_id, function() return self.loading end)
-
   local cache = ImageLoader:getCache()
   local run_image
   local stop_loading = false
@@ -240,34 +215,21 @@ function Batch:loadImages(urls, size, box)
     end
   end
 
-  run_image = function()
-    if stop_loading then return end
-
-    -- `url` is the cover as the book has it, and the key the caller knows it by; `fetch`
-    -- is where it is downloaded from at this size and box (covers.lua)
-    local url = table.remove(url_queue, 1)
-    local fetch = ImageLoader:fetchUrl(url, size, box)
-
-    local t0 = now_ms()
+  -- Hand over cover `url` (downloaded from `fetch`) when it is already on the device. True when it was.
+  local function serve_local(url, fetch)
     local cached = ImageLoader:lookup(fetch)
     if cached then
-      local t1 = now_ms()
       self.callback(url, cached)
-      trace("batch", batch_id, "cached cover: read", t1 - t0, "ms, drawn", now_ms() - t1, "ms, since start", now_ms() - started, "ms")
-      schedule_next(CACHED_DELAY)
-      return
+      return true
     end
 
     -- Offline, a download can only fail, and each one waits out a timeout. Show what is
     -- saved at another size, or the full-size cover an earlier version kept; else skip.
-    local online = ImageLoader:isOnline()
-    if now_ms() - t0 > 100 then trace("batch", batch_id, "cache lookup and online check took", now_ms() - t0, "ms") end
-    if not online then
+    if not ImageLoader:isOnline() then
       local other = size == "large" and ImageLoader:lookup(ImageLoader:fetchUrl(url, "small")) or nil
       local saved = other or (fetch ~= url and ImageLoader:lookup(url)) or nil
       if saved then self.callback(url, saved) end
-      schedule_next(CACHED_DELAY)
-      return
+      return true
     end
 
     -- downloaded for offline before the image service was used for it: as uploaded
@@ -275,13 +237,31 @@ function Batch:loadImages(urls, size, box)
     local kept = fetch ~= url and pinned and pinned:get(url)
     if kept then
       self.callback(url, kept)
-      schedule_next(CACHED_DELAY)
-      return
+      return true
+    end
+    return false
+  end
+
+  run_image = function()
+    if stop_loading then return end
+
+    local began = now_ms()
+    local url, fetch
+    while true do
+      -- `url` is the cover as the book has it, and the key the caller knows it by; `fetch`
+      -- is where it is downloaded from at this size and box (covers.lua)
+      url = table.remove(url_queue, 1)
+      fetch = ImageLoader:fetchUrl(url, size, box)
+      if not serve_local(url, fetch) then break end
+      if stop_loading then return end
+      if #url_queue == 0 or now_ms() - began >= LOCAL_BUDGET_MS then
+        schedule_next(LOCAL_PAUSE)
+        return
+      end
     end
 
     Trapper:wrap(function()
       if stop_loading then return end
-      local d0 = now_ms()
 
       -- Not cancellable by a tap: a cancellable download covers the whole screen with a
       -- widget that takes the tap, so turning the page would only cancel one cover, and
@@ -289,15 +269,11 @@ function Batch:loadImages(urls, size, box)
       local completed, success, content, saved_as = ImageLoader:download(url, size, true,
         function() return stop_loading end, box)
 
-      local d1 = now_ms()
       if completed and success then
         if cache then cache:put(saved_as, content) end
-        local d2 = now_ms()
         if not stop_loading then
           self.callback(url, content)
         end
-        trace("batch", batch_id, "downloaded cover: download", d1 - d0, "ms, saved", d2 - d1, "ms, drawn", now_ms() - d2,
-          "ms, since start", now_ms() - started, "ms")
       elseif completed then
         logger.dbg("HARDCOVER cover fetch failed", url, content)
       end
@@ -311,7 +287,6 @@ function Batch:loadImages(urls, size, box)
   UIManager:nextTick(run_image)
 
   return function()
-    if not stop_loading then trace("batch", batch_id, "halted after", now_ms() - started, "ms") end
     stop_loading = true
     self.loading = false
     UIManager:unschedule(run_image)
