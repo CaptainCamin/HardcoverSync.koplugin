@@ -34,7 +34,7 @@ Dialog.width = width
 
 -- the width inside the padding: what a `body` can be as wide as
 function Dialog.innerWidth()
-  return width() - 2 * Theme.line.firm - 2 * SIDE
+  return width() - 2 * SIDE
 end
 
 -- opts { title, text, warning (the triangle, and centred text), body (a widget under the text, up to
@@ -71,7 +71,7 @@ function Dialog.show(opts)
   end
 
   local tface, tbold = Theme.mmdFace("strong", 25)
-  local col = VerticalGroup:new { align = "left", Overlay.top_rule(w - 2 * Theme.line.firm), Theme.span(Theme.px(12)) }
+  local col = VerticalGroup:new { align = "left", Overlay.top_rule(w), Theme.span(Theme.px(12)) }
   local function indented(widget)
     col[#col + 1] = HorizontalGroup:new { Theme.hspan(side), widget }
   end
@@ -120,8 +120,9 @@ function Dialog.show(opts)
   end
   col[#col + 1] = Theme.span(Theme.px(12))
 
-  local box = FrameContainer:new { width = w, bordersize = Theme.line.firm,
-    padding = 0, margin = 0, color = Theme.BLACK, background = Theme.WHITE, col }
+  -- no outline of its own: the top rule is the edge, as on the sheets and the snackbar
+  local box = FrameContainer:new { width = w, bordersize = 0,
+    padding = 0, margin = 0, background = Theme.WHITE, col }
   overlay = Overlay:new { anchor = "center", on_dismiss = opts.on_dismiss, box }
   if opts.locked then overlay.dismiss = function() end end
   return overlay:show()

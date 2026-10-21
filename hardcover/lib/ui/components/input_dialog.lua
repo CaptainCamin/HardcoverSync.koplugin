@@ -1,7 +1,8 @@
 -- Input dialog (MMD Dialog with a field): a heading, an optional line of text, a field and one or
 -- two stacked buttons, the filled one first. KOReader's InputText does the typing and its virtual
--- keyboard comes up under the dialog, which is lifted to sit above it. The frame, heading and
--- buttons are the plugin's own, the same as Dialog's.
+-- keyboard comes up under the dialog, which sits on top of it. The frame, heading and buttons are the
+-- plugin's own, as Dialog's, but wider, and with the buttons side by side (filled on the right): the
+-- keyboard leaves little height, and stacked buttons would push the box up under the top bar.
 --
 --   local input
 --   input = InputDialog:new {
@@ -25,14 +26,13 @@ local GestureRange = require("ui/gesturerange")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local InputText = require("ui/widget/inputtext")
-local CenterContainer = require("ui/widget/container/centercontainer")
+local BottomContainer = require("ui/widget/container/bottomcontainer")
 local Size = require("ui/size")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 
 local Button = require("hardcover/lib/ui/components/button")
-local Dialog = require("hardcover/lib/ui/components/dialog")
 local Overlay = require("hardcover/lib/ui/components/overlay")
 local Theme = require("hardcover/lib/ui/theme")
 
@@ -51,8 +51,9 @@ local InputDialog = InputContainer:extend {
 
 function InputDialog:init()
   local screen = Device.screen
-  local w, side = Dialog.width(), Theme.px(12)
-  local inner_w = Dialog.innerWidth()
+  local side = Theme.px(12)
+  local w = math.min(screen:getWidth() - 2 * Theme.margin, Theme.px(560))
+  local inner_w = w - 2 * side
   assert(self.buttons and #self.buttons >= 1 and #self.buttons <= 2, "an input dialog has one or two buttons")
   self.ordered = {}
   for _, spec in ipairs(self.buttons) do if spec.primary then self.ordered[#self.ordered + 1] = spec end end
@@ -74,7 +75,7 @@ function InputDialog:init()
   }
   -- the field sits at the left edge of the column, the buttons are as wide as the column
   local tface, tbold = Theme.mmdFace("strong", 25)
-  local col = VerticalGroup:new { align = "left", Overlay.top_rule(w - 2 * Theme.line.firm), Theme.span(Theme.px(12)) }
+  local col = VerticalGroup:new { align = "left", Overlay.top_rule(w), Theme.span(Theme.px(12)) }
   local function indented(widget)
     col[#col + 1] = HorizontalGroup:new { Theme.hspan(side), widget }
   end
@@ -86,15 +87,22 @@ function InputDialog:init()
   col[#col + 1] = Theme.span(Theme.px(12))
   indented(self._input_widget)
   col[#col + 1] = Theme.span(Theme.px(24))
-  for i, spec in ipairs(self.ordered) do
-    if i > 1 then col[#col + 1] = Theme.span(Theme.px(12)) end
-    indented(Button.new { label = spec.label, w = inner_w, primary = spec.primary,
-      callback = function() if spec.callback then spec.callback() end end })
+  -- one button the full width; two side by side, the filled one on the right
+  local gap = Theme.px(12)
+  local bw = #self.ordered == 1 and inner_w or math.floor((inner_w - gap) / 2)
+  local row = HorizontalGroup:new {}
+  for i = #self.ordered, 1, -1 do
+    local spec = self.ordered[i]
+    if #row > 0 then row[#row + 1] = Theme.hspan(gap) end
+    row[#row + 1] = Button.new { label = spec.label, w = bw, primary = spec.primary,
+      callback = function() if spec.callback then spec.callback() end end }
   end
+  indented(row)
   col[#col + 1] = Theme.span(Theme.px(12))
 
-  self.frame = FrameContainer:new { width = w, bordersize = Theme.line.firm, padding = 0, margin = 0,
-    color = Theme.BLACK, background = Theme.WHITE, col }
+  -- no outline of its own: the top rule is the edge
+  self.frame = FrameContainer:new { width = w, bordersize = 0, padding = 0, margin = 0,
+    background = Theme.WHITE, col }
   self:_place()
   if Device:isTouchDevice() then
     self.ges_events = { Tap = { GestureRange:new { ges = "tap",
@@ -105,14 +113,13 @@ function InputDialog:init()
   end
 end
 
--- the frame in the middle of what the keyboard leaves, as KOReader's InputDialog does
+-- the frame at the bottom of what the keyboard leaves, so it is as far from the top bar as it can be
 function InputDialog:_place()
   local screen = Device.screen
   local kb = self._input_widget:getKeyboardDimen()
   self.keyboard_visible = self._input_widget:isKeyboardVisible()
-  self[1] = CenterContainer:new {
+  self[1] = BottomContainer:new {
     dimen = Geom:new { x = 0, y = 0, w = screen:getWidth(), h = screen:getHeight() - (kb and kb.h or 0) },
-    ignore_if_over = "height",
     self.frame,
   }
 end
