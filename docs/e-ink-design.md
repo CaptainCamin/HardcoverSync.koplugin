@@ -118,7 +118,7 @@ Where the Kotlin differs, the appendix wins (Kotlin: switch 52x32, checkbox 23, 
 | Nav bar | container 57, icon 18, active indicator 4, 2 white gap under the top rule, label 15 |
 | Top app bar | height 67, icons 28 (touch 48), 3 black rule below, 16 side margins, 14 top/bottom |
 | Snackbar | container 64, top rule 3 black + 2 white gap, message Medium 21 / 25, icon 28, close touch 48, button touch 83 x 48 |
-| Dialog | top rule 3 black + 2 white gap, action button 340 x 64, close icon 28 (touch 48) |
+| Dialog | top rule 3 black + 2 white gap; heading Black 25 / 28, text Medium 21 / 25, black; 12 side and bottom padding, 12 above the heading or icon, 10 heading to text, 24 text to buttons, 12 between buttons; buttons stacked, filled first, 340 x 64; icon 28; close icon 28 (touch 48) only on the no-button configuration |
 | Menu | 2 border, rounded, dotted dividers, leading icon 28 |
 | Bottom sheet | top rule 3 + 2 white gap; title Black 25 / 28, text Medium 18 / 22; side padding 12, top 24; buttons 16 apart; **action sheet** = outlined buttons + one filled Cancel; **choice sheet** = radio list + an X, no Cancel; never both |
 | List item | label Black 21 / 23, supporting Medium 18 / 18, padding 16 side and 15.5 top/bottom, 4 between the lines, tile icon 48, icon 28, toggle touch 56, checkbox / radio touch 48; divider 1px **dotted**, starting after the leading icon |
@@ -141,8 +141,10 @@ Rules the appendix states that are easy to get wrong (each has a do / don't pict
   rely on subtle styles to indicate state". Short labels (1-2 words), no wrapping.
 - **Sheets**: a choice sheet (radios) has an X and no Cancel; an action sheet has outlined buttons plus one
   filled Cancel; never both in one sheet. Current choice preselected. At most 5-6 options.
-- **Dialogs**: at most two actions; the primary is filled, the secondary outlined. An acknowledgement gets one
-  button, never "Okay" plus "Cancel". Titles are specific ("No internet connection", not "Connection Error").
+- **Dialogs**: at most two actions, stacked; the primary is filled, the secondary outlined. An acknowledgement gets one
+  button, never "Okay" plus "Cancel". Six configurations: standard, warning (a triangle, centred), close icon only,
+  warning + close, single action, warning single action; the X is only on the ones without buttons. Only for a
+  decision or something that must be read, after a deliberate user action. Titles are specific ("No internet connection", not "Connection Error").
 - **Snackbars**: only after a user action, never from the system alone; one short line, at most one action.
 - **Separators**: one weight per screen; don't mix thicknesses; dotted is for soft grouping and must not be
   the main structural divider; solid for sections, dotted between rows is how the List and Menu use it.

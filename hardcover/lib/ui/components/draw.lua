@@ -176,6 +176,16 @@ function ICONS.info(bb, x, y, s, t)
   bb:paintRect(x + round(s / 2) - 1, y + round(s * 0.42), math.max(2, t), round(s * 0.28), BLACK)
   bb:paintRect(x + round(s / 2) - 1, y + round(s * 0.26), math.max(2, t), math.max(2, t), BLACK)
 end
+-- a triangle with an exclamation mark: the Dialog's warning
+function ICONS.warning(bb, x, y, s, t)
+  local top_x, top_y = x + s * 0.5, y + s * 0.1
+  local lx, rx, by = x + s * 0.06, x + s * 0.94, y + s * 0.9
+  Draw.stroke(bb, top_x, top_y, rx, by, t)
+  Draw.stroke(bb, rx, by, lx, by, t)
+  Draw.stroke(bb, lx, by, top_x, top_y, t)
+  bb:paintRect(x + round(s / 2) - 1, y + round(s * 0.38), math.max(2, t), round(s * 0.26), BLACK)
+  bb:paintRect(x + round(s / 2) - 1, y + round(s * 0.7), math.max(2, t), math.max(2, t), BLACK)
+end
 Draw.ICONS = ICONS
 
 -- A named icon at `size` (default 28). The touch area is the caller's business.
