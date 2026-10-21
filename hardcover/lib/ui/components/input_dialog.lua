@@ -1,8 +1,9 @@
 -- Input dialog (MMD Dialog with a field): a heading, an optional line of text, a field and one or
 -- two stacked buttons, the filled one first. KOReader's InputText does the typing and its virtual
 -- keyboard comes up under the dialog, which sits on top of it. The frame, heading and buttons are the
--- plugin's own, as Dialog's (stacked, 64 high, the filled one first), but wider and with tighter
--- spacing: the keyboard leaves little height, and a tall box would reach up under the top bar.
+-- plugin's own, as Dialog's (the same width and outline, buttons stacked 64 high, the filled one
+-- first), with tighter spacing: the keyboard leaves little height, and a tall box would reach up
+-- under the top bar.
 --
 --   local input
 --   input = InputDialog:new {
@@ -33,7 +34,7 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 
 local Button = require("hardcover/lib/ui/components/button")
-local Overlay = require("hardcover/lib/ui/components/overlay")
+local Dialog = require("hardcover/lib/ui/components/dialog")
 local Theme = require("hardcover/lib/ui/theme")
 
 local InputDialog = InputContainer:extend {
@@ -52,8 +53,8 @@ local InputDialog = InputContainer:extend {
 function InputDialog:init()
   local screen = Device.screen
   local side = Theme.px(12)
-  local w = math.min(screen:getWidth() - 2 * Theme.margin, Theme.px(560))
-  local inner_w = w - 2 * side
+  local w = Dialog.width()
+  local inner_w = Dialog.innerWidth()
   assert(self.buttons and #self.buttons >= 1 and #self.buttons <= 2, "an input dialog has one or two buttons")
   self.ordered = {}
   for _, spec in ipairs(self.buttons) do if spec.primary then self.ordered[#self.ordered + 1] = spec end end
@@ -75,7 +76,7 @@ function InputDialog:init()
   }
   -- the field sits at the left edge of the column, the buttons are as wide as the column
   local tface, tbold = Theme.mmdFace("strong", 25)
-  local col = VerticalGroup:new { align = "left", Overlay.top_rule(w), Theme.span(Theme.px(8)) }
+  local col = VerticalGroup:new { align = "left", Theme.span(Theme.px(8)) }
   local function indented(widget)
     col[#col + 1] = HorizontalGroup:new { Theme.hspan(side), widget }
   end
@@ -94,9 +95,8 @@ function InputDialog:init()
   end
   col[#col + 1] = Theme.span(Theme.px(8))
 
-  -- no outline of its own: the top rule is the edge
-  self.frame = FrameContainer:new { width = w, bordersize = 0, padding = 0, margin = 0,
-    background = Theme.WHITE, col }
+  self.frame = FrameContainer:new { width = w, bordersize = Theme.line.firm, radius = Dialog.RADIUS,
+    padding = 0, margin = 0, color = Theme.BLACK, background = Theme.WHITE, col }
   self:_place()
   if Device:isTouchDevice() then
     self.ges_events = { Tap = { GestureRange:new { ges = "tap",
