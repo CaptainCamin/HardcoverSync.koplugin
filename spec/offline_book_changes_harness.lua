@@ -138,6 +138,10 @@ local function serverApi()
     server_calls[#server_calls + 1] = { name = "updateUserBook", book_id = book_id, status_id = status_id, edition_id = edition_id }
     return { id = 700 + book_id, status_id = status_id }
   end
+  function api:setFinishedDate(user_book, date)
+    server_calls[#server_calls + 1] = { name = "setFinishedDate", date = date }
+    return user_book
+  end
   function api:removeUserBook(id)
     server_calls[#server_calls + 1] = { name = "removeUserBook", id = id }
     return { id = id }
@@ -388,14 +392,16 @@ check("the change is sent once, the shelves are marked out of date, the open scr
   online = true
   local sent
   local res = shelf_queue:flush(serverApi(), { user_id = 1, on_sent = function(op, ub) sent = true; m:shelfSent(op, ub) end })
-  assert(res.sent == 1 and #server_calls == 1, "sent " .. #server_calls)
+  assert(res.sent == 1 and #server_calls == 2, "sent " .. #server_calls)
   assert(server_calls[1].book_id == 100 and server_calls[1].status_id == 3 and server_calls[1].edition_id == 10001)
+  -- finished: the day it was made goes along, so a later sync does not become the finish date
+  assert(server_calls[2].name == "setFinishedDate" and server_calls[2].date == os.date("%Y-%m-%d"))
   assert(shelf_queue:count() == 0)
   assert(shelves:meta(1, 3).fingerprint == nil, "the shelf was not marked out of date")
   local last = d.status_updates[#d.status_updates]
   assert(last[1] == 3 and last[2] == 800, "the screen did not get the record: " .. tostring(last[2]))
   shelf_queue:flush(serverApi(), { user_id = 1 })
-  assert(#server_calls == 1, "sent twice")
+  assert(#server_calls == 2, "sent twice")
 end)
 
 check("a move is marked stale on the shelf it left too", function()

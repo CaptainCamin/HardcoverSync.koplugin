@@ -1269,6 +1269,52 @@ function HardcoverApi:updatePage(user_read_id, edition_id, page, started_at)
   end
 end
 
+-- Put the day a book was finished on its latest read. Hardcover dates a finish with the day the
+-- status arrives, so a book finished offline and sent later would get the wrong day. `user_book`
+-- is what updateUserBook answered with; returns the updated user book, or nil when there is no
+-- date, no read to put it on, or it already has that day (a refusal leaves the finish as sent).
+-- The read's own start date, page and edition go with it so none of them is cleared.
+function HardcoverApi:setFinishedDate(user_book, date)
+  local reads = type(user_book) == "table" and user_book.user_book_reads
+  local read = type(reads) == "table" and reads[#reads]
+  if not date or not read or not read.id or read.finished_at == date then return nil end
+
+  local query = [[
+    mutation SetFinished($id: Int!, $pages: Int, $editionId: Int, $startedAt: date, $finishedAt: date) {
+      update_user_book_read(id: $id, object: {
+        progress_pages: $pages,
+        edition_id: $editionId,
+        started_at: $startedAt,
+        finished_at: $finishedAt,
+      }) {
+        error
+        user_book_read {
+          id
+          started_at
+          finished_at
+          edition_id
+          progress_pages
+          user_book {
+            id
+            book_id
+            status_id
+            edition_id
+            privacy_setting_id
+            rating
+          }
+        }
+      }
+    }
+  ]]
+  local result = self:query(query, {
+    id = read.id, pages = read.progress_pages, editionId = read.edition_id,
+    startedAt = read.started_at, finishedAt = date,
+  })
+  if result and result.update_user_book_read then
+    return self:normalizeUserBookRead(result.update_user_book_read.user_book_read)
+  end
+end
+
 function HardcoverApi:updateUserBook(book_id, status_id, privacy_setting_id, edition_id)
   if not privacy_setting_id then
     local me = self:me()
