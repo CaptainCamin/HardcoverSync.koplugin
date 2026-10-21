@@ -315,12 +315,18 @@ local JOURNAL_FIELDS = "id event entry privacy_setting_id book_id edition_id met
 
 local function readJournal(id)
   -- the id goes into the text: its column type (Int or bigint) is not known, a literal fits either
-  local rows = Api:query([[
+  local query = [[
     query {
       reading_journals(where: { id: { _eq: ]] .. math.floor(id) .. [[ } }) { ]] .. JOURNAL_FIELDS .. [[ }
     }
-  ]])
-  return rows and rows.reading_journals and rows.reading_journals[1]
+  ]]
+  -- a read straight after the write can miss it (seen once in three runs): look again
+  for attempt = 1, 4 do
+    local rows = Api:query(query)
+    local row = rows and rows.reading_journals and rows.reading_journals[1]
+    if row then return row, attempt end
+    os.execute("sleep 2")
+  end
 end
 
 local function createJournal(event, text, extra)
@@ -341,7 +347,9 @@ end
 
 step("createJournalEntry: a note, read back", function()
   local id = createJournal("note", "hardcoversync live check: note")
-  local row = is_table(readJournal(id), "the note read back")
+  local row, attempt = readJournal(id)
+  is_table(row, "the note read back")
+  if attempt > 1 then print("    (the note showed up on read " .. attempt .. ")") end
   if row.event ~= "note" then error("event is " .. tostring(row.event), 0) end
   if row.entry ~= "hardcoversync live check: note" then error("entry is " .. tostring(row.entry), 0) end
   if tonumber(row.privacy_setting_id) ~= 3 then error("privacy is " .. tostring(row.privacy_setting_id), 0) end
@@ -511,6 +519,17 @@ step("probe: a review written and cleared on the user book (prints only)", funct
     { object = "block", type = "paragraph", data = {}, children = {
       { object = "text", text = "hardcoversync live check", marks = {} } } } } } } })
   review("clear with null review_slate", { review_slate = json.util.null })
+  review("change with review_markdown", { review_markdown = "hardcoversync live check, second text" })
+  review("change with review_slate", { review_slate = { document = { object = "document", children = {
+    { object = "block", type = "paragraph", data = {}, children = {
+      { object = "text", text = "third text from slate", marks = {} } } } } } } })
+  review("clear with a blank review_markdown", { review_markdown = " " })
+  review("clear with an empty slate paragraph", { review_slate = { document = { object = "document", children = {
+    { object = "block", type = "paragraph", data = {}, children = { { object = "text", text = "", marks = {} } } } } } } })
+  review("clear with an empty slate document", { review_slate = { document = { object = "document", children = {} } } })
+  probe("reviewed_at after the clear attempts", [[
+    query ($id: Int!) { user_books(where: { id: { _eq: $id } }) { id has_review review_raw reviewed_at } }
+  ]], { id = ub })
 end)
 
 step("probe: deleting and updating a journal entry (prints only)", function()
