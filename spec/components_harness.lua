@@ -63,6 +63,37 @@ do
   UiPrefs.pure_black_text = false
 end
 
+-- ---------------------------------------------------------------- floating action button
+do
+  local f = Theme.mmd.fab
+  r.check("fab sizes are 72 / 64 / 48", f.size.large == 72 and f.size.medium == 64 and f.size.small == 48)
+  r.check("fab icons 28 / 28 / 24, radius 18 / 18 / 14, halo 4 / 3 / 2",
+    f.icon.large == 28 and f.icon.medium == 28 and f.icon.small == 24
+    and f.radius.large == 18 and f.radius.small == 14 and f.halo.large == 4 and f.halo.small == 2)
+  r.check("a fab, halo included, is never under TOUCH_MIN",
+    f.size.small + 2 * f.halo.small >= Theme.TOUCH_MIN)
+
+  local local_icon
+  local Fab = require("hardcover/lib/ui/components/fab")
+  local seen
+  Theme.box = function(w, hh, child, opts) seen = { w = w, h = hh, opts = opts }; return make() end
+  Theme.icon = function(name, size) local_icon = { name = name, size = size }; return make() end
+  local fab = Fab.new { icon = "plus", callback = function() end }
+  r.check("the default is the large square with its icon", seen.w == f.size.large and seen.h == f.size.large
+    and local_icon.name == "plus" and local_icon.size == f.icon.large)
+  r.check("a square, not a circle: it has a radius", seen.opts.radius == f.radius.large and not seen.opts.round)
+  Fab.new { icon = "plus", scale = "small" }
+  r.check("scale picks the size", seen.w == f.size.small and local_icon.size == f.icon.small)
+  Fab.new { icon = "plus", enabled = false, callback = function() end }
+  r.check("an unavailable fab is a dotted square", seen.opts.dotted == true)
+  local x, y = Fab.position(1000, 1400, 80, 80)
+  r.check("it sits in the bottom right by default", x == 1000 - 80 - f.margin and y == 1400 - 80 - f.margin)
+  x = Fab.position(1000, 1400, 80, 80, "left")
+  r.check("or the bottom left", x == f.margin)
+  r.check("a body reserves the fab's height and both margins",
+    Fab.reserve("large") == f.size.large + 2 * f.halo.large + 2 * f.margin)
+end
+
 -- ---------------------------------------------------------------- button sizes and the round button
 do
   local h = Theme.mmd.button.height

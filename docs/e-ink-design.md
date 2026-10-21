@@ -97,7 +97,7 @@ Written so a missing component is a decision, not an oversight. "Built" means a 
 | Slider | Not built. The only candidate is the progress and rating entry, which uses KOReader's spin widgets; a slider needs drag handling and would replace a working widget, so it waits for a decision and a device |
 | Badge | Not built. The one count (changes waiting to sync) is already in the sync box, and the nav bar has no tab where a badge would sit |
 | Tooltip | Not used. It is a long-press pattern; the plugin has no hold-only actions by rule |
-| FAB | Not used. No screen has a floating primary action; the primary action is a filled button in the flow |
+| FAB | Built (`components/fab.lua`), not yet used on any screen. No screen has a floating primary action; the primary action is a filled button in the flow, or a + in the top bar |
 
 ## MMD component metrics
 
