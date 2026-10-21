@@ -208,6 +208,7 @@ end)
 check("a Want to Read book, a book on no shelf and a book not known yet ask first, and send nothing", function()
   assert(BookActions.pageWrite(HARDCOVER.STATUS.TO_READ) == "ask")
   assert(BookActions.pageWrite(nil) == "ask")
+  assert(BookActions.pageWrite(HARDCOVER.STATUS.PAUSED) == "block", "a paused book sends no pages")
 end)
 
 check("a page on a Finished, Did not finish or unrecognised book is not sent", function()

@@ -10,6 +10,7 @@
 --             the length is not known. A book that is not linked says so here.
 -- shelf:      where the book is, in words. Not said for Currently Reading: the reader is in that
 --             book, and the page line already says how far.
+-- paused:     Paused: the panel offers "Resume" beside the shelf line.
 -- finished:   Finished or Did not finish: the panel offers "Read again" beside the shelf line.
 -- track:      the "Update Hardcover as I read" switch is offered: for a book being read, and for any
 --             other linked book while tracking is off (so it can always be turned back on). A book
@@ -54,6 +55,7 @@ function Facts.describe(o)
 
   local status_id = o.status_id
   local reading = status_id == HARDCOVER.STATUS.READING
+  out.paused = status_id == HARDCOVER.STATUS.PAUSED
   out.finished = status_id == HARDCOVER.STATUS.FINISHED or status_id == HARDCOVER.STATUS.DNF
 
   local pages = tonumber(o.pages)

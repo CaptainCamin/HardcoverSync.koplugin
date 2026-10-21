@@ -181,7 +181,7 @@ function HomeBody:build()
 
   -- then the shelves: the head and as many rows as fit
   local rows = {}
-  for _i, row in ipairs(Home.listOrder(self.rows)) do rows[#rows + 1] = row end
+  for _i, row in ipairs(Home.homeOrder(self.rows)) do rows[#rows + 1] = row end
   local head = ListItem.section(_("Shelves"), w, px(4))
   local shown_rows = 0
   if shown_note then

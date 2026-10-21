@@ -14,6 +14,7 @@ local SHELF_ORDER = {
   HARDCOVER.STATUS.TO_READ,
   HARDCOVER.STATUS.FINISHED,
   HARDCOVER.STATUS.DNF,
+  HARDCOVER.STATUS.PAUSED,
 }
 
 function Home.statusIds()
@@ -42,16 +43,30 @@ function Home.rows(counts)
 end
 
 -- The shelves as the redesigned screens list them (mock 1 and 2): Want to read, Currently reading,
--- Read, Did not finish. A new table; `rows` is left as it is.
-local LIST_ORDER = { HARDCOVER.STATUS.TO_READ, HARDCOVER.STATUS.READING, HARDCOVER.STATUS.FINISHED, HARDCOVER.STATUS.DNF }
-function Home.listOrder(rows)
+-- Read, Did not finish. The Library tab also lists Paused, after Currently reading; the home
+-- screen leaves it out. A new table; `rows` is left as it is.
+local LIST_ORDER = { HARDCOVER.STATUS.TO_READ, HARDCOVER.STATUS.READING, HARDCOVER.STATUS.PAUSED,
+  HARDCOVER.STATUS.FINISHED, HARDCOVER.STATUS.DNF }
+local function ordered(rows, skip_paused)
   local by_status = {}
   for _, row in ipairs(rows or {}) do by_status[row.status_id] = row end
   local out = {}
   for _, id in ipairs(LIST_ORDER) do
-    if by_status[id] then out[#out + 1] = by_status[id] end
+    if by_status[id] and not (skip_paused and id == HARDCOVER.STATUS.PAUSED) then
+      out[#out + 1] = by_status[id]
+    end
   end
   return out
+end
+
+-- The Library tab's shelves.
+function Home.listOrder(rows)
+  return ordered(rows, false)
+end
+
+-- The home screen's shelves: the same without Paused.
+function Home.homeOrder(rows)
+  return ordered(rows, true)
 end
 
 --

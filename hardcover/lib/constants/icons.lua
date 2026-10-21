@@ -11,6 +11,8 @@ return {
   OPEN_BOOK = "\u{E28B}",
   -- nf-oct-check
   CHECKMARK = "\u{F42E}",
+  -- nf-fa-pause_circle
+  PAUSE_CIRCLE = "\u{F28B}",
   -- nf-fa-stop_circle
   STOP_CIRCLE = "\u{F28D}",
   -- nf-fa-trash_can

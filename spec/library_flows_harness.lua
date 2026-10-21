@@ -170,7 +170,7 @@ fakeClass("hardcover/lib/ui/lists_dialog", "lists")
 
 local function UIManagerShown(w) for _, x in ipairs(stack) do if x == w then return true end end return false end
 local clock = 1000000
-local FP = { [1] = "1|A|", [2] = "1|B|", [3] = "2|C|9.0", [5] = "0||" }
+local FP = { [1] = "1|A|", [2] = "1|B|", [3] = "2|C|9.0", [4] = "0||", [5] = "0||" }
 
 local function newManager(opts)
   opts = opts or {}
@@ -201,6 +201,7 @@ local function newManager(opts)
     shelves:putEntries(1, 2, { { user_book_id = 102, book_id = 2, title = "Two" } }, true, FP[2])
     shelves:putEntries(1, 3, { { user_book_id = 105, book_id = 5, title = "Five", user_rating = 4.5 },
                                { user_book_id = 106, book_id = 6, title = "Six" } }, true, FP[3])
+    shelves:putEntries(1, 4, {}, true, FP[4])
     shelves:putEntries(1, 5, {}, true, FP[5])
   end
   return m
