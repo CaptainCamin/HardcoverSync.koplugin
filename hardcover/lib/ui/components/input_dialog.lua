@@ -1,8 +1,8 @@
 -- Input dialog (MMD Dialog with a field): a heading, an optional line of text, a field and one or
 -- two stacked buttons, the filled one first. KOReader's InputText does the typing and its virtual
 -- keyboard comes up under the dialog, which sits on top of it. The frame, heading and buttons are the
--- plugin's own, as Dialog's, but wider, and with the buttons side by side (filled on the right): the
--- keyboard leaves little height, and stacked buttons would push the box up under the top bar.
+-- plugin's own, as Dialog's (stacked, 64 high, the filled one first), but wider and with tighter
+-- spacing: the keyboard leaves little height, and a tall box would reach up under the top bar.
 --
 --   local input
 --   input = InputDialog:new {
@@ -75,30 +75,24 @@ function InputDialog:init()
   }
   -- the field sits at the left edge of the column, the buttons are as wide as the column
   local tface, tbold = Theme.mmdFace("strong", 25)
-  local col = VerticalGroup:new { align = "left", Overlay.top_rule(w), Theme.span(Theme.px(12)) }
+  local col = VerticalGroup:new { align = "left", Overlay.top_rule(w), Theme.span(Theme.px(8)) }
   local function indented(widget)
     col[#col + 1] = HorizontalGroup:new { Theme.hspan(side), widget }
   end
   indented(TextBoxWidget:new { text = self.title, face = tface, bold = tbold, width = inner_w, fgcolor = Theme.BLACK })
   if self.text then
-    col[#col + 1] = Theme.span(Theme.px(10))
+    col[#col + 1] = Theme.span(Theme.px(6))
     indented(TextBoxWidget:new { text = self.text, face = face, bold = bold, width = inner_w, fgcolor = Theme.BLACK })
   end
-  col[#col + 1] = Theme.span(Theme.px(12))
+  col[#col + 1] = Theme.span(Theme.px(8))
   indented(self._input_widget)
-  col[#col + 1] = Theme.span(Theme.px(24))
-  -- one button the full width; two side by side, the filled one on the right
-  local gap = Theme.px(12)
-  local bw = #self.ordered == 1 and inner_w or math.floor((inner_w - gap) / 2)
-  local row = HorizontalGroup:new {}
-  for i = #self.ordered, 1, -1 do
-    local spec = self.ordered[i]
-    if #row > 0 then row[#row + 1] = Theme.hspan(gap) end
-    row[#row + 1] = Button.new { label = spec.label, w = bw, primary = spec.primary,
-      callback = function() if spec.callback then spec.callback() end end }
-  end
-  indented(row)
   col[#col + 1] = Theme.span(Theme.px(12))
+  for i, spec in ipairs(self.ordered) do
+    if i > 1 then col[#col + 1] = Theme.span(Theme.px(8)) end
+    indented(Button.new { label = spec.label, w = inner_w, primary = spec.primary,
+      callback = function() if spec.callback then spec.callback() end end })
+  end
+  col[#col + 1] = Theme.span(Theme.px(8))
 
   -- no outline of its own: the top rule is the edge
   self.frame = FrameContainer:new { width = w, bordersize = 0, padding = 0, margin = 0,
