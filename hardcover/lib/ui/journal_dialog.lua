@@ -7,7 +7,7 @@ local HorizontalSpan = require("ui/widget/horizontalspan")
 local InputDialog = require("ui/widget/inputdialog")
 local InputText = require("ui/widget/inputtext")
 local Size = require("ui/size")
-local SpinWidget = require("ui/widget/spinwidget")
+local StepperDialog = require("hardcover/lib/ui/components/stepper_dialog")
 local TextWidget = require("ui/widget/textwidget")
 local ToggleSwitch = require("ui/widget/toggleswitch")
 local TextBoxWidget = require("ui/widget/textboxwidget")
@@ -144,21 +144,16 @@ function JournalDialog:init()
     text_font_size = 16,
     bordersize = Size.border.thin,
     callback = function()
-      local spinner = SpinWidget:new {
-        value = self.page,
-        value_min = 0,
-        value_max = self.pages,
-        value_step = 1,
-        value_hold_step = 20,
-        ok_text = _("Set page"),
-        title_text = _("Set current page"),
-        callback = function(spin)
-          self.page = spin.value
-          self.page_button:setText(self.page_button.text_func(self), self.page_button.width)
-        end
-      }
       self:onCloseKeyboard()
-      UIManager:show(spinner)
+      StepperDialog.show {
+        title = _("Set current page"),
+        value = self.page, min = 0, max = self.pages, step = 1, big_step = 20,
+        save_label = _("Set page"),
+        on_save = function(value)
+          self.page = value
+          self.page_button:setText(self.page_button.text_func(self), self.page_button.width)
+        end,
+      }
     end
   }
 

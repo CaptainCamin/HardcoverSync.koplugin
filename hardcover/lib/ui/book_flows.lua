@@ -65,7 +65,7 @@ function Flows:showBookDetail(book_id, edition_id, opts)
     source_label = BookSources.label(self.ui, self:bookSourceChoice()),
     on_shelf = function(d) self:chooseShelf(d) end,
     -- tapping your rating: works offline, the rating waits to be sent
-    on_rating = function(d) self:rateBook(d) end,
+    on_rating = function(d, stars) self:rateBook(d, stars) end,
     -- only when signed in with OAuth (the write scope is an OAuth thing)
     on_lists = self:canChooseLists() and function(d) self:chooseLists(d) end or nil,
     -- only for the book that is open in the reader: its link is what changes
@@ -711,7 +711,7 @@ end
 -- Rate the book on the details screen. The rating is shown at once and kept in
 -- the rating queue, so it works without a connection; it is sent now if there is
 -- one, or when the connection is back.
-function Flows:rateBook(dialog)
+function Flows:rateBook(dialog, stars)
   local detail = dialog.detail
   local queue = self.rating_queue
   local gate = BookActions.ratingGate(detail, queue ~= nil)
@@ -726,28 +726,20 @@ function Flows:rateBook(dialog)
   end
 
   local rating = tonumber(detail.user_rating)
-  local SpinWidget = require("ui/widget/spinwidget")
-  UIManager:show(SpinWidget:new {
-    ok_always_enabled = rating == nil,
-    value = rating or 2.5,
-    value_min = 0,
-    value_max = 5,
-    value_step = 0.5,
-    value_hold_step = 2,
-    precision = "%.1f",
-    ok_text = _("Save"),
-    title_text = _("Set Rating"),
-    -- 0 clears the rating
-    callback = function(spin)
-      queue:queue(detail.user_book_id, spin.value, detail.book.title)
-      if Live.shown(dialog) then dialog:setRating(spin.value) end
+  require("hardcover/lib/ui/components/stepper_dialog").show {
+    title = _("Set rating"),
+    text = _("0 clears the rating."),
+    value = stars or rating or 2.5, min = 0, max = 5, step = 0.5,
+    on_save = function(value)
+      queue:queue(detail.user_book_id, value, detail.book.title)
+      if Live.shown(dialog) then dialog:setRating(value) end
       if Network.connected() then
         if self.flush_goals then self.flush_goals() end
       else
         StatusDialogs.info(_("You're offline. Your rating is kept and will be sent when you're connected."))
       end
     end,
-  })
+  }
 end
 
 -- A queued rating went through: the saved shelf shows the new one at once.
