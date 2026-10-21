@@ -6,6 +6,7 @@ local util = require("util")
 local UIManager = require("ui/uimanager")
 
 local Notification = require("ui/widget/notification")
+local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 
 local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
@@ -131,9 +132,7 @@ function Hardcover:linkBook(book)
   local changing = book.book_id and previous == book.book_id and new_settings.edition_id
     and new_settings.edition_id ~= old_edition
   if changing and not self:moveEdition(filename, book, new_settings.edition_id, old_pages) then
-    UIManager:show(Notification:new {
-      text = _("The edition could not be changed. Check your connection and try again."),
-    })
+    StatusDialogs.error(_("The edition could not be changed. Check your connection and try again."))
     return false
   end
 

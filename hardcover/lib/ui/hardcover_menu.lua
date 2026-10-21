@@ -817,12 +817,10 @@ end
 -- Settings > Linking > Save details of linked books: for books linked earlier, or whose details
 -- were not saved when they were linked.
 function HardcoverMenu:saveLinkedDetails()
-  local ConfirmBox = require("ui/widget/confirmbox")
   local DetailsSync = require("hardcover/lib/details_sync")
-  local InfoMessage = require("ui/widget/infomessage")
 
   if not Network.connected() then
-    UIManager:show(InfoMessage:new { text = _("Connect to the internet to save book details.") })
+    StatusDialogs.info(_("Connect to the internet to save book details."), 3)
     return
   end
   local store = self.book_store
@@ -831,19 +829,20 @@ function HardcoverMenu:saveLinkedDetails()
     return store:hasDetail(book_id, edition_id)
   end) or {}
   if #pending == 0 then
-    UIManager:show(InfoMessage:new { text = _("The details of every linked book are saved already.") })
+    StatusDialogs.info(_("The details of every linked book are saved already."), 3)
     return
   end
-  UIManager:show(ConfirmBox:new {
-    text = T(_("Save the details of %1 linked books?\n\nThey will open on this device without a connection. This asks Hardcover about %2 books at a time, and can be stopped."),
-      tostring(math.min(#pending, DetailsSync.MAX)), tostring(DetailsSync.BATCH)),
+  StatusDialogs.confirm {
+    title = T(_("Save the details of %1 linked books?"), tostring(math.min(#pending, DetailsSync.MAX))),
+    text = T(_("They will open on this device without a connection. This asks Hardcover about %1 books at a time, and can be stopped."),
+      tostring(DetailsSync.BATCH)),
     ok_text = _("Save"),
     ok_callback = function()
       self:saveDetails(settings, function(scan)
-        if scan then UIManager:show(InfoMessage:new { text = DetailsSync.summary(scan) }) end
+        if scan then StatusDialogs.report(DetailsSync.summary(scan)) end
       end)
     end,
-  })
+  }
 end
 
 -- Links every unlinked EPUB under the home folder that carries an ISBN or Hardcover identifier
@@ -854,13 +853,11 @@ end
 -- those, each marked so it can be reviewed and undone (reviewGuessedLinks).
 function HardcoverMenu:linkAllBooks()
   local BulkLink = require("hardcover/lib/bulk_link")
-  local ConfirmBox = require("ui/widget/confirmbox")
   local DetailsSync = require("hardcover/lib/details_sync")
-  local InfoMessage = require("ui/widget/infomessage")
   local lfs = require("libs/libkoreader-lfs")
 
   if not Network.connected() then
-    UIManager:show(InfoMessage:new { text = _("Connect to the internet to link your books.") })
+    StatusDialogs.info(_("Connect to the internet to link your books."), 3)
     return
   end
 
@@ -869,7 +866,7 @@ function HardcoverMenu:linkAllBooks()
     return self.settings:readBookSetting(file, "book_id") ~= nil
   end)
   if #items == 0 then
-    UIManager:show(InfoMessage:new { text = _("No unlinked EPUBs found in your home folder.") })
+    StatusDialogs.info(_("No unlinked EPUBs found in your home folder."), 3)
     return
   end
 
@@ -902,16 +899,16 @@ function HardcoverMenu:linkAllBooks()
       local text = BulkLink.guessSummary(guess_scan)
       if details then text = text .. "\n\n" .. DetailsSync.summary(details) end
       if #guess_scan.linked == 0 then
-        UIManager:show(InfoMessage:new { text = text })
+        StatusDialogs.report(text)
         return
       end
-      UIManager:show(ConfirmBox:new {
-        text = text .. "\n\n" ..
-          _("Guesses can be wrong. Check them now? You can also do it later in Settings > Linking."),
+      StatusDialogs.confirm {
+        title = _("Check the guesses now?"),
+        text = text .. "\n\n" .. _("Guesses can be wrong. You can also check them later in Settings > Linking."),
         ok_text = _("Check them"),
         cancel_text = _("Later"),
         ok_callback = function() self:reviewGuessedLinks() end,
-      })
+      }
     end)
   end
 
@@ -942,22 +939,23 @@ function HardcoverMenu:linkAllBooks()
       local text = BulkLink.summary(scan)
       if details then text = text .. "\n\n" .. DetailsSync.summary(details) end
       if scan.cancelled or #scan.unmatched == 0 then
-        UIManager:show(InfoMessage:new { text = text })
+        StatusDialogs.report(text)
         return
       end
-      UIManager:show(ConfirmBox:new {
-        text = text .. "\n\n" .. T(_("Try to guess the other %1 from their title and author? A guess can be wrong, so each one is marked and you can check and undo them."),
-          tostring(#scan.unmatched)),
+      StatusDialogs.confirm {
+        title = T(_("Guess the other %1 from their title and author?"), tostring(#scan.unmatched)),
+        text = text .. "\n\n" .. _("A guess can be wrong, so each one is marked and you can check and undo them."),
         ok_text = _("Guess"),
         cancel_text = _("Not now"),
         ok_callback = function() guess(scan.unmatched) end,
-      })
+      }
     end)
   end
 
-  UIManager:show(ConfirmBox:new {
-    text = T(_("Link %1 books to Hardcover?\n\nFirst it matches EPUBs that carry an ISBN or Hardcover identifier, %2 books at a time, and saves the linked books' details and shelves so they show offline. Then it asks whether to guess the rest from their title and author. It can be stopped."),
-      tostring(#items), tostring(BulkLink.BATCH)),
+  StatusDialogs.confirm {
+    title = T(_("Link %1 books to Hardcover?"), tostring(#items)),
+    text = T(_("First it matches EPUBs that carry an ISBN or Hardcover identifier, %1 books at a time, and saves the linked books' details and shelves so they show offline. Then it asks whether to guess the rest from their title and author. It can be stopped."),
+      tostring(BulkLink.BATCH)),
     ok_text = _("Link"),
     ok_callback = function()
       self:runScan(scan, {
@@ -972,7 +970,7 @@ function HardcoverMenu:linkAllBooks()
         on_finish = function() finish() end,
       })
     end,
-  })
+  }
 end
 
 -- One book at a time: is this guessed link right?

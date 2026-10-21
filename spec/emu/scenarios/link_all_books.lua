@@ -179,7 +179,7 @@ return {
     assert(shelf_downloads > 0, "the shelves were not downloaded")
 
     -- the two left over (Hardcover does not know one, the other has no identifier) can be guessed
-    emu:expectText("Try to guess the other 2")
+    emu:expectText("Guess the other 2")
     tapButton("Guess")
     for _ = 1, 200 do
       emu:pump()

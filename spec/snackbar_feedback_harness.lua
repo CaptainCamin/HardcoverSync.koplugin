@@ -34,4 +34,14 @@ local _, n = main:gsub("Notification:new", "")
 r.check("main.lua keeps exactly one toast, for the background fetch failure",
   n == 1 and has(main, "Failed to fetch book information from Hardcover"))
 
+-- notices and questions are the plugin's own Snackbar and Dialog, not KOReader's InfoMessage and ConfirmBox
+-- (the scan progress message in hardcover_menu.lua is the one InfoMessage left)
+local menu = read("hardcover/lib/ui/hardcover_menu.lua")
+local sources = read("hardcover/lib/bookshelf_sources.lua")
+r.check("no ConfirmBox in the menu", not has(menu, "ui/widget/confirmbox"))
+r.check("no InfoMessage in bookshelf_sources or dialog_manager",
+  not has(sources, "ui/widget/infomessage") and not has(dm, "ui/widget/infomessage"))
+local _, menu_infos = menu:gsub("ui/widget/infomessage", "")
+r.check("hardcover_menu.lua keeps one InfoMessage, for the scan progress", menu_infos == 1)
+
 r.finish()
