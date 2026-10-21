@@ -206,7 +206,7 @@ return {
       "keeping the guess did not drop the mark")
     emu:closeAll()
 
-    -- ---------------------------------------------------------------- stop it by tapping the message
+    -- ---------------------------------------------------------------- stop it with the Stop button
     for _, file in ipairs(files) do
       settings:updateBookSetting(file, { _delete = { "book_id", "edition_id", "edition_format", "pages", "title" } }, true)
     end
@@ -215,12 +215,13 @@ return {
     tapRow("Link all books on this device")
     tapButton("Link")
     emu:screenNodes()
-    emu:expectText("(tap to stop)")
+    emu:expectText("Linking books to Hardcover...")
+    emu:expectText("of 4 checked")
     emu:shot("link_all_progress")
-    -- the message only listens a moment after it first shows (the tap that started the scan lands on it)
-    os.execute("sleep 0.8")
-    emu:pump()
-    emu:tap(600, 800)
+    tapButton("Stop")
+    emu:screenNodes()
+    emu:expectText("Stopping")
+    emu:shot("link_all_stopping")
     os.execute("sleep 2.2")
     for _ = 1, 20 do emu:pump() end
     emu:screenNodes()

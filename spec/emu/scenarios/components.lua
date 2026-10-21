@@ -166,6 +166,25 @@ return {
     UIManager:getTopmostVisibleWidget():dismiss()
     assert(UIManager:getTopmostVisibleWidget() == page, "close-only dialog stayed open")
 
+    -- progress dialog: a bar, a visible Stop that is acknowledged, and a tap outside does nothing
+    local ProgressDialog = require("hardcover/lib/ui/components/progress_dialog")
+    local stopped
+    local job = ProgressDialog.show { title = "Saving book details...", text = "3 of 10 books", fraction = 0.3,
+      stop = { callback = function() stopped = true end } }
+    emu:pump()
+    emu:shot("components_progress")
+    local top = UIManager:getTopmostVisibleWidget()
+    emu:tap(5, 5)
+    assert(UIManager:getTopmostVisibleWidget() == top, "a tap outside closed the progress dialog")
+    job:update { text = "4 of 10 books", fraction = 0.4 }
+    emu:pump()
+    emu:expectText("4 of 10 books")
+    tapText("Stop")
+    assert(stopped, "Stop did not run")
+    emu:expectText("Stopping")
+    job:close()
+    assert(UIManager:getTopmostVisibleWidget() == page, "the progress dialog stayed open")
+
     -- snackbar: the rest of the screen keeps working; only the bar takes taps, and its action runs
     local undone
     Snackbar.show { message = "Moved to Read", action = { label = "Undo", callback = function() undone = true end } }
