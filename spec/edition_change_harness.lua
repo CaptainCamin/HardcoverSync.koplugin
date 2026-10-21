@@ -32,6 +32,9 @@ package.preload["ui/uimanager"] = function()
     unschedule = function() end, forceRePaint = function() end, nextTick = function(_, fn) fn() end,
   }
 end
+package.preload["hardcover/lib/ui/status_dialogs"] = function()
+  return { error = function(text) shown[#shown + 1] = text end }
+end
 package.preload["ui/widget/notification"] = function()
   return { new = function(_, o) return o end }
 end

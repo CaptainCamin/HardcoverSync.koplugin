@@ -11,6 +11,7 @@ local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local Network = require("hardcover/lib/network")
 local ShelfLoader = require("hardcover/lib/shelf_loader")
 local ShelfSort = require("hardcover/lib/shelf_sort")
+local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 local User = require("hardcover/lib/user")
 local SETTING = require("hardcover/lib/constants/settings")
 
@@ -680,18 +681,14 @@ function Sources.register(app)
   lists.editor_rows = sortRows
   lists.pick = function(draft, done)
     if not Network.connected() then
-      UIManager:show(require("ui/widget/infomessage"):new {
-        text = _("Connect to the internet to choose a Hardcover list."), timeout = 3,
-      })
+      StatusDialogs.info(_("Connect to the internet to choose a Hardcover list."), 3)
       done(false)
       return
     end
     Api:getListsAsync(function(found, err)
       if not found then
         logger.warn("Hardcover list picker failed:", tostring(err))
-        UIManager:show(require("ui/widget/infomessage"):new {
-          text = _("Could not load your Hardcover lists."), timeout = 3,
-        })
+        StatusDialogs.info(_("Could not load your Hardcover lists."), 3)
         done(false)
         return
       end
@@ -704,9 +701,7 @@ function Sources.register(app)
         rows[#rows + 1] = { row = row, text = row.name .. owner }
       end
       if #rows == 0 then
-        UIManager:show(require("ui/widget/infomessage"):new {
-          text = _("No Hardcover lists are available."), timeout = 3,
-        })
+        StatusDialogs.info(_("No Hardcover lists are available."), 3)
         done(false)
         return
       end

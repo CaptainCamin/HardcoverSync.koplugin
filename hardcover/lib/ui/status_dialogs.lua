@@ -51,7 +51,8 @@ function SD.info(text, timeout)
 end
 
 -- A yes/no question, as an MMD dialog: a title that says what it is about, one short text, the
--- other button outlined on the left and the answer filled on the right.
+-- answer filled on top and the other button outlined under it. A dialog with one button is an
+-- acknowledgement, and its button is outlined.
 --
 -- options { title, text, ok_text, ok_callback, cancel_text, cancel_callback }. With no cancel_text
 -- the dialog has one button, for a notice that only needs acknowledging. Both callbacks run after the
@@ -62,7 +63,7 @@ function SD.confirm(options)
   if options.cancel_text ~= false then
     buttons[#buttons + 1] = { label = options.cancel_text or _("Cancel"), callback = options.cancel_callback }
   end
-  buttons[#buttons + 1] = { label = options.ok_text or _("OK"), primary = true, callback = options.ok_callback }
+  buttons[#buttons + 1] = { label = options.ok_text or _("OK"), primary = #buttons > 0, callback = options.ok_callback }
   local title, text = options.title, options.text
   if not title then
     if text and #text <= 60 and not text:find("\n") then
@@ -77,6 +78,13 @@ function SD.confirm(options)
     buttons = buttons,
     on_dismiss = options.cancel_callback,
   }
+end
+
+-- The result of something that ran for a while and must be read: its first line is the title, the
+-- rest the text, and one outlined button closes it. For feedback on a tap, use SD.info.
+function SD.report(text)
+  local title, rest = tostring(text):match("^([^\n]*)\n*(.*)$")
+  SD.confirm { title = title, text = rest ~= "" and rest or nil, ok_text = _("Close"), cancel_text = false }
 end
 
 -- Offer to try a failed operation again.

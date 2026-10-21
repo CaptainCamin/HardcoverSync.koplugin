@@ -7,7 +7,6 @@ local Hosted = require("hardcover/lib/ui/hosted")
 local Live = require("hardcover/lib/ui/live")
 local Network = require("hardcover/lib/network")
 
-local InfoMessage = require("ui/widget/infomessage")
 
 local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
