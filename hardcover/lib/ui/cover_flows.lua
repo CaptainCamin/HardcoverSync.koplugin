@@ -63,24 +63,22 @@ function Flows:stopCoverDownload()
   self._cover_stop = true
 end
 
-local function showProgress(self, text)
-  if self._cover_progress then UIManager:close(self._cover_progress) end
-  local ButtonDialog = require("ui/widget/buttondialog")
-  self._cover_progress = ButtonDialog:new {
-    title = text,
-    title_align = "center",
-    dismissable = false,
-    buttons = { { {
-      text = _("Stop"),
-      callback = function() self:stopCoverDownload() end,
-    } } },
-  }
-  UIManager:show(self._cover_progress)
+local function showProgress(self, done, total)
+  local line = T(_("%1 of %2"), done, total)
+  local fraction = total > 0 and done / total or 0
+  if self._cover_progress then
+    self._cover_progress:update { text = line, fraction = fraction }
+  else
+    self._cover_progress = require("hardcover/lib/ui/components/progress_dialog").show {
+      title = _("Keeping covers for offline"), text = line, fraction = fraction,
+      stop = { callback = function() self:stopCoverDownload() end },
+    }
+  end
 end
 
 local function closeProgress(self)
   if self._cover_progress then
-    UIManager:close(self._cover_progress)
+    self._cover_progress:close()
     self._cover_progress = nil
   end
 end
@@ -96,7 +94,7 @@ local function run(self, plan, turned_on)
   local total = CoverDownload.missing(plan)
   self._cover_stop = false
   self._cover_running = true
-  showProgress(self, T(_("Keeping covers for offline: 0 of %1"), total))
+  showProgress(self, 0, total)
   -- a long run must not be cut short by the device dozing off between covers
   local awake = UIManager.preventStandby and pcall(UIManager.preventStandby, UIManager)
   local stopped = function()
@@ -115,7 +113,7 @@ local function run(self, plan, turned_on)
       stopped = stopped,
       progress = function(done, all)
         if done % PROGRESS_EVERY == 0 and done < all and not self._cover_stop then
-          showProgress(self, T(_("Keeping covers for offline: %1 of %2"), done, all))
+          showProgress(self, done, all)
         end
       end,
     })

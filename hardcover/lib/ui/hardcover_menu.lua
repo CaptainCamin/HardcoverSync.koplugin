@@ -742,36 +742,32 @@ function HardcoverMenu:getSyncConflictsMenuItem()
 end
 
 -- Unlink and discard were long presses only; they are rows now (the long press stays a shortcut).
--- Runs `scan` to its end without freezing the screen, showing a message that can be tapped to stop
--- it. `opts`: heading, step(scan) (true when it used the network), done(scan), rate (seconds to wait
--- after a network step), progress(scan) (the line under the heading), on_finish(scan).
+-- Runs `scan` to its end without freezing the screen, showing a progress dialog with a Stop button.
+-- `opts`: heading, step(scan) (true when it used the network), done(scan), rate (seconds to wait
+-- after a network step), progress(scan) (the line under the heading), fraction(scan) (0 to 1, for the
+-- bar), on_finish(scan).
 -- Work that does not call Hardcover (reading a file) gives the screen a turn between steps; the
 -- requests run in Background.run so they do not block it either.
 function HardcoverMenu:runScan(scan, opts)
-  local InfoMessage = require("ui/widget/infomessage")
+  local ProgressDialog = require("hardcover/lib/ui/components/progress_dialog")
   local progress
-  local armed = false
   local function closeProgress()
     if progress then
-      progress.dismiss_callback = nil
-      UIManager:close(progress)
+      progress:close()
       progress = nil
     end
   end
   local function showProgress()
-    closeProgress()
-    progress = InfoMessage:new {
-      text = opts.heading .. "\n\n" .. opts.progress(scan) .. "\n\n" .. _("(tap to stop)"),
-      dismiss_callback = function()
-        -- the tap that started the scan can land on this message and stop it at once
-        if armed then scan.cancelled = true end
-      end,
-    }
-    UIManager:show(progress)
+    local line, fraction = opts.progress(scan), opts.fraction and opts.fraction(scan)
+    if progress then
+      progress:update { text = line, fraction = fraction }
+    else
+      progress = ProgressDialog.show { title = opts.heading, text = line, fraction = fraction,
+        stop = { callback = function() scan.cancelled = true end } }
+    end
   end
 
   showProgress()
-  UIManager:scheduleIn(0.6, function() armed = true end)
   Background.run(function()
     local rounds = 0
     while not opts.done(scan) do
@@ -806,6 +802,10 @@ function HardcoverMenu:saveDetails(settings, on_finish)
     rate = DetailsSync.RATE,
     progress = function(running)
       return T(_("%1 of %2 books"), tostring(running.index), tostring(DetailsSync.total(running)))
+    end,
+    fraction = function(running)
+      local total = DetailsSync.total(running)
+      return total > 0 and running.index / total or 0
     end,
     on_finish = function(finished)
       store:evict()
@@ -929,6 +929,10 @@ function HardcoverMenu:linkAllBooks()
         return T(_("%1 of %2 checked, %3 linked"),
           tostring(running.checked), tostring(BulkLink.total(running)), tostring(#running.linked))
       end,
+      fraction = function(running)
+        local total = BulkLink.total(running)
+        return total > 0 and running.checked / total or 0
+      end,
       on_finish = finishGuesses,
     })
   end
@@ -966,6 +970,10 @@ function HardcoverMenu:linkAllBooks()
         progress = function(running)
           return T(_("%1 of %2 checked, %3 linked"),
             tostring(running.checked), tostring(BulkLink.total(running)), tostring(#running.linked))
+        end,
+        fraction = function(running)
+          local total = BulkLink.total(running)
+          return total > 0 and running.checked / total or 0
         end,
         on_finish = function() finish() end,
       })

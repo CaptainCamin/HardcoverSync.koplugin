@@ -57,8 +57,16 @@ package.preload["logger"] = function()
 end
 -- the progress window and the question: record what is shown
 local dialogs = {}
-package.preload["ui/widget/buttondialog"] = function()
-  return { new = function(_, o) o.kind = "progress"; dialogs[#dialogs + 1] = o; return o end }
+-- the progress dialog: shown once, then updated; on the stack until closed
+package.preload["hardcover/lib/ui/components/progress_dialog"] = function()
+  return { show = function(o)
+    local h = { kind = "progress", opts = o }
+    dialogs[#dialogs + 1] = h
+    stack[#stack + 1] = h
+    h.update = function(_, change) dialogs[#dialogs + 1] = { kind = "progress", opts = change } end
+    h.close = function(self) for i = #stack, 1, -1 do if stack[i] == self then table.remove(stack, i) end end end
+    return h
+  end }
 end
 package.preload["ui/widget/confirmbox"] = function()
   return { new = function(_, o) o.kind = "confirm"; dialogs[#dialogs + 1] = o; return o end }

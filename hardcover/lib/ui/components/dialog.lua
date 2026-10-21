@@ -25,20 +25,31 @@ local Theme = require("hardcover/lib/ui/theme")
 
 local Dialog = {}
 
--- opts { title, text, warning (the triangle, and centred text), buttons = { { label, callback, primary } }
--- (none, one or two: with none the dialog has an X instead), on_dismiss }
+local function width()
+  return math.min(Device.screen:getWidth() - 2 * Theme.margin, Theme.px(364))
+end
+local SIDE = Theme.px(12)
+
+-- the width inside the padding: what a `body` can be as wide as
+function Dialog.innerWidth()
+  return width() - 2 * Theme.line.firm - 2 * SIDE
+end
+
+-- opts { title, text, warning (the triangle, and centred text), body (a widget under the text, up to
+-- Dialog.innerWidth() wide: a field, a progress bar), buttons = { { label, callback, primary } }
+-- (none, one or two: with none the dialog has an X instead), locked (a tap outside, Back and the X do
+-- nothing: the dialog goes when its work is done, and has no X), on_dismiss }
 function Dialog.show(opts)
-  local sw = Device.screen:getWidth()
-  local w = math.min(sw - 2 * Theme.margin, Theme.px(364))
-  local side = Theme.px(12)
-  local inner_w = w - 2 * Theme.line.firm - 2 * side
+  local w = width()
+  local side = SIDE
+  local inner_w = Dialog.innerWidth()
   local buttons = {}
   -- stacked, the filled one first
   for _, spec in ipairs(opts.buttons or {}) do if spec.primary then buttons[#buttons + 1] = spec end end
   for _, spec in ipairs(opts.buttons or {}) do if not spec.primary then buttons[#buttons + 1] = spec end end
   local overlay
   assert(#buttons <= 2, "a dialog has at most two buttons")
-  local closable = #buttons == 0
+  local closable = #buttons == 0 and not opts.locked
   local align = opts.warning and "center" or "left"
 
   local function icon_widget(name)
@@ -90,6 +101,10 @@ function Dialog.show(opts)
     indented(TextBoxWidget:new { text = opts.text, face = face, bold = bold, width = inner_w,
       alignment = align, fgcolor = Theme.BLACK })
   end
+  if opts.body then
+    col[#col + 1] = Theme.span(Theme.px(12))
+    indented(opts.body)
+  end
   if #buttons > 0 then
     col[#col + 1] = Theme.span(Theme.px(24))
     for i, spec in ipairs(buttons) do
@@ -106,6 +121,7 @@ function Dialog.show(opts)
   local box = FrameContainer:new { width = w, bordersize = Theme.line.firm,
     padding = 0, margin = 0, color = Theme.BLACK, background = Theme.WHITE, col }
   overlay = Overlay:new { anchor = "center", on_dismiss = opts.on_dismiss, box }
+  if opts.locked then overlay.dismiss = function() end end
   return overlay:show()
 end
 
