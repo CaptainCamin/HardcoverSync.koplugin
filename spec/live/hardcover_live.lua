@@ -413,8 +413,7 @@ step("probe: the schema around journals, reviews and activity (prints only)", fu
     end
   end
   for _, name in ipairs({
-    "reading_journals", "ReadingJournalCreateType", "ReadingJournalUpdateType", "UserBookUpdateType",
-    "UserBookCreateType", "activities", "Activity", "reading_journals_bool_exp",
+    "UserBookUpdateInput", "UserBookCreateInput", "activities_bool_exp", "BasicTag",
   }) do
     typeFields(name)
   end
@@ -436,19 +435,47 @@ step("probe: reading the journal for this book (prints only)", function()
 end)
 
 step("probe: activity feed shapes (prints only)", function()
-  probe("activities mine", [[
-    query ($userId: Int!) {
-      activities(where: { user_id: { _eq: $userId } }, order_by: { id: desc }, limit: 5) {
-        id event user_id book_id created_at data
+  -- the shape of each kind of activity: its event, object type and the keys of its data
+  local function summarize(label, where, vars, decl)
+    local saved = Api.on_error
+    Api.on_error = function() end
+    local result, err = Api:query("query (" .. decl .. ") { activities(where: " .. where
+      .. ", order_by: { id: desc }, limit: 40) { id event object_type user_id book_id created_at data } }", vars)
+    Api.on_error = saved
+    if not result then
+      print("  probe " .. label .. ": refused " .. (type(err) == "table" and json.encode(err) or tostring(err)))
+      return
+    end
+    local seen = {}
+    for _, a in ipairs(result.activities) do
+      local keys = {}
+      for k in pairs(type(a.data) == "table" and a.data or {}) do keys[#keys + 1] = k end
+      table.sort(keys)
+      local shape = a.event .. "/" .. tostring(a.object_type) .. " data={" .. table.concat(keys, ",") .. "}"
+      seen[shape] = (seen[shape] or 0) + 1
+    end
+    for shape, n in pairs(seen) do print("  probe " .. label .. ": " .. n .. "x " .. shape) end
+  end
+  summarize("activities mine", "{ user_id: { _eq: $userId } }", { userId = ctx.user_id }, "$userId: Int!")
+  local followed = probe("me.followed_users", [[{ me { followed_users { followed_user_id } } }]])
+  local ids = {}
+  for _, f in ipairs(followed and followed.me and followed.me[1] and followed.me[1].followed_users or {}) do
+    ids[#ids + 1] = tonumber(f.followed_user_id)
+  end
+  if #ids > 0 then
+    summarize("activities followed", "{ user_id: { _in: $ids } }", { ids = ids }, "$ids: [Int!]")
+  end
+  -- one sample of each kind a feed would show, with its data in full
+  for _, event in ipairs({ "UserBookActivity", "ReadingJournalActivity", "ReviewActivity", "QuoteActivity" }) do
+    probe("sample " .. event, [[
+      query ($event: String!) {
+        activities(where: { event: { _eq: $event } }, order_by: { id: desc }, limit: 1) {
+          id event object_type privacy_setting_id data
+        }
       }
-    }
-  ]], { userId = ctx.user_id })
-  probe("activity_feed", [[
-    query { activity_feed(limit: 5) { id event data created_at } }
-  ]])
-  probe("me.followed_users", [[
-    { me { followed_users(limit: 3) { followed_user_id } } }
-  ]])
+    ]], { event = event })
+  end
+  probe("following_user_books", [[{ following_user_books(limit: 2, order_by: { id: desc }) { id user_id book_id status_id rating has_review } }]])
 end)
 
 step("probe: a review written and cleared on the user book (prints only)", function()
