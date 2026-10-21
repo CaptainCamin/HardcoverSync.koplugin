@@ -102,15 +102,17 @@ function Overlay:dismiss()
   if self.on_dismiss then self.on_dismiss() end
 end
 
--- The region a refresh covers: the box and a few pixels around it. A refresh of exactly the box can lose
--- its last pixels at the edge on some panels (the right border of a dialog was missing the moment it
--- opened), and a little extra costs nothing, since the page behind is repainted there unchanged.
+-- The region a refresh covers. A refresh of exactly the box lost the right edge of a dialog on a real
+-- panel (the border was missing the moment it opened, and came back with a full redraw), so a dialog
+-- or sheet refreshes the whole width of the screen across its height, plus a few pixels above and
+-- below; the page behind is repainted there unchanged. A toast keeps its exact box.
 local PAD = 8
 function Overlay:refreshRegion()
   local sw, sh = Screen:getWidth(), Screen:getHeight()
   local r = self.region
-  local x, y = math.max(0, r.x - PAD), math.max(0, r.y - PAD)
-  return Geom:new { x = x, y = y, w = math.min(sw, r.x + r.w + PAD) - x, h = math.min(sh, r.y + r.h + PAD) - y }
+  if self.toast then return r end
+  local y = math.max(0, r.y - PAD)
+  return Geom:new { x = 0, y = y, w = sw, h = math.min(sh, r.y + r.h + PAD) - y }
 end
 
 function Overlay:show()
@@ -118,10 +120,6 @@ function Overlay:show()
   return self
 end
 
--- A dialog's box has black in it (the filled button, a chosen day, a bar), and the fast "ui" waveform
--- leaves a ghost of black behind when it whitens the area again; "partial" is the cleaner one. A
--- toast is small and comes and goes all the time, so it keeps the fast one.
---
 -- `replaced_by` (an overlay already shown over this one, same box): close without a refresh, since the
 -- new one is refreshed over the same area. Closing the old one first and showing the new one is two
 -- refreshes of the same box, which is the flicker and ghost of a dialog that redraws as it changes.
@@ -134,7 +132,7 @@ function Overlay:close(replaced_by)
     UIManager:close(self)
     return
   end
-  UIManager:close(self, self.toast and "ui" or "partial", self:refreshRegion())
+  UIManager:close(self, "ui", self:refreshRegion())
 end
 
 -- The mark on top of anything laid over a page: a 2 white band (so the black does not run into the

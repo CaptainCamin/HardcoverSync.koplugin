@@ -171,4 +171,4 @@ latency; finalists need a look on a real Kobo or Kindle.
 
 ## Refreshing overlays
 
-A dialog or sheet closes with a "partial" refresh of its box, not the fast "ui" one: its black fills (the filled button, a chosen day) leave a ghost under the fast waveform. A toast keeps "ui". A dialog that redraws as it changes (the progress dialog, the date picker) shows the new box first and closes the old one without a refresh (`Overlay:close(new)`), so a change is one refresh of the box, not two.
+A dialog or sheet refreshes the full width of the screen across its height (and a few pixels more), with the same fast "ui" waveform as KOReader's own boxes. Refreshing exactly its box lost the right edge of a dialog on a real panel until the next full redraw. A toast keeps its exact box. A dialog that redraws as it changes (the progress dialog, the date picker) shows the new box first and closes the old one without a refresh (`Overlay:close(new)`), so a change is one refresh of the box, not two.
