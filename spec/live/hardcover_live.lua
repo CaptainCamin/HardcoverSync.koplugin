@@ -451,7 +451,12 @@ step("probe: activity feed shapes (prints only)", function()
       local keys = {}
       for k in pairs(type(a.data) == "table" and a.data or {}) do keys[#keys + 1] = k end
       table.sort(keys)
-      local shape = a.event .. "/" .. tostring(a.object_type) .. " data={" .. table.concat(keys, ",") .. "}"
+      local inner = {}
+      local ub = type(a.data) == "table" and a.data.userBook
+      for k in pairs(type(ub) == "table" and ub or {}) do inner[#inner + 1] = k end
+      table.sort(inner)
+      local shape = a.event .. " data={" .. table.concat(keys, ",") .. "}"
+        .. (#inner > 0 and (" userBook={" .. table.concat(inner, ",") .. "}") or "")
       seen[shape] = (seen[shape] or 0) + 1
     end
     for shape, n in pairs(seen) do print("  probe " .. label .. ": " .. n .. "x " .. shape) end
@@ -465,42 +470,47 @@ step("probe: activity feed shapes (prints only)", function()
   if #ids > 0 then
     summarize("activities followed", "{ user_id: { _in: $ids } }", { ids = ids }, "$ids: [Int!]")
   end
-  -- one sample of each kind a feed would show, with its data in full
-  for _, event in ipairs({ "UserBookActivity", "ReadingJournalActivity", "ReviewActivity", "QuoteActivity" }) do
-    probe("sample " .. event, [[
-      query ($event: String!) {
-        activities(where: { event: { _eq: $event } }, order_by: { id: desc }, limit: 1) {
-          id event object_type privacy_setting_id data
-        }
+  -- quotes and notes are not activities: they are reading_journals, public ones of readers you follow
+  if #ids > 0 then
+    probe("followed readers' public quotes and notes", [[
+      query ($ids: [Int!]) {
+        reading_journals(
+          where: { user_id: { _in: $ids }, privacy_setting_id: { _eq: 1 }, event: { _in: ["quote", "note"] } }
+          order_by: { id: desc }
+          limit: 2
+        ) { id event entry privacy_setting_id book_id action_at metadata user { username name } book { title slug } }
       }
-    ]], { event = event })
+    ]], { ids = ids })
+    probe("followed readers' reviews", [[
+      query ($ids: [Int!]) {
+        user_books(
+          where: { user_id: { _in: $ids }, has_review: { _eq: true } }
+          order_by: { reviewed_at: desc_nulls_last }
+          limit: 2
+        ) { id rating review_raw review_has_spoilers reviewed_at user { username name } book { title slug } }
+      }
+    ]], { ids = ids })
   end
-  probe("following_user_books", [[{ following_user_books(limit: 2, order_by: { id: desc }) { id user_id book_id status_id rating has_review } }]])
+  
 end)
 
 step("probe: a review written and cleared on the user book (prints only)", function()
   local ub = need(ctx.user_book_id, "user book")
-  probe("set review_raw", [[
-    mutation ($id: Int!) {
-      update_user_book(id: $id, object: { review_raw: "hardcoversync live check", review_has_spoilers: false }) {
-        error user_book { id review_raw review_has_spoilers has_review reviewed_at }
+  local function review(label, object)
+    probe(label, [[
+      mutation ($id: Int!, $object: UserBookUpdateInput!) {
+        update_user_book(id: $id, object: $object) {
+          error user_book { id review_raw review_has_spoilers has_review reviewed_at }
+        }
       }
-    }
-  ]], { id = ub })
-  probe("set review_slate", [[
-    mutation ($id: Int!) {
-      update_user_book(id: $id, object: { review_slate: { document: { object: "document", children: [] } } }) {
-        error user_book { id review_raw has_review }
-      }
-    }
-  ]], { id = ub })
-  probe("clear review", [[
-    mutation ($id: Int!) {
-      update_user_book(id: $id, object: { review_raw: null }) {
-        error user_book { id review_raw has_review }
-      }
-    }
-  ]], { id = ub })
+    ]], { id = ub, object = object })
+  end
+  review("set review_markdown", { review_markdown = "hardcoversync live check", review_has_spoilers = true })
+  review("clear with empty review_markdown", { review_markdown = "", review_has_spoilers = false })
+  review("set review_slate", { review_slate = { document = { object = "document", children = {
+    { object = "block", type = "paragraph", data = {}, children = {
+      { object = "text", text = "hardcoversync live check", marks = {} } } } } } } })
+  review("clear with null review_slate", { review_slate = json.util.null })
 end)
 
 step("probe: deleting and updating a journal entry (prints only)", function()
