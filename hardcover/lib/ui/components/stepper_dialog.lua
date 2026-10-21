@@ -59,7 +59,7 @@ function StepperDialog.show(opts)
       cell.text:setText(field.format_fn(values[i]))
     end
     if overlay then
-      UIManager:setDirty(overlay, function() return "ui", overlay.region end)
+      UIManager:setDirty(overlay, function() return "ui", overlay:refreshRegion() end)
     end
   end
 

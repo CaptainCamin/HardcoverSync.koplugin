@@ -102,8 +102,19 @@ function Overlay:dismiss()
   if self.on_dismiss then self.on_dismiss() end
 end
 
+-- The region a refresh covers: the box and a few pixels around it. A refresh of exactly the box can lose
+-- its last pixels at the edge on some panels (the right border of a dialog was missing the moment it
+-- opened), and a little extra costs nothing, since the page behind is repainted there unchanged.
+local PAD = 8
+function Overlay:refreshRegion()
+  local sw, sh = Screen:getWidth(), Screen:getHeight()
+  local r = self.region
+  local x, y = math.max(0, r.x - PAD), math.max(0, r.y - PAD)
+  return Geom:new { x = x, y = y, w = math.min(sw, r.x + r.w + PAD) - x, h = math.min(sh, r.y + r.h + PAD) - y }
+end
+
 function Overlay:show()
-  UIManager:show(self, "ui", self.region)
+  UIManager:show(self, "ui", self:refreshRegion())
   return self
 end
 
@@ -123,7 +134,7 @@ function Overlay:close(replaced_by)
     UIManager:close(self)
     return
   end
-  UIManager:close(self, self.toast and "ui" or "partial", self.region)
+  UIManager:close(self, self.toast and "ui" or "partial", self:refreshRegion())
 end
 
 -- The mark on top of anything laid over a page: a 2 white band (so the black does not run into the
