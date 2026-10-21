@@ -42,12 +42,12 @@ end
 -- A failure the user must notice. A snackbar (MMD): a short line along the bottom edge after
 -- something the reader did, that goes away on its own.
 function SD.error(text, timeout)
-  require("hardcover/lib/ui/components/snackbar").show { message = text, timeout = timeout or 5 }
+  require("hardcover/lib/ui/components/snackbar").show { message = text, timeout = timeout or 4 }
 end
 
 -- Something that worked, or a neutral notice. Same snackbar, a little shorter.
 function SD.info(text, timeout)
-  require("hardcover/lib/ui/components/snackbar").show { message = text, timeout = timeout or 3 }
+  require("hardcover/lib/ui/components/snackbar").show { message = text, timeout = timeout or 2 }
 end
 
 -- A yes/no question, as an MMD dialog: a title that says what it is about, one short text, the
