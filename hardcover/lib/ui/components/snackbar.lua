@@ -1,9 +1,8 @@
 -- Snackbar (MMD): a short message along the bottom edge after something the reader did, never from
 -- the system alone ("Saved", "Added to Want to read"). 64 tall under the 3px rule, a Medium 21
 -- message, at most one action (Undo, Retry), and an X. It goes away on its own after `timeout` seconds
--- (default 4) or on a tap anywhere else; that tap is spent closing it, because KOReader sends a tap to
--- one window only (a toast would pass it on, but then an Undo tap would also hit the page under it).
--- Static, no sliding.
+-- (default 4). It is a KOReader toast, so the rest of the screen keeps working while it is up (a page
+-- turn, a row tap, Back); only a gesture on the bar itself is taken by it. Static, no sliding.
 
 local FrameContainer = require("ui/widget/container/framecontainer")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
@@ -59,7 +58,7 @@ function Snackbar.show(opts)
   local bar = FrameContainer:new { width = sw, bordersize = 0, padding = 0, margin = 0,
     background = Theme.WHITE, VerticalGroup:new { align = "left", Overlay.top_rule(sw), line } }
 
-  overlay = Overlay:new { anchor = "bottom", snackbar = true, bar }
+  overlay = Overlay:new { anchor = "bottom", snackbar = true, toast = true, bar }
   overlay.timeout_task = function() overlay:close() end
   UIManager:scheduleIn(opts.timeout or 4, overlay.timeout_task)
   return overlay:show()
