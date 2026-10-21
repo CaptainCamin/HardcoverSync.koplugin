@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Books behind a goal.** A book-count goal's screen lists the books you finished in its period, newest first, with author and finish date. It is a best match of Hardcover's own count: a note says when the list and Hardcover's number differ, and a goal with filters set on Hardcover (author, category, format) has no list. Page goals are unchanged.
+
 ## 2.0.0
 
 ### Added

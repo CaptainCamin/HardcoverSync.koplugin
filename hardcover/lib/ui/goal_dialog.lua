@@ -37,6 +37,8 @@ local GoalDialog = InputContainer:extend {
   archive_cb = nil,       -- the "Archive goal" button appears when this is set; called with the goal once confirmed
   message = nil,          -- why the last change did not go through (shown above the goal)
   busy = false,           -- an archive is on its way to Hardcover
+  stats = nil,            -- the finished books (a Stats.normalizeAll result with complete); nil until known
+  stats_failed = false,   -- they could not be loaded
   close_callback = nil,
 }
 
@@ -103,6 +105,8 @@ function GoalDialog:buildContent(width, viewport)
     table.insert(c, b)
   end
 
+  if goal.metric == "book" then table.insert(c, self:booksSection(goal, width)) end
+
   if self.edit_cb or self.archive_cb then table.insert(c, Theme.span("s")) end
   if self.edit_cb then
     self.edit_button = Button.new {
@@ -123,6 +127,49 @@ function GoalDialog:buildContent(width, viewport)
   end
   table.insert(c, Theme.span("l"))
   return c
+end
+
+-- The books behind a book goal's number (Goals.books: a best match of Hardcover's count). One
+-- single-line row each, so the rows keep one height; a note says when the list is not the whole
+-- story.
+function GoalDialog:booksSection(goal, width)
+  local b = Section.new(_("Books counting toward this goal"), width)
+  local function note(str)
+    table.insert(b, Theme.mmdText(str, "text", 15, { secondary = true, width = width }))
+    table.insert(b, Theme.span("m"))
+  end
+  if not self.stats then
+    note(self.stats_failed and _("Couldn't load your finished books.") or _("Loading your finished books\226\128\166"))
+    return b
+  end
+  local books, why = Goals.books(goal, self.stats.rows)
+  if not books then
+    note(why == "filters" and _("This goal has filters set on Hardcover, so its books can't be listed here.") or "")
+    return b
+  end
+  if #books.rows == 0 then
+    note(_("No finished books in this period yet."))
+  end
+  for _i, row in ipairs(books.rows) do
+    table.insert(b, Theme.mmdText(row.title or _("Untitled"), "strong", 18, { width = width }))
+    local meta = { Goals.dateLabel(row.date) }
+    if row.author then table.insert(meta, 1, row.author) end
+    table.insert(b, Theme.mmdText(table.concat(meta, "  \194\183  "), "text", 15, { secondary = true, width = width }))
+    table.insert(b, Theme.span("s"))
+  end
+  if not books.match then
+    note(string.format(_("Hardcover counts %d; this list shows %d. Books it dates differently, or counts twice, can differ."),
+      books.count, #books.rows))
+  elseif self.stats.complete == false then
+    note(_("Only part of your finished books were loaded."))
+  end
+  return b
+end
+
+-- the finished books arrived (or could not be loaded)
+function GoalDialog:setStats(stats)
+  self.stats, self.stats_failed = stats, stats == nil
+  self:rebuild()
 end
 
 function GoalDialog:build()

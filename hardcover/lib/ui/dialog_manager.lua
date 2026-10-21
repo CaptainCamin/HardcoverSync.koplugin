@@ -951,6 +951,28 @@ function DialogManager:showGoal(goal, note)
     end,
   }
   self:openScreen("goal", dialog)
+  if goal.metric == "book" then self:loadGoalBooks(dialog) end
+end
+
+-- The finished books a book goal lists: the copy Stats saved, else one load (kept for Stats too).
+function DialogManager:loadGoalBooks(dialog)
+  local user_id = User:getId()
+  local cache = self.shelf_cache
+  local saved = cache and cache:stats(user_id)
+  if saved then
+    dialog.stats = saved
+    dialog:rebuild()
+    return
+  end
+  if not Network.connected() then
+    dialog:setStats(nil)
+    return
+  end
+  Api:getStatsAsync(user_id, function(stats)
+    if not Live.shown(dialog) then return end
+    if stats and cache then cache:putStats(user_id, stats, nil) end
+    dialog:setStats(stats)
+  end)
 end
 
 --

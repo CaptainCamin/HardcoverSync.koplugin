@@ -243,6 +243,56 @@ function Goals.extra(goal, today, finished_offline)
 end
 
 
+-- "Feb 3, 2026" for a finish date as Stats keeps it ("2026-02-03", "2026-02" or "2026")
+function Goals.dateLabel(date)
+  local y, m, d = tostring(date or ""):match("^(%d%d%d%d)-?(%d*)-?(%d*)$")
+  m, d = tonumber(m), tonumber(d)
+  if not y then return "" end
+  if m and m >= 1 and m <= 12 then
+    if d then return string.format("%s %d, %s", MONTHS[m], d, y) end
+    return string.format("%s %s", MONTHS[m], y)
+  end
+  return y
+end
+
+--
+-- The books behind a book goal's number, best match: the finished books (Stats rows) whose
+-- finish date falls in the goal's period, newest first. Hardcover does the real counting, so
+-- this is a reading of it, not the count: a goal with filters (author, category, format)
+-- cannot be matched here and gets no list, and a page goal has no books to list. A date known
+-- only to its month or year counts when that whole month or year is inside the period; a book
+-- with no date is left out.
+-- Returns { rows, count = progress as Hardcover counts it, match = #rows == count } or nil
+-- and the reason ("pages", "filters").
+--
+function Goals.books(goal, rows)
+  if goal.metric ~= "book" then return nil, "pages" end
+  if next(Goals.conditions(goal.conditions)) ~= nil then return nil, "filters" end
+  local out = {}
+  for _, row in ipairs(rows or {}) do
+    local y, m, d = tostring(row.date or ""):match("^(%d%d%d%d)-?(%d*)-?(%d*)$")
+    y, m, d = tonumber(y), tonumber(m), tonumber(d)
+    if y then
+      local from, to
+      if d then
+        from = Goals.days(y, m, d); to = from + 1
+      elseif m then
+        from = Goals.days(y, m, 1); to = m == 12 and Goals.days(y + 1, 1, 1) or Goals.days(y, m + 1, 1)
+      else
+        from = Goals.days(y, 1, 1); to = Goals.days(y + 1, 1, 1)
+      end
+      if from >= goal.start_days and to <= goal.end_days then out[#out + 1] = row end
+    end
+  end
+  table.sort(out, function(a, b)
+    if a.date ~= b.date then return a.date > b.date end
+    return (a.id or 0) > (b.id or 0)
+  end)
+  local count = math.floor(goal.progress)
+  return { rows = out, count = count, match = #out == count }
+end
+
+
 -- ------------------------------------------------------------------ editing
 --
 -- Making and changing goals. The form is plain data (`form`), checked and turned
