@@ -91,7 +91,7 @@ Written so a missing component is a decision, not an oversight. "Built" means a 
 |---|---|
 | Button, Switch, Radio, Checkbox, Cards, Menus (popover), Dialog, Top app bar, Progress bar, Tabs, Separators, List, Bottom sheets, Loading, Scrollbar | Built and used |
 | Navigation bar | Built; it is how the plugin opens |
-| Snackbar | Built; answers what the reader did (link, tracking, progress, goal saves, status messages). System events keep KOReader's plain toast |
+| Snackbar | Built; answers what the reader did (link, tracking, progress, goal saves, status messages). It is a KOReader toast: only a tap on the bar is taken, the rest of the screen stays live. System events keep KOReader's plain toast |
 | Search | Built (`search_field.lua`): the query on the results screen. Typing is KOReader's box |
 | Chips | Built for state only (`chip.lua`: goal standing, shelf status). No filter, input or suggestion chips: the Library has no filters (decision) |
 | Slider | Not built. The only candidate is the progress and rating entry, which uses KOReader's spin widgets; a slider needs drag handling and would replace a working widget, so it waits for a decision and a device |
@@ -107,7 +107,8 @@ Where the Kotlin differs, the appendix wins (Kotlin: switch 52x32, checkbox 23, 
 
 | Component | Spec (appendix) |
 |---|---|
-| Button | rectangular (about 8 radius), bold label, 2 border; primary filled black, secondary outlined; one primary per screen; small / medium / large are about 1 : 1.35 : 1.6 tall; dialog and sheet action buttons have a 340 x 64 touch area |
+| Button | rectangular (about 8 radius), bold label, 2 border; primary filled black, secondary outlined; one primary per screen; small / medium / large are about 1 : 1.35 : 1.6 tall (in code: `scale` on `Button.new`, heights 40 / 56 / 64 in `Theme.mmd.button.height`); dialog and sheet action buttons have a 340 x 64 touch area |
+| Round button | not in the appendix; ours (`Button.round`): outlined circle 48 / 56 / 64 with an icon at half its width, optional bold label under it, dotted circle when unavailable, tap area = circle plus label |
 | FAB | 72 / 64 / 48 square, radius 18 / 18 / 14, border 2, white halo 4 / 3 / 2, icon 28 / 28 / 24 |
 | Switch | track 48 x 30 (fully round), knob 20, touch 56 x 56; ON = black track, white knob; OFF = outlined track, black knob |
 | Checkbox | square 28 (ON = filled black with white check), touch 48 |

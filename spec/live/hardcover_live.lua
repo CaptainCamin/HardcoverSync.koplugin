@@ -197,6 +197,18 @@ step("findBooksByIdentifiers: edition, ISBN and slug in one batch", function()
   if isbn and not (answers[4] and answers[4].book_id) then error("the edition's own ISBN was not found", 0) end
 end)
 
+step("findBooksByTitles: an exact title and an unknown one in one batch", function()
+  local detail = is_table(Api:getBookDetail(need(ctx.book_id, "book id"), ctx.user_id, ctx.edition_id), "book detail")
+  local title = need(detail.book.title, "title")
+  local found = is_table(Api:findBooksByTitles({ title, "No Such Book Title 9780000000009" }, ctx.user_id), "titles")
+  local books = is_table(found[title], "books with that title")
+  local ours
+  for _, book in ipairs(books) do if tonumber(book.book_id) == ctx.book_id then ours = book end end
+  if not ours then error("the book was not among the books with its own title", 0) end
+  if found["No Such Book Title 9780000000009"] ~= nil then error("an unknown title was matched", 0) end
+  is_table(ours.contributions, "contributions (the author, for the match)")
+end)
+
 step("getBookDetails: a book and an edition in one batch", function()
   local answers = is_table(Api:getBookDetails({
     { book_id = need(ctx.book_id, "book id") },

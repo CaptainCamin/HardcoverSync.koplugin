@@ -88,6 +88,14 @@ return {
     emu:pump()
     local dialog = topmost()
     assert(dialog and dialog.name == "hardcover_book_detail", "the details did not open")
+    -- close whatever is over the details (a message, a picker)
+    local function dismissAll()
+      emu:pump()
+      while topmost() ~= dialog do
+        UIManager:close(topmost())
+        emu:pump()
+      end
+    end
     emu:expectText("The Left Hand of Darkness")
 
     -- the buttons: Shelf over Reviews, then Lists and Z-library in one row below, inside the
@@ -147,55 +155,79 @@ return {
     assert(not screenHas("Top 25"), "a followed list was offered")
     emu:shot("add_to_list_picker")
 
-    -- tick: one insert with the list and book ids, at the end of the list
+    -- ticks only mark the rows: nothing is sent, nothing is said, until Done
     tapText("Books that made me grin")
-    assert(count("addToList") == 1, "no insert was sent")
-    local sent = lastCall("addToList")
-    assert(sent.book_id == 103 and sent.list_id == 2 and sent.position == 4,
-      string.format("insert was book %s list %s position %s", tostring(sent.book_id), tostring(sent.list_id), tostring(sent.position)))
-    emu:expectText("Books that made me grin (5)")
-    assert(topmost() == picker, "the picker closed on a tick")
     tapText("Someday")
-    sent = lastCall("addToList")
-    assert(count("addToList") == 2 and sent.list_id == 4 and sent.position == 0, "the empty list was not added to at position 0")
-    emu:expectText("Someday (1)")
+    assert(count("addToList") == 0, "a tick sent an insert before Done")
+    assert(topmost() == picker, "the picker closed on a tick")
+    emu:expectText("Books that made me grin (4)")
+    emu:shot("add_to_list_picker_ticked")
+
+    -- Back/X/outside throws them away
+    UIManager:close(picker)
+    emu:pump()
+    assert(count("addToList") == 0, "closing the picker sent something")
+    tapAdd(dialog, "Lists")
+    picker = topmost()
+    assert(picker ~= dialog and picker.rows, "the picker did not reopen")
+    assert(count("getBookLists") == 1, "reopening asked for the lists again")
+
+    -- Done: one insert per ticked list with the list and book ids, at the end of the list
+    tapText("Books that made me grin")
+    tapText("Someday")
+    tapText("Done")
+    assert(not UIManager:isWidgetShown(picker), "Done left the picker open")
+    assert(count("addToList") == 2, "Done did not send both inserts")
+    local grin, someday
+    for _, c in ipairs(fixtures.calls) do
+      if c.name == "addToList" and c.args.list_id == 2 then grin = c.args end
+      if c.name == "addToList" and c.args.list_id == 4 then someday = c.args end
+    end
+    assert(grin and grin.book_id == 103 and grin.position == 4, "wrong insert for the grin list")
+    assert(someday and someday.position == 0, "the empty list was not added to at position 0")
+    emu:expectText("Lists updated.")
     emu:shot("add_to_list_added")
 
-    -- untick: one delete with the list_books id (501, from the membership)
+    -- untick one list: one delete with the list_books id (501, from the membership)
+    dismissAll()
+    tapAdd(dialog, "Lists")
+    picker = topmost()
     tapText("To Read - SciFi")
+    tapText("Done")
     assert(count("removeFromList") == 1 and lastCall("removeFromList").id == 501, "the delete did not carry the list_books id")
-    emu:expectText("To Read - SciFi (6)")
+    dismissAll()
 
-    -- untick one that was just added: the id came with the answer, no lookup
-    tapText("Someday")
-    assert(count("removeFromList") == 2 and lastCall("removeFromList").id == 60002, "wrong id for the list just added to")
-    assert(count("getBookLists") == 1, "unticking asked for the lists again")
-
-    -- a failure: the tick is back, and it says so
+    -- a failure: reported once after Done, the list stays as it was
     fixtures.list_write_fail = "List not found"
+    tapAdd(dialog, "Lists")
+    picker = topmost()
     tapText("Research")
+    tapText("Done")
     emu:expectText("Could not change")
     emu:expectText("List not found")
     emu:shot("add_to_list_failed")
     fixtures.list_write_fail = nil
-    dismiss(picker)
-    emu:expectText("Research (1)")
-    assert(count("removeFromList") == 3, "the failing delete was not attempted")
+    dismissAll()
 
-    -- a refusal for the scope, wherever it comes up, gives the sign-in message
+    -- a refusal for the scope gives the sign-in message
     fixtures.list_write_fail = { errors = { "insufficient_scope" }, status = 403 }
+    tapAdd(dialog, "Lists")
+    picker = topmost()
     tapText("Someday")
+    tapText("Done")
     emu:expectText("Sign out and back in")
     fixtures.list_write_fail = nil
-    dismiss(picker)
-    emu:expectText("Someday (0)")
+    dismissAll()
+    tapAdd(dialog, "Lists")
+    picker = topmost()
 
     -- the lists screen, if it is underneath, follows: here only the picker/details are
     -- on the stack, so nothing to refresh and nothing raised
     tapText("Done")
     assert(not UIManager:isWidgetShown(picker), "Done left the picker open")
+    dismissAll()
     assert(topmost() == dialog, "Done did not return to the details")
-    emu:expectText("On your lists: Books that made me grin, Research")
+    emu:expectText("On your lists: Books that made me grin, Research, Someday")
     assert(not screenHas("To Read - SciFi"), "a list the book left is still named")
     assert(dialog.cover_bb, "the cover was lost in the update")
     emu:shot("add_to_list_details")
@@ -221,9 +253,11 @@ return {
     tapAdd(dialog, "Lists")
     picker = topmost()
     tapText("Someday")
+    tapText("Done")
     local row
     for _, r in ipairs(lists_screen.mine) do if r.id == 4 then row = r end end
-    assert(row and row.count == 1, "the lists screen was not told Someday now holds 1")
+    -- Someday was added above, so the lists screen starts at 1 and Done takes it off: 0
+    assert(row and row.count == 0, "the lists screen was not told Someday now holds 0: " .. tostring(row and row.count))
     emu:closeAll()
 
     -- compatibility mode: the same bar, still four buttons that fit

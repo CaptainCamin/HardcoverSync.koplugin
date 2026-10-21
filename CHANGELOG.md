@@ -5,7 +5,8 @@
 ### Added
 
 - **Hardcover details from the file list.** A book linked to Hardcover has a "Hardcover details" button in the file manager's long-press dialog, and in Bookshelf's book menu under Plugin actions. It opens the book's Hardcover page.
-- **Link all books on this device.** Settings > Linking > "Link all books on this device" looks through the home folder for EPUBs that carry an ISBN or a Hardcover identifier and links each to its Hardcover book. It reads the files first, then asks Hardcover about 25 books at a time, with progress you can tap to stop and a count of what was linked, not found and unreadable at the end. A dropped connection is reported as "could not check", not as "no match". Books already linked are skipped. The approach (reading the identifiers from the EPUB's OPF) is adapted from Bookshelf's "Auto-link all books"; there is no title-and-author guess yet.
+- **Link all books on this device.** Settings > Linking > "Link all books on this device" looks through the home folder for EPUBs that carry an ISBN or a Hardcover identifier and links each to its Hardcover book. It reads the files first, then asks Hardcover about 25 books at a time, with progress you can tap to stop and a count of what was linked, not found and unreadable at the end. A dropped connection is reported as "could not check", not as "no match". Books already linked are skipped. The approach (reading the identifiers from the EPUB's OPF) is adapted from Bookshelf's "Auto-link all books".
+- **Guess the rest from title and author.** When the pass finishes and books are left over, it asks "Try to guess the other N from their title and author?". A guess links only when the whole title matches (case, punctuation, a subtitle and a leading "The" are ignored) and the author's surname and first initial are among the book's authors; a file with no author links only if exactly one result has that title. Each guess is marked, and Settings > Linking > "Check guessed links (N)" goes through them one at a time: "Right, keep the link", "Wrong, unlink it" or "Decide later". The matching is adapted from Bookshelf's "best guess" mode, and is stricter on purpose. Titles are first asked for 25 at a time in one request; only the books that does not settle (a different spelling, a subtitle, several candidates) are searched for one by one.
 - **Book details saved for linked books.** After "Link all books on this device", the details of each linked book (description, ratings, editions, ISBN, published year) are saved on the device, 25 books to a request, and so are their shelves, so they open and show offline. Settings > Linking > "Save details of linked books" does the same for books linked earlier. The device keeps the details of 500 books.
 
 - **Hold to jump.** Holding the up triangle of the scroll bar jumps to the start of the screen, holding the down triangle to the end (the last page, on a shelf). Tapping still steps one page.
@@ -18,6 +19,7 @@
 
 ### Changed
 
+- **A snackbar no longer blocks the screen.** While a snackbar is up, taps, page turns and Back work on the page as usual; only a tap on the bar itself (its action or X) is taken by it. A tap elsewhere used to close the snackbar and do nothing else. Snackbars also go away sooner: a notice after 2 seconds (was 3), an error after 4 (was 5).
 - **The plugin is licensed under the GNU Affero General Public License v3.0** (it was MIT). The original MIT notice is kept in `LICENSE-MIT`.
 - **The old Home screen is gone.** The navigation bar is no longer a beta setting: Settings > "New navigation bar (beta)" is removed and Hardcover always opens to the tabs. The old Home's scrolling page of tiles and its goal card are replaced by the Goals, Library and Stats tabs. Settings > "Show 'For you' on Home" is now "Show 'For you' in Vibes".
 - **One Add button on a book's details screen.** The separate Shelf and Lists buttons are now one "Add" button. It opens a sheet with "Add to shelf" / "Change shelf" and "Lists" (Lists only when signed in with OAuth); without Lists it goes straight to the shelf sheet. The button takes half the row, leaving the other half free.
@@ -46,6 +48,7 @@
 
 ### Fixed
 
+- **Lists could not be paged while covers loaded.** Covers already on the device were drawn one task after another, and KOReader reads no input until the last task is done, so a tap waited until every cover on the page was drawn. They are now drawn together, and covers still downloading no longer put a widget over the list that takes the tap.
 - **Progress could land on a second read.** Hardcover makes a read itself when a book goes on Currently Reading; the plugin, holding no read, made another. The journal then followed the new read while the book kept showing the old page. Before it creates a read it now asks Hardcover for the unfinished one and updates that; if it cannot ask, the page waits in the queue.
 - A page update for a read with no start date cleared the date on Hardcover (and on the journal's "started" entry). It now leaves the date alone.
 - A progress update for a read Hardcover does not have raised an error instead of failing quietly and queueing.

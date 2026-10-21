@@ -526,6 +526,7 @@ function Flows:showListsPicker(dialog)
     return
   end
 
+  local Picker = require("hardcover/lib/ui/picker")
   local picker
   local open = true
 
@@ -533,43 +534,16 @@ function Flows:showListsPicker(dialog)
   local function syncDetail()
     if Live.shown(dialog) then dialog:setLists(detail.lists) end
   end
-  local function close()
-    if not open then return end
-    open = false
-    UIManager:close(picker)
-    syncDetail()
-  end
 
-  local function redraw(r)
-    require("hardcover/lib/ui/picker").setRow(picker, "list_" .. r.id, Lists.pickerLabel(r), not r.busy, r.on and true or false)
-  end
-  local function changed(r)
-    r.busy = nil
-    redraw(r)
-    self:refreshListsScreen(r.id, r.count)
-    if not open then syncDetail() end -- the answer came after the picker was closed
-  end
-  -- the tick stays as it was; say why
-  local function failed(r, err)
-    r.busy = nil
-    redraw(r)
-    if Lists.isScopeError(err) then
-      listsNeedNewSignIn()
-    else
-      StatusDialogs.error(string.format(_("Could not change \"%s\": %s"), r.name, StatusDialogs.describe(err)))
-    end
-  end
-
-  -- offline: kept in the list queue, shown at once, sent when the connection is back
-  local function toggleOffline(r)
+  -- offline: kept in the list queue, shown at once, sent when the connection is back.
+  -- Returns "queued", "undone" (it only cancelled a waiting change) or nil with a reason.
+  local function applyOffline(r)
     local queue = self.list_queue
     local store = self.list_store
-    if not (queue and store) then
-      StatusDialogs.info(_("You are offline. Changing a list needs a connection."))
-      return
-    end
+    if not (queue and store) then return nil, { message = _("you are offline") } end
     local user_id = User:getId()
     local info = { title = detail.book.title, list_name = r.name }
+    local was_on = r.on
     if r.on then
       queue:queueRemove(user_id, book_id, r.id, r.list_book_id, info)
       store:removeMember(user_id, r.id, book_id)
@@ -580,44 +554,41 @@ function Flows:showListsPicker(dialog)
       store:addMember(user_id, r.id, book_id)
       Lists.markAdded(r, nil)
     end
-    redraw(r)
     self:refreshListsScreen(r.id, r.count, true)
-    if Network.connected() then
-      StatusDialogs.info(string.format(_("\"%s\": the waiting change was undone."), r.name), 3)
-    else
-      StatusDialogs.info(string.format(r.on and _("Offline: added to \"%s\". It will be sent when you're connected.")
-        or _("Offline: removed from \"%s\". It will be sent when you're connected."), r.name), 3)
-    end
+    return Network.connected() and "undone" or "queued", was_on
   end
 
-  local function toggle(r)
-    if r.busy then return end
-    -- A change for this very list is still waiting: this tap undoes it (Hardcover never
+  -- Send one list's change; `finish(err)` is called once with nil when it went through.
+  local function apply(r, finish)
+    -- A change for this very list is still waiting: this undoes it (Hardcover never
     -- had it, so there is nothing to ask), whatever the connection.
     local waiting = self.list_queue and self.list_queue:get(r.id, book_id)
     if not Network.connected() or waiting then
-      toggleOffline(r)
-      return
+      local outcome, extra = applyOffline(r)
+      if not outcome then return finish(extra) end
+      return finish(nil, outcome, extra)
     end
-    r.busy = true
-    redraw(r)
 
+    local function sent()
+      self:refreshListsScreen(r.id, r.count)
+      finish(nil, "sent")
+    end
     local plan = Lists.togglePlan(r)
     if plan == "add" then
       -- the end of the list: Lists.insertObject
       Api:addToListAsync(book_id, r.id, r.count, function(added, err)
-        if not added then return failed(r, err) end
+        if not added then return finish(err or { message = _("no answer from Hardcover") }) end
         Lists.markAdded(r, added.id)
-        changed(r)
+        sent()
       end)
       return
     end
 
     local function remove(list_book_id)
       Api:removeFromListAsync(list_book_id, function(removed, err)
-        if not removed then return failed(r, err) end
+        if not removed then return finish(err or { message = _("no answer from Hardcover") }) end
         Lists.markRemoved(r)
-        changed(r)
+        sent()
       end)
     end
     if plan == "remove" then
@@ -628,35 +599,88 @@ function Flows:showListsPicker(dialog)
     -- look it up (one request) rather than guess
     Api:getBookListsAsync(book_id, function(fresh, err)
       local outcome, list_book_id = Lists.resolveLookup(fresh, r.id)
-      if outcome == "not_found" then return failed(r, err or { message = _("the list was not found") }) end
+      if outcome == "not_found" then return finish(err or { message = _("the list was not found") }) end
       if outcome == "already_off" then
         Lists.markRemoved(r) -- already off it
-        return changed(r)
+        return sent()
       end
-      if outcome == "no_row_id" then return failed(r, { message = _("no answer from Hardcover") }) end
+      if outcome == "no_row_id" then return finish({ message = _("no answer from Hardcover") }) end
       remove(list_book_id)
     end)
   end
 
+  -- One word for the whole batch, after the picker has closed.
+  local function summarize(res)
+    syncDetail()
+    if #res.failed > 0 then
+      if res.scope then
+        listsNeedNewSignIn()
+      else
+        local names = {}
+        for _i, f in ipairs(res.failed) do names[#names + 1] = string.format("\"%s\"", f.r.name) end
+        StatusDialogs.error(string.format(_("Could not change %s: %s"), table.concat(names, ", "),
+          StatusDialogs.describe(res.failed[1].err)))
+      end
+    elseif res.queued > 0 then
+      StatusDialogs.info(res.queued == 1 and res.queued_only
+        and string.format(res.queued_on and _("Offline: added to \"%s\". It will be sent when you're connected.")
+          or _("Offline: removed from \"%s\". It will be sent when you're connected."), res.queued_only.name)
+        or string.format(_("Offline: %d list changes will be sent when you're connected."), res.queued), 3)
+    else
+      StatusDialogs.info(_("Lists updated."), 2)
+    end
+  end
+
+  -- Done: send every list whose tick differs from where it started, one summary at the end.
+  local function done()
+    if not open then return end
+    open = false
+    UIManager:close(picker)
+    local todo = {}
+    for _i, r in ipairs(state) do
+      if (r.want and true or false) ~= (r.on and true or false) then todo[#todo + 1] = r end
+    end
+    if #todo == 0 then return syncDetail() end
+    local res = { failed = {}, queued = 0 }
+    local left = #todo
+    for _i, r in ipairs(todo) do
+      apply(r, function(err, outcome, was_on)
+        if err then
+          res.failed[#res.failed + 1] = { r = r, err = err }
+          if Lists.isScopeError(err) then res.scope = true end
+        elseif outcome == "queued" then
+          res.queued, res.queued_only, res.queued_on = res.queued + 1, r, was_on == false
+        end
+        left = left - 1
+        if left == 0 then summarize(res) end
+      end)
+    end
+  end
+
+  -- Back, the X or a tap outside: the ticks are thrown away, nothing was sent.
+  local function discard()
+    open = false
+  end
+
+  local function label(r)
+    return Lists.pickerLabel(r)
+  end
   local rows = {}
   for _i, r in ipairs(state) do
+    r.want = r.on and true or false
     rows[#rows + 1] = {
       id = "list_" .. r.id,
-      text = Lists.pickerLabel(r),
-      checked = r.on and true or false,
-      callback = function() toggle(r) end,
+      text = label(r),
+      checked = r.want,
+      callback = function()
+        r.want = not r.want
+        Picker.setRow(picker, "list_" .. r.id, label(r), true, r.want)
+      end,
     }
   end
-  rows[#rows + 1] = { text = _("Done"), primary = true, callback = close }
+  rows[#rows + 1] = { text = _("Done"), primary = true, callback = done }
 
-  picker = require("hardcover/lib/ui/picker").new {
-    title = _("Add to lists"),
-    rows = rows,
-    close_callback = function()
-      open = false
-      syncDetail()
-    end,
-  }
+  picker = Picker.new { title = _("Add to lists"), rows = rows, close_callback = discard }
   UIManager:show(picker)
 end
 

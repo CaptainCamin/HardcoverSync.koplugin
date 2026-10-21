@@ -1,24 +1,27 @@
 --[[--
 "Link all books on this device" from the real settings screen, with real widgets: tapping the row (the
 settings screen hands its callbacks a stand-in menu, and closing that crashed KOReader), the confirmation,
-the progress message, the summary, and tapping the progress message to stop. Then "Save details of linked
-books" for books linked earlier.
+the progress message, the summary, the guess for the books left over and its review, and tapping the
+progress message to stop. Then "Save details of linked books" for books linked earlier.
 
 Hardcover is replaced by a fake that answers a batch at a time; the files are real EPUBs (a zip with an
 OPF) in a folder made for the run.
 
-Screens: link_all_confirm, link_all_progress, link_all_done, link_all_stopped, save_details_done.
+Screens: link_all_confirm, link_all_progress, link_all_done, link_all_guessed, link_all_review, link_all_stopped,
+save_details_done.
 ]]
 
 local fixtures = require("fixtures")
 
-local function makeEpub(dir, name, isbn)
+-- an EPUB with an ISBN, or (no isbn) with only a title and an author
+local function makeEpub(dir, name, isbn, author)
   local opf = dir .. "/" .. name .. ".opf"
   local f = assert(io.open(opf, "w"))
   f:write(string.format([[<package><metadata xmlns:dc="x" xmlns:opf="y">
-<dc:title>%s</dc:title>
-<dc:identifier opf:scheme="ISBN">%s</dc:identifier>
-</metadata></package>]], name, isbn))
+<dc:title>%s</dc:title>%s%s
+</metadata></package>]], name,
+    isbn and string.format('\n<dc:identifier opf:scheme="ISBN">%s</dc:identifier>', isbn) or "",
+    author and string.format("\n<dc:creator>%s</dc:creator>", author) or ""))
   f:close()
   local epub = dir .. "/" .. name .. ".epub"
   assert(os.execute(string.format("zip -q -j '%s' '%s'", epub, opf)), "zip failed")
@@ -39,6 +42,8 @@ return {
     for i = 1, 3 do
       files[i] = makeEpub(home, "Fixture Book " .. i, "97800000000" .. string.format("%02d", i))
     end
+    -- no identifier: only a guess from its title and author can link it
+    files[4] = makeEpub(home, "Guessable Book", nil, "Ann Author")
     G_reader_settings:saveSetting("home_dir", home)
 
     local settings = fixtures.real_settings(emu)
@@ -67,6 +72,21 @@ return {
       end
       return out
     end
+    -- guesses: the exact titles are asked for at once, and what that does not settle is searched for
+    local title_requests, searches = {}, {}
+    local guessable = { book_id = 900, title = "Guessable Book", contributions = { { author = { name = "Ann Author" } } } }
+    Api.findBooksByTitles = function(_, titles)
+      title_requests[#title_requests + 1] = #titles
+      local out = {}
+      for _, title in ipairs(titles) do
+        if title == "Guessable Book" then out[title] = { guessable } end
+      end
+      return out
+    end
+    Api.search = function(_, title)
+      searches[#searches + 1] = title
+      return {}
+    end
     Api.getBookDetails = function(_, items)
       detail_requests[#detail_requests + 1] = #items
       local out = {}
@@ -81,7 +101,7 @@ return {
     -- no waiting between batches
     local BulkLink = require("hardcover/lib/bulk_link")
     local DetailsSync = require("hardcover/lib/details_sync")
-    BulkLink.RATE, DetailsSync.RATE = 0, 0
+    BulkLink.RATE, BulkLink.GUESS_RATE, DetailsSync.RATE = 0, 0, 0
 
     local DialogManager = require("hardcover/lib/ui/dialog_manager")
     local manager = DialogManager:new { settings = settings }
@@ -136,7 +156,7 @@ return {
 
     -- ---------------------------------------------------------------- link them all
     tapRow("Link all books on this device")
-    emu:expectText("Link 3 books to Hardcover?")
+    emu:expectText("Link 4 books to Hardcover?")
     emu:shot("link_all_confirm")
 
     tapButton("Link")
@@ -157,6 +177,33 @@ return {
     assert(#detail_requests == 1 and detail_requests[1] == 2, "details: " .. table.concat(detail_requests, ","))
     assert(book_store:hasDetail(501, 601) and book_store:hasDetail(502, 602), "the details were not saved")
     assert(shelf_downloads > 0, "the shelves were not downloaded")
+
+    -- the two left over (Hardcover does not know one, the other has no identifier) can be guessed
+    emu:expectText("Try to guess the other 2")
+    tapButton("Guess")
+    for _ = 1, 200 do
+      emu:pump()
+      if emu:screenText():find("Guessing finished", 1, true) then break end
+    end
+    emu:screenNodes()
+    emu:shot("link_all_guessed")
+    emu:expectText("Linked by guess: 1")
+    assert(settings:readBookSetting(files[4], "book_id") == 900, "the guess was not linked")
+    assert(#title_requests == 1 and title_requests[1] == 2, "titles asked for at once: " .. table.concat(title_requests, ","))
+    assert(#searches == 1, "searches for what the titles did not settle: " .. #searches)
+    assert(settings:readBookSetting(files[4], "guessed_book_id") == 900, "the guess was not marked")
+    assert(settings:readBookSetting(files[3], "book_id") == nil, "a book with no match was linked")
+    assert(#detail_requests == 2 and detail_requests[2] == 1, "the guess's details: " .. table.concat(detail_requests, ","))
+
+    -- ...and checked: "Right" keeps the link and drops the mark
+    tapButton("Check them")
+    emu:screenNodes()
+    emu:expectText("Guessed to be \"Guessable Book\"")
+    emu:shot("link_all_review")
+    tapButton("Right, keep the link")
+    emu:pump()
+    assert(settings:readBookSetting(files[4], "book_id") == 900 and settings:readBookSetting(files[4], "guessed_book_id") == nil,
+      "keeping the guess did not drop the mark")
     emu:closeAll()
 
     -- ---------------------------------------------------------------- stop it by tapping the message

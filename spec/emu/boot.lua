@@ -240,7 +240,7 @@ function M.boot(opts)
     Screen:shot(path)
     self.shots[#self.shots + 1] = path
 
-    local nodes = Tree.collect(UIManager:getTopmostVisibleWidget() or {})
+    local nodes = Tree.collect(self:screenRoot())
     print(string.format("  shot  %s  (%d text nodes)", path, #nodes))
 
     -- Dump the visible text alongside the image. Reading a PNG needs a vision
@@ -272,7 +272,24 @@ function M.boot(opts)
 
   -- Everything currently drawn, as one newline-joined string.
   function emu:screenText()
-    return Tree.text(UIManager:getTopmostVisibleWidget() or {})
+    return Tree.text(self:screenRoot())
+  end
+
+  -- What the user is looking at: the topmost window plus any toasts (a snackbar) over it. A toast
+  -- never stops an event and never takes the window below's place, so both count as the screen.
+  function emu:screenRoot()
+    local stack = UIManager._window_stack
+    local windows = {}
+    for i = #stack, 1, -1 do
+      local widget = stack[i].widget
+      if not widget.invisible then
+        table.insert(windows, 1, widget)
+        if not widget.toast then break end
+      end
+    end
+    if #windows <= 1 then return windows[1] or {} end
+    windows.paintTo = function() end
+    return windows
   end
 
   -- Text nodes with their painted rectangles, sorted top-to-bottom.
@@ -280,7 +297,7 @@ function M.boot(opts)
     -- positions are only real once painted: paint before reading them
     UIManager:setDirty(nil, "ui")
     UIManager:_repaint()
-    return Tree.collect(UIManager:getTopmostVisibleWidget() or {})
+    return Tree.collect(self:screenRoot())
   end
 
   --[[--
@@ -303,7 +320,7 @@ function M.boot(opts)
   device-only workflow finds weeks later.
   ]]
   function emu:expectNoButtonOverlap()
-    local clashes = Tree.overlapping_pairs(UIManager:getTopmostVisibleWidget() or {})
+    local clashes = Tree.overlapping_pairs(self:screenRoot())
     if #clashes > 0 then
       local lines = {}
       for _, c in ipairs(clashes) do
@@ -455,10 +472,18 @@ function M.boot(opts)
       time = opts.time or Time.now(),
     }
 
-    local target = UIManager:getTopmostVisibleWidget()
-    assert(target, "no widget on the stack to tap")
-    local consumed = target:handleEvent(
-      self.Event:new("Gesture", gesture))
+    -- as UIManager:sendEvent does: toasts first (they never stop it), then the topmost other window
+    local stack = UIManager._window_stack
+    assert(#stack > 0, "no widget on the stack to tap")
+    local event = self.Event:new("Gesture", gesture)
+    local consumed = false
+    for i = #stack, 1, -1 do
+      local widget = stack[i].widget
+      if not widget.invisible then
+        if widget:handleEvent(event) then consumed = true end
+        if not widget.toast then break end
+      end
+    end
     self:pump()
     return consumed
   end

@@ -120,7 +120,10 @@ Theme.mmd = {
   nav_bar = { h = px(57), icon = px(18) },
   rule = { overlay = px(3), gap = px(2) }, -- the black rule and white gap on top of anything laid over a page
   row = { pad_x = px(16), pad_y = px(15.5), gap = px(4), icon = px(28), tile = px(48) },
-  button = { radius = px(8), border = math.max(2, px(2)) },
+  -- heights run about 1 : 1.35 : 1.6 (small / medium / large); large is the dialog and sheet button
+  button = { radius = px(8), border = math.max(2, px(2)), height = { small = px(40), medium = px(56), large = px(64) } },
+  -- a round (icon) button: a circle, the icon about half its width; with a label the label sits under it
+  round_button = { size = { small = px(48), medium = px(56), large = px(64) }, icon = 0.5, gap = px(4), label = 15 },
   chip = { radius = px(20), border = math.max(2, px(2)), pad = px(14), pad_y = px(4), text = 18 },
   search = { h = px(48), icon = px(20), icon_touch = px(28), clear = px(28), clear_touch = px(48) },
   -- a floating action button: a rounded square (radius in unscaled units, as Theme.box scales it), a

@@ -94,5 +94,32 @@ do
     Fab.reserve("large") == f.size.large + 2 * f.halo.large + 2 * f.margin)
 end
 
+-- ---------------------------------------------------------------- button sizes and the round button
+do
+  local h = Theme.mmd.button.height
+  r.check("button heights grow small < medium < large, none under TOUCH_MIN - 8",
+    h.small < h.medium and h.medium < h.large and h.small >= Theme.TOUCH_MIN - 8)
+  r.check("the sizes are about 1 : 1.35 : 1.6", math.abs(h.medium / h.small - 1.35) < 0.1
+    and math.abs(h.large / h.small - 1.6) < 0.1)
+  local sz = Theme.mmd.round_button.size
+  r.check("a round button is never under TOUCH_MIN",
+    sz.small >= Theme.TOUCH_MIN and sz.small < sz.medium and sz.medium < sz.large)
+
+  local Button = require("hardcover/lib/ui/components/button")
+  local seen
+  Theme.box = function(w, hh, child, opts) seen = { w = w, h = hh, opts = opts }; return make() end
+  Button.new { label = "Go", w = 200, scale = "small" }
+  r.check("scale picks the height", seen.h == h.small, tostring(seen.h))
+  Button.new { label = "Go", w = 200, scale = "medium", h = 99 }
+  r.check("an explicit h wins over scale", seen.h == 99, tostring(seen.h))
+  Button.new { label = "Go", w = 200 }
+  r.check("no scale keeps the dialog height", seen.h == Button.HEIGHT, tostring(seen.h))
+  Theme.icon = function() return make() end
+  Button.round { icon = "plus", scale = "large" }
+  r.check("round draws a circle of the scale's size", seen.w == sz.large and seen.h == sz.large and seen.opts.round)
+  Button.round { icon = "plus", enabled = false }
+  r.check("a disabled round button is a dotted circle", seen.opts.dotted == true and seen.w == sz.medium)
+end
+
 _G.require = real_require
 r.finish()
