@@ -168,3 +168,7 @@ The approved whole-UI mockup is `docs/redesign/index.html`; the build is judged 
 Throwaway comparison scenes for the headless emulator (`spec/emu/scenarios/proto_*.lua`) live on branch
 `claude/mmd-prototypes`. They are for deciding, not shipping. The emulator cannot show ghosting or refresh
 latency; finalists need a look on a real Kobo or Kindle.
+
+## Refreshing overlays
+
+A dialog or sheet closes with a "partial" refresh of its box, not the fast "ui" one: its black fills (the filled button, a chosen day) leave a ghost under the fast waveform. A toast keeps "ui". A dialog that redraws as it changes (the progress dialog, the date picker) shows the new box first and closes the old one without a refresh (`Overlay:close(new)`), so a change is one refresh of the box, not two.

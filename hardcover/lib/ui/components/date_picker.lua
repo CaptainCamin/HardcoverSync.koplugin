@@ -64,7 +64,7 @@ function DatePicker.show(opts)
   end
 
   function render()
-    if overlay then overlay:close() end
+    local old = overlay
     local inner_w = Dialog.innerWidth()
     local cw = math.floor(inner_w / 7)
     local body = VerticalGroup:new { align = "left",
@@ -111,6 +111,7 @@ function DatePicker.show(opts)
         end },
       },
     }
+    if old then old:close(overlay) end
   end
 
   render()

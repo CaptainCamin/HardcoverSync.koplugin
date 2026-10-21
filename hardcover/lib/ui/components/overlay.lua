@@ -107,11 +107,23 @@ function Overlay:show()
   return self
 end
 
-function Overlay:close()
+-- A dialog's box has black in it (the filled button, a chosen day, a bar), and the fast "ui" waveform
+-- leaves a ghost of black behind when it whitens the area again; "partial" is the cleaner one. A
+-- toast is small and comes and goes all the time, so it keeps the fast one.
+--
+-- `replaced_by` (an overlay already shown over this one, same box): close without a refresh, since the
+-- new one is refreshed over the same area. Closing the old one first and showing the new one is two
+-- refreshes of the same box, which is the flicker and ghost of a dialog that redraws as it changes.
+function Overlay:close(replaced_by)
   if self.closed then return end
   self.closed = true
   if self.timeout_task then UIManager:unschedule(self.timeout_task) end
-  UIManager:close(self, "ui", self.region)
+  if replaced_by and replaced_by.region and replaced_by.region:equalSize(self.region)
+    and replaced_by.region.x == self.region.x and replaced_by.region.y == self.region.y then
+    UIManager:close(self)
+    return
+  end
+  UIManager:close(self, self.toast and "ui" or "partial", self.region)
 end
 
 -- The mark on top of anything laid over a page: a 2 white band (so the black does not run into the
