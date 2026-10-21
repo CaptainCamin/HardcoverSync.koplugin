@@ -250,6 +250,10 @@ local function fakeApi(opts)
       if opts.update_fails then return nil end
       return { id = 500, status_id = status_id, user_book_reads = {} }
     end,
+    setFinishedDate = function(_, user_book, date)
+      calls[#calls + 1] = { op = "setFinishedDate", date = date }
+      return user_book
+    end,
     updatePage = function(_, read_id, edition_id, page)
       calls[#calls + 1] = { op = "updatePage", read_id = read_id, edition_id = edition_id, page = page }
       if opts.page_fails then return nil end
@@ -292,6 +296,30 @@ check("a queued status is sent and then cleared", function()
     if c.op == "updateUserBook" and c.status_id == HARDCOVER.STATUS.FINISHED then saw = true end
   end
   eq(saw, true, "the status reached the api")
+end)
+
+check("a book finished offline is sent with the day it was finished, not the day of the sync", function()
+  local q = newQueue()
+  q:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.FINISHED, book_id = 1 })
+  local entry = q:get("/books/a.epub")
+  eq(entry.finished_date, os.date("%Y-%m-%d"), "the day is kept when the change is made")
+  entry.finished_date = "2026-10-19" -- made on the 19th, synced on the 20th
+  local api = fakeApi()
+  eq(q:flush(api, { user_id = 1 }), true, "flush result")
+  local date
+  for _, c in ipairs(api.calls) do
+    if c.op == "setFinishedDate" then date = c.date end
+  end
+  eq(date, "2026-10-19", "the finish date sent")
+end)
+
+check("a status that is not Finished sends no finish date", function()
+  local q = newQueue()
+  q:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.READING, book_id = 1 })
+  eq(q:get("/books/a.epub").finished_date, nil, "no day kept")
+  q:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.FINISHED, book_id = 1 })
+  q:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.DNF, book_id = 1 })
+  eq(q:get("/books/a.epub").finished_date, nil, "a later status drops the day")
 end)
 
 check("a book the server has never seen is created first", function()

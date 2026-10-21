@@ -148,6 +148,8 @@ function SyncQueue:enqueueStatus(filepath, payload)
   entry.from_status_id = origin or payload.from_status_id or 0
   entry.status_id = payload.status_id
   entry.status_updated_at = os.time()
+  -- The day the book was finished, kept so a sync on a later day does not become the finish date
+  entry.finished_date = payload.status_id == HARDCOVER.STATUS.FINISHED and os.date("%Y-%m-%d") or nil
   entry.failures = nil
   self:persist()
   return entry
@@ -184,7 +186,7 @@ end
 function SyncQueue:cancelStatus(filepath)
   local entry = self:get(filepath)
   if type(entry) ~= "table" then return false end
-  entry.status_id, entry.status_updated_at = nil, nil
+  entry.status_id, entry.status_updated_at, entry.finished_date = nil, nil, nil
   entry.privacy_setting_id, entry.failures = nil, nil
   if not entry.reread then entry.from_status_id = nil end
   self:save(filepath, entry)
@@ -420,6 +422,7 @@ function SyncQueue:_clearSent(filepath, sent)
   if sent.status ~= nil and entry.status_id == sent.status and entry.status_updated_at == sent.status_at then
     entry.status_id = nil
     entry.status_updated_at = nil
+    entry.finished_date = nil
   end
   if self:isEmpty(entry) then
     self:pending()[filepath] = nil
@@ -445,7 +448,10 @@ local function orderedOps(entry)
     ops[#ops + 1] = { kind = "page", value = entry.mapped_page, at = entry.page_updated_at or 0 }
   end
   if entry.status_id ~= nil then
-    ops[#ops + 1] = { kind = "status", value = entry.status_id, at = entry.status_updated_at or 0 }
+    ops[#ops + 1] = {
+      kind = "status", value = entry.status_id, at = entry.status_updated_at or 0,
+      finished_date = entry.finished_date,
+    }
   end
   local status_first = entry.status_id == HARDCOVER.STATUS.READING
       or entry.status_id == HARDCOVER.STATUS.TO_READ
@@ -502,6 +508,7 @@ function SyncQueue:_flushEntry(api, filepath, opts)
       return false
     end
     if first.kind == "status" then
+      if first.finished_date then user_book = api:setFinishedDate(user_book, first.finished_date) or user_book end
       sent.status, sent.status_at = first.value, first.at
       table.remove(ops, 1)
       self:_clearSent(filepath, sent)
@@ -522,6 +529,7 @@ function SyncQueue:_flushEntry(api, filepath, opts)
         return false
       end
       user_book = result
+      if op.finished_date then user_book = api:setFinishedDate(result, op.finished_date) or result end
       self:_clearSent(filepath, { status = op.value, status_at = op.at })
     else
       local current = user_book.status_id

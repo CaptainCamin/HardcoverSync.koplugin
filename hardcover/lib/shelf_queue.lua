@@ -19,6 +19,7 @@
 -- not this file, so a flush sends only the signed-in user's ops and drops the rest.
 
 local OfflineQueue = require("hardcover/lib/offline_queue")
+local HARDCOVER = require("hardcover/lib/constants/hardcover")
 
 local ShelfQueue = OfflineQueue.extend({})
 ShelfQueue.store_key = "shelf_ops"
@@ -70,6 +71,8 @@ function ShelfQueue:queueStatus(user_id, book_id, status_id, info)
     -- the shelf the book was on before the first waiting change: what it leaves
     from_status_id = before and before.from_status_id or info.from_status_id,
     at = os.time(),
+    -- the day it was finished, so a sync on a later day does not become the finish date
+    finished_date = status_id == HARDCOVER.STATUS.FINISHED and os.date("%Y-%m-%d") or nil,
   }
   self:ops()[keyOf(book_id)] = op
   self:persist()
@@ -196,7 +199,9 @@ function ShelfQueue:_flush(api, opts)
     if op and not op.held then
       local ok, result, err = pcall(function()
         if op.kind == "remove" then return api:removeUserBook(op.user_book_id) end
-        return api:updateUserBook(op.book_id, op.status_id, nil, op.edition_id)
+        local result, err = api:updateUserBook(op.book_id, op.status_id, nil, op.edition_id)
+        if result and op.finished_date then result = api:setFinishedDate(result, op.finished_date) or result end
+        return result, err
       end)
       if not ok then result, err = nil, nil end
 

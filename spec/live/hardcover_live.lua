@@ -280,6 +280,27 @@ step("createRead and updatePage", function()
   end
 end)
 
+step("setFinishedDate: a book finished earlier keeps that day, and the read keeps its page and start", function()
+  local finished = is_table(Api:updateUserBook(need(ctx.book_id, "book id"), 3, nil, ctx.edition_id), "finished user book")
+  -- (Hardcover itself moves a finished read to the last page, and dates it today)
+  local before = is_table(finished.user_book_reads, "reads of the finished book")
+  before = need(before[#before], "read")
+  local dated = is_table(Api:setFinishedDate(finished, "2026-01-02"), "user book with a finish date")
+  local read = is_table(dated.user_book_reads, "reads")[1]
+  if not read or read.finished_at ~= "2026-01-02" then
+    error("finished_at is " .. tostring(read and read.finished_at), 0)
+  end
+  if tonumber(read.progress_pages) ~= tonumber(before.progress_pages) then
+    error("progress_pages went from " .. tostring(before.progress_pages) .. " to " .. tostring(read.progress_pages), 0)
+  end
+  if read.started_at ~= before.started_at then
+    error("started_at went from " .. tostring(before.started_at) .. " to " .. tostring(read.started_at), 0)
+  end
+  local again = is_table(Api:findUserBook(ctx.book_id, ctx.user_id), "user book read back")
+  local last = again.user_book_reads[#again.user_book_reads]
+  if last.finished_at ~= "2026-01-02" then error("not kept: finished_at is " .. tostring(last.finished_at), 0) end
+end)
+
 step("updateRating, then clear it", function()
   local rated = is_table(Api:updateRating(need(ctx.user_book_id, "user book"), 4), "rated user book")
   if tonumber(rated.rating) ~= 4 then error("rating is " .. tostring(rated.rating), 0) end
