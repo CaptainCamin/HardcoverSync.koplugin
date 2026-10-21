@@ -16,7 +16,7 @@ local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local InputContainer = require("ui/widget/container/inputcontainer")
-local InputDialog = require("ui/widget/inputdialog")
+local InputDialog = require("hardcover/lib/ui/components/input_dialog")
 local LeftContainer = require("ui/widget/container/leftcontainer")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
 local ScrollControl = require("hardcover/lib/ui/components/scroll_control")
@@ -199,14 +199,14 @@ function GoalFormDialog:editName()
   input = InputDialog:new {
     title = _("Goal name"),
     input = self.form.name or "",
-    buttons = { {
-      { text = _("Cancel"), id = "close", callback = function() UIManager:close(input) end },
-      { text = _("Set"), is_enter_default = true, callback = function()
+    buttons = {
+      { label = _("Cancel"), callback = function() UIManager:close(input) end },
+      { label = _("Set"), primary = true, callback = function()
           local value = input:getInputText()
           UIManager:close(input)
           self:change("name", value)
         end },
-    } },
+    },
   }
   UIManager:show(input)
   if input.onShowKeyboard then input:onShowKeyboard() end
@@ -218,15 +218,15 @@ function GoalFormDialog:editTarget()
     title = self.form.metric == "page" and _("Pages to read") or _("Books to read"),
     input = tostring(self.form.target or ""),
     input_type = "number",
-    buttons = { {
-      { text = _("Cancel"), id = "close", callback = function() UIManager:close(input) end },
-      { text = _("Set"), is_enter_default = true, callback = function()
+    buttons = {
+      { label = _("Cancel"), callback = function() UIManager:close(input) end },
+      { label = _("Set"), primary = true, callback = function()
           local raw = input:getInputText()
           UIManager:close(input)
           -- kept as typed when it is not a number, so Save can say what is wrong
           self:change("target", tonumber(raw) or raw)
         end },
-    } },
+    },
   }
   UIManager:show(input)
   if input.onShowKeyboard then input:onShowKeyboard() end

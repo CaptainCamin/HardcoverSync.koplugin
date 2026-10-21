@@ -30,6 +30,8 @@ local function width()
 end
 local SIDE = Theme.px(12)
 
+Dialog.width = width
+
 -- the width inside the padding: what a `body` can be as wide as
 function Dialog.innerWidth()
   return width() - 2 * Theme.line.firm - 2 * SIDE

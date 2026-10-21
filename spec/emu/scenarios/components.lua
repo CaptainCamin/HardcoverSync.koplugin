@@ -166,6 +166,23 @@ return {
     UIManager:getTopmostVisibleWidget():dismiss()
     assert(UIManager:getTopmostVisibleWidget() == page, "close-only dialog stayed open")
 
+    -- input dialog: a field above the keyboard, the filled button runs with what was typed
+    local InputDialog = require("hardcover/lib/ui/components/input_dialog")
+    local typed
+    local box
+    box = InputDialog:new { title = "Goal name", text = "What you call it.", input = "Read more", hint = "Name",
+      buttons = { { label = "Cancel", callback = function() UIManager:close(box) end },
+                  { label = "Set", primary = true, callback = function() typed = box:getInputText(); UIManager:close(box) end } } }
+    UIManager:show(box)
+    box:onShowKeyboard()
+    emu:pump()
+    emu:shot("components_input")
+    emu:expectText("Goal name")
+    box:setInputText("Twelve books")
+    tapText("Set")
+    assert(typed == "Twelve books", "the input dialog returned " .. tostring(typed))
+    assert(UIManager:getTopmostVisibleWidget() == page, "the input dialog stayed open")
+
     -- progress dialog: a bar, a visible Stop that is acknowledged, and a tap outside does nothing
     local ProgressDialog = require("hardcover/lib/ui/components/progress_dialog")
     local stopped

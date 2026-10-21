@@ -438,21 +438,21 @@ function DialogManager:showSearchInput(initial)
     UIManager:setDirty("all", "ui")
     UIManager:nextTick(function() self:searchBooks(query) end)
   end
-  input = require("ui/widget/inputdialog"):new {
+  input = require("hardcover/lib/ui/components/input_dialog"):new {
     title = _("Search books"),
     input = initial or "",
-    input_hint = _("Title or author"),
-    buttons = { {
+    hint = _("Title or author"),
+    buttons = {
       {
-        text = _("Cancel"),
+        label = _("Cancel"),
         callback = function() UIManager:close(input) end,
       },
       {
-        text = _("Search"),
-        is_enter_default = true,
+        label = _("Search"),
+        primary = true,
         callback = submit,
       },
-    } },
+    },
   }
   UIManager:show(input)
   input:onShowKeyboard()
