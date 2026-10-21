@@ -485,6 +485,30 @@ function HardcoverApi:findBooksByIdentifiers(list, user_id)
   return answers
 end
 
+-- Books whose title is exactly one of `titles`, in one request: a table from each title to its books
+-- (most read first; a title with none is absent). Only a title spelled as Hardcover spells it is found,
+-- so this is a quick first try before a search, which also finds the loose spellings. At most
+-- TITLE_ROWS books come back in all, so a batch of very common titles may miss some: those are then
+-- searched for as usual. Returns nil and an error when the call failed.
+HardcoverApi.TITLE_ROWS = 200
+function HardcoverApi:findBooksByTitles(titles, user_id)
+  local out = {}
+  if #titles == 0 then return out end
+  local results, err = self:query([[
+    query ($titles: [String!], $userId: Int!) {
+      books(where: { title: { _in: $titles }}, order_by: { users_read_count: desc_nulls_last }, limit: ]]
+      .. HardcoverApi.TITLE_ROWS .. [[) {
+        ...BookParts
+      }
+    }]] .. book_fragment, { titles = titles, userId = user_id })
+  if not results then return nil, err or { completed = false } end
+  for _, book in ipairs(results.books or {}) do
+    out[book.title] = out[book.title] or {}
+    table.insert(out[book.title], book)
+  end
+  return out
+end
+
 function HardcoverApi:normalizedEdition(edition)
   local result = edition.book
 

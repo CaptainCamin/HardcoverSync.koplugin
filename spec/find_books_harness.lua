@@ -147,4 +147,31 @@ check("findBookByIdentifiers says when the call failed", function()
   assert(none == nil and none_err == nil, "an unknown book is not a failure")
 end)
 
+print("\n== by title ==")
+
+check("many titles are one request, and the books come back under their title, most read first", function()
+  local seen = {}
+  Api.query = function(_, query, variables)
+    seen[#seen + 1] = { query = query, titles = variables.titles }
+    return { books = { { book_id = 1, title = "Dune" }, { book_id = 2, title = "Dune" }, { book_id = 3, title = "Emma" } } }
+  end
+  local out = Api:findBooksByTitles({ "Dune", "Emma", "Nothing" }, 1)
+  assert(#seen == 1 and #seen[1].titles == 3, "requests: " .. #seen)
+  assert(seen[1].query:find("title: { _in: $titles }", 1, true), "not an exact-title match")
+  assert(seen[1].query:find("users_read_count: desc_nulls_last", 1, true), "not most read first")
+  assert(#out.Dune == 2 and out.Dune[1].book_id == 1 and out.Emma[1].book_id == 3 and out.Nothing == nil)
+end)
+
+check("no titles is no request", function()
+  local asked = false
+  Api.query = function() asked = true; return {} end
+  assert(next(Api:findBooksByTitles({}, 1)) == nil and not asked)
+end)
+
+check("a failed request gives nil and an error", function()
+  Api.query = function() return nil end
+  local out, err = Api:findBooksByTitles({ "Dune" }, 1)
+  assert(out == nil and err)
+end)
+
 r.finish()
