@@ -54,7 +54,7 @@ function ReaderPanel:buildShelfRow(text, action, width)
   local label = require("ui/widget/textboxwidget"):new {
     text = text, face = Theme.mmdFace("text", 20), width = label_w,
   }
-  local button = Button.new { label = action.text, w = button_w, h = Theme.TOUCH_MIN,
+  local button = Button.new { label = action.text, w = button_w,
     enabled = action.enabled ~= false, callback = action.enabled ~= false and action.run or nil }
   local row = HorizontalGroup:new { align = "center", label, Theme.hspan(Theme.space.m), button }
   return Theme.box(width, math.max(Theme.px(82), row:getSize().h + 2 * pad), row,
@@ -65,7 +65,7 @@ function ReaderPanel:buildClose()
   local size = Theme.TOUCH_MIN
   self.close_button = TapRow:new { callback = function() self:onClose() end,
     dimen = Geom:new { w = size, h = size },
-    CenterContainer:new { dimen = Geom:new { w = size, h = size }, Theme.icon("close", Theme.px(24)) } }
+    CenterContainer:new { dimen = Geom:new { w = size, h = size }, Theme.icon("close", Theme.mmd.top_bar.icon) } }
   return self.close_button
 end
 
@@ -175,14 +175,14 @@ function ReaderPanel:render()
     for _, action in ipairs(round) do
       table.insert(row, CenterContainer:new {
         dimen = Geom:new { w = cell, h = Theme.mmd.round_button.size.large + Theme.px(36) },
-        Button.round { icon = action.icon, label = action.text, scale = "large",
+        Button.round { icon = action.icon, label = action.text, scale = "large", label_size = Theme.type.title,
           enabled = action.enabled ~= false, callback = action.enabled ~= false and action.run or nil },
       })
     end
     table.insert(content, row)
   end
   for _, action in ipairs(wide) do
-    table.insert(content, Button.new { label = action.text, w = width, h = Theme.px(56),
+    table.insert(content, Button.new { label = action.text, w = width,
       enabled = action.enabled ~= false, callback = action.enabled ~= false and action.run or nil })
   end
   table.insert(content, Theme.span("m"))

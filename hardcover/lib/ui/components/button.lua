@@ -30,7 +30,7 @@ end
 
 -- A round button: an outlined circle holding an icon, with or without a label under it.
 -- opts { icon (name in icons/ or a path), label (optional), scale ("small" | "medium" | "large", default
--- "medium"), enabled (false: dotted circle, no tap), callback, viewport }. The tap area is the circle and
+-- "medium"), label_size (default Theme.mmd.round_button.label), enabled (false: dotted circle, no tap), callback, viewport }. The tap area is the circle and
 -- its label, and the circle is never under TOUCH_MIN.
 function Button.round(opts)
   local m = Theme.mmd.round_button
@@ -40,7 +40,8 @@ function Button.round(opts)
   local circle = Theme.box(d, d, icon, { border = Theme.mmd.button.border, round = true, dotted = off })
   local content = circle
   if opts.label and opts.label ~= "" then
-    local label = Theme.mmdText(opts.label, "strong", m.label, { width = math.max(d, Theme.px(96)) })
+    local label = Theme.mmdText(opts.label, "strong", opts.label_size or m.label,
+      { width = math.max(d, Theme.px(96)) })
     content = VerticalGroup:new { align = "center", circle, Theme.span(m.gap), label }
   end
   return TapRow:new { callback = (not off) and opts.callback or nil, viewport = opts.viewport,
