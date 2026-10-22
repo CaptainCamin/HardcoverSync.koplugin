@@ -253,6 +253,19 @@ return {
     assert(stepped == 3, "the stepper saved " .. tostring(stepped))
     assert(UIManager:getTopmostVisibleWidget() == page, "the stepper stayed open")
 
+    -- at the top of its range the plus is dotted and does nothing; minus still works
+    local capped
+    StepperDialog.show { title = "Set rating", value = 5, min = 0, max = 5, step = 0.5,
+      on_save = function(v) capped = v end }
+    emu:pump()
+    emu:expectText("5.0")
+    tapText("plus")
+    emu:expectText("5.0")
+    tapText("minus")
+    emu:expectText("4.5")
+    tapText("Save")
+    assert(capped == 4.5, "the capped stepper saved " .. tostring(capped))
+
     -- a switch row under the stepper: tapping it flips it, and Save hands the state over
     local switched, kept
     StepperDialog.show { title = "Set current page", value = 10, min = 0, max = 300, step = 1, big_step = 20,

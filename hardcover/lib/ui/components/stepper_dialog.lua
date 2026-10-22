@@ -1,8 +1,10 @@
 -- Stepper dialog (a Dialog with number steppers in its body): for a number that is set rather than
 -- typed, a rating or a page. Each field is a big value between a minus and a plus, 72 square, both
 -- always on screen; a field with a `big_step` has a second row that moves by that much, so a long
--- range is not a hundred taps (the stock spinner did that with a long press, which nothing here
--- relies on). The value stops at its ends. Cancel and Save are the Dialog's stacked buttons.
+-- range is not a hundred taps. Holding a minus or plus repeats the step and speeds up (a shortcut:
+-- every move also has a button). The value is in a box: tap it to type the number. The value stops
+-- at its ends, and the button that would go past one is drawn dotted and does nothing. Cancel and
+-- Save are the Dialog's stacked buttons.
 --
 --   StepperDialog.show {
 --     title = "Set rating", text = "optional line",
@@ -23,13 +25,15 @@ local Button = require("hardcover/lib/ui/components/button")
 local Dialog = require("hardcover/lib/ui/components/dialog")
 local ListItem = require("hardcover/lib/ui/components/list_item")
 local Switch = require("hardcover/lib/ui/components/switch")
+local InputDialog = require("hardcover/lib/ui/components/input_dialog")
 local Draw = require("hardcover/lib/ui/components/draw")
 local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
 
-local CenterContainer = require("ui/widget/container/centercontainer")
 local Geom = require("ui/geometry")
+local GestureRange = require("ui/gesturerange")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
+local InputContainer = require("ui/widget/container/inputcontainer")
 local VerticalGroup = require("ui/widget/verticalgroup")
 
 local _ = require("gettext")
@@ -46,31 +50,72 @@ local function defaultFormat(field)
   return function(v) return string.format("%.1f", v) end
 end
 
-local function stepButton(icon, callback)
+local HOLD_FIRST = 6 -- repeats at the plain step before it speeds up
+local HOLD_FAST = 20 -- repeats before it speeds up again
+local HOLD_EVERY = 0.25 -- seconds between repeats
+
+-- A minus or plus. `enabled == false` (the value is at that end): a dotted box that does nothing.
+-- A hold calls `on_hold` at the press; `on_release` runs when the finger lifts (the caller repeats in
+-- between).
+local StepButton = InputContainer:extend { name = "hardcover_step_button" }
+
+function StepButton:init()
+  local size = self[1]:getSize()
+  self.dimen = Geom:new { x = 0, y = 0, w = size.w, h = size.h }
+  local range = function() return self.dimen end
+  self.ges_events = { TapStep = { GestureRange:new { ges = "tap", range = range } } }
+  if self.on_hold then
+    self.ges_events.HoldStep = { GestureRange:new { ges = "hold", range = range } }
+    self.ges_events.HoldReleaseStep = { GestureRange:new { ges = "hold_release", range = range } }
+  end
+end
+
+function StepButton:onTapStep()
+  if self.callback then self.callback() end
+  return true
+end
+
+function StepButton:onHoldStep()
+  if self.on_hold then self.on_hold() end
+  return true
+end
+
+function StepButton:onHoldReleaseStep()
+  if self.on_release then self.on_release() end
+  return true
+end
+
+local function stepButton(icon, enabled, callback, on_hold, on_release)
   local glyph = Draw.icon(icon, Theme.px(32))
-  local box = Theme.box(SIZE, SIZE, glyph, { border = Theme.mmd.button.border, radius = 8 })
-  return TapRow:new { callback = callback, text = icon, width = SIZE, box }
+  local box = Theme.box(SIZE, SIZE, glyph, { border = Theme.mmd.button.border, radius = 8, dotted = not enabled })
+  if not enabled then return StepButton:new { text = icon, width = SIZE, box } end
+  return StepButton:new { callback = callback, on_hold = on_hold, on_release = on_release, text = icon, width = SIZE, box }
 end
 
 function StepperDialog.show(opts)
   local fields = opts.fields or { opts }
   local inner_w = Dialog.innerWidth()
-  local values, cells = {}, {}
+  local values = {}
   local overlay
 
+  local rows, boxes = {}, {} -- per field: the minus/value/plus row, and the value's text
+  local build_row
+  local hold_gen = 0 -- bumped to drop a hold's pending timer
+
   local function refresh()
-    for i, cell in ipairs(cells) do
+    for i = 1, #fields do
       local field = fields[i]
-      cell.text:setText(field.format_fn(values[i]))
+      boxes[i]:setText(field.format_fn(values[i]))
+      local at_min, at_max = values[i] <= field.min, values[i] >= field.max
+      if rows[i].at_min ~= at_min or rows[i].at_max ~= at_max then build_row(i) end
     end
     if overlay then
       UIManager:setDirty(overlay, function() return "ui", overlay:refreshRegion() end)
     end
   end
 
-  local function move(i, delta)
-    local field = fields[i]
-    values[i] = clamp(values[i] + delta, field.min, field.max)
+  local function setValue(i, v)
+    values[i] = clamp(v, fields[i].min, fields[i].max)
     if opts.on_change then
       local changed = opts.on_change({ unpack(values) }, i)
       if changed then
@@ -78,6 +123,74 @@ function StepperDialog.show(opts)
       end
     end
     refresh()
+  end
+
+  local function move(i, delta) setValue(i, values[i] + delta) end
+
+  local function stopHold()
+    hold_gen = hold_gen + 1
+  end
+
+  -- how far one repeat of a hold goes: the plain step, then the field's big step (or five steps),
+  -- then five of those
+  local function holdDelta(field, n)
+    local fast = field.big_step or field.step * 5
+    if n < HOLD_FIRST then return field.step end
+    if n < HOLD_FAST then return fast end
+    return fast * 5
+  end
+
+  local function holdStep(i, dir)
+    local field = fields[i]
+    hold_gen = hold_gen + 1
+    local gen = hold_gen
+    local n = 0
+    local function tick()
+      if gen ~= hold_gen then return end
+      local before = values[i]
+      move(i, dir * holdDelta(field, n))
+      n = n + 1
+      if values[i] == before then return stopHold() end -- at the end (or pinned there by on_change)
+      UIManager:scheduleIn(HOLD_EVERY, tick)
+    end
+    tick()
+  end
+
+  -- tap the number: type it. Out of range is pulled in to the nearest end, and a number between steps
+  -- to the nearest step; something that is not a number leaves the value as it was.
+  local function typeValue(i)
+    local field = fields[i]
+    local input
+    input = InputDialog:new {
+      title = field.label or opts.title,
+      input = string.format("%g", values[i]),
+      input_type = "number",
+      buttons = {
+        { label = _("Cancel"), callback = function() UIManager:close(input) end },
+        { label = _("Set"), primary = true, callback = function()
+          local typed = tonumber((input:getInputText():gsub(",", ".")))
+          UIManager:close(input)
+          if not typed then return end
+          typed = clamp(typed, field.min, field.max)
+          local snapped = field.min + math.floor((typed - field.min) / field.step + 0.5) * field.step
+          setValue(i, snapped)
+        end },
+      },
+    }
+    UIManager:show(input)
+    if input.onShowKeyboard then input:onShowKeyboard() end
+  end
+
+  build_row = function(i)
+    local field = fields[i]
+    local row = rows[i]
+    row.at_min, row.at_max = values[i] <= field.min, values[i] >= field.max
+    local function held(dir)
+      return function() holdStep(i, dir) end
+    end
+    row[1] = stepButton("minus", not row.at_min, function() move(i, -field.step) end, held(-1), stopHold)
+    row[#row] = stepButton("plus", not row.at_max, function() move(i, field.step) end, held(1), stopHold)
+    row:resetLayout()
   end
 
   local body = VerticalGroup:new { align = "left" }
@@ -90,14 +203,16 @@ function StepperDialog.show(opts)
       body[#body + 1] = Theme.span(Theme.px(6))
     end
     local text = Theme.mmdText(field.format_fn(values[i]), "strong", 40)
-    local value_w = inner_w - 2 * SIZE
-    -- a fixed box, so the buttons stay where they are as the number changes width
-    local cell = CenterContainer:new { dimen = Geom:new { w = value_w, h = SIZE }, text }
-    cell.text = text
-    cells[i] = cell
-    body[#body + 1] = HorizontalGroup:new { align = "center",
-      stepButton("minus", function() move(i, -field.step) end), cell,
-      stepButton("plus", function() move(i, field.step) end) }
+    boxes[i] = text
+    local gap = Theme.px(6)
+    local value_w = inner_w - 2 * SIZE - 2 * gap
+    -- a fixed, outlined box, so the buttons stay where they are as the number changes width, and a
+    -- tap on it is visibly a field
+    local cell = TapRow:new { callback = function() typeValue(i) end, text = "value", width = value_w,
+      Theme.box(value_w, SIZE, text, { border = Theme.mmd.button.border, radius = 8 }) }
+    rows[i] = HorizontalGroup:new { align = "center", Theme.hspan(1), Theme.hspan(gap), cell, Theme.hspan(gap), Theme.hspan(1) }
+    build_row(i)
+    body[#body + 1] = rows[i]
     if field.big_step then
       body[#body + 1] = Theme.span(Theme.px(8))
       local half = math.floor((inner_w - Theme.px(8)) / 2)
