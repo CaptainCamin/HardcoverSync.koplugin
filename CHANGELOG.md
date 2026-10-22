@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.3.1
+
 ### Added
 
 - **Search bar in the top bar.** Searching for books (Home, Library, and the link-book and edition pickers) now turns the top bar into a search field with the keyboard under it, instead of a box in the middle of the screen. The keyboard's Enter key searches, the X clears the words, and the arrow leaves without searching.
@@ -11,6 +13,8 @@
 
 - **Journal.** The Library has a fourth tab, Journal: your journal on Hardcover, as on the web's Journals page, newest first. It lists everything Hardcover keeps there: progress updates, starting and finishing a book, ratings, status changes, books added to a list, and your notes, quotes and reviews. Each entry is one row with the book's cover, title and authors, what happened, and the day. It goes a page at a time, with the page control at the right edge (or a swipe up or down), and "Load more" at the end fetches older entries. Tap a note, quote or review to read it whole, anything else to open the book. A review that gives away the story shows no text in the list. What it last showed (up to 100 entries) is kept on the device, so it opens at once and opens offline, with a note saying when it is from; online it is brought up to date. Notes, quotes and reviews you wrote that have not been sent yet are listed first, marked "Waiting to send". The first time needs a connection.
 
+- **Journal from the reader panel.** The panel for the open book has a Journal button. It opens that book's journal: every entry of it (progress, starts and finishes, ratings, notes, quotes, reviews), newest first, laid out as in the Library's Journal tab, and a tap on a note, quote or review reads it whole. Offline it shows what Activity has saved for the book, and notes, quotes and reviews of it that are waiting to send.
+
 - **Edit and delete your notes, quotes and reviews.** In Journal, your note, quote or review opens in full with Edit and Delete along the bottom. Edit opens the text to change (a review goes through the review form, spoilers question included); Delete asks first. Both work offline: the change shows in Journal at once, marked "Waiting to send", is listed in Sync (tap it to cancel), and is sent when you are back online. Something not sent yet is changed where it waits, or discarded. Only the text changes: privacy, tags and page stay as they were.
 
 ### Fixed
@@ -19,6 +23,9 @@
 
 ### Changed
 
+- **A compact panel for the open book.** The cover, status, rating and progress sit above five fixed round actions: Progress, Status, Rate, Journal and Details. Options and Close are at the top right. Dotted cards offer Start reading, Add to shelf, Resume, Read again or Start over as appropriate. Journal opens the book's journal; automatic tracking stays in the Set page dialog. Starting over keeps the previous read and starts the new one at page zero.
+
+- **Book details: every action is a button.** The stacked bars are now one filled button (Open, or Find on device for a book that is not on the device) and a row of round buttons under it: Download, Shelf, Lists, Reviews, Your review and Edition. Shelf and Lists are separate buttons instead of one Add button that opened a sheet, and the download button says Download whichever source it uses.
 - **Notes and quotes save without waiting.** Saving a note or quote keeps it on the device and closes the form at once; it is sent when there is a connection, and with none it is sent when the connection is back. Before, saving waited for Hardcover, failed offline, and the text was lost. A note that is waiting shows in Sync's list (tap it to cancel) and counts in the number of changes waiting. If Hardcover never answered for one that was sent, it is sent again and can appear twice.
 
 ## 2.0.0

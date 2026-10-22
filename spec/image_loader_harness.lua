@@ -168,6 +168,31 @@ check("covers already on the device are drawn in one task, not one task each", f
   expect(not ImageLoader:isLoading(), "the batch never finished")
 end)
 
+check("new covers download three at a time, and every one still arrives", function()
+  reset()
+  local Trapper = require("ui/trapper")
+  local original_wrap = Trapper.wrap
+  local waiting, started, peak, running = {}, 0, 0, 0
+  -- a download that waits (as a subprocess does) until the test lets it finish
+  Trapper.wrap = function(_, fn)
+    started = started + 1
+    running = running + 1
+    peak = math.max(peak, running)
+    waiting[#waiting + 1] = function() fn(); running = running - 1 end
+  end
+  local got = {}
+  ImageLoader:loadImages({ "u1", "u2", "u3", "u4", "u5" }, function(url) got[#got + 1] = url end)
+  drain()
+  expect(started == 3 and #got == 0, "started " .. started .. " before any finished")
+  table.remove(waiting, 1)()
+  drain()
+  expect(started == 4, "a finished download did not free a slot: " .. started)
+  while #waiting > 0 do table.remove(waiting, 1)(); drain() end
+  Trapper.wrap = original_wrap
+  expect(peak == 3, "peak " .. peak)
+  expect(#got == 5 and not ImageLoader:isLoading(), #got .. " delivered, loading " .. tostring(ImageLoader:isLoading()))
+end)
+
 check("duplicate urls are downloaded and delivered once", function()
   reset()
   local n = 0

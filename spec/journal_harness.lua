@@ -49,6 +49,13 @@ check("a page of your journal, newest first, from an offset", function()
   lacks(q, "_aggregate")
 end)
 
+check("one book asks for that book's entries alone", function()
+  local q = Journal.query({ me_id = 7, book_id = 328491 })
+  has(q, "where: { user_id: { _eq: 7 }, book_id: { _eq: 328491 } }")
+  lacks(Journal.query({ me_id = 7 }), "book_id: {")
+  lacks(Journal.query({ me_id = 7, book_id = "1) { x" }), "book_id: {")
+end)
+
 check("the first page starts at 0 and the page size is the default", function()
   local q = Journal.query({ me_id = 7 })
   has(q, "offset: 0")

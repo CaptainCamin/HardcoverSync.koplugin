@@ -1,23 +1,12 @@
--- The panel for the book that is open: a sheet that rises from the bottom of the
--- reading screen, so the page stays visible above it.
+-- The open book's reader panel: cached cover, status, rating and progress above
+-- five fixed book actions. Options and Close have separate touch targets at the
+-- top right. Contextual actions sit in dotted cards with solid enabled buttons.
+-- The model is rebuilt from saved state and pending writes on every render.
 --
--- It shows where the book stands (title, status, page, rating, whether progress
--- is tracked) and the few things a reader does mid-book as big buttons: set the
--- page, change the status, rate, note, details, reviews. Everything is asked of
--- `opts.model()` on every draw, so after an action the panel shows what is true
--- now instead of what was true when it opened.
---
--- model() returns:
---   { title, linked (bool), pills = { { text, filled }, ... },
---     line (string or nil: how far or how long, right under the title),
---     shelf (string or nil: where the book is, in words),
---     shelf_action (nil, or { text, run }: a button beside the shelf line),
---     hint (string or nil: what reading will do, where there is no switch),
---     track = { checked, toggle, note (string or nil) } or nil,
---     menu = { title, rows = { { text, enabled, run }, ... } } or nil (the gear at the top right),
---     actions = { { text, enabled, primary, run }, ... } }
---
--- Tapping above the sheet, or the Back key, closes it.
+-- model(): { title, linked, cover_path?, status?, rating?, line?, progress?,
+--   message?, shelf_action? = { text, enabled?, run }, menu? = { rows },
+--   actions = { { text, icon?, enabled?, run }, ... } }
+-- A tap above the sheet, Close, or Back dismisses it.
 
 local Blitbuffer = require("ffi/blitbuffer")
 local BottomContainer = require("ui/widget/container/bottomcontainer")
@@ -28,7 +17,6 @@ local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local InputContainer = require("ui/widget/container/inputcontainer")
-local LeftContainer = require("ui/widget/container/leftcontainer")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
@@ -36,7 +24,6 @@ local _ = require("gettext")
 local Button = require("hardcover/lib/ui/components/button")
 local Overlay = require("hardcover/lib/ui/components/overlay")
 local Refresh = require("hardcover/lib/ui/refresh")
-local Switch = require("hardcover/lib/ui/components/switch")
 local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
 
@@ -56,29 +43,30 @@ function ReaderPanel:init()
   self:render()
 end
 
--- the "update Hardcover as I read" row: a label and a real switch, the whole row the touch area
-function ReaderPanel:buildTrackRow(track, width)
-  local sw = Switch.new { on = track.checked }
-  local label = Theme.mmdText(_("Update Hardcover as I read"), "strong", 21,
-    { width = width - sw:getSize().w - Theme.px(16) })
-  local h = math.max(Theme.TOUCH_MIN, label:getSize().h + Theme.px(16))
-  local row = HorizontalGroup:new { align = "center", label,
-    Theme.hspan(width - label:getSize().w - sw:getSize().w), sw }
-  return TapRow:new { callback = function() track.toggle(); self:render() end,
-    dimen = Geom:new { w = width, h = h }, CenterContainer:new { dimen = Geom:new { w = width, h = h }, row } }
+-- A contextual card is dotted; the action inside it remains a solid outlined button.
+function ReaderPanel:buildShelfRow(text, action, width)
+  local pad = Theme.space.m
+  local inner = width - 2 * pad
+  local action_w = Theme.mmdText(action.text, "strong", 21):getSize().w
+    + 2 * (Theme.mmd.button.border + Theme.px(8))
+  local button_w = math.min(math.floor(inner * 0.48), math.max(Theme.px(142), action_w))
+  local label_w = inner - button_w - Theme.space.m
+  local label = require("ui/widget/textboxwidget"):new {
+    text = text, face = Theme.mmdFace("text", 20), width = label_w,
+  }
+  local button = Button.new { label = action.text, w = button_w,
+    enabled = action.enabled ~= false, callback = action.enabled ~= false and action.run or nil }
+  local row = HorizontalGroup:new { align = "center", label, Theme.hspan(Theme.space.m), button }
+  return Theme.box(width, math.max(Theme.px(82), row:getSize().h + 2 * pad), row,
+    { radius = 12, dotted = true })
 end
 
--- where the book is, in words. When the book can be started again, the button sits on the right
--- of the same line, a touch target tall; a plain line is only as tall as its text.
-function ReaderPanel:buildShelfRow(text, action, width)
-  if not action then
-    return Theme.mmdText(text, "text", 21, { width = width })
-  end
-  local button_w = math.floor(width * 0.34)
-  local button = Button.new { label = action.text, w = button_w, h = Theme.TOUCH_MIN, callback = action.run }
-  local label = Theme.mmdText(text, "text", 21, { width = width - button_w - Theme.space.m })
-  return HorizontalGroup:new { align = "center", label,
-    Theme.hspan(width - label:getSize().w - button_w), button }
+function ReaderPanel:buildClose()
+  local size = Theme.TOUCH_MIN
+  self.close_button = TapRow:new { callback = function() self:onClose() end,
+    dimen = Geom:new { w = size, h = size },
+    CenterContainer:new { dimen = Geom:new { w = size, h = size }, Theme.icon("close", Theme.mmd.top_bar.icon) } }
+  return self.close_button
 end
 
 -- the settings gear: an icon in a TOUCH_MIN square that opens the panel's menu as a list sheet
@@ -109,6 +97,7 @@ function ReaderPanel:openMenu(menu)
 end
 
 function ReaderPanel:render()
+  if self.cover_widget then self.cover_widget:free(); self.cover_widget = nil end
   local model = self.opts.model()
   local screen_w, screen_h = Screen:getWidth(), Screen:getHeight()
   local M = Theme.px(20)
@@ -117,103 +106,86 @@ function ReaderPanel:render()
   local content = VerticalGroup:new { align = "left" }
   table.insert(content, Theme.span("m"))
 
-  -- the book; wide and short, the title and the status share a line so the page stays in view
-  local landscape = screen_w > screen_h
-  local pill_row
-  if #model.pills > 0 then
-    pill_row = HorizontalGroup:new { align = "center" }
-    for i, pill in ipairs(model.pills) do
-      if i > 1 then table.insert(pill_row, Theme.hspan("s")) end
-      table.insert(pill_row, require("hardcover/lib/ui/components/chip").new {
-        label = pill.text, selected = pill.filled, size = 15, width = width })
-    end
-  end
-  -- the gear sits at the top right of the sheet, a touch target square; the title gives it room
-  local gear = model.menu and self:buildGear(model.menu)
-  local gear_w = gear and gear:getSize().w or 0
-  local title = Theme.mmdText(model.title, "strong", 25, { width = width - gear_w })
-  -- (a group measures itself once, so the width is added up here before anything is put in it)
-  local used = title:getSize().w
-  local head = HorizontalGroup:new { align = "top", title }
-  if landscape and pill_row then
-    used = used + Theme.px(20) + pill_row:getSize().w
-    table.insert(head, Theme.hspan(Theme.px(20)))
-    table.insert(head, pill_row)
-  end
-  if gear then
-    -- the gear's square ends at the top app bar's side margin from the edge, a little past the
-    -- content's own margin
-    local reach = M - Theme.mmd.top_bar.side
-    table.insert(head, Theme.hspan(math.max(0, width + reach - used - gear_w)))
-    table.insert(head, gear)
-  end
-  table.insert(content, head)
-  if pill_row and not landscape then
-    table.insert(content, Theme.span("s"))
-    table.insert(content, pill_row)
-  end
-
-  -- what the book is: how far or how long, right under the title, then where it is; each line only
-  -- when there is something true to say (Currently Reading has no shelf line)
-  if model.line then
-    table.insert(content, Theme.span("xs"))
-    table.insert(content, Theme.mmdText(model.line, "text", 18, { secondary = true, width = width }))
-  end
-  if model.shelf then
-    table.insert(content, Theme.span("xs"))
-    table.insert(content, self:buildShelfRow(model.shelf, model.shelf_action, width))
-  end
-
-  -- no switch for this book: what reading will do
-  if model.hint then
-    table.insert(content, Theme.span("l"))
-    table.insert(content, Theme.mmdText(model.hint, "text", 18, { width = width }))
-  end
-
-  -- what to do about it: the switch, with its explanation attached to it
-  if model.track then
-    table.insert(content, Theme.span("l"))
-    table.insert(content, self:buildTrackRow(model.track, width))
-    if model.track.note then
-      table.insert(content, Theme.span("xs"))
-      table.insert(content, Theme.mmdText(model.track.note, "text", 18, { width = width }))
-    end
-  end
-
-  -- the actions, two to a row; an action that cannot be used right now keeps its place, in
-  -- a dotted box and without a tap
-  table.insert(content, Theme.span((model.track or model.hint) and "m" or "l"))
-  -- stacked as in the mock; two to a row only when the screen is wider than it is tall
+  -- Cover, title and two separate touch targets. The title yields space to both controls.
+  local cw, ch = Theme.px(80), Theme.px(120)
   local gap = Theme.space.m
-  local cols = landscape and 2 or 1
-  local cell = math.floor((width - (cols - 1) * gap) / cols)
-  local bh = nil
-  local function button(action, w)
-    local enabled = action.enabled ~= false
-    return Button.new { label = action.text, w = w, h = bh, primary = action.primary and enabled,
-      enabled = enabled, callback = enabled and action.run or nil }
+  local text_w = width - cw - gap
+  local gear = model.menu and self:buildGear(model.menu)
+  local close = self:buildClose()
+  local controls = (gear and gear:getSize().w + Theme.space.xs or 0) + close:getSize().w
+  local title_w = math.max(1, text_w - controls)
+  local title = Theme.mmdText(model.title, "strong", 25, { width = title_w })
+  local head = HorizontalGroup:new { align = "center", title,
+    Theme.hspan(math.max(0, title_w - title:getSize().w)) }
+  if gear then table.insert(head, gear); table.insert(head, Theme.hspan("xs")) end
+  table.insert(head, close)
+  local book = VerticalGroup:new { align = "left", head }
+  if model.linked then
+    local rating = tonumber(model.rating)
+    local stars = rating and rating > 0 and HorizontalGroup:new { align = "center",
+      Theme.icon("star-filled", Theme.px(22)), Theme.hspan("xs"),
+      Theme.mmdText(tostring(rating), "strong", 20) }
+      or Theme.mmdText(_("Not rated"), "text", 18, { secondary = true })
+    local status = Theme.mmdText(model.status or _("Shelf not checked yet"), "strong", 19,
+      { width = math.max(1, text_w - stars:getSize().w - gap) })
+    table.insert(book, Theme.span("xs"))
+    table.insert(book, HorizontalGroup:new { align = "center", status,
+      Theme.hspan(math.max(0, text_w - status:getSize().w - stars:getSize().w)), stars })
   end
-  local i = 1
-  while i <= #model.actions do
-    local a = model.actions[i]
-    if a.wide then
-      table.insert(content, button(a, width))
-      i = i + 1
-    else
-      local row = HorizontalGroup:new {}
-      local n = 0
-      while n < cols and model.actions[i] and not model.actions[i].wide do
-        if n > 0 then table.insert(row, Theme.hspan(gap)) end
-        table.insert(row, button(model.actions[i], cell))
-        i, n = i + 1, n + 1
-      end
-      table.insert(content, row)
-    end
+  if model.line then
+    table.insert(book, Theme.span("xs"))
+    table.insert(book, Theme.mmdText(model.line, "text", 18, { secondary = true, width = text_w }))
+  end
+  local cover
+  if model.cover_path then
+    local ok, image = pcall(function()
+      -- The image cache uses extensionless names; decode bytes, not a guessed file type.
+      local file = io.open(model.cover_path, "rb")
+      if not file then return nil end
+      local bytes = file:read("*a")
+      file:close()
+      if not bytes then return nil end
+      local bb = require("ui/renderimage"):renderImageData(bytes, #bytes, false, cw, ch)
+      if not bb then return nil end
+      return require("ui/widget/imagewidget"):new {
+        image = bb, image_disposable = true, width = cw, height = ch, scale_factor = 0,
+      }
+    end)
+    if ok then cover = image; self.cover_widget = image end
+  end
+  cover = cover or Theme.box(cw, ch, Theme.icon("book", math.floor(cw / 2)), { radius = 0 })
+  table.insert(content, HorizontalGroup:new { align = "top", cover, Theme.hspan(gap), book })
+  if model.progress ~= nil then
+    table.insert(content, Theme.span("s"))
+    table.insert(content, Theme.progress { width = width, height = Theme.px(12), percentage = model.progress })
+  end
+  if model.message and model.shelf_action then
     table.insert(content, Theme.span("m"))
+    table.insert(content, self:buildShelfRow(model.message, model.shelf_action, width))
   end
-  table.insert(content, Button.new { label = _("Cancel"), w = width, h = bh, primary = true,
-    callback = function() self:onClose() end })
-  table.insert(content, Theme.span(Theme.margin))
+
+  table.insert(content, Theme.span("l"))
+  local round, wide = {}, {}
+  for _, action in ipairs(model.actions) do
+    table.insert(action.icon and round or wide, action)
+  end
+  if #round > 0 then
+    local cell = math.floor(width / #round)
+    local row = HorizontalGroup:new { align = "top" }
+    for _, action in ipairs(round) do
+      table.insert(row, CenterContainer:new {
+        dimen = Geom:new { w = cell, h = Theme.mmd.round_button.size.large + Theme.px(36) },
+        Button.round { icon = action.icon, label = action.text, scale = "large", label_size = Theme.type.title,
+          enabled = action.enabled ~= false, callback = action.enabled ~= false and action.run or nil },
+      })
+    end
+    table.insert(content, row)
+  end
+  for _, action in ipairs(wide) do
+    table.insert(content, Button.new { label = action.text, w = width,
+      enabled = action.enabled ~= false, callback = action.enabled ~= false and action.run or nil })
+  end
+  table.insert(content, Theme.span("m"))
 
   local sheet = FrameContainer:new {
     background = Blitbuffer.COLOR_WHITE,
@@ -255,6 +227,7 @@ end
 
 -- leaving the panel must repaint the page under it
 function ReaderPanel:onCloseWidget()
+  if self.cover_widget then self.cover_widget:free(); self.cover_widget = nil end
   -- the page under the sheet is already in the framebuffer (close() repaints it);
   -- the panel only needs to redraw where the sheet was
   UIManager:setDirty(nil, "ui", self.sheet_rect and self:rect(self.sheet_rect) or nil)

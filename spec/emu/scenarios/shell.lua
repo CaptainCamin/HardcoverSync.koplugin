@@ -174,7 +174,7 @@ return {
     assert(UIManager:getTopmostVisibleWidget() == shell, "closing the goal did not reveal the shell")
     assert(require("hardcover/lib/ui/live").shown(body), "the body is not live after a screen closed over it")
 
-    -- Library: Shelves | Lists | Vibes | Activity under a tab row, each built when first opened
+    -- Library: Shelves | Lists | Vibes | Journal under a tab row, each built when first opened
     nav(2)
     assert(shell.active == "library", "the Library tab did not open")
     local library = shell.bodies.library

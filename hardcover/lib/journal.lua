@@ -30,7 +30,8 @@ local function nonBlank(text)
 end
 
 --
--- The request for a page. opts: { me_id, offset (rows already asked for), limit }. Returns the
+-- The request for a page. opts: { me_id, offset (rows already asked for), limit, book_id (only
+-- this book's entries, for the reader panel's Journal) }. Returns the
 -- query text, or nil without a user. Numbers go into the text itself: the API is stricter about
 -- declared variable types than about literals. Your review of the book comes with each row
 -- (`reviews`), so a "reviewed" entry shows the review as it is now, not as first written.
@@ -41,10 +42,12 @@ function Journal.query(opts)
   if not me then return nil end
   local limit = int(math.floor(tonumber(opts.limit) or Journal.PAGE_SIZE)) or "20"
   local offset = int(math.floor(tonumber(opts.offset) or 0)) or "0"
+  local book = int(opts.book_id)
+  local of_book = book and string.format(", book_id: { _eq: %s }", book) or ""
   return string.format([[
 query {
   reading_journals(
-    where: { user_id: { _eq: %s } }
+    where: { user_id: { _eq: %s }%s }
     order_by: [{ action_at: desc }, { id: desc }]
     offset: %s
     limit: %s
@@ -57,7 +60,7 @@ query {
       }
     }
   }
-}]], me, offset, limit, me)
+}]], me, of_book, offset, limit, me)
 end
 
 -- ---------------------------------------------------------------------------

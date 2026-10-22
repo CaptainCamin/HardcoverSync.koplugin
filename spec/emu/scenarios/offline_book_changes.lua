@@ -108,10 +108,9 @@ return {
       emu:tapExpecting(d.x + math.floor(d.w / 2), d.y + math.floor(d.h / 2))
       emu:pump()
     end
-    -- Add opens a sheet when the book can go on lists too: tap its row (shelf rows are "Add to shelf" / "Change shelf")
+    -- Shelf and Lists are buttons of their own: `row` is "Lists", or a shelf row's text for Shelf
     local function tapAdd(dialog, row)
-      tapButton(dialog.add_button)
-      if dialog.on_lists then tapText(row) end
+      tapButton(row == "Lists" and dialog.lists_button or dialog.add_button)
     end
     -- close the message on top (an InfoMessage waits for its timeout, which does not run here)
     local function dismiss(expected_under)

@@ -206,8 +206,7 @@ function HardcoverMenu:showReaderPanel()
     local view = self:getSubMenuItems(true)
     local status_items = self:getStatusSubMenuItems()
     local pages_item = findItem(status_items, "Update page")
-    local note_item = findItem(status_items, "Add a note")
-    local settings_item = findItem(view, "Settings")
+    local rating_item = findItem(status_items, "Set rating") or findItem(status_items, "Update rating")
     local link_item = findItem(view, "Linked book") or findItem(view, "Link book")
     local edition_item = findItem(view, "Change edition")
     -- just the statuses (and Remove); page, note and rating have buttons of their own
@@ -226,25 +225,22 @@ function HardcoverMenu:showReaderPanel()
       linked = linked,
       status_id = status_id,
       not_on_shelf = not_on_shelf,
-      saved_page = read and read.progress_pages,
+      saved_page = (pending and pending.mapped_page) or (read and read.progress_pages),
       pages = self.settings:pages(),
       sync_on = self.settings:syncEnabled(),
       status_label = status_id and Shelf.statusLabel(status_id) or nil,
       -- (the emulator scenarios' settings stand-ins have no such method; the facts default to 5)
       start_pages = self.settings.startReadingPages and self.settings:startReadingPages() or nil,
     }
-    -- a finished book can be read again: a new read starts, and the finished one is kept
-    local shelf_action = (linked and facts.finished) and {
-      text = _("Read again"),
-      run = function() self:readAgain() end,
-    } or nil
-    -- a paused book is picked up again: it goes back to Currently Reading
-    if linked and facts.paused then
-      shelf_action = {
-        text = _("Resume"),
-        run = function() self:resumeReading() end,
-      }
-    end
+    local contextual = {
+      reread = { text = _("Read again"), run = function() self:readAgain() end },
+      restart = { text = _("Start over"), run = function() self:readAgain(true) end },
+      resume = { text = _("Resume"), run = function() self:resumeReading() end },
+      start = { text = _("Start reading"), run = function() run(status_items[2]) end },
+      shelf = { text = _("Add to shelf"), run = function() run(status_item) end },
+    }
+    local shelf_action = facts.action and contextual[facts.action]
+    if shelf_action then shelf_action.enabled = self.enabled end
 
     local actions = {}
     local function add(text, item, extra)
@@ -256,15 +252,15 @@ function HardcoverMenu:showReaderPanel()
     -- the mid-book actions, as in the mock. The edition and the link are changed from the book's
     -- page (its Edition button; see showLinkActions)
     if linked then
-      -- progress can only be set on a book being read; when it is not, the same button
-      -- opens the statuses, so it never sits there dead with no reason given
-      if status_id == HARDCOVER.STATUS.READING then
-        add(_("Update progress"), pages_item)
-      else
-        add(_("Change status"), status_item)
-      end
+      add(_("Progress"), pages_item, { icon = "sync" })
+      add(_("Status"), status_item, { icon = "shelf" })
+      add(_("Rate"), rating_item, { icon = "star" })
       actions[#actions + 1] = {
-        text = _("Open book page"), enabled = self.enabled,
+        text = _("Journal"), icon = "edit", enabled = self.enabled and status.id ~= nil,
+        run = function() self.dialog_manager:showBookJournal(self.settings:getLinkedBookId(), self.settings:getLinkedTitle()) end,
+      }
+      actions[#actions + 1] = {
+        text = _("Details"), icon = "book-open", enabled = self.enabled,
         run = function()
           self:withWifiThen(function()
             self.dialog_manager:showBookDetail(self.settings:getLinkedBookId(), self.settings:getLinkedEditionId())
@@ -289,9 +285,26 @@ function HardcoverMenu:showReaderPanel()
     menu_rows[#menu_rows + 1] = { text = _("All Hardcover settings"),
       run = function() self.dialog_manager:showSettings() end }
 
+    -- Covers already saved with book details can be shown immediately, including offline.
+    local cover_path
+    local store = self.dialog_manager and self.dialog_manager.book_store
+    if linked and store and store.rows then
+      local rows = store:rows({ self.settings:getLinkedBookId() })
+      local cached = rows and rows[self.settings:getLinkedBookId()]
+      local book = cached and (cached.book or cached)
+      local image = book and book.cached_image
+      if image and image.url then
+        cover_path = require("hardcover/lib/ui/image_loader"):cachedPath(image.url, "small")
+      end
+    end
     return {
       title = title,
       linked = linked,
+      cover_path = cover_path,
+      status = facts.status,
+      rating = status.rating,
+      progress = facts.progress,
+      message = facts.message,
       pills = {},
       menu = { title = _("Settings"), rows = menu_rows },
       line = facts.line,
@@ -516,15 +529,10 @@ function HardcoverMenu:showRelease(release)
     StatusDialogs.info(T(_("Hardcover Sync is up to date (v%1)."), (VERSION.text or table.concat(VERSION, "."))))
     return
   end
-  local notes = release.notes and release.notes ~= "" and ("\n\n" .. release.notes:sub(1, 600)) or ""
-  StatusDialogs.confirm {
-    title = T(_("Version %1 is available"), release.version),
-    text = T(_("You have v%1.%2"), (VERSION.text or table.concat(VERSION, ".")), notes),
-    ok_text = release.zip_url and _("Install") or _("OK"),
-    cancel_text = _("Later"),
-    ok_callback = function()
-      if release.zip_url then self:installUpdate(release) end
-    end,
+  return require("hardcover/lib/ui/release_dialog").show {
+    release = release,
+    current_version = VERSION.text or table.concat(VERSION, "."),
+    on_install = function() self:installUpdate(release) end,
   }
 end
 
@@ -1255,13 +1263,14 @@ function HardcoverMenu:resumeReading()
 end
 
 -- Start a finished or Did not finish book again. Asks first.
-function HardcoverMenu:readAgain()
+function HardcoverMenu:readAgain(restart)
   StatusDialogs.confirm {
-    title = _("Read this book again?"),
-    text = _("Hardcover keeps your finished read. A new read starts now."),
+    title = restart and _("Start this book over?") or _("Read this book again?"),
+    text = restart and _("Hardcover keeps your previous read. A new read starts now.")
+      or _("Hardcover keeps your finished read. A new read starts now."),
     cancel_text = _("Cancel"),
-    ok_text = _("Start reading again"),
-    ok_callback = function() self:startReread() end,
+    ok_text = restart and _("Start over") or _("Start reading again"),
+    ok_callback = function() self:startReread(restart) end,
   }
 end
 
@@ -1269,12 +1278,12 @@ end
 -- page. It goes through the sync queue as a re-read (SyncQueue:startReread), so the finished read
 -- is never written. Online it is sent at once, and the book's status changes only once Hardcover
 -- has the new read; offline the change shows now and is sent with the rest of the queue.
-function HardcoverMenu:startReread()
+function HardcoverMenu:startReread(restart)
   local file = self.ui.document.file
   local document_page = self.ui:getCurrentPage()
   local document_pages = self.ui.document:getPageCount()
   local page = 0
-  if document_page < document_pages then
+  if not restart and document_page < document_pages then
     page = self.page_mapper:getMappedPage(document_page, document_pages, self.settings:pages())
   end
 

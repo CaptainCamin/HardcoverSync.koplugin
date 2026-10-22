@@ -58,17 +58,18 @@ return {
       emu:tapExpecting(node.x + math.floor(node.w / 2), node.y + math.floor(node.h / 2))
     end
 
-    menu:showReaderPanel()
+    local panel = menu:showReaderPanel()
     emu:pump()
     emu:screenNodes() -- paint first: tap ranges are only real once painted
 
     -- the slot says what it does, and there is no dead progress button
     local nodes = emu:screenText()
-    assert(nodes:find("Change status", 1, true), "a book not being read has no Change status button")
+    assert(nodes:find("Status", 1, true), "Status is missing")
+    assert(panel.opts.model().actions[1].enabled == false, "Progress must be disabled before reading")
     assert(not nodes:find("Update progress", 1, true), "Update progress is still shown for a book not being read")
 
     -- the status list sets Currently Reading
-    tapText("Change status")
+    tapText("Status")
     emu:pump()
     emu:screenNodes()
     emu:shot("reader_panel_status_list")
@@ -84,7 +85,8 @@ return {
     emu:pump()
     emu:screenNodes()
     nodes = emu:screenText()
-    assert(nodes:find("Update progress", 1, true), "the panel did not redraw to Update progress")
+    assert(nodes:find("Progress", 1, true), "Progress is missing")
+    assert(panel.opts.model().actions[1].enabled == true, "Progress did not become enabled")
     assert(not nodes:find("Change status", 1, true), "Change status is still shown after Currently Reading was set")
     emu:shot("reader_panel_change_status")
     emu:closeAll()

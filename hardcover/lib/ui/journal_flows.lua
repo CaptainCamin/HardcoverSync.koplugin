@@ -315,6 +315,102 @@ function Flows:showJournal(host)
   return dialog
 end
 
+-- The journal of one book, opened from the reader panel: the same entries as the Journal tab, for
+-- this book only, on a screen of its own. Offline it shows what the tab has saved for the book and
+-- what is waiting to send for it (a waiting review is known by the book's title, `title`).
+function Flows:showBookJournal(book_id, title)
+  self:screens():discard("book_journal")
+
+  local online = Network.connected()
+  local missing_journal = online and AuthScope.missing("read:journal")
+  local me_id = User:getId()
+  local store = self.journal_store
+  local saved = store and store:get(me_id)
+
+  local function ofBook(entries)
+    local out = {}
+    for _i, e in ipairs(entries or {}) do
+      if e.book_id == tonumber(book_id) or (e.waiting and e.kind == "review" and title and e.title == title) then
+        out[#out + 1] = e
+      end
+    end
+    return out
+  end
+  local function withWaiting(entries)
+    return ofBook(self:pendingJournal(entries, me_id))
+  end
+  local shown = withWaiting(ofBook(saved and saved.entries))
+
+  local message
+  if missing_journal then
+    message = _("The journal needs access to your reading journal. Sign out and sign back in to allow it.")
+  elseif #shown == 0 then
+    message = online and _("Loading journal\226\128\166") or _("The journal needs an internet connection the first time.")
+  end
+  local screen
+  screen = require("hardcover/lib/ui/journal_screen"):new {
+    message = message, entries = shown,
+    select_cb = function(entry) self:openJournalEntry(entry) end,
+  }
+  self:screens():track("book_journal", screen)
+  require("ui/uimanager"):show(screen, "full")
+  if missing_journal then return screen end
+
+  if not online then
+    if saved then
+      StatusDialogs.info(T(_("Offline: showing your journal as of %1."), os.date("%b %d", saved.saved_at or os.time())))
+    end
+    return screen
+  end
+
+  local state = { entries = {}, offset = 0 }
+  local function fetch(offset, callback)
+    Api:getJournalAsync({ me_id = me_id, book_id = book_id, offset = offset, limit = Journal.PAGE_SIZE },
+      function(page, err)
+        if not page then
+          return callback(nil, { message = string.format(_("Journal: %s"), StatusDialogs.describe(err)) })
+        end
+        callback(page, err)
+      end)
+  end
+
+  local function show(more)
+    local all = withWaiting(state.entries)
+    if #all == 0 then
+      screen:setMessage(_("Nothing in the journal for this book yet. Your progress, ratings, notes, quotes and reviews of it will appear here."))
+    else
+      screen:setEntries(all, more)
+    end
+  end
+
+  screen.body.more_cb = function()
+    fetch(state.offset, function(page, err)
+      if not Live.shown(screen) then return end
+      if not page then
+        screen:setLoading(false)
+        StatusDialogs.retry(err, _("Loading more of the journal"), function() screen:loadMore() end, function() end)
+        return
+      end
+      state.entries = Journal.append(state.entries, page.entries)
+      state.offset = state.offset + (page.count or #page.entries)
+      show(page.more)
+    end)
+  end
+
+  fetch(0, function(page, err)
+    if not Live.shown(screen) then return end
+    if not page then
+      -- what is on screen from the device stays; failing to check it is not worth interrupting for
+      if #shown == 0 then screen:setMessage(_("Couldn't load the journal.")) end
+      return
+    end
+    state.entries = page.entries
+    state.offset = page.count or #page.entries
+    show(page.more)
+  end)
+  return screen
+end
+
 -- Copy the flows onto the class.
 local function install(class)
   for name, fn in pairs(Flows) do

@@ -26,8 +26,8 @@ return {
     emu:pump()
     local dialog = UIManager:getTopmostVisibleWidget()
     assert(dialog and dialog.zlibrary_button == nil, "a Z-library button without the plugin")
-    -- without the plugin the bar is Reviews, then Add
-    assert(dialog.reviews_button and dialog.add_button, "the bar lost Reviews or Add")
+    -- without the plugin the round row is Shelf, Reviews
+    assert(dialog.reviews_button and dialog.add_button, "the bar lost Reviews or Shelf")
     emu:shot("zlibrary_absent")
     emu:closeAll()
 
@@ -40,17 +40,18 @@ return {
     emu:pump()
     dialog = UIManager:getTopmostVisibleWidget()
     assert(dialog and dialog.zlibrary_button, "no Z-library button although the plugin is there")
-    emu:expectText("Z-library")
+    emu:expectText("Download")
     emu:expectText("Reviews")
     emu:shot("zlibrary_button")
 
-    -- it is the first row (a way to get the book), above Reviews and Add
+    -- Download leads the round row (Find on device, the filled button above it, needs KOReader's file
+    -- search, which this scenario does not have)
     emu:screenNodes()
     local at = function(name) return dialog[name].dimen end
-    assert(at("zlibrary_button").y < at("reviews_button").y and at("reviews_button").y < at("add_button").y,
-      "Z-library is not above Reviews and Add")
+    assert(at("zlibrary_button").x < at("add_button").x and at("zlibrary_button").y == at("reviews_button").y,
+      "Download is not first in the round row")
 
-    -- all three are inside the margins
+    -- all of them are inside the margins
     local M = require("hardcover/lib/ui/theme").margin
     for _, name in ipairs({ "add_button", "reviews_button", "zlibrary_button" }) do
       local d = dialog[name].dimen

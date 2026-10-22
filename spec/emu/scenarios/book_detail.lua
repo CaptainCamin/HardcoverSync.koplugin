@@ -201,7 +201,7 @@ return {
 
     -- the page is the same size for every book: About is cut and Read more opens the whole
     -- synopsis on a screen of its own
-    emu:expectText("Add")
+    emu:expectText("Shelf")
     emu:expectText("Currently Reading")
     local function open_and_close(button, expect, shot)
       emu:screenNodes() -- paint first: a tap range is only real once painted
@@ -349,6 +349,36 @@ return {
       "a tap on Close did not close the screen (a widget under it took the tap?)")
     assert(#emu.UIManager._window_stack <= before - 1,
       "tapping Close opened something instead of closing: the stack grew")
+
+    -- The busiest action set must keep its full captions and separate targets,
+    -- including on a narrow screen where the actions need more than one row.
+    emu:closeAll()
+    local _, all_actions = build_detail(emu, { book_id = 103 })
+    local function noop() end
+    all_actions.on_open = nil
+    all_actions.on_find = noop
+    all_actions.on_zlibrary = noop
+    all_actions.on_lists = noop
+    all_actions.on_reviews = noop
+    all_actions.on_review = noop
+    all_actions.on_edition = noop
+    all_actions:rebuild(true)
+    emu:pump()
+    emu:shot("book_detail_all_actions")
+    assert_no_sideways_scroll(all_actions, "all six actions")
+    emu:expectText("Your review")
+    local targets = {}
+    for _, field in ipairs({ "zlibrary_button", "add_button", "lists_button",
+        "reviews_button", "review_button", "edition_button" }) do
+      local d = all_actions[field].dimen
+      assert(d.w >= Theme.mmd.round_button.size.large, field .. " is too small")
+      assert(d.x >= Theme.margin and d.x + d.w <= W - Theme.margin, field .. " is outside the margins")
+      for _, other in ipairs(targets) do
+        assert(d.x + d.w <= other.x or other.x + other.w <= d.x
+          or d.y + d.h <= other.y or other.y + other.h <= d.y, "action targets overlap")
+      end
+      targets[#targets + 1] = d
+    end
 
     print(string.format("  detail rendered in both menu modes"))
   end,
