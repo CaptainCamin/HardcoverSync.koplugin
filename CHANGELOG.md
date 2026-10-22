@@ -21,6 +21,8 @@
 
 ### Changed
 
+- **A compact panel for the open book.** The cover, status, rating and progress sit above five fixed round actions: Progress, Status, Rate, Journal and Details. Options and Close are at the top right. Dotted cards offer Start reading, Add to shelf, Resume, Read again or Start over as appropriate. Journal opens the book's journal; automatic tracking stays in the Set page dialog. Starting over keeps the previous read and starts the new one at page zero.
+
 - **Book details: every action is a button.** The stacked bars are now one filled button (Open, or Find on device for a book that is not on the device) and a row of round buttons under it: Download, Shelf, Lists, Reviews, Your review and Edition. Shelf and Lists are separate buttons instead of one Add button that opened a sheet, and the download button says Download whichever source it uses.
 - **Notes and quotes save without waiting.** Saving a note or quote keeps it on the device and closes the form at once; it is sent when there is a connection, and with none it is sent when the connection is back. Before, saving waited for Hardcover, failed offline, and the text was lost. A note that is waiting shows in Sync's list (tap it to cancel) and counts in the number of changes waiting. If Hardcover never answered for one that was sent, it is sent again and can appear twice.
 
