@@ -627,6 +627,73 @@ step("probe: activity feed shapes (prints only)", function()
   
 end)
 
+-- What Hardcover's Journals page is made of: every kind of journal entry a reader has, with what
+-- each keeps in `metadata`, counted, plus whether the page can be numbered (offset, a total) and
+-- filtered by kind. For you, and for a reader you follow (their public entries), whose journal is
+-- fuller than a test account's. Entry text is cut short in the log.
+step("probe: the journal page, every kind of entry (prints only)", function()
+  local followed = probe("journal page: followed", [[{ me { followed_users { followed_user_id } } }]])
+  local readers = { { "you", ctx.user_id } }
+  for _, f in ipairs(followed and followed.me and followed.me[1] and followed.me[1].followed_users or {}) do
+    readers[#readers + 1] = { "followed " .. #readers, tonumber(f.followed_user_id) }
+  end
+  for _, reader in ipairs(readers) do
+    local label, id = reader[1], math.floor(reader[2])
+    local saved = Api.on_error
+    Api.on_error = function() end
+    local result, err = Api:query([[
+      query {
+        reading_journals(where: { user_id: { _eq: ]] .. id .. [[ } }, order_by: [{ action_at: desc }, { id: desc }], limit: 200) {
+          id event entry metadata action_at created_at likes_count privacy_setting_id book_id edition_id
+          book { id title cached_image contributions: cached_contributors }
+        }
+        total: reading_journals_aggregate(where: { user_id: { _eq: ]] .. id .. [[ } }) { aggregate { count } }
+      }
+    ]])
+    Api.on_error = saved
+    if not result then
+      print("  probe journal page " .. label .. ": refused " .. (type(err) == "table" and json.encode(err) or tostring(err)))
+    else
+      local total = result.total and result.total.aggregate and result.total.aggregate.count
+      print("  probe journal page " .. label .. ": " .. #result.reading_journals .. " read, total " .. tostring(total))
+      local kinds, order = {}, {}
+      for _, row in ipairs(result.reading_journals) do
+        local kind = kinds[row.event]
+        if not kind then
+          kind = { n = 0, keys = {}, example = row }
+          kinds[row.event] = kind
+          order[#order + 1] = row.event
+        end
+        kind.n = kind.n + 1
+        for k in pairs(type(row.metadata) == "table" and row.metadata or {}) do kind.keys[k] = true end
+      end
+      for _, event in ipairs(order) do
+        local kind = kinds[event]
+        local keys = {}
+        for k in pairs(kind.keys) do keys[#keys + 1] = k end
+        table.sort(keys)
+        local ex = kind.example
+        local book = type(ex.book) == "table" and ex.book or {}
+        print(string.format("  probe journal kind %s (%s): %dx metadata keys {%s}", tostring(event), label, kind.n, table.concat(keys, ",")))
+        print("    example metadata: " .. json.encode(ex.metadata) .. " entry: " .. json.encode(type(ex.entry) == "string" and ex.entry:sub(1, 40) or ex.entry)
+          .. " action_at: " .. tostring(ex.action_at) .. " created_at: " .. tostring(ex.created_at) .. " likes: " .. tostring(ex.likes_count)
+          .. " book: " .. tostring(book.title) .. " contributors: " .. json.encode(book.contributions) .. " image: " .. json.encode(book.cached_image))
+      end
+    end
+  end
+  -- numbered pages and a filter by kind
+  probe("journal page: second page by offset", [[
+    query { reading_journals(where: { user_id: { _eq: ]] .. math.floor(ctx.user_id) .. [[ } }, order_by: [{ action_at: desc }, { id: desc }], limit: 2, offset: 2) { id event action_at } }
+  ]])
+  probe("journal page: only notes and quotes", [[
+    query { reading_journals(where: { user_id: { _eq: ]] .. math.floor(ctx.user_id) .. [[ }, event: { _in: ["note", "quote"] } }, limit: 3) { id event } }
+  ]])
+  probe("journal page: everything but ratings", [[
+    query { reading_journals(where: { user_id: { _eq: ]] .. math.floor(ctx.user_id) .. [[ }, event: { _nin: ["rated"] } }, limit: 3) { id event } }
+  ]])
+  typeFields("reading_journals")
+end)
+
 step("probe: a review written and cleared on the user book (prints only)", function()
   local ub = need(ctx.user_book_id, "user book")
   local function review(label, object)
