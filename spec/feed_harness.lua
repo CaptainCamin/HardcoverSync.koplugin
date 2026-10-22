@@ -265,5 +265,73 @@ check("append of nothing keeps what is held", function()
   eq(added, 0)
 end)
 
+print("\n== what is waiting to send ==")
+
+-- as JournalQueue:list and ReviewQueue:list give them
+local function journalOps()
+  return {
+    { id = "100-1", seq = 1, user_id = 1, book_id = 5, event = "note", text = "First note", title = "Dune" },
+    { id = "100-2", seq = 2, user_id = 2, book_id = 5, event = "note", text = "Someone else's", title = "Dune" },
+    { id = "100-3", seq = 3, book_id = 6, event = "quote", text = "Truth is\nsimple", page = 12, title = "Kindred" },
+    { id = "100-4", seq = 4, user_id = 1, book_id = 5, event = "note", text = "   ", title = "Dune" },
+    { id = "100-5", seq = 5, user_id = 1, book_id = 7, event = "note", text = "No title" },
+  }
+end
+local function reviewOps()
+  return {
+    { user_book_id = 900, text = "It gives it all away", spoilers = true, title = "Dune" },
+    { user_book_id = 901, text = "", spoilers = false, title = "Kindred" },
+  }
+end
+
+check("your notes and quotes come newest first, then your reviews; others' and blank ones are left out", function()
+  local waiting = Feed.waiting(journalOps(), reviewOps(), 1)
+  eq(#waiting, 4, "count")
+  eq(waiting[1].key, "waiting:100-5")
+  eq(waiting[2].key, "waiting:100-3", "an entry with no user is yours")
+  eq(waiting[3].key, "waiting:100-1")
+  eq(waiting[4].key, "waiting:review:900")
+  for _, e in ipairs(waiting) do
+    eq(e.waiting, true, "waiting")
+    eq(e.who, "You", "who")
+  end
+end)
+
+check("a waiting entry has what a row and the full text need", function()
+  local waiting = Feed.waiting(journalOps(), reviewOps(), 1)
+  eq(waiting[1].title, "A book", "a missing title")
+  eq(waiting[2].kind, "quote")
+  eq(waiting[2].page, 12)
+  eq(waiting[2].book_id, 6)
+  eq(waiting[2].text, "Truth is\nsimple", "the whole text is kept")
+  has(waiting[2].excerpt, "Truth is")
+  lacks(waiting[2].excerpt, "\n")
+  eq(waiting[4].kind, "review")
+  eq(waiting[4].spoilers, true)
+end)
+
+check("a waiting row says so instead of a date", function()
+  local waiting = Feed.waiting(journalOps(), reviewOps(), 1)
+  local row = Feed.row(waiting[3])
+  eq(row.support, "Waiting to send \194\183 You \194\183 Note \194\183 Dune")
+  eq(row.action, "full")
+  eq(Feed.row(waiting[4]).label, Feed.SPOILER_LABEL, "a waiting review still hides its spoilers")
+  eq(Feed.heading(waiting[2]), "You \194\183 Quote \194\183 Kindred \194\183 p. 12")
+end)
+
+check("nothing waiting, or no queues, is an empty list", function()
+  eq(#Feed.waiting(nil, nil, 1), 0)
+  eq(#Feed.waiting({}, {}, 1), 0)
+end)
+
+check("waiting entries go above what Hardcover has", function()
+  local all = Feed.withWaiting({ { key = "w1" }, { key = "w2" } }, { { key = "a" } })
+  eq(#all, 3)
+  eq(all[1].key, "w1")
+  eq(all[3].key, "a")
+  eq(#Feed.withWaiting(nil, nil), 0)
+  eq(Feed.withWaiting(nil, { { key = "a" } })[1].key, "a")
+end)
+
 print(string.format("\n%d passed, %d failed", results.passed, results.failed))
 os.exit(results.failed == 0 and 0 or 1)
