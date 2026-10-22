@@ -57,12 +57,25 @@ function Facts.describe(o)
   local reading = status_id == HARDCOVER.STATUS.READING
   out.paused = status_id == HARDCOVER.STATUS.PAUSED
   out.finished = status_id == HARDCOVER.STATUS.FINISHED or status_id == HARDCOVER.STATUS.DNF
+  out.status = o.status_label or (o.not_on_shelf and _("Not on a shelf") or _("Shelf not checked yet"))
+  if status_id == HARDCOVER.STATUS.FINISHED then
+    out.message, out.action = _("You finished this book."), "reread"
+  elseif status_id == HARDCOVER.STATUS.DNF then
+    out.message, out.action = _("You didn't finish this book."), "restart"
+  elseif out.paused then
+    out.message, out.action = _("You paused this book."), "resume"
+  elseif status_id == HARDCOVER.STATUS.TO_READ then
+    out.message, out.action = _("Ready to start this book?"), "start"
+  elseif o.not_on_shelf then
+    out.message, out.action = _("This book isn't on a shelf yet."), "shelf"
+  end
 
   local pages = tonumber(o.pages)
   if pages and pages > 0 then
     local saved = tonumber(o.saved_page)
     if reading or (saved and saved > 0) then
       local page = saved or 0
+      out.progress = math.max(0, math.min(1, page / pages))
       out.line = fill(_("Page %1 of %2"), page, pages)
         .. "  \194\183  " .. fill(_("%1%"), math.floor(100 * page / pages + 0.5))
     elseif pages == 1 then

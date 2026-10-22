@@ -11,6 +11,27 @@ local HARDCOVER = { READING = 2, TO_READ = 1, FINISHED = 3, DNF = 5 }
 
 local cases = {
   {
+    key = "pending_reading",
+    book_status = { id = 506, status_id = HARDCOVER.TO_READ, user_book_reads = {} },
+    pending = { status_id = HARDCOVER.READING, mapped_page = 80 },
+    line = "Page 80 of 387",
+  },
+  {
+    key = "unknown_length",
+    book_status = { id = 507, status_id = HARDCOVER.READING, user_book_reads = {} },
+    pages = false, line = false,
+  },
+  {
+    key = "signed_out",
+    book_status = { id = 508, status_id = HARDCOVER.READING, user_book_reads = { { progress_pages = 120 } } },
+    enabled = false, line = "Page 120 of 387",
+  },
+  {
+    key = "paused",
+    book_status = { id = 505, status_id = 4, user_book_reads = { { progress_pages = 120 } } },
+    shelf = "Paused", line = "Page 120 of 387",
+  },
+  {
     key = "reading",
     book_status = { id = 501, status_id = HARDCOVER.READING, user_book_reads = { { progress_pages = 120 } } },
     shelf = nil, -- no shelf line for Currently Reading
@@ -20,7 +41,7 @@ local cases = {
   {
     key = "want_to_read",
     book_status = { id = 502, status_id = HARDCOVER.TO_READ, user_book_reads = {} },
-    shelf = "On your 'Want to Read' shelf",
+    shelf = "Want to Read",
     line = "387 pages",
     switch = false, note = false, hint = true,
   },
@@ -41,7 +62,7 @@ local cases = {
   {
     key = "finished",
     book_status = { id = 503, status_id = HARDCOVER.FINISHED, user_book_reads = { { progress_pages = 387 } } },
-    shelf = "On your 'Read' shelf",
+    shelf = "Read",
     line = "Page 387 of 387",
     switch = false, note = false,
   },
@@ -49,7 +70,7 @@ local cases = {
     -- no page was ever saved, so the panel says how long the book is and must not claim "Page 0 of 387" (nor may Want to Read, no shelf, or unchecked)
     key = "did_not_finish",
     book_status = { id = 504, status_id = HARDCOVER.DNF, user_book_reads = {} },
-    shelf = "On your 'Did Not Finish' shelf",
+    shelf = "Did Not Finish",
     line = "387 pages",
     switch = false, note = false,
   },
@@ -58,7 +79,7 @@ local cases = {
     key = "want_to_read_tracking_off",
     sync = false,
     book_status = { id = 502, status_id = HARDCOVER.TO_READ, user_book_reads = {} },
-    shelf = "On your 'Want to Read' shelf",
+    shelf = "Want to Read",
     line = "387 pages",
     switch = true, note = true,
   },
@@ -86,14 +107,14 @@ return {
         getLinkedBookId = function() return 328491 end,
         getLinkedEditionId = function() return nil end,
         getLinkedEditionFormat = function() return nil end,
-        pages = function() return 387 end,
+        pages = function() if case.pages ~= false then return 387 end end,
         syncEnabled = function() return case.sync ~= false end,
         setSync = function() end,
         readSetting = function() return nil end,
       }
       local menu = HardcoverMenu:new({
         settings = settings,
-        enabled = true,
+        enabled = case.enabled ~= false,
         ui = {
           document = { file = "/books/x.epub", getPageCount = function() return 387 end },
           doc_props = { display_title = "x" },
@@ -104,7 +125,7 @@ return {
         sync_queue = {
           pendingCount = function() return 0 end,
           hasPending = function() return false end,
-          get = function() return nil end,
+          get = function() return case.pending end,
         },
         auth = { usingOAuth = function() return true end, needsReauth = function() return false end,
                  statusText = function() return "Signed in" end },
@@ -123,13 +144,24 @@ return {
         assert(not text:find(" shelf", 1, true) and not text:find("Not on a shelf", 1, true),
           case.key .. ": has a shelf line, which Currently Reading leaves out")
       end
-      assert(text:find(case.line, 1, true), case.key .. ": line under the title says '" .. case.line .. "'")
-      assert(text:find("Update Hardcover as I read", 1, true) ~= nil == case.switch,
-        case.key .. ": switch shown is " .. tostring(case.switch))
-      assert(text:find("Change status to update progress.", 1, true) ~= nil == case.note,
-        case.key .. ": the switch note shown is " .. tostring(case.note))
-      assert(text:find("asked to start reading", 1, true) ~= nil == (case.hint == true),
-        case.key .. ": the 'asked to start reading' hint shown is " .. tostring(case.hint == true))
+      if case.line then
+        assert(text:find(case.line, 1, true), case.key .. ": page or length line is missing")
+      end
+      local model = menu.reader_panel.opts.model()
+      assert(#model.actions == 5, "linked books must keep five action slots")
+      local status = case.pending and case.pending.status_id or case.book_status.status_id
+      assert(model.actions[1].enabled == (status == HARDCOVER.READING and case.enabled ~= false), "progress availability disagrees with reading status")
+      if case.pages == false then assert(model.progress == nil, "unknown page count must not create a progress bar") end
+      if case.enabled == false then
+        for _, action in ipairs(model.actions) do assert(action.enabled == false, "signed-out action must be disabled") end
+      end
+      for _, gone in ipairs({ "Update Hardcover as I read", "Change status to update progress.", "asked to start reading", "Cancel", "Close" }) do
+        assert(not text:find(gone, 1, true), case.key .. ": obsolete text " .. gone)
+      end
+      if case.key == "did_not_finish" then
+        emu:expectText("You didn't finish this book.")
+        emu:expectText("Start over")
+      end
       assert(not text:find("Page 0", 1, true), case.key .. ": claims 'Page 0' with no saved page")
 
       emu:shot("reader_panel_status_" .. case.key)
