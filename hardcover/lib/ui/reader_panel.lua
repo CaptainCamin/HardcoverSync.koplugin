@@ -141,7 +141,10 @@ function ReaderPanel:render()
     table.insert(head, pill_row)
   end
   if gear then
-    table.insert(head, Theme.hspan(math.max(0, width - used - gear_w)))
+    -- the gear's square ends at the top app bar's side margin from the edge, a little past the
+    -- content's own margin
+    local reach = M - Theme.mmd.top_bar.side
+    table.insert(head, Theme.hspan(math.max(0, width + reach - used - gear_w)))
     table.insert(head, gear)
   end
   table.insert(content, head)
