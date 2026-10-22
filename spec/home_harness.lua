@@ -28,7 +28,7 @@ check("the shelves come in a sensible order, reading first", function()
   local ids = {}
   for i, row in ipairs(rows) do ids[i] = row.status_id end
   assert(table.concat(ids, ",") == table.concat({
-    HARDCOVER.STATUS.READING, HARDCOVER.STATUS.TO_READ, HARDCOVER.STATUS.FINISHED, HARDCOVER.STATUS.DNF }, ","),
+    HARDCOVER.STATUS.READING, HARDCOVER.STATUS.TO_READ, HARDCOVER.STATUS.FINISHED, HARDCOVER.STATUS.DNF, HARDCOVER.STATUS.PAUSED }, ","),
     "order: " .. table.concat(ids, ","))
 end)
 
@@ -48,7 +48,20 @@ check("a shelf with no count has none, not zero", function()
 end)
 
 check("no counts at all is fine", function()
-  assert(#Home.rows(nil) == 4)
+  assert(#Home.rows(nil) == 5)
+end)
+
+check("the Library lists Paused after Currently Reading; the home screen leaves it out", function()
+  local ids = function(rows) local t = {} for i, row in ipairs(rows) do t[i] = row.status_id end return table.concat(t, ",") end
+  local S = HARDCOVER.STATUS
+  assert(ids(Home.listOrder(Home.rows({}))) == table.concat({ S.TO_READ, S.READING, S.PAUSED, S.FINISHED, S.DNF }, ","))
+  assert(ids(Home.homeOrder(Home.rows({}))) == table.concat({ S.TO_READ, S.READING, S.FINISHED, S.DNF }, ","))
+end)
+
+check("Paused is synced and counted with the other shelves", function()
+  local found = false
+  for _, id in ipairs(Home.statusIds()) do if id == HARDCOVER.STATUS.PAUSED then found = true end end
+  assert(found)
 end)
 
 print("\n== the count query ==")

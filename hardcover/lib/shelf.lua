@@ -197,7 +197,7 @@ end
 -- The statuses a book can be put on, in the order the shelf chooser lists them.
 function Shelf.statusChoices()
   local choices = {}
-  for _, id in ipairs({ 1, 2, 3, 5 }) do
+  for _, id in ipairs({ 1, 2, 4, 3, 5 }) do
     choices[#choices + 1] = { status_id = id, label = STATUS_LABELS[id] }
   end
   return choices
@@ -383,6 +383,7 @@ local SHORT_STATUS = {
   [1] = "Want to Read",
   [2] = "Reading",
   [3] = "Read",
+  [4] = "Paused",
   [5] = "Did Not Finish",
 }
 

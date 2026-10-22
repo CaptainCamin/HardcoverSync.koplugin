@@ -148,6 +148,7 @@ end
 local STATUS_LABELS = {
   [HARDCOVER.STATUS.TO_READ] = "Want to Read",
   [HARDCOVER.STATUS.READING] = "Currently Reading",
+  [HARDCOVER.STATUS.PAUSED] = "Paused",
   [HARDCOVER.STATUS.FINISHED] = "Read",
   [HARDCOVER.STATUS.DNF] = "Did Not Finish",
 }
@@ -214,7 +215,7 @@ function HardcoverMenu:showReaderPanel()
       enabled_func = function() return self.enabled and self.settings:bookLinked() end,
       sub_item_table_func = function()
         local all = self:getStatusSubMenuItems()
-        return { all[1], all[2], all[3], all[4], all[5] }
+        return { all[1], all[2], all[3], all[4], all[5], all[6] }
       end,
     }
 
@@ -236,6 +237,13 @@ function HardcoverMenu:showReaderPanel()
       text = _("Read again"),
       run = function() self:readAgain() end,
     } or nil
+    -- a paused book is picked up again: it goes back to Currently Reading
+    if linked and facts.paused then
+      shelf_action = {
+        text = _("Resume"),
+        run = function() self:resumeReading() end,
+      }
+    end
 
     local actions = {}
     local function add(text, item, extra)
@@ -1231,6 +1239,17 @@ function HardcoverMenu:removeCurrentRead(menu_instance)
   end)
 end
 
+-- Put a paused book back on Currently Reading. Asks first.
+function HardcoverMenu:resumeReading()
+  StatusDialogs.confirm {
+    title = _("Resume this book?"),
+    text = _("It goes back to Currently Reading."),
+    cancel_text = _("Cancel"),
+    ok_text = _("Resume"),
+    ok_callback = function() self:setStatus(HARDCOVER.STATUS.READING) end,
+  }
+end
+
 -- Start a finished or Did not finish book again. Asks first.
 function HardcoverMenu:readAgain()
   StatusDialogs.confirm {
@@ -1414,6 +1433,27 @@ function HardcoverMenu:getStatusSubMenuItems()
           text = "Mark book as Currently Reading?",
           ok_callback = function()
             self:setStatus(HARDCOVER.STATUS.READING)
+          end,
+          no_confirm_callback = function()
+            menu_instance:updateItems()
+          end
+        })
+      end,
+      radio = true
+    },
+    {
+      text = _(ICON.PAUSE_CIRCLE .. " Paused"),
+      enabled_func = function()
+        return self.enabled
+      end,
+      checked_func = function()
+        return self.state.book_status.status_id == HARDCOVER.STATUS.PAUSED
+      end,
+      callback = function(menu_instance)
+        self.dialog_manager:maybeConfirm({
+          text = "Mark book as Paused?",
+          ok_callback = function()
+            self:setStatus(HARDCOVER.STATUS.PAUSED)
           end,
           no_confirm_callback = function()
             menu_instance:updateItems()

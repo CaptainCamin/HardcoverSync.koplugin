@@ -541,7 +541,7 @@ check("offline with nothing saved, it still opens, with no counts", function()
   online = false
   local m = newManager()
   m:showHomeBody(homeHost())
-  assert(fake[1] and #fake[1].rows == 4 and rowFor(fake[1], 1).count == nil)
+  assert(fake[1] and #fake[1].rows == 5 and rowFor(fake[1], 1).count == nil)
 end)
 
 check("a shelf that was loaded in full gives its count offline", function()

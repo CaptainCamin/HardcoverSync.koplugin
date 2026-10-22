@@ -26,6 +26,8 @@ end
 function SyncConflicts.statusName(status_id)
   if status_id == HARDCOVER.STATUS.FINISHED then
     return _("Read")
+  elseif status_id == HARDCOVER.STATUS.PAUSED then
+    return _("Paused")
   elseif status_id == HARDCOVER.STATUS.DNF then
     return _("Did not finish")
   end

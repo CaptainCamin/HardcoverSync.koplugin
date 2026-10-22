@@ -116,9 +116,9 @@ local check = r.test
 print("\n== statuses ==")
 
 check("the shelves offered map to Hardcover's status ids", function()
-  local want = { { 1, "Want to Read" }, { 2, "Currently Reading" }, { 3, "Read" }, { 5, "Did Not Finish" } }
+  local want = { { 1, "Want to Read" }, { 2, "Currently Reading" }, { 4, "Paused" }, { 3, "Read" }, { 5, "Did Not Finish" } }
   local got = Shelf.statusChoices()
-  assert(#got == 4, "choices: " .. #got)
+  assert(#got == 5, "choices: " .. #got)
   for i, w in ipairs(want) do
     assert(got[i].status_id == w[1] and got[i].label == w[2], "choice " .. i .. " is " .. tostring(got[i].status_id))
   end
@@ -312,13 +312,13 @@ end
 local NEW = function() return { book = { book_id = 100, title = "Obelisk", edition_id = 10001 } } end
 local SHELVED = function() return { book = { book_id = 100, title = "Obelisk" }, status_id = 1, user_book_id = 55 } end
 
-check("a book not in the library gets the four shelves and no Remove", function()
+check("a book not in the library gets the five shelves and no Remove", function()
   online = true
   local m = newManager()
   local p = picker(m, detailScreen(NEW()))
   assert(p, "no picker")
   local got = labels(p)
-  assert(table.concat(got, "|") == "Want to Read|Currently Reading|Read|Did Not Finish", table.concat(got, "|"))
+  assert(table.concat(got, "|") == "Want to Read|Currently Reading|Paused|Read|Did Not Finish", table.concat(got, "|"))
 end)
 
 check("a shelved book also gets Remove from library, and its current shelf is marked", function()

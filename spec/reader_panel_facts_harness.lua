@@ -19,6 +19,13 @@ local function describe(o)
 end
 local DOT = "  \194\183  "
 
+print("\n== Paused ==")
+local paused = describe { status_id = S.PAUSED, saved_page = 120, status_label = "Paused" }
+r.check("paused: Resume, not Read again", paused.paused == true and not paused.finished)
+r.check("paused: shelf line", paused.shelf == "On your 'Paused' shelf", paused.shelf)
+r.check("paused: no switch (reading asks first)", not paused.track)
+r.check("reading is not paused", describe { status_id = S.READING, status_label = "Currently Reading" }.paused == false)
+
 print("\n== Currently Reading ==")
 local reading = describe { status_id = S.READING, saved_page = 120, status_label = "Currently Reading" }
 r.check("page line: where you are", reading.line == "Page 120 of 387" .. DOT .. "31%", reading.line)

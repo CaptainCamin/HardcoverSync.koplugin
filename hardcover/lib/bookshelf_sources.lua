@@ -24,6 +24,7 @@ local LISTS_ID = "hardcover_lists"
 local SHELF_SOURCES = {
   { id = WANT_TO_READ_ID, label = "Hardcover: Want to Read", choice = "Want to Read", status = HARDCOVER.STATUS.TO_READ },
   { id = "hardcover_reading", label = "Hardcover: Currently Reading", choice = "Currently Reading", status = HARDCOVER.STATUS.READING },
+  { id = "hardcover_paused", label = "Hardcover: Paused", choice = "Paused", status = HARDCOVER.STATUS.PAUSED },
   { id = "hardcover_read", label = "Hardcover: Read", choice = "Read", status = HARDCOVER.STATUS.FINISHED },
   { id = "hardcover_dnf", label = "Hardcover: Did Not Finish", choice = "Did Not Finish", status = HARDCOVER.STATUS.DNF },
 }

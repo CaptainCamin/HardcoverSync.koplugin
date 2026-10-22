@@ -20,6 +20,7 @@ local PendingChanges = {}
 local function statusText(status_id)
   if status_id == HARDCOVER.STATUS.TO_READ then return _("Want to Read") end
   if status_id == HARDCOVER.STATUS.READING then return _("Currently Reading") end
+  if status_id == HARDCOVER.STATUS.PAUSED then return _("Paused") end
   if status_id == HARDCOVER.STATUS.FINISHED then return _("Read") end
   if status_id == HARDCOVER.STATUS.DNF then return _("Did Not Finish") end
   return _("a new status")
