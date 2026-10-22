@@ -199,19 +199,16 @@ end
 -- exploratory probe below; this mode only reads the account and feed.
 if activity_only then
   local Feed = require("hardcover/lib/feed")
-  local followed
-  request_label = "followed readers"
-  step("getFollowedIds", function()
-    followed = is_table(Api:getFollowedIds(), "followed ids")
-    print("    followed readers: " .. #followed)
-  end)
   for _, mode in ipairs({ "full", "status", "note", "quote", "review" }) do
     request_label = mode .. " activity"
     step(request_label, function()
       local page = is_table(Api:getFeed({
-        me_id = ctx.user_id, user_ids = followed or {}, limit = Feed.PAGE_SIZE,
+        me_id = ctx.user_id, mine = true, limit = Feed.PAGE_SIZE,
         kinds = mode ~= "full" and { mode } or nil,
       }), "activity page")
+      for _, entry in ipairs(page.entries) do
+        if entry.user_id ~= ctx.user_id then error("journal returned another reader's entry", 0) end
+      end
       print(string.format("    entries=%d, more=%s, page size=%d",
         #page.entries, tostring(page.more), Feed.PAGE_SIZE))
     end)

@@ -1,4 +1,4 @@
--- The Library's Activity tab: what you and the readers you follow lately did on Hardcover, newest
+-- The Library's Activity tab: your journal entries on Hardcover, newest
 -- first. One row per entry, every row the same height: a line in bold (the book for a status change,
 -- the text for a note, quote or review) and a small line under it (the day, who, and what kind of
 -- entry it is). A row that has something to open shows a chevron, and tapping it opens the whole text
@@ -128,7 +128,7 @@ function ActivityBody:setEntries(entries, has_more)
   self.has_more = has_more == true
   self.loading = false
   if #self.entries == 0 then
-    self:setMessage(_("No activity yet. Follow readers on hardcover.app to see theirs here."))
+    self:setMessage(_("No activity yet. Your status changes, notes, quotes and reviews will appear here."))
     return
   end
   self:rebuild()

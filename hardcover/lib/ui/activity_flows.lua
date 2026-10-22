@@ -1,9 +1,8 @@
--- The Activity tab of the Library, as methods of DialogManager: what you and the readers you follow
--- lately did on Hardcover (status changes, notes, quotes, reviews), newest first.
+-- Your journal in the Library's Activity tab, as methods of DialogManager:
+-- your status changes, notes, quotes and reviews on Hardcover, newest first.
 --
--- Show-then-fetch: the tab opens at once saying it is loading, then one request (two the first time:
--- who you follow, then the page) fills it. "Load more" asks for the next page, by time (see
--- hardcover/lib/feed.lua). Nothing is saved on the device yet, so offline the tab says it needs a
+-- Show-then-fetch: the tab opens at once saying it is loading, then one request fills it.
+-- "Load more" asks for the next page, by time (see hardcover/lib/feed.lua). Nothing is saved on the device yet, so offline the tab says it needs a
 -- connection. Copied onto the class by install(), like list_flows.lua.
 
 local _ = require("gettext")
@@ -40,14 +39,11 @@ function Flows:showActivity(host)
   local online = Network.connected()
   -- Journal reads require an explicit permission, even when library reads work.
   local missing_journal = AuthScope.missing("read:journal")
-  local missing_social = AuthScope.missing("read:social") or AuthScope.missing("read:users")
   local message
   if not online then
     message = _("Activity needs an internet connection.")
   elseif missing_journal then
     message = _("Activity needs access to your reading journal. Sign out and sign back in to allow it.")
-  elseif missing_social then
-    message = _("Activity needs access to social activity. Sign out and sign back in to allow it.")
   else
     message = _("Loading activity\226\128\166")
   end
@@ -59,31 +55,20 @@ function Flows:showActivity(host)
     select_cb = function(entry) self:openActivityEntry(entry) end,
   }
   self:openScreen("activity", dialog, host)
-  if not online or missing_journal or missing_social then return dialog end
+  if not online or missing_journal then return dialog end
 
-  local state = { followed = nil, entries = {}, cursor = nil }
+  local state = { entries = {}, cursor = nil }
   local me_id = User:getId()
 
-  -- one page at or before `before` (nil: the newest); callback(page, err). Who is followed is
-  -- asked once and kept for the later pages.
+  -- Every page is restricted to the signed-in reader, including Load more.
   local function fetch(before, callback)
-    local function ask(ids)
-      Api:getFeedAsync({ me_id = me_id, user_ids = ids, before = before, limit = Feed.PAGE_SIZE },
-        function(page, err)
-          if not page then
-            return callback(nil, { message = string.format(_("Activity feed: %s"), StatusDialogs.describe(err)) })
-          end
-          callback(page, err)
-        end)
-    end
-    if state.followed then return ask(state.followed) end
-    Api:getFollowedIdsAsync(function(ids, err)
-      if not ids then
-        return callback(nil, { message = string.format(_("Followed readers: %s"), StatusDialogs.describe(err)) })
-      end
-      state.followed = ids
-      ask(ids)
-    end)
+    Api:getFeedAsync({ me_id = me_id, mine = true, before = before, limit = Feed.PAGE_SIZE },
+      function(page, err)
+        if not page then
+          return callback(nil, { message = string.format(_("Activity feed: %s"), StatusDialogs.describe(err)) })
+        end
+        callback(page, err)
+      end)
   end
 
   dialog.more_cb = function()
