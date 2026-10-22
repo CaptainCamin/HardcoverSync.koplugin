@@ -195,7 +195,9 @@ function HardcoverApi:query(query, parameters, background)
           end
         end
 
-        return nil, { errors = err, status = tonumber(code) }
+        return nil, { errors = err, status = tonumber(code),
+          message = type(data.error_description) == "string" and data.error_description ~= ""
+            and data.error_description or nil }
       end
     else
       return nil, { completed = false }
@@ -2091,9 +2093,11 @@ end
 -- error. Needs the read:social scope.
 --
 function HardcoverApi:getFollowedIds()
+  -- This screen's follow list is part of the user's requested Activity load. Taps on the
+  -- screen (for example, scrolling while the feed loads) must not cancel the request.
   local results, err = self:query([[
     query { me { followed_users { followed_user_id } } }
-  ]])
+  ]], nil, true)
   local me = results and results.me and results.me[1]
   if not me then return nil, err or { completed = false } end
   local ids = {}
@@ -2111,7 +2115,9 @@ end
 function HardcoverApi:getFeed(opts)
   local query = Feed.query(opts)
   if not query then return { entries = {}, more = false } end
-  local results, err = self:query(query)
+  -- Activity pages are requested by the user; scrolling or tapping the screen while
+  -- one loads must not interrupt the subprocess.
+  local results, err = self:query(query, nil, true)
   if not results then return nil, err or { completed = false } end
   return Feed.parse(results, opts and opts.limit)
 end

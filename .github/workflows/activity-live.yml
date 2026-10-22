@@ -1,0 +1,35 @@
+name: Activity API diagnostic
+
+on:
+  push:
+    branches: [claude/project-thread-687mbo]
+    paths:
+      - .github/workflows/activity-live.yml
+      - spec/live/hardcover_live.lua
+      - hardcover/lib/feed.lua
+      - hardcover/lib/hardcover_api.lua
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-hardcover
+  cancel-in-progress: false
+
+jobs:
+  activity:
+    if: github.repository == 'CaptainCamin/HardcoverSync.koplugin'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install LuaJIT
+        run: sudo apt-get install -y luajit
+      - name: Read Activity using the repository test token
+        env:
+          HARDCOVER_DEV_KEY: ${{ secrets.HARDCOVER_DEV_KEY }}
+          HARDCOVER_LIVE_ACTIVITY_ONLY: '1'
+        run: luajit spec/live/hardcover_live.lua .

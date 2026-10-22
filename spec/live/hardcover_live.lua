@@ -95,6 +95,8 @@ for _, name in ipairs({
 end
 
 local failures_http = {}
+local activity_only = os.getenv("HARDCOVER_LIVE_ACTIVITY_ONLY") == "1"
+local request_label = "me"
 local API_URL = "https://api.hardcover.app/v1/graphql"
 Api.transport = {
   post = function(url, headers, body)
@@ -125,6 +127,19 @@ Api.transport = {
     if not code then return "0:" end
     if not code:match("^2") then
       failures_http[#failures_http + 1] = code
+    end
+    if activity_only then
+      print("    " .. request_label .. ": HTTP " .. code)
+      local ok, response = pcall(json.decode, content or "")
+      if ok and type(response) == "table" then
+        -- Only error details, never the token or returned account/feed content.
+        if type(response.error) == "string" then print("    error: " .. response.error) end
+        if type(response.error_description) == "string" then
+          print("    description: " .. response.error_description)
+        end
+      elseif not code:match("^2") then
+        print("    non-JSON error response (body omitted)")
+      end
     end
     return code .. ":" .. content
   end,
@@ -178,6 +193,31 @@ if not ctx.user_id then
     (key:match("^[%s\"']") or key:match("[%s\"']$")) and "has" or "no"))
   print("cannot continue without a user (is the token valid?)")
   r.finish()
+end
+
+-- A targeted diagnostic for the Activity screen. Return before any mutation or
+-- exploratory probe below; this mode only reads the account and feed.
+if activity_only then
+  local Feed = require("hardcover/lib/feed")
+  for _, mode in ipairs({ "full", "status", "note", "quote", "review" }) do
+    request_label = mode .. " activity"
+    step(request_label, function()
+      local page = is_table(Api:getFeed({
+        me_id = ctx.user_id, mine = true, limit = Feed.PAGE_SIZE,
+        kinds = mode ~= "full" and { mode } or nil,
+      }), "activity page")
+      for _, entry in ipairs(page.entries) do
+        if entry.user_id ~= ctx.user_id then error("journal returned another reader's entry", 0) end
+      end
+      print(string.format("    entries=%d, more=%s, page size=%d",
+        #page.entries, tostring(page.more), Feed.PAGE_SIZE))
+    end)
+  end
+  step("no HTTP refusals", function()
+    if #failures_http > 0 then error(table.concat(failures_http, ","), 0) end
+  end)
+  r.finish()
+  return
 end
 
 -- Catalogue: reads only

@@ -174,7 +174,7 @@ return {
     assert(UIManager:getTopmostVisibleWidget() == shell, "closing the goal did not reveal the shell")
     assert(require("hardcover/lib/ui/live").shown(body), "the body is not live after a screen closed over it")
 
-    -- Library: Shelves | Lists | Vibes under a tab row, each built when first opened
+    -- Library: Shelves | Lists | Vibes | Activity under a tab row, each built when first opened
     nav(2)
     assert(shell.active == "library", "the Library tab did not open")
     local library = shell.bodies.library
@@ -184,7 +184,7 @@ return {
     assert(library.bodies.shelves and library.bodies.shelves.parent == library, "Shelves is not an inner body")
     local function sub(i)
       emu:screenNodes()
-      emu:tapExpecting(math.floor((i - 0.5) * W / 3), Device.screen:scaleBySize(67 + 25))
+      emu:tapExpecting(math.floor((i - 0.5) * W / 4), Device.screen:scaleBySize(67 + 25))
       emu:pump()
     end
     sub(2)

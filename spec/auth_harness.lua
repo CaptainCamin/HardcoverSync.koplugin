@@ -536,6 +536,16 @@ check("sign-in asks for read:users, which is what lets Hardcover name reviewers"
   end
 end)
 
+check("journal reads are requested explicitly in both sign-in configurations", function()
+  for _, file in ipairs({ "hardcover/lib/auth.lua", "hardcover/lib/default_config.lua" }) do
+    local f = assert(io.open(PLUGIN .. "/" .. file)); local src = f:read("*a"); f:close()
+    local scope = src:match('scope = "([^"]+)"') or src:match('DEFAULT_SCOPE = "([^"]+)"')
+    assert(scope and (" " .. scope .. " "):find(" read:journal ", 1, true), file .. " lacks read:journal")
+  end
+  eq(signedIn("read:library read:social read:users"):hasScope("read:journal"), false, "older login")
+  eq(signedIn("read:library read:journal read:social read:users"):hasScope("read:journal"), true, "new login")
+end)
+
 check("a granted scope is reported as granted", function()
   local a = signedIn("read:catalog read:library read:social")
   eq(a:hasScope("read:social"), true, "read:social")

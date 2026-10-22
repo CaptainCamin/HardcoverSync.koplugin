@@ -200,6 +200,53 @@ check("a long note gets an excerpt and keeps its whole text", function()
   eq(page.entries[1].text, long)
 end)
 
+print("\n== the rows ==")
+
+check("a status change shows the book, and opens it", function()
+  local row = Feed.row(Feed.parse(answer(), 20).entries[2])
+  eq(row.label, "Dune")
+  eq(row.support, "Oct 20 \194\183 Dana \194\183 Reading, 40%")
+  eq(row.action, "book")
+end)
+
+check("a quote is quoted, says it is a quote and opens in full", function()
+  local row = Feed.row(Feed.parse(answer(), 20).entries[1])
+  eq(row.label, "\226\128\156Fear is the mind-killer.\226\128\157")
+  eq(row.support, "Oct 21 \194\183 Dana \194\183 Quote \194\183 Dune")
+  eq(row.action, "full")
+  eq(row.icon, "bookmark")
+end)
+
+check("a review leads with its rating, and a spoiler is not given away", function()
+  local entries = Feed.parse(answer(), 20).entries
+  local row = Feed.row(entries[3])
+  eq(row.label, Feed.SPOILER_LABEL)
+  eq(row.support, "Oct 19 \194\183 ravi \194\183 Review \194\183 Kindred")
+  local data = answer()
+  data.reviews[1].review_has_spoilers = false
+  row = Feed.row(Feed.parse(data, 20).entries[3])
+  eq(row.label, "5*  Loved it.")
+end)
+
+check("a status change with no book opens nothing", function()
+  local data = answer()
+  data.activities[2].book = nil
+  eq(Feed.row(Feed.parse(data, 20).entries[4]).action, nil)
+end)
+
+check("the heading over the whole text names who, what and which book", function()
+  local entries = Feed.parse(answer(), 20).entries
+  eq(Feed.heading(entries[1]), "Dana \194\183 Quote \194\183 Dune \194\183 p. 12")
+  eq(Feed.heading(entries[3]), "ravi \194\183 Review \194\183 Kindred")
+end)
+
+check("short dates", function()
+  eq(Feed.shortDate("2026-01-05"), "Jan 5")
+  eq(Feed.shortDate("2026-12-31"), "Dec 31")
+  eq(Feed.shortDate(nil), nil)
+  eq(Feed.shortDate("soon"), nil)
+end)
+
 print("\n== the next page ==")
 
 check("append adds the new entries and drops the ones already held", function()

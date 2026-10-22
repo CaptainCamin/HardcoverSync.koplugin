@@ -46,6 +46,8 @@ end
 require("hardcover/lib/ui/book_flows").install(DialogManager)
 -- So do the lists screens, and keeping the lists saved on the device.
 require("hardcover/lib/ui/list_flows").install(DialogManager)
+-- And the Library's Activity tab.
+require("hardcover/lib/ui/activity_flows").install(DialogManager)
 -- And the shelves, and keeping them saved.
 require("hardcover/lib/ui/shelf_flows").install(DialogManager)
 -- And Settings > Download covers for offline.
@@ -541,6 +543,9 @@ function DialogManager:shellTabs()
               end },
             { id = "vibes", label = _("Vibes"), make = function(sh, w, h, parent)
                 return self:showVibes({ shell = sh, width = w, height = h, id = "vibes", parent = parent })
+              end },
+            { id = "activity", label = _("Activity"), make = function(sh, w, h, parent)
+                return self:showActivity({ shell = sh, width = w, height = h, id = "activity", parent = parent })
               end },
           },
         }
