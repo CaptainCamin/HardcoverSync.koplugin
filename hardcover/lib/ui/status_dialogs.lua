@@ -112,6 +112,10 @@ function SD.describe(err)
   end
   if type(err) == "table" then
     if type(err.message) == "string" then return err.message end
+    -- GraphQL validation and scope failures arrive in a successful HTTP response.
+    -- Show their server message instead of calling them a missing response.
+    local first = type(err.errors) == "table" and err.errors[1]
+    if type(first) == "table" and type(first.message) == "string" then return first.message end
     if err.completed == false then return _("no response from Hardcover") end
     if err.status then return string.format(_("Hardcover returned an error (%s)"), tostring(err.status)) end
   end
