@@ -9,7 +9,7 @@
 -- found today are committed in spec/theme_discipline_allow.lua. A count that goes up fails (a new
 -- offender, or a new use in an old file) and so does one that goes down without the allowlist being
 -- lowered, so the list can only shrink. Chart files are allowlisted: the grey policy for charts is an
--- open decision (docs/e-ink-design.md).
+-- open decision (docs/design/decisions.md).
 --
 -- To refresh the allowlist after fixing offenders:
 --   THEME_ALLOW_PRINT=1 lua spec/theme_discipline_harness.lua   (paste the output over the table)

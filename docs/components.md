@@ -6,7 +6,7 @@ only tokens and primitives (colours, `px`, spacing, type, line weights, `Theme.m
 composition is the point (`list_item` hosts a switch, radio or checkbox; the sheets and dialog build on
 `overlay` and `button`).
 
-Metrics come from the paper's appendix (see `e-ink-design.md`), scaled with `Theme.px`. Each component has a
+Metrics come from the paper's appendix (see `design/mmd-reference.md`), scaled with `Theme.px`. Each component has a
 scene in `spec/emu/scenarios/` that draws and taps it on a real KOReader; `spec/components_harness.lua`
 checks the numbers.
 
@@ -39,5 +39,5 @@ checks the numbers.
 Text uses `Theme.mmdText(str, "text" | "strong", size)`: Lato Medium and Black when installed, KOReader's
 UI font (strong as bold) until then.
 
-What is decided and what is still open is in `e-ink-design.md` (Decisions, Still open). The screens built from these
+What is decided and what is still open is in `design/decisions.md` (Decisions, Still open). The screens built from these
 are described in `shell.md`.

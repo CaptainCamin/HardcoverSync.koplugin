@@ -4,7 +4,7 @@
 --   scaleBySize / Size / getFace: sizes and fonts that belong in Theme.px, Theme.space, Theme.type.
 --   color: Blitbuffer.COLOR_* named directly instead of Theme.BLACK / Theme.WHITE / Theme.DARK_GREY.
 --   hex: raw grey levels. chart_widgets.lua keeps its greys until the grey policy is decided
---        (docs/e-ink-design.md), so its entries stay.
+--        (docs/design/decisions.md), so its entries stay.
 return {
   ["hardcover/lib/ui/book_detail_dialog.lua"] = { scaleBySize = 2, color = 2 },
   ["hardcover/lib/ui/chart_widgets.lua"] = { hex = 8, color = 2 },
