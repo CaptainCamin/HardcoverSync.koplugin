@@ -71,7 +71,7 @@ end
 
 --
 -- The one request for a page. opts: { me_id, user_ids (the readers followed), kinds (see KINDS),
--- before (an entry's `at`), limit, mine (only your own) }. Returns the query text, or nil when
+-- before (an entry's `at`), limit, mine (only your own), book_id (only this book) }. Returns the query text, or nil when
 -- there is nobody to ask about. Numbers and the time go into the text itself: the id columns
 -- are bigint and the API is stricter about declared variable types than about literals.
 --
@@ -97,15 +97,18 @@ function Feed.query(opts)
   end
 
   local person = "user { username name } book { id title }"
+  -- one book's entries only: the same condition in each source
+  local book = int(opts.book_id)
+  local of_book = book and string.format(", book_id: { _eq: %s }", book) or ""
   local parts = {}
 
   if kinds.status then
     parts[#parts + 1] = string.format([[
       activities(
-        where: { user_id: { _in: %s }, event: { _eq: "UserBookActivity" }%s }
+        where: { user_id: { _in: %s }, event: { _eq: "UserBookActivity" }%s%s }
         order_by: [{ created_at: desc }, { id: desc }]
         limit: %d
-      ) { id event user_id created_at data %s }]], list, when("created_at", before), limit, person)
+      ) { id event user_id created_at data %s }]], list, when("created_at", before), of_book, limit, person)
   end
 
   if kinds.note or kinds.quote then
@@ -118,21 +121,21 @@ function Feed.query(opts)
       me or "0", list, HARDCOVER.PRIVACY.PUBLIC, HARDCOVER.PRIVACY.FOLLOWS)
     parts[#parts + 1] = string.format([[
       journals: reading_journals(
-        where: { event: { _in: [%s] }, %s%s }
+        where: { event: { _in: [%s] }, %s%s%s }
         order_by: [{ created_at: desc }, { id: desc }]
         limit: %d
       ) { id event entry user_id created_at metadata %s }]],
-      table.concat(events, ", "), who, when("created_at", before), limit, person)
+      table.concat(events, ", "), who, when("created_at", before), of_book, limit, person)
   end
 
   if kinds.review then
     parts[#parts + 1] = string.format([[
       reviews: user_books(
-        where: { user_id: { _in: %s }, has_review: { _eq: true }, reviewed_at: { _is_null: false%s } }
+        where: { user_id: { _in: %s }, has_review: { _eq: true }, reviewed_at: { _is_null: false%s }%s }
         order_by: [{ reviewed_at: desc }, { id: desc }]
         limit: %d
       ) { id user_id rating review_raw review_has_spoilers reviewed_at %s }]],
-      list, when("reviewed_at", before and before:sub(1, 10), true), limit, person)
+      list, when("reviewed_at", before and before:sub(1, 10), true), of_book, limit, person)
   end
 
   return "query {\n" .. table.concat(parts, "\n") .. "\n}"

@@ -271,6 +271,10 @@ function HardcoverMenu:showReaderPanel()
           end, true)
         end,
       }
+      actions[#actions + 1] = {
+        text = _("Journal"), enabled = self.enabled,
+        run = function() self.dialog_manager:showBookJournal(self.settings:getLinkedBookId()) end,
+      }
     else
       add(_("Link this book"), link_item)
     end

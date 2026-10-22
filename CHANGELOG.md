@@ -11,6 +11,8 @@
 
 - **Activity.** The Library has a fourth tab, Activity: your journal on Hardcover, newest first. It shows status changes (started, finished, rated), notes, quotes and reviews, one row each; tap a note, quote or review to read it whole, or a status change to open the book. A review that gives away the story shows no text in the list. "Load more" fetches the next page. It needs a connection for now; keeping it on the device for offline comes later.
 
+- **Journal from the reader panel.** The panel for the open book has a Journal button. It opens that book's journal: your status changes, notes, quotes and reviews of it, newest first, and a tap on a note, quote or review reads it whole. It needs a connection for now.
+
 ### Fixed
 
 - **Activity sign-in permissions.** Sign-in now requests `read:journal`, which Hardcover requires to load notes and quotes. Update the plugin, then sign out and back in once to grant it. Older sign-ins are prompted before the request is sent.

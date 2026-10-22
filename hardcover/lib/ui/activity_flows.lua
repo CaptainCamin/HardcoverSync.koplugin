@@ -105,6 +105,72 @@ function Flows:showActivity(host)
   return dialog
 end
 
+-- The journal of one book, opened from the reader panel: the same entries as Activity, for this
+-- book only, on a screen of its own. Offline, or signed in without the journal permission, it says so.
+function Flows:showBookJournal(book_id)
+  self:screens():discard("book_journal")
+
+  local online = Network.connected()
+  local missing_journal = AuthScope.missing("read:journal")
+  local message
+  if not online then
+    message = _("The journal needs an internet connection.")
+  elseif missing_journal then
+    message = _("The journal needs access to your reading journal. Sign out and sign back in to allow it.")
+  else
+    message = _("Loading journal\226\128\166")
+  end
+  local screen
+  screen = require("hardcover/lib/ui/journal_screen"):new {
+    message = message,
+    select_cb = function(entry) self:openActivityEntry(entry) end,
+  }
+  self:screens():track("book_journal", screen)
+  require("ui/uimanager"):show(screen, "full")
+  if not online or missing_journal then return screen end
+
+  local state = { entries = {}, cursor = nil }
+  local function fetch(before, callback)
+    Api:getFeedAsync({ me_id = User:getId(), mine = true, book_id = book_id, before = before, limit = Feed.PAGE_SIZE },
+      function(page, err)
+        if not page then
+          return callback(nil, { message = string.format(_("Journal: %s"), StatusDialogs.describe(err)) })
+        end
+        callback(page, err)
+      end)
+  end
+
+  screen.body.more_cb = function()
+    fetch(state.cursor, function(page, err)
+      if not Live.shown(screen) then return end
+      if not page then
+        screen:setLoading(false)
+        StatusDialogs.retry(err, _("Loading more of the journal"), function() screen:loadMore() end, function() end)
+        return
+      end
+      local all, added = Feed.append(state.entries, page.entries)
+      state.entries = all
+      state.cursor = page.cursor or state.cursor
+      screen:setEntries(all, page.more and added > 0)
+    end)
+  end
+
+  fetch(nil, function(page, err)
+    if not Live.shown(screen) then return end
+    if not page then
+      screen:setMessage(_("Couldn't load the journal."))
+      return
+    end
+    state.entries = page.entries
+    state.cursor = page.cursor
+    screen:setEntries(page.entries, page.more)
+    if #page.entries == 0 then
+      screen:setMessage(_("Nothing in the journal for this book yet. Your status changes, notes, quotes and reviews of it will appear here."))
+    end
+  end)
+  return screen
+end
+
 -- Copy the flows onto the class.
 local function install(class)
   for name, fn in pairs(Flows) do
