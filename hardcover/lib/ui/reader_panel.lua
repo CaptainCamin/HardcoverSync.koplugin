@@ -105,7 +105,7 @@ function ReaderPanel:render()
   table.insert(content, Theme.span("m"))
 
   -- Cover, title and two separate touch targets. The title yields space to both controls.
-  local cw, ch = Theme.px(56), Theme.px(84)
+  local cw, ch = Theme.px(80), Theme.px(120)
   local gap = Theme.space.m
   local text_w = width - cw - gap
   local gear = model.menu and self:buildGear(model.menu)
