@@ -1,5 +1,5 @@
 -- Vendored from https://github.com/mpeterv/markdown (MIT).
--- Library-only copy: command-line interface and legacy global export omitted.
+-- Library-only copy: command-line interface, legacy global export and an unreachable return omitted.
 -- Copyright and license: markdown.LICENSE
 
 ----------------------------------------------------------------------
@@ -736,7 +736,6 @@ local function code_spans(s)
          pos = stop + 1
       end
    end
-   return s
 end
 
 -- Encode alt text... enodes &, and ".

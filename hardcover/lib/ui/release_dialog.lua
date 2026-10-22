@@ -47,9 +47,11 @@ function ReleaseDialog.show(opts)
   local viewer = ScrollHtmlWidget:new {
     width = inner, height = body_height,
     html_body = markdown(notes),
-    default_font_size = Theme.px(Theme.type.body),
+    default_font_size = Theme.px(Theme.type.title),
     css = [[
-      body { font-family: sans-serif; color: black; background: white; margin: 0; line-height: 1.35; }
+      @page { margin: 0; }
+      html, body { margin: 0; padding: 0; }
+      body { font-family: sans-serif; color: black; background: white; line-height: 1.35; }
       p, ul, ol, pre, blockquote { margin: 0 0 0.7em; }
       h1, h2, h3, h4, h5, h6 { font-family: sans-serif; margin: 0.6em 0 0.3em; }
       h1 { font-size: 1.4em; } h2 { font-size: 1.25em; } h3 { font-size: 1.1em; }
