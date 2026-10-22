@@ -34,7 +34,7 @@ Every rule below and in the component specs carries a provenance, so a departure
 4. **Unchanged**: touch targets (never under `Theme.TOUCH_MIN`), outline weights, the black and grey policy,
    no animation, fixed row heights.
 
-Status: the dialog rule is built in its own PR (the code in `components/dialog.lua`). The sheet rule is the spec; sheets still run full width with stacked buttons.
+Status: the dialog rule is built (`components/dialog.lua`, also the input dialog). The sheet rule is the spec; sheets still run full width with stacked buttons.
 
 ## Where it comes from
 

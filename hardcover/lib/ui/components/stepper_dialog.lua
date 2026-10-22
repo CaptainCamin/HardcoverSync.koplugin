@@ -4,7 +4,7 @@
 -- range is not a hundred taps. Holding a minus or plus repeats the step and speeds up (a shortcut:
 -- every move also has a button). The value is in a box: tap it to type the number. The value stops
 -- at its ends, and the button that would go past one is drawn dotted and does nothing. Cancel and
--- Save are the Dialog's stacked buttons.
+-- Save are the Dialog's buttons.
 --
 --   StepperDialog.show {
 --     title = "Set rating", text = "optional line",

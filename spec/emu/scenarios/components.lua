@@ -140,7 +140,7 @@ return {
     assert(ran == "remove", "action sheet button did not run")
     assert(UIManager:getTopmostVisibleWidget() == page, "action sheet stayed open")
 
-    -- dialog: two stacked buttons, the filled one first
+    -- dialog: two buttons side by side, the filled one on the right
     local answer
     Dialog.show { title = "Discard queued changes?", text = "Three changes have not reached Hardcover yet. They will be lost.",
       buttons = { { label = "Discard", primary = true, callback = function() answer = "discard" end },
