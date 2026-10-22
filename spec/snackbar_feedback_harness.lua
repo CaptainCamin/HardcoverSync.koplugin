@@ -34,6 +34,11 @@ local _, n = main:gsub("Notification:new", "")
 r.check("main.lua keeps exactly one toast, for the background fetch failure",
   n == 1 and has(main, "Failed to fetch book information from Hardcover"))
 
+-- an automatic match can be wrong, so it is a dialog with a way to correct it, not a toast
+local hc = read("hardcover/lib/hardcover.lua")
+r.check("auto-link shows the correction dialog", has(hc, "hardcover/lib/ui/auto_link_dialog"))
+r.check("auto-link shows no KOReader toast", not has(hc, "ui/widget/notification"))
+
 -- notices and questions are the plugin's own Snackbar and Dialog, not KOReader's InfoMessage and ConfirmBox
 local menu = read("hardcover/lib/ui/hardcover_menu.lua")
 local sources = read("hardcover/lib/bookshelf_sources.lua")

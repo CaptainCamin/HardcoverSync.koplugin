@@ -5,7 +5,6 @@ local util = require("util")
 
 local UIManager = require("ui/uimanager")
 
-local Notification = require("ui/widget/notification")
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 
 local Api = require("hardcover/lib/hardcover_api")
@@ -226,9 +225,16 @@ function Hardcover:autolinkBook(book)
 
   local linked = self:linkBook(book)
   if linked then
-    UIManager:show(Notification:new {
-      text = _("Linked to: " .. book.title),
-    })
+    -- A system event that can be wrong, so a dialog with a way to correct it (not a snackbar or toast).
+    UIManager:nextTick(function()
+      require("hardcover/lib/ui/auto_link_dialog").show {
+        book = book,
+        on_change = function() self:showLinkBookDialog(true) end,
+        on_unlink = function()
+          self.settings:updateBookSetting(self.ui.document.file, require("hardcover/lib/bulk_link").undoGuessConfig())
+        end,
+      }
+    end)
   end
 end
 
