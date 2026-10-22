@@ -117,6 +117,24 @@ These all cost time to find, and each one looks like a plugin bug.
 | `KO_EMU_W` / `KO_EMU_H` | `1200` / `1600` | emulated panel size |
 | `KO_EMU_DPI` | KOReader's default | screen density; KOReader scales fonts and spacing by it, so set it with the size (e.g. `300` for a Kindle Paperwhite) |
 
+## Screen sizes
+
+CI runs every scenario at three sizes (the `emulator` matrix in `.github/workflows/test.yml`):
+
+| Size | DPI | Devices |
+|---|---|---|
+| 1264x1680 | 300 | Kindle Paperwhite 7", Kobo Libra (the owner's device, so the first to fix) |
+| 1072x1448 | 300 | Kindle 6", Kobo Clara |
+| 758x1024 | 212 | older 6" Kindle and Kobo |
+
+All three are about 3:4. Narrow screens such as the Boox Palma are not covered yet; add a size to the
+matrix when that is worth working on.
+
+Every `emu:shot` also runs `Tree.layout_problems` (`tree.lua`): text drawn past the left or right edge,
+and tappable rows under `Theme.TOUCH_MIN`. A problem fails the scenario unless its shot is listed in
+`layout_known.txt` (optionally with the size it breaks at), so a known problem does not block the rest.
+Reproduce a size locally with `KO_EMU_W=758 KO_EMU_H=1024 KO_EMU_DPI=212 spec/emu/run.sh --ci`.
+
 Set the size to your device's real resolution. Layout bugs are frequently
 resolution-specific, and a screen that fits at 1200x1600 may not at 758x1024.
 

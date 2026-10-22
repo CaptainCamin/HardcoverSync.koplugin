@@ -223,4 +223,38 @@ function M.overlapping_pairs(root, classes)
   return clashes
 end
 
+--[[--
+Layout problems on the painted screen, as a list of strings (empty when it is fine).
+
+Two cheap checks that only bite at some sizes:
+  - text painted onto the screen that reaches past its left or right edge. The top and bottom are not
+    checked: scrolled content is painted there and clipped, so it is not a fault;
+  - a tappable row (hardcover_tap_row) whose smaller side is under `touch_min`.
+]]
+function M.layout_problems(root, screen_w, screen_h, touch_min)
+  local problems = {}
+  for _, n in ipairs(M.collect(root)) do
+    if not n.relative and (n.x < 0 or n.x + n.w > screen_w) then
+      problems[#problems + 1] = string.format("%q is drawn past the side of the screen at %d,%d %dx%d on %dx%d",
+        n.text:sub(1, 40), n.x, n.y, n.w, n.h, screen_w, screen_h)
+    end
+  end
+
+  local seen = {}
+  local function walk(widget)
+    if type(widget) ~= "table" or seen[widget] then return end
+    seen[widget] = true
+    if widget.name == "hardcover_tap_row" and widget.callback and widget.dimen then
+      local side = math.min(widget.dimen.w, widget.dimen.h)
+      if side < touch_min - 2 then  -- 2px: scaling rounds a 48dp cell to 87 or 88
+        problems[#problems + 1] = string.format("tap target %q is %dx%d, under the %dpx minimum",
+          tostring(widget.text or "?"):sub(1, 40), widget.dimen.w, widget.dimen.h, touch_min)
+      end
+    end
+    for _, child in ipairs(children(widget)) do walk(child.widget) end
+  end
+  walk(root)
+  return problems
+end
+
 return M
