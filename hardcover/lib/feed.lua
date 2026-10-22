@@ -89,8 +89,10 @@ function Feed.query(opts)
   local before = stamp(opts.before)
   local kinds = wanted(opts.kinds)
 
-  local function when(column, value)
+  -- `inside` puts the bound in the column's own condition (a key may not appear twice in a where)
+  local function when(column, value, inside)
     if not value then return "" end
+    if inside then return string.format(", _lte: \"%s\"", value) end
     return string.format(", %s: { _lte: \"%s\" }", column, value)
   end
 
@@ -126,11 +128,11 @@ function Feed.query(opts)
   if kinds.review then
     parts[#parts + 1] = string.format([[
       reviews: user_books(
-        where: { user_id: { _in: %s }, has_review: { _eq: true }, reviewed_at: { _is_null: false }%s }
+        where: { user_id: { _in: %s }, has_review: { _eq: true }, reviewed_at: { _is_null: false%s } }
         order_by: [{ reviewed_at: desc }, { id: desc }]
         limit: %d
       ) { id user_id rating review_raw review_has_spoilers reviewed_at %s }]],
-      list, when("reviewed_at", before and before:sub(1, 10)), limit, person)
+      list, when("reviewed_at", before and before:sub(1, 10), true), limit, person)
   end
 
   return "query {\n" .. table.concat(parts, "\n") .. "\n}"
