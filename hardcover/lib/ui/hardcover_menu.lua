@@ -529,15 +529,10 @@ function HardcoverMenu:showRelease(release)
     StatusDialogs.info(T(_("Hardcover Sync is up to date (v%1)."), (VERSION.text or table.concat(VERSION, "."))))
     return
   end
-  local notes = release.notes and release.notes ~= "" and ("\n\n" .. release.notes:sub(1, 600)) or ""
-  StatusDialogs.confirm {
-    title = T(_("Version %1 is available"), release.version),
-    text = T(_("You have v%1.%2"), (VERSION.text or table.concat(VERSION, ".")), notes),
-    ok_text = release.zip_url and _("Install") or _("OK"),
-    cancel_text = _("Later"),
-    ok_callback = function()
-      if release.zip_url then self:installUpdate(release) end
-    end,
+  return require("hardcover/lib/ui/release_dialog").show {
+    release = release,
+    current_version = VERSION.text or table.concat(VERSION, "."),
+    on_install = function() self:installUpdate(release) end,
   }
 end
 

@@ -45,9 +45,49 @@ return {
     item.callback({ updateItems = function() end })
     emu:pump()
     emu:expectText("Version 99.0.0 is available")
-    emu:expectText("Everything is better.")
+    local short = emu.UIManager:getTopmostVisibleWidget()
+    assert(short.notes.html_body:find("Everything is better.", 1, true))
+    local fixed_w, fixed_h = short.region.w, short.region.h
     emu:shot("update")
     emu:closeAll()
+
+    local rich_notes = "## Improvements\n\n**Readable** notes with *emphasis*, `code`, and [a link](https://example.com).\n\n"
+      .. string.rep("- A complete change with enough explanation to wrap onto another line.\n", 50)
+      .. "\nThe final change is here."
+    local installed
+    menu.installUpdate = function(_, release) installed = release end
+    local release = { version = "99.0.0", notes = rich_notes, zip_url = "https://example/x.zip" }
+    menu:showRelease(release)
+    emu:pump()
+    local long = emu.UIManager:getTopmostVisibleWidget()
+    assert(long.region.w == fixed_w and long.region.h == fixed_h, "notes changed the dialog size")
+    local html = long.notes.html_body
+    for _, markup in ipairs({ "<h2>", "<strong>", "<em>", "<code>", "<ul>", "<a href=", "The final change is here." }) do
+      assert(html:find(markup, 1, true), "Markdown lost " .. markup)
+    end
+    assert(long.notes.htmlbox_widget.page_count > 1, "long notes do not scroll")
+    emu:shot("update_markdown")
+    long.notes:scrollText(1)
+    emu:pump()
+    assert(long.notes.htmlbox_widget.page_number == 2, "scroll did not advance")
+    long.notes:scrollToRatio(1)
+    emu:pump()
+    assert(long.notes.htmlbox_widget.page_number == long.notes.htmlbox_widget.page_count, "the end is unreachable")
+    emu:expectText("Install")
+    emu:expectText("Later")
+    emu:shot("update_markdown_end")
+    local install = emu:expectText("Install")
+    emu:tapExpecting(install.x + math.floor(install.w / 2), install.y + math.floor(install.h / 2))
+    assert(installed == release, "Install lost its release")
+    assert(not emu.UIManager:isWidgetShown(long), "Install left the notes open")
+    menu:showRelease { version = "99.0.0" }
+    emu:pump()
+    local empty = emu.UIManager:getTopmostVisibleWidget()
+    assert(empty.notes.html_body:find("No release notes provided.", 1, true))
+    emu:expectText("OK")
+    local later = emu:expectText("Later")
+    emu:tapExpecting(later.x + math.floor(later.w / 2), later.y + math.floor(later.h / 2))
+    assert(not emu.UIManager:isWidgetShown(empty), "Later did not close the notes")
 
     local _, text = find("Update available")
     assert(text == "Update available: v99.0.0", tostring(text))
