@@ -29,6 +29,7 @@ return {
     ]]
     local JournalDialog = require("hardcover/lib/ui/journal_dialog")
 
+    local saved
     local dialog = JournalDialog:new {
       input = "A note typed on the emulator",
       event_type = "note",
@@ -37,7 +38,7 @@ return {
       edition_format = "Paperback",
       page = 42,
       pages = 1200,
-      save_dialog_callback = function() return true, "note saved" end,
+      save_dialog_callback = function(entry) saved = entry; return true, "note saved" end,
       close_callback = function() end,
     }
 
@@ -45,26 +46,49 @@ return {
     emu:pump()
 
     assert(UIManager:isWidgetShown(dialog), "journal dialog was built but never shown")
-
-    -- The typed text has to be in the input widget, or the dialog is a shell.
-    assert(dialog._input_widget, "journal dialog has no input widget")
-    assert(dialog._input_widget.text:find("emulator", 1, true),
-      "input widget does not hold the text it was given: " ..
-      tostring(dialog._input_widget.text))
-
+    emu:expectText("Add a note")
+    -- The typed text has to be on the form, or the dialog is a shell.
+    emu:expectText("A note typed on the emulator")
+    emu:expectText("Paperback")
+    emu:expectText("Page 42 of 1200")
     emu:shot("journal_entry")
 
-    -- The keyboard, if it opened, must not cover the action buttons.
-    local clashes = emu.Tree.overlapping_pairs(dialog, { Button = true })
-    if #clashes > 0 then
-      local lines = {}
-      for _, c in ipairs(clashes) do
-        lines[#lines + 1] = string.format("%s <-> %s (%dx%d px)",
-          tostring(c.a), tostring(c.b), c.overlap_x, c.overlap_y)
-      end
-      error("buttons overlap:\n  " .. table.concat(lines, "\n  "), 2)
+    local function tapText(text)
+      local node = emu:expectText(text)
+      emu:tapExpecting(node.x + 5, node.y + 5)
+      emu:pump()
     end
 
-    print("  journal entry dialog built, typed text present, buttons disjoint")
+    -- the text is written in the input dialog, over the keyboard
+    local d = dialog.row_taps.text.dimen
+    emu:tapExpecting(d.x + math.floor(d.w / 2), d.y + math.floor(d.h / 2))
+    emu:pump()
+    local top = UIManager:getTopmostVisibleWidget()
+    local editor
+    for _, w in ipairs(UIManager._window_stack) do
+      if w.widget.name == "hardcover_input_dialog" then editor = w.widget end
+    end
+    assert(editor, "tapping the text did not open the editor")
+    emu:shot("journal_editor")
+    editor:onCloseKeyboard()
+    emu:pump()
+    editor:setInputText("Rewritten on the emulator")
+    tapText("Done")
+    assert(UIManager:getTopmostVisibleWidget() == dialog, "the editor stayed open: " .. tostring(top and top.name))
+    emu:expectText("Rewritten on the emulator")
+
+    -- the type is chosen from a list, and the title follows it
+    tapText("Type")
+    emu:expectText("Quote")
+    tapText("Quote")
+    emu:expectText("Add a quote")
+
+    -- Save hands everything over
+    tapText("Save")
+    assert(saved and saved.text == "Rewritten on the emulator" and saved.event_type == "quote"
+      and saved.page == 42 and saved.edition_id == 10600,
+      "the entry was not handed over whole")
+
+    print("  journal form built, text edited, type chosen, entry saved")
   end,
 }

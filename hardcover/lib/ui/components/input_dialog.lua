@@ -8,7 +8,8 @@
 --   local input
 --   input = InputDialog:new {
 --     title = "Search books", text = "optional line", input = "start text", hint = "Title or author",
---     input_type = "number" (or nil), allow_newline = false,
+--     input_type = "number" (or nil), allow_newline = false, lines = nil (a field this many lines tall
+--     that scrolls, for a note; Enter then starts a new line),
 --     buttons = { { label = "Cancel", callback = function() UIManager:close(input) end },
 --                 { label = "Search", primary = true, callback = function() ... end } },
 --   }
@@ -47,6 +48,7 @@ local InputDialog = InputContainer:extend {
   hint = nil,
   input_type = nil,
   allow_newline = false,
+  lines = nil,
   buttons = nil, -- { { label, callback, primary } }, one or two
 }
 
@@ -62,6 +64,12 @@ function InputDialog:init()
 
   local face, bold = Theme.mmdFace("text", 21)
   local field_w = inner_w - 2 * (Size.border.inputtext + Size.padding.default)
+  local height
+  if self.lines then
+    local one = TextBoxWidget:new { text = "I", face = face, width = field_w, for_measurement_only = true }
+    height = one:getTextHeight() * self.lines
+    one:free()
+  end
   self._input_widget = InputText:new {
     text = self.input or "",
     hint = self.hint,
@@ -71,7 +79,8 @@ function InputDialog:init()
     margin = 0,
     input_type = self.input_type,
     enter_callback = (not self.allow_newline) and function() self:onEnter() end or nil,
-    scroll = false,
+    height = height,
+    scroll = height ~= nil,
     parent = self,
   }
   -- the field sits at the left edge of the column, the buttons are as wide as the column

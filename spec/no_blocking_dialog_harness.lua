@@ -221,8 +221,12 @@ package.preload["ui/widget/confirmbox"] = function()
   return M
 end
 package.preload["ui/widget/menu"] = function() return { extend = function() return { new = function() end } end } end
+-- JournalDialog extends it and the manager calls a method on the instance right after showing it
+-- (the text editor, for a new note); the constructor never runs, so a method is answered with a no-op
 package.preload["ui/widget/container/inputcontainer"] = function()
-  return { extend = function() return { new = function(_, o) return o end } end }
+  return { extend = function() return { new = function(_, o)
+    return setmetatable(o, { __index = function() return function() end end })
+  end } end }
 end
 package.preload["ui/widget/container/focusmanager"] = function()
   return { extend = function() return { new = function(_, o) return o end } end }
