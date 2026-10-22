@@ -44,6 +44,10 @@ jobs:
       - name: Run Busted
         uses: lunarmodules/busted@v2.2.0
 
+      # The release-notes grouping used by the Releases workflow.
+      - name: Check the release notes script
+        run: python3 spec/release_notes_test.py
+
   # Renders the plugin's screens with the real KOReader frontend, headless (spec/emu/README.md).
   # Scenarios that fail today are listed with their reasons in spec/emu/parked.txt.
   # It runs at three screen sizes with the same aspect as the Kindle Paperwhite and Kobo/Kindle 6"-7"

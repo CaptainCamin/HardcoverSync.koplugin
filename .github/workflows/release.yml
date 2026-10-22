@@ -11,6 +11,9 @@ on:
       tag:
         description: 'Tag to create: v0.7.0 (stable, must match the version in _meta.lua), v1.4.2-beta.1 (a beta, published as a pre-release), or v1.4.2-beta to take the next beta number automatically'
         required: true
+      intro:
+        description: 'Optional sentence or two put above the generated release notes'
+        required: false
 
 jobs:
   build:
@@ -21,6 +24,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # the release notes need the earlier tags and the history back to them
+          fetch-depth: 0
 
       # Typed by hand as a beta with no number ("v2.0.0-beta"), the tag gets the
       # next number after the betas already on origin, so nobody has to remember
@@ -95,11 +101,28 @@ jobs:
             exit 1
           fi
 
+      # The notes group the pull requests merged since the previous tag into
+      # New / Improved / Fixes / For developers / Other (see the script's header
+      # for how a pull request is sorted). If the script fails the release still
+      # goes out, with GitHub's plain generated list instead.
+      - name: Write the release notes
+        id: notes
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.kind.outputs.tag }}
+          INTRO: ${{ github.event.inputs.intro }}
+        run: |
+          python3 .github/scripts/release_notes.py --tag "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --intro "$INTRO" > "$RUNNER_TEMP/release_notes.md"
+          cat "$RUNNER_TEMP/release_notes.md"
+
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.kind.outputs.tag }}
           target_commitish: ${{ github.sha }}
           prerelease: ${{ steps.kind.outputs.prerelease == 'true' }}
-          generate_release_notes: true
+          body_path: ${{ steps.notes.outcome == 'success' && format('{0}/release_notes.md', runner.temp) || '' }}
+          generate_release_notes: ${{ steps.notes.outcome != 'success' }}
           files: ${{ runner.temp }}/hardcoversync.koplugin.zip
