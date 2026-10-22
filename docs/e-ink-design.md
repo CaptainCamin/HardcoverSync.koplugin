@@ -80,7 +80,7 @@ Settled, with the date and where it is built. If something here disagrees with a
 - `Theme.hatchRect` paints at 40% opacity, so its stripes anti-alias to grey; nothing calls it yet.
 - Search: `components/search_field.lua` is the field (Home, the query on the results screen, and the two pickers, "Select book" and "Select edition"). Tapping it opens KOReader's `InputDialog` for the typing; there is no inline typing. Mock 3's search icon on a shelf is still not built. A picker's field has no clear X: a picker has to end in a choice.
 - The pickers are not in the mocks. They reuse the shelf screen with a radio at the right end for the chosen row (filled, as in the choice sheets: no state by grey alone), and no chevron, since a tap chooses rather than opens. The edition's second line is its format and pages, because the title and author are the same for every edition.
-- KOReader's own widgets are still used for typing (the text field and keyboard inside the input dialog) and in the journal dialog. Numbers are set with the stepper dialog and dates with the date picker; everything else is on the new components.
+- KOReader's own widgets are still used only for typing (the text field and keyboard inside the input dialog). The journal entry is a form of rows like the goal form, its text written in the input dialog. Numbers are set with the stepper dialog and dates with the date picker; everything else is on the new components.
 
 ## Which catalog components the plugin uses
 

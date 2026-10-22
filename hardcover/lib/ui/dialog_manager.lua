@@ -284,11 +284,11 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
     save_dialog_callback = function(book_data)
       local api_data = mapJournalData(book_data)
 
-      -- This runs inside InputDialog's save handler, which wants the outcome as
-      -- a return value, so the request cannot be moved to the background without
-      -- reimplementing that handler. It blocks, so put a message on screen and
-      -- paint it first: otherwise the dialog just sits there for the length of
-      -- the request with no sign the tap was received.
+      -- The journal dialog wants the outcome as a return value, so the request
+      -- cannot be moved to the background without changing that. It blocks, so
+      -- put a message on screen and paint it first: otherwise the dialog just
+      -- sits there for the length of the request with no sign the tap was
+      -- received.
       local saving = StatusDialogs.loading(_("Saving…"))
       UIManager:forceRePaint()
       local result = Api:createJournalEntry(api_data)
@@ -311,8 +311,6 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
       end
     end,
     select_edition_callback = function()
-      dialog:onCloseKeyboard()
-
       --[[
       Opens the edition picker on top of this dialog, so this is a re-entrant
       call: buildLoadingSearchDialog assigns self.search_dialog while a journal
@@ -356,14 +354,12 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
       end
     end
   }
-  -- scroll to the bottom instead of overscroll displayed
-  dialog._input_widget:scrollToBottom()
-
   self.wifi:wifiPrompt(function(wifi_enabled)
     wifi_was_off = wifi_enabled
 
     UIManager:show(dialog)
-    dialog:onShowKeyboard()
+    -- a new note starts with the text field open; a quote comes with its text
+    if (text or "") == "" then dialog:editText() end
 
     --[[
     Resolve the edition only after the dialog is up. This lookup used to run
