@@ -44,6 +44,8 @@ local GoalQueue = require("hardcover/lib/goal_queue")
 local RatingQueue = require("hardcover/lib/rating_queue")
 local ShelfQueue = require("hardcover/lib/shelf_queue")
 local ListQueue = require("hardcover/lib/list_queue")
+local JournalQueue = require("hardcover/lib/journal_queue")
+local json = require("json")
 local SyncConflicts = require("hardcover/lib/sync_conflicts")
 local StartReading = require("hardcover/lib/start_reading")
 local throttle = require("hardcover/lib/throttle")
@@ -177,6 +179,8 @@ function HardcoverApp:init()
   -- and so are shelf and list changes made from a book's details
   self.shelf_queue = ShelfQueue:new { settings = self.sync_queue.settings }
   self.list_queue = ListQueue:new { settings = self.sync_queue.settings }
+  -- and so are notes and quotes written for a book
+  self.journal_queue = JournalQueue:new { settings = self.sync_queue.settings }
 
   User.settings = self.settings
   Api.on_error = function(err)
@@ -235,6 +239,7 @@ function HardcoverApp:init()
     rating_queue = self.rating_queue,
     shelf_queue = self.shelf_queue,
     list_queue = self.list_queue,
+    journal_queue = self.journal_queue,
     flush_goals = function() self:flushSyncQueue(false) end,
     -- Home's sync box: Sync now sends, and the rest of the box opens the list (the menu's)
     send_now = function() self.menu:sendPending() end,
@@ -275,6 +280,7 @@ function HardcoverApp:init()
     rating_queue = self.rating_queue,
     shelf_queue = self.shelf_queue,
     list_queue = self.list_queue,
+    journal_queue = self.journal_queue,
     ui = self.ui,
     wifi = self.wifi,
     on_flush_sync_queue = function() self:on_flush_sync_queue() end,
@@ -797,11 +803,13 @@ function HardcoverApp:on_flush_sync_queue()
   if self.goal_queue then self.goal_queue:retryHeld() end
   if self.shelf_queue then self.shelf_queue:retryHeld() end
   if self.list_queue then self.list_queue:retryHeld() end
+  if self.journal_queue then self.journal_queue:retryHeld() end
   if self.rating_queue then self.rating_queue:retryHeld() end
   local pending = self.sync_queue:pendingCount() + (self.goal_queue and self.goal_queue:count() or 0)
     + (self.rating_queue and self.rating_queue:count() or 0)
     + (self.shelf_queue and self.shelf_queue:count() or 0)
     + (self.list_queue and self.list_queue:count() or 0)
+    + (self.journal_queue and self.journal_queue:count() or 0)
 
   if pending == 0 then
     StatusDialogs.info(_("Nothing to sync"), 2)
@@ -971,11 +979,25 @@ function HardcoverApp:_flushLists()
   return not result.stopped and result.waiting == result.held
 end
 
+-- Send the notes and quotes written offline (as _flushShelves). The dialog manager has nothing
+-- to refresh for one: an entry sent is simply gone from the queue.
+function HardcoverApp:_flushJournals()
+  local queue = self.journal_queue
+  if not queue or queue:isEmpty() then
+    return true
+  end
+  local result = queue:flush(Api, { user_id = User:getId(), json = json })
+  self:_noticeHeld("journal", result.held)
+  return not result.stopped and result.waiting == result.held
+end
+
 -- Say once when changes are held that Hardcover refused (or that need signing in again).
 function HardcoverApp:_noticeHeld(kind, held)
   self.noticed_held = self.noticed_held or {}
   if held > 0 and held ~= self.noticed_held[kind] then
-    StatusDialogs.info(_("A shelf or list change could not be sent. Sync shows which."), 5)
+    StatusDialogs.info(kind == "journal"
+      and _("A note could not be sent. Sync shows which.")
+      or _("A shelf or list change could not be sent. Sync shows which."), 5)
   end
   self.noticed_held[kind] = held
 end
@@ -985,6 +1007,7 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
     or (self.rating_queue and not self.rating_queue:isEmpty())
     or (self.shelf_queue and not self.shelf_queue:isEmpty())
     or (self.list_queue and not self.list_queue:isEmpty())
+    or (self.journal_queue and not self.journal_queue:isEmpty())
   if not goals_waiting and (not self.sync_queue or not self.sync_queue:hasPending()) then
     if callback then
       callback(true)
@@ -1009,6 +1032,7 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
       -- a rating needs the record the shelf change makes, so it waits for the next flush
       success = self:_flushShelves() and success
       success = self:_flushLists() and success
+      success = self:_flushJournals() and success
       success = self:_flushRatings() and success
 
       self:_scheduleFlushRetry(success)

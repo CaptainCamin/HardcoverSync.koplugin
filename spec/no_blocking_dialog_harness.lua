@@ -422,4 +422,52 @@ assert_shows_before_fetch("buildLoadingSearchDialog shows its dialog before fetc
     function() end)
 end)
 
+-- ---------------------------------------------------------------- journal form: Save
+-- Saving a note must not wait on the network: it keeps the entry and answers at once, sending it
+-- now if there is a connection and later if there is not. It used to make the request inside the
+-- save handler, so a note written offline failed and its text was lost.
+local function journal_save(online)
+  local manager = build_manager()
+  local JournalQueue = require("hardcover/lib/journal_queue")
+  local store = {}
+  manager.journal_queue = JournalQueue:new { settings = {
+    readSetting = function(_, k) return store[k] end,
+    saveSetting = function(_, k, v) store[k] = v return true end,
+    flush = function() end,
+  } }
+  local flushed = 0
+  manager.flush_goals = function() flushed = flushed + 1 end
+  require("ui/network/manager").isConnected = function() return online end
+
+  reset()
+  shown_widgets = {}
+  manager:journalEntryForm("", { file = "/books/dune.epub", getPageCount = function() return 10 end },
+    1, 300, nil, "note")
+  local dialog = shown_widgets[#shown_widgets]
+  local ok, message = dialog.save_dialog_callback({
+    book_id = 4242, edition_id = 9, text = "a thought", page = 12, pages = 300,
+    event_type = "note", privacy_setting_id = 3, tags = { "war" }, hidden_tags = {},
+  })
+  return manager, ok, message, flushed
+end
+
+do
+  local manager, ok, message, flushed = journal_save(true)
+  r.check("saving a note online keeps it and sends it without waiting", ok == true and message == "Note saved"
+    and manager.journal_queue:count() == 1 and flushed == 1,
+    string.format("ok=%s message=%s queued=%d flushed=%d", tostring(ok), tostring(message),
+      manager.journal_queue:count(), flushed))
+  local op = manager.journal_queue:list()[1]
+  r.check("the kept note has what the form held", op and op.text == "a thought" and op.page == 12
+    and op.pages == 300 and op.book_id == 4242 and op.edition_id == 9 and op.privacy_setting_id == 3
+    and op.tags[1] == "war" and op.event == "note", "the queued entry is wrong")
+
+  manager, ok, message, flushed = journal_save(false)
+  r.check("saving a note offline keeps it, says it will be sent, and does not try to send",
+    ok == true and message:find("sent when you are online", 1, true) ~= nil
+      and manager.journal_queue:count() == 1 and flushed == 0,
+    string.format("ok=%s message=%s queued=%d flushed=%d", tostring(ok), tostring(message),
+      manager.journal_queue:count(), flushed))
+end
+
 r.finish()

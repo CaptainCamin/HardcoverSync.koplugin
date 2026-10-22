@@ -158,4 +158,18 @@ check("a call that raises still reaches the callback, with no results", function
   assert(called and first == nil)
 end)
 
+check("createJournalEntry says why it failed, and answers the entry when it worked", function()
+  local original = Api.query
+  Api.query = function() return nil, { status = 503 } end
+  local entry, err = Api:createJournalEntry({ book_id = 1, event = "note", privacy_setting_id = 3, tags = {} })
+  assert(entry == nil and err and err.status == 503, "the queue needs the reason to tell a busy server from a refusal")
+  Api.query = function() return { insert_reading_journal = { reading_journal = { id = 9 } } } end
+  entry = Api:createJournalEntry({ book_id = 1, event = "note", privacy_setting_id = 3, tags = {} })
+  assert(entry and entry.id == 9)
+  Api.query = function() return { insert_reading_journal = {} } end
+  entry = Api:createJournalEntry({ book_id = 1, event = "note", privacy_setting_id = 3, tags = {} })
+  Api.query = original
+  assert(entry == nil, "an answer without an entry is not a saved entry")
+end)
+
 r.finish()

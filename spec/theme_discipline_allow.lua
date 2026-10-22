@@ -29,7 +29,6 @@ return {
   ["hardcover/lib/ui/goals_dialog.lua"] = { color = 2 },
   ["hardcover/lib/ui/home_body.lua"] = { color = 1 },
   ["hardcover/lib/ui/icon_list_body.lua"] = { color = 1 },
-  ["hardcover/lib/ui/journal_dialog.lua"] = { Size = 6, getFace = 4 },
   ["hardcover/lib/ui/library_body.lua"] = { color = 1 },
   ["hardcover/lib/ui/lists_dialog.lua"] = { scaleBySize = 1, color = 1 },
   ["hardcover/lib/ui/reader_panel.lua"] = { color = 1 },

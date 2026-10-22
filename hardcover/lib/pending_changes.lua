@@ -13,6 +13,7 @@ local _ = require("gettext")
 local T = require("ffi/util").template
 
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
+local Reviews = require("hardcover/lib/reviews")
 local SyncConflicts = require("hardcover/lib/sync_conflicts")
 
 local PendingChanges = {}
@@ -121,6 +122,21 @@ function PendingChanges.list(queues)
         text = op.kind == "remove" and T(_("%1: take off the list \"%2\""), title, name)
           or T(_("%1: put on the list \"%2\""), title, name),
         cancel = function() return lists:cancel(list_id, book_id) end,
+      }
+    end
+  end
+
+  local journals = queues.journal_queue
+  if journals then
+    for _i, op in ipairs(journals:list()) do
+      local title = bookTitle(op)
+      local id = op.id
+      local first = Reviews.excerpt((tostring(op.text or ""):gsub("%s+", " ")), 40)
+      local what = op.event == "quote" and _("quote") or _("note")
+      rows[#rows + 1] = {
+        kind = "journal", title = title, note = heldNote(op),
+        text = first ~= "" and T(_("%1: %2 \"%3\""), title, what, first) or T(_("%1: %2"), title, what),
+        cancel = function() return journals:cancel(id) end,
       }
     end
   end

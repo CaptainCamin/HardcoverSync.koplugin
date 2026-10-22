@@ -1,6 +1,5 @@
 local _ = require("gettext")
 local T = require("ffi/util").template
-local json = require("json")
 
 local UIManager = require("ui/uimanager")
 local Hosted = require("hardcover/lib/ui/hosted")
@@ -65,40 +64,6 @@ function DialogManager:screens()
     })
   end
   return self._screens
-end
-
-local function mapJournalData(data)
-  local result = {
-    book_id = data.book_id,
-    event = data.event_type,
-    entry = data.text,
-    edition_id = data.edition_id,
-    privacy_setting_id = data.privacy_setting_id,
-    tags = json.util.InitArray({})
-  }
-
-  if #data.tags > 0 then
-    for _, tag in ipairs(data.tags) do
-      table.insert(result.tags, { category = HARDCOVER.CATEGORY.TAG, tag = tag, spoiler = false })
-    end
-  end
-  if #data.hidden_tags > 0 then
-    for _, tag in ipairs(data.hidden_tags) do
-      table.insert(result.tags, { category = HARDCOVER.CATEGORY.TAG, tag = tag, spoiler = true })
-    end
-  end
-
-  if data.page then
-    result.metadata = {
-      position = {
-        type = "pages",
-        value = data.page,
-        possible = data.pages
-      }
-    }
-  end
-
-  return result
 end
 
 -- Tear down a dialog that is about to be replaced.
@@ -282,33 +247,48 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
     page = mapped_page,
     pages = remote_pages,
     save_dialog_callback = function(book_data)
-      local api_data = mapJournalData(book_data)
-
-      -- The journal dialog wants the outcome as a return value, so the request
-      -- cannot be moved to the background without changing that. It blocks, so
-      -- put a message on screen and paint it first: otherwise the dialog just
-      -- sits there for the length of the request with no sign the tap was
-      -- received.
-      local saving = StatusDialogs.loading(_("Saving…"))
-      UIManager:forceRePaint()
-      local result = Api:createJournalEntry(api_data)
-      StatusDialogs.close(saving)
-
-      if result then
-        UIManager:nextTick(function()
-          UIManager:close(dialog)
-
-          if wifi_was_off then
-            UIManager:nextTick(function()
-              self.wifi:wifiDisablePrompt()
-            end)
-          end
-        end)
-
-        return true, _(event_type .. " saved")
-      else
-        return false, _(event_type .. " could not be saved")
+      --[[
+      Keep the entry and answer at once. This runs inside InputDialog's save handler, which wants
+      the outcome as a return value, and used to wait for the request there: a note written with no
+      connection failed and the text was lost. The entry waits in the journal queue instead, and is
+      sent now if there is a connection, or when it comes back.
+      ]]
+      local queue = self.journal_queue
+      if not queue then
+        return false, _("The note could not be saved")
       end
+      local id = queue:queue({
+        user_id = User:getId(),
+        book_id = book_data.book_id,
+        edition_id = book_data.edition_id,
+        event = book_data.event_type,
+        text = book_data.text,
+        privacy_setting_id = book_data.privacy_setting_id,
+        page = book_data.page,
+        pages = book_data.pages,
+        tags = book_data.tags,
+        hidden_tags = book_data.hidden_tags,
+        title = settings.title,
+      })
+      if not id then
+        return false, _("The note could not be saved")
+      end
+
+      UIManager:nextTick(function()
+        UIManager:close(dialog)
+        if wifi_was_off then
+          UIManager:nextTick(function()
+            self.wifi:wifiDisablePrompt()
+          end)
+        end
+        if Network.connected() and self.flush_goals then self.flush_goals() end
+      end)
+
+      if Network.connected() then
+        return true, book_data.event_type == "quote" and _("Quote saved") or _("Note saved")
+      end
+      return true, book_data.event_type == "quote" and _("Quote saved, it will be sent when you are online")
+        or _("Note saved, it will be sent when you are online")
     end,
     select_edition_callback = function()
       --[[
@@ -674,6 +654,7 @@ function DialogManager:showHomeBody(host)
         + (self.rating_queue and self.rating_queue:count() or 0)
         + (self.shelf_queue and self.shelf_queue:count() or 0)
         + (self.list_queue and self.list_queue:count() or 0)
+        + (self.journal_queue and self.journal_queue:count() or 0)
     end,
     -- the sync box's Sync now sends; tapping the rest of the box opens what is waiting
     sync_cb = function() self:syncNow() end,

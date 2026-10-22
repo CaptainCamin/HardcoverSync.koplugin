@@ -6,7 +6,6 @@
 -- `save_dialog_callback(entry)` returns ok, message: the form stays open when it did not work, with
 -- the message at the top, so what was typed is kept.
 
-local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
@@ -207,7 +206,7 @@ function JournalDialog:build()
 
   self.title_bar = title_bar
   self.frame = FrameContainer:new {
-    width = screen_w, height = screen_h, background = Blitbuffer.COLOR_WHITE,
+    width = screen_w, height = screen_h, background = Theme.WHITE,
     bordersize = 0, padding = 0, margin = 0,
     VerticalGroup:new { align = "left", title_bar, body },
   }

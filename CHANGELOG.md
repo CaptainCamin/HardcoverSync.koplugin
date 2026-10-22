@@ -7,6 +7,10 @@
 - **Search bar in the top bar.** Searching for books (Home, Library, and the link-book and edition pickers) now turns the top bar into a search field with the keyboard under it, instead of a box in the middle of the screen. The keyboard's Enter key searches, the X clears the words, and the arrow leaves without searching.
 - **Books behind a goal.** A book-count goal's screen shows the two books you finished most recently in its period, with author and finish date, and "See all N books" opens the whole list, newest first, on a screen of its own. It is a best match of Hardcover's own count: a note says when the list and Hardcover's number differ, and a goal with filters set on Hardcover (author, category, format) has no list. Page goals are unchanged.
 
+### Changed
+
+- **Notes and quotes save without waiting.** Saving a note or quote keeps it on the device and closes the form at once; it is sent when there is a connection, and with none it is sent when the connection is back. Before, saving waited for Hardcover, failed offline, and the text was lost. A note that is waiting shows in Sync's list (tap it to cancel) and counts in the number of changes waiting. If Hardcover never answered for one that was sent, it is sent again and can appear twice.
+
 ## 2.0.0
 
 ### Added
