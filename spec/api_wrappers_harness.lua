@@ -172,4 +172,27 @@ check("createJournalEntry says why it failed, and answers the entry when it work
   assert(entry == nil, "an answer without an entry is not a saved entry")
 end)
 
+check("updateReview sends the text as a Slate document with the spoiler flag, and says why it failed", function()
+  local original = Api.query
+  local seen
+  Api.query = function(_, _, vars)
+    seen = vars
+    return { update_user_book = { user_book = { id = 5, review_raw = "hello", has_review = true } } }
+  end
+  local ub = Api:updateReview(5, "hello\nthere", true)
+  assert(ub and ub.review_raw == "hello")
+  assert(seen.id == 5 and seen.object.review_has_spoilers == true)
+  local children = seen.object.review_slate.document.children
+  assert(#children == 2 and children[2].children[1].text == "there")
+  Api:updateReview(5, "", false)
+  assert(seen.object.review_has_spoilers == false and #seen.object.review_slate.document.children == 1)
+  Api.query = function() return { update_user_book = { error = "not allowed" } } end
+  local none, err = Api:updateReview(5, "x", false)
+  assert(none == nil and err == "not allowed", "a refusal is the reason as a string")
+  Api.query = function() return nil, { status = 503 } end
+  none, err = Api:updateReview(5, "x", false)
+  Api.query = original
+  assert(none == nil and err.status == 503)
+end)
+
 r.finish()

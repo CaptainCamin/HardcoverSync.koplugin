@@ -75,6 +75,9 @@ local BookDetailDialog = FocusManager:extend {
   detail = nil,
   -- called with no arguments when Reviews is tapped; no callback, no button
   on_reviews = nil,
+  -- called with the dialog when "Your review" is tapped (write, change or remove your own review);
+  -- no callback, no button
+  on_review = nil,
   -- called with no arguments when "Lists" is chosen in the Add sheet (the lists to put the book on);
   -- no callback, no Lists row
   on_lists = nil,
@@ -335,7 +338,7 @@ function BookDetailDialog:init()
   -- There is no one main button. They scroll with the page, so each tap is cut to the visible area
   -- (see viewport.lua) or one scrolled away could catch a tap meant for what is over it.
   self.open_button, self.find_button, self.zlibrary_button = nil, nil, nil
-  self.reviews_button, self.add_button, self.edition_button = nil, nil, nil
+  self.reviews_button, self.review_button, self.add_button, self.edition_button = nil, nil, nil, nil
   local function button(field, text, handler, opts)
     local b = Button.new {
       label = text, w = opts.w, h = Theme.TOUCH_MIN, size = 19, primary = opts.primary,
@@ -376,7 +379,10 @@ function BookDetailDialog:init()
     if self.on_zlibrary then get[#get + 1] = { "zlibrary_button", self.source_label, "on_zlibrary" } end
     add_row(get)
   end
-  if self.on_reviews then add_row({ { "reviews_button", _("Reviews"), "on_reviews" } }) end
+  local review_specs = {}
+  if self.on_reviews then review_specs[#review_specs + 1] = { "reviews_button", _("Reviews"), "on_reviews" } end
+  if self.on_review then review_specs[#review_specs + 1] = { "review_button", _("Your review"), "on_review" } end
+  add_row(review_specs)
   -- Add: one button for the shelf and the lists (see openAdd). With Edition (only for the book open
   -- in the reader) the two share the row; without it, Add takes the whole row.
   local add_spec = { "add_button", _("Add"), "openAdd" }

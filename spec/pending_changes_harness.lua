@@ -22,6 +22,7 @@ local SyncQueue = require("hardcover/lib/sync_queue")
 local GoalQueue = require("hardcover/lib/goal_queue")
 local RatingQueue = require("hardcover/lib/rating_queue")
 local JournalQueue = require("hardcover/lib/journal_queue")
+local ReviewQueue = require("hardcover/lib/review_queue")
 local PendingChanges = require("hardcover/lib/pending_changes")
 
 local function fakeSettings()
@@ -211,6 +212,18 @@ check("a long note is cut for its line, and a refused one says so", function()
   local row = PendingChanges.list(q)[1]
   assert(#row.text < 80, row.text)
   assert(PendingChanges.line(row):find("Hardcover refused it", 1, true), PendingChanges.line(row))
+end)
+
+check("a waiting review, and one waiting to be removed, each get a line that can be cancelled", function()
+  local q = queues()
+  q.review_queue = ReviewQueue:new { settings = fakeSettings() }
+  q.review_queue:queue(5, "loved it", false, "Dune")
+  q.review_queue:queue(6, "", false)
+  local rows = PendingChanges.list(q)
+  assert(#rows == 2 and rows[1].kind == "review", texts(rows))
+  assert(rows[1].text == "Dune: review", rows[1].text)
+  assert(rows[2].text == "Book 6: remove the review", rows[2].text)
+  assert(rows[1].cancel() == true and q.review_queue:count() == 1)
 end)
 
 r.finish()
