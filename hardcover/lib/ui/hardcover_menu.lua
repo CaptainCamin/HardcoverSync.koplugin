@@ -670,6 +670,7 @@ function HardcoverMenu:pendingTotal()
     + (self.shelf_queue and self.shelf_queue:count() or 0)
     + (self.list_queue and self.list_queue:count() or 0)
     + (self.journal_queue and self.journal_queue:count() or 0)
+    + (self.review_queue and self.review_queue:count() or 0)
 end
 
 function HardcoverMenu:conflictCount()
@@ -685,6 +686,7 @@ function HardcoverMenu:showPendingChanges(menu_instance)
     queues = {
       sync_queue = self.sync_queue, goal_queue = self.goal_queue, rating_queue = self.rating_queue,
       shelf_queue = self.shelf_queue, list_queue = self.list_queue, journal_queue = self.journal_queue,
+      review_queue = self.review_queue,
     },
     on_cancel = function(row)
       self:pendingCancelled(row)

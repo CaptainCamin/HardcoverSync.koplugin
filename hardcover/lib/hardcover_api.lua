@@ -9,6 +9,7 @@ local Book = require("hardcover/lib/book")
 local Goals = require("hardcover/lib/goals")
 local Lists = require("hardcover/lib/lists")
 local Recommendations = require("hardcover/lib/recommendations")
+local ReviewText = require("hardcover/lib/review_text")
 local Vibes = require("hardcover/lib/vibes")
 local Stats = require("hardcover/lib/stats")
 local Shelf = require("hardcover/lib/shelf")
@@ -698,6 +699,8 @@ local BOOK_DETAIL_FIELDS = [[
     id
     status_id
     rating
+    review_raw
+    review_has_spoilers
   }
 ]]
 
@@ -756,6 +759,8 @@ local function detailOf(row)
     user_book_id = user_book and user_book.id,
     status_id = user_book and user_book.status_id,
     user_rating = user_book and user_book.rating,
+    user_review = user_book and user_book.review_raw,
+    review_spoilers = user_book and user_book.review_has_spoilers,
   }
 end
 
@@ -1385,6 +1390,40 @@ function HardcoverApi:updateRating(user_book_id, rating)
   end
 
   local result, err = self:query(query, { id = user_book_id, rating = rating })
+  if result and result.update_user_book then
+    local updated = result.update_user_book
+    if updated.user_book then return updated.user_book end
+    return nil, updated.error
+  end
+  return nil, err
+end
+
+--
+-- Write your review of a book, or clear it with empty text. Hardcover takes the review as a Slate
+-- document (see ReviewText); the spoiler flag has to go with every write, or it falls back to false.
+-- `json` is KOReader's, for the empty lists inside the document. Returns the user book (with
+-- review_raw and has_review) or nil and the reason.
+--
+function HardcoverApi:updateReview(user_book_id, text, spoilers, json_lib)
+  local query = [[
+    mutation ($id: Int!, $object: UserBookUpdateInput!) {
+      update_user_book(id: $id, object: $object) {
+        error
+        user_book {
+          ...UserBookParts
+          review_raw
+          review_has_spoilers
+          has_review
+        }
+      }
+    }
+  ]] .. user_book_fragment
+
+  local object = {
+    review_slate = ReviewText.slate(text, json_lib or json),
+    review_has_spoilers = spoilers == true,
+  }
+  local result, err = self:query(query, { id = user_book_id, object = object })
   if result and result.update_user_book then
     local updated = result.update_user_book
     if updated.user_book then return updated.user_book end

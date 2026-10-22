@@ -555,6 +555,44 @@ step("probe: a review written and cleared on the user book (prints only)", funct
   ]], { id = ub })
 end)
 
+-- Writing a review, as the plugin does it (HardcoverApi:updateReview): read back, changed, cleared.
+step("updateReview: two paragraphs, read back, changed and cleared", function()
+  local ub = need(ctx.user_book_id, "user book")
+  local function readReview()
+    -- a read just after a write can show the old row: look again for up to eight seconds
+    return function(want)
+      local row
+      for _ = 1, 4 do
+        local rows = Api:query([[query ($id: Int!) { user_books(where: { id: { _eq: $id } }) {
+          id has_review review_raw review_has_spoilers } }]], { id = ub })
+        row = rows and rows.user_books and rows.user_books[1]
+        if row and want(row) then return row end
+        os.execute("sleep 2")
+      end
+      return row
+    end
+  end
+  local await = readReview()
+
+  local set = is_table(Api:updateReview(ub, "hardcoversync live check\nsecond paragraph", true), "the review as written")
+  local row = is_table(await(function(r) return r.has_review == true end), "the review read back")
+  if not tostring(row.review_raw):find("hardcoversync live check", 1, true)
+      or not tostring(row.review_raw):find("second paragraph", 1, true) then
+    error("review_raw is " .. tostring(row.review_raw), 0)
+  end
+  if row.review_has_spoilers ~= true then error("spoilers is " .. tostring(row.review_has_spoilers), 0) end
+  need(set.id, "user book id in the answer")
+
+  is_table(Api:updateReview(ub, "changed", false), "the review changed")
+  row = is_table(await(function(r) return r.review_raw == "changed" end), "the changed review read back")
+  if row.review_raw ~= "changed" then error("review_raw is " .. tostring(row.review_raw), 0) end
+  if row.review_has_spoilers ~= false then error("spoilers is " .. tostring(row.review_has_spoilers), 0) end
+
+  is_table(Api:updateReview(ub, "", false), "the review cleared")
+  row = is_table(await(function(r) return r.has_review == false end), "the cleared review read back")
+  if row.has_review ~= false then error("the review is still there: " .. tostring(row.review_raw), 0) end
+end)
+
 step("probe: deleting and updating a journal entry (prints only)", function()
   local id = createJournal("note", "hardcoversync live check: to delete")
   probe("update_reading_journal", [[

@@ -25,6 +25,7 @@ local Network = require("hardcover/lib/network")
 local OnDevice = require("hardcover/lib/on_device")
 local Recommendations = require("hardcover/lib/recommendations")
 local Reviews = require("hardcover/lib/reviews")
+local ReviewText = require("hardcover/lib/review_text")
 local Shelf = require("hardcover/lib/shelf")
 local User = require("hardcover/lib/user")
 local BookSources = require("hardcover/lib/book_sources")
@@ -64,6 +65,8 @@ function Flows:showBookDetail(book_id, edition_id, opts)
       and function(d) self:searchBookSource(d) end or nil,
     source_label = BookSources.label(self.ui, self:bookSourceChoice()),
     on_shelf = function(d) self:chooseShelf(d) end,
+    -- your own review: works offline, the review waits to be sent
+    on_review = function(d) self:writeReview(d) end,
     -- tapping your rating: works offline, the rating waits to be sent
     on_rating = function(d, stars) self:rateBook(d, stars) end,
     -- only when signed in with OAuth (the write scope is an OAuth thing)
@@ -698,7 +701,15 @@ function Flows:withPending(detail)
   if shelf and detail and detail.book then
     BookActions.withPendingShelf(detail, shelf:get(detail.book.book_id))
   end
+  self:withPendingReview(detail)
   return self:withPendingRating(detail)
+end
+
+-- A review written offline and not yet sent shows in place of the one on record.
+function Flows:withPendingReview(detail)
+  local queue = self.review_queue
+  local waiting = queue and detail and detail.user_book_id and queue:get(detail.user_book_id)
+  return BookActions.withPendingReview(detail, waiting)
 end
 
 -- A rating set offline and not yet sent shows in place of the one on record.
@@ -740,6 +751,70 @@ function Flows:rateBook(dialog, stars)
       end
     end,
   }
+end
+
+-- Write, change or remove your review on the details screen. The text is asked for first, then
+-- whether it gives the story away; both are kept in the review queue, so it works without a
+-- connection, and it is sent now if there is one, or when the connection is back. Empty text
+-- removes the review.
+function Flows:writeReview(dialog)
+  local detail = dialog.detail
+  local queue = self.review_queue
+  local gate = BookActions.ratingGate(detail, queue ~= nil)
+  if gate == "no_book" then return end
+  if gate == "needs_shelf" then
+    StatusDialogs.info(_("Put this book on a shelf to review it."))
+    return
+  end
+  if gate == "unsent" then
+    StatusDialogs.info(_("This book's shelf change has not been sent yet. You can review it once it has."), 4)
+    return
+  end
+
+  local function keep(text, spoilers)
+    queue:queue(detail.user_book_id, text, spoilers, detail.book.title)
+    BookActions.withPendingReview(detail, { text = text, spoilers = spoilers })
+    if Network.connected() then
+      StatusDialogs.info(text == "" and _("Removing your review.") or _("Review saved."))
+      if self.flush_goals then self.flush_goals() end
+    else
+      StatusDialogs.info(text == "" and _("You're offline. Removing your review is kept and will be sent when you're connected.")
+        or _("You're offline. Your review is kept and will be sent when you're connected."))
+    end
+  end
+
+  local input
+  input = require("hardcover/lib/ui/components/input_dialog"):new {
+    title = _("Your review"),
+    text = _("Leave it empty to remove your review."),
+    input = detail.user_review or "",
+    allow_newline = true,
+    lines = 6,
+    buttons = {
+      { label = _("Cancel"), callback = function() UIManager:close(input) end },
+      { label = _("Next"), primary = true, callback = function()
+          local text = ReviewText.clean(input:getInputText())
+          UIManager:close(input)
+          if text == "" then
+            if (detail.user_review or "") ~= "" then keep("", false) end
+            return
+          end
+          local picker
+          picker = require("hardcover/lib/ui/picker").new {
+            title = _("Does it give away the story?"),
+            rows = {
+              { text = _("No spoilers"), current = not detail.review_spoilers,
+                callback = function() UIManager:close(picker) keep(text, false) end },
+              { text = _("Has spoilers"), current = detail.review_spoilers == true,
+                callback = function() UIManager:close(picker) keep(text, true) end },
+            },
+          }
+          UIManager:show(picker)
+        end },
+    },
+  }
+  UIManager:show(input)
+  if input.onShowKeyboard then input:onShowKeyboard() end
 end
 
 -- A queued rating went through: the saved shelf shows the new one at once.

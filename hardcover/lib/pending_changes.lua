@@ -126,6 +126,19 @@ function PendingChanges.list(queues)
     end
   end
 
+  local reviews = queues.review_queue
+  if reviews then
+    for _i, r in ipairs(reviews:list()) do
+      local title = (type(r.title) == "string" and r.title ~= "") and r.title or T(_("Book %1"), r.user_book_id)
+      rows[#rows + 1] = {
+        kind = "review", title = title,
+        text = r.text ~= "" and T(_("%1: review"), title) or T(_("%1: remove the review"), title),
+        note = heldNote(r),
+        cancel = function() return reviews:cancel(r.user_book_id) end,
+      }
+    end
+  end
+
   local journals = queues.journal_queue
   if journals then
     for _i, op in ipairs(journals:list()) do

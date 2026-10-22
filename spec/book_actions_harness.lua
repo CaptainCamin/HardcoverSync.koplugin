@@ -217,4 +217,23 @@ check("a page on a Finished, Did not finish or unrecognised book is not sent", f
   assert(BookActions.pageWrite(4) == "block")
 end)
 
+print("\n== review ==")
+
+check("a review waiting to be sent shows over the one on record, with its spoiler flag", function()
+  local d = BookActions.withPendingReview({ user_review = "old", review_spoilers = false }, { text = "new", spoilers = true })
+  assert(d.user_review == "new" and d.review_spoilers == true)
+end)
+
+check("a review waiting to be removed takes it out of view", function()
+  local d = BookActions.withPendingReview({ user_review = "old", review_spoilers = true }, { text = "", spoilers = false })
+  assert(d.user_review == nil and d.review_spoilers == nil)
+end)
+
+check("with nothing waiting the review is left as it is, and a book taken off the shelf has none", function()
+  local d = { user_review = "old" }
+  assert(BookActions.withPendingReview(d, nil) == d and d.user_review == "old")
+  BookActions.withPendingShelf(d, { kind = "remove" })
+  assert(d.user_review == nil)
+end)
+
 r.finish()

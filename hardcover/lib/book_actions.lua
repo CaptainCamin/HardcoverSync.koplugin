@@ -42,6 +42,16 @@ function BookActions.withPendingRating(detail, waiting)
   return detail
 end
 
+-- A review written offline and not yet sent shows in place of the one on record. `waiting` is the
+-- review queue's { text, spoilers } for the book, or nil; empty text is a review waiting to be cleared.
+function BookActions.withPendingReview(detail, waiting)
+  if detail and waiting then
+    detail.user_review = waiting.text ~= "" and waiting.text or nil
+    detail.review_spoilers = waiting.text ~= "" and waiting.spoilers or nil
+  end
+  return detail
+end
+
 -- A shelf change made offline and not yet sent shows in place of the one on record.
 -- `op` is the shelf queue's waiting op for the book (ShelfQueue:get), or nil. Returns the
 -- detail.
@@ -49,6 +59,7 @@ function BookActions.withPendingShelf(detail, op)
   if not (detail and op) then return detail end
   if op.kind == "remove" then
     detail.status_id, detail.user_book_id, detail.user_rating = nil, nil, nil
+    detail.user_review, detail.review_spoilers = nil, nil
   else
     detail.status_id = op.status_id
     detail.user_book_id = tonumber(op.user_book_id) or detail.user_book_id
