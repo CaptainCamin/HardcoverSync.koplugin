@@ -97,7 +97,7 @@ return {
     end
     emu:expectText("The Left Hand of Darkness")
 
-    -- the buttons: one row of round buttons (Download, Shelf, Lists,
+    -- the buttons: round buttons in reading order (Download, Shelf, Lists,
     -- Reviews), inside the margins, none on another
     assert(dialog.add_button and dialog.lists_button and dialog.on_lists, "no Lists to add to for an OAuth sign-in")
     emu:expectText("Shelf")
@@ -105,9 +105,13 @@ return {
     local M = require("hardcover/lib/ui/theme").margin
     UIManager:_repaint()
     local at = function(name) return dialog[name].dimen end
-    assert(at("zlibrary_button").y == at("add_button").y and at("zlibrary_button").x < at("add_button").x
-      and at("add_button").x < at("lists_button").x and at("lists_button").x < at("reviews_button").x,
-      "the buttons are not Download, Shelf, Lists, Reviews in a row")
+    local previous
+    for _, name in ipairs({ "zlibrary_button", "add_button", "lists_button", "reviews_button" }) do
+      local d = at(name)
+      assert(not previous or d.y > previous.y or (d.y == previous.y and d.x > previous.x),
+        "Download, Shelf, Lists, Reviews are not in reading order")
+      previous = d
+    end
     for _, name in ipairs({ "add_button", "lists_button", "reviews_button", "zlibrary_button" }) do
       local d = dialog[name].dimen
       assert(d and d.x >= M and d.x + d.w <= emu.Screen:getWidth() - M, name .. " is outside the margins")
