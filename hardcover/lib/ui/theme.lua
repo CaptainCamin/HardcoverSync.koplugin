@@ -16,7 +16,7 @@
 --   * Redraw as little as possible: nothing animates, and a screen changes
 --     its own contents in place rather than being rebuilt.
 --
---   Learned from Mudita Mindful Design (docs/e-ink-design.md has the sources, how
+--   Learned from Mudita Mindful Design (docs/design/principles.md has the sources, how
 --   much to trust them, and the open questions):
 --
 --   * Every control is visible. Anything that can be tapped, scrolled or held has a
@@ -109,7 +109,7 @@ Theme.line = {
   firm = math.max(2, px(2)),
 }
 
--- Component metrics from the Mudita Mindful Design appendix (docs/e-ink-design.md), in the
+-- Component metrics from the Mudita Mindful Design appendix (docs/design/mmd-reference.md), in the
 -- diagrams' own px, scaled like everything else. Components read their sizes from here.
 Theme.mmd = {
   switch = { w = px(48), h = px(30), knob = px(20), touch = px(56) },
