@@ -42,7 +42,7 @@ r.finish()                     -- prints "N passed, M failed" and exits non-zero
   `N passed, M failed` line; `run_all.sh` counts that too. Prefer the shared one in new files.
 - Avoid wall-clock time in a test (`os.time()` plus or minus a few seconds); pin the clock the way
   `sync_regressions/06_*.lua` does.
-- Reading the plugin's source text and matching on it (`constructor_wiring`, `no_blocking_menu`) is a last
+- Reading the plugin's source text and matching on it (`constructor_wiring`, `no_blocking_menu`, `theme_discipline`) is a last
   resort: it breaks on harmless refactors. Prefer a behavioural test or an emulator scenario.
 
 ## Emulator in CI
