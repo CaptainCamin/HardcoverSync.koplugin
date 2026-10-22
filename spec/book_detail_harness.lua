@@ -183,7 +183,7 @@ print("\n== the body is built whole ==")
 
 check("a book with no subtitle still shows its details and description (the status is the Shelf label)", function()
   local d = BookDetailDialog:new { detail = detail({ title = "T", description = "About it.", publisher = { name = "P" } }) }
-  assert(d.status_text and d.status_text[1].text == "Currently Reading" and d.add_button.text == "Add", "the status is not the pill and the Add button")
+  assert(d.status_text and d.status_text[1].text == "Currently Reading" and d.add_button.text == "Shelf", "the status is not the pill and the Shelf button")
   assert(deep(d.content_group, d.description_text), "description missing: " .. table.concat(kinds(d.content_group), ","))
   assert(#d.meta_rows == 1 and deep(d.content_group, d.meta_rows[1]), "details missing")
 end)
@@ -780,11 +780,11 @@ check("Reviews: an action bar button that calls back, and none without a callbac
   }
   assert(d.reviews_button, "no Reviews button")
   assert(d.reviews_button.text == "Reviews")
-  -- above the Shelf row, above About
+  -- above About
   local pos = { about = blockOf(d.content_group, d.description_text), button = blockOf(d.content_group, d.reviews_button) }
   assert(pos.button, "the button is not in the page")
   assert(pos.about and pos.button < pos.about, "the action bar is not above About")
-  assert(blockOf(d.action_bar, d.reviews_button) < blockOf(d.action_bar, d.add_button), "Reviews is not above the Add row")
+  assert(deep(d.action_bar, d.reviews_button) and deep(d.action_bar, d.add_button), "Shelf and Reviews are not in the bar")
   d.reviews_button.callback()
   assert(opened == 1, "tapping it did not open the reviews")
   local none = BookDetailDialog:new { detail = detail({ title = "T" }) }
@@ -832,30 +832,29 @@ check("Find on device: a button that calls back with the dialog, and none withou
   assert(BookDetailDialog:new { detail = detail({ title = "T" }), on_reviews = function() end }.find_button == nil)
   d:setSeries(nil, nil)
   assert(d.find_button, "the rebuild lost the button")
-  -- the fullest bar for a book that is not on the device: Find and Z-library in a row, Reviews, then
-  -- Shelf and Lists in a row
+  -- the fullest bar for a book that is not on the device: Find on device, the one filled button, then
+  -- one row of round buttons: Download, Shelf, Lists, Reviews
   local all = BookDetailDialog:new {
     detail = detail(FULL), on_lists = function() end, on_reviews = function() end,
     on_find = function() end, on_zlibrary = function() end,
   }
-  for _, b in ipairs({ all.add_button, all.reviews_button, all.find_button, all.zlibrary_button }) do
+  for _, b in ipairs({ all.add_button, all.lists_button, all.reviews_button, all.find_button, all.zlibrary_button }) do
     assert(b, "a button is missing from the full bar")
   end
   assert(all.open_button == nil, "Open for a book that is not on the device")
-  assert(all.reviews_button.width == all.content_width, "Reviews is not the page's width")
-  assert(all.find_button.width + all.zlibrary_button.width < all.content_width, "Find and Z-library do not fit one row")
-  assert(all.add_button.width == all.content_width, "Add does not take the whole row without Edition")
+  assert(all.find_button.width == all.content_width, "Find on device is not the page's width")
   assert(all.edition_button == nil, "Edition without a handler")
 end)
 
-check("Open: the one filled button, for a book that is on the device; then Find and Z-library are not offered", function()
+check("Open: the one filled button, for a book that is on the device; then Find and Download are not offered", function()
   local got
-  local d = BookDetailDialog:new { detail = detail(FULL), on_open = function(dialog) got = dialog end, on_reviews = function() end }
+  local d = BookDetailDialog:new { detail = detail(FULL), on_open = function(dialog) got = dialog end, on_reviews = function() end, on_find = function() end, on_zlibrary = function() end }
   assert(d.open_button and d.open_button.text == "Open" and d.open_button.primary ~= false, "no Open button")
   assert(d.open_button.width == d.content_width, "Open is not the page's width")
   d.open_button.callback()
   assert(got == d, "tapping it did not open the book")
   assert(blockOf(d.action_bar, d.open_button) < blockOf(d.action_bar, d.reviews_button), "Open is not above Reviews")
+  assert(d.find_button == nil and d.zlibrary_button == nil, "Find or Download offered for a book on the device")
   assert(BookDetailDialog:new { detail = detail(FULL), on_reviews = function() end }.open_button == nil, "Open with no file")
   d:setSeries(nil, nil)
   assert(d.open_button, "the rebuild lost the button")
@@ -871,25 +870,26 @@ check("there is a Z-library button only when there is something to hand the sear
     detail = detail({ title = "T", description = "About it." }),
     on_zlibrary = function(dialog) got = dialog end,
   }
-  assert(d.zlibrary_button and d.zlibrary_button.text == "Z-library")
+  assert(d.zlibrary_button and d.zlibrary_button.text == "Download")
   assert(contains(d.content_group, d.zlibrary_button) == false, "the button should sit in a block, not loose in the page")
   d.zlibrary_button.callback()
   assert(got == d, "the handler was not given the dialog")
 end)
 
-check("it shares a row with Find on device, and both survive a rebuild", function()
+check("Find on device is the primary and Download a round button, and both survive a rebuild", function()
   local d = BookDetailDialog:new {
     detail = detail(FULL), on_reviews = function() end, on_zlibrary = function() end, on_find = function() end,
   }
   assert(d.reviews_button and d.zlibrary_button and d.find_button)
-  assert(d.find_button.width + d.zlibrary_button.width < d.content_width, "the two buttons do not fit one row")
+  assert(d.find_button.width == d.content_width, "Find on device is not the page's width")
+  assert(blockOf(d.action_bar, d.find_button) < blockOf(d.action_bar, d.zlibrary_button), "Find is not above the round row")
   d:setSeries(nil, nil)
-  assert(d.reviews_button and d.zlibrary_button, "the rebuild lost a button")
+  assert(d.reviews_button and d.zlibrary_button and d.find_button, "the rebuild lost a button")
 end)
 
 print("\n== the add button ==")
 
-check("Add is a plain button in the last row; Close is the title bar's back arrow", function()
+check("Shelf is a button in the last row; Close is the title bar's back arrow", function()
   local d = BookDetailDialog:new { detail = detail(FULL), on_reviews = function() end, on_zlibrary = function() end }
   assert(d.add_button and d.close_button and d.add_button ~= d.close_button)
   assert(blockOf(d.action_bar, d.add_button) == #d.action_bar, "Add is not the last row of the bar")
@@ -897,12 +897,13 @@ check("Add is a plain button in the last row; Close is the title bar's back arro
   assert(d.close_button and d.title_bar, "Close is not the title bar's back button")
 end)
 
-check("the action bar's rows: Open or (Find, Z-library), Reviews, Add; each only when it has a handler", function()
+check("the action bar: Open or Find on device, then round buttons, each only when it has a handler", function()
   local function names(d)
     local out = {}
     for _, row in ipairs(d.action_bar) do
       local row_names = {}
-      for _, field in ipairs({ "open_button", "find_button", "zlibrary_button", "reviews_button", "add_button" }) do
+      for _, field in ipairs({ "open_button", "find_button", "zlibrary_button", "add_button", "lists_button",
+        "reviews_button", "edition_button" }) do
         if d[field] and deep(row, d[field]) then row_names[#row_names + 1] = field:gsub("_button", "") end
       end
       if #row_names > 0 then out[#out + 1] = table.concat(row_names, "+") end
@@ -910,20 +911,19 @@ check("the action bar's rows: Open or (Find, Z-library), Reviews, Add; each only
     return table.concat(out, ",")
   end
   assert(names(BookDetailDialog:new { detail = detail(FULL) }) == "add")
-  assert(names(BookDetailDialog:new { detail = detail(FULL), on_reviews = function() end }) == "reviews,add")
+  assert(names(BookDetailDialog:new { detail = detail(FULL), on_reviews = function() end }) == "add+reviews")
   assert(names(BookDetailDialog:new { detail = detail(FULL), on_reviews = function() end, on_zlibrary = function() end,
-    on_find = function() end, on_lists = function() end }) == "find+zlibrary,reviews,add")
-  assert(names(BookDetailDialog:new { detail = detail(FULL), on_open = function() end, on_reviews = function() end }) == "open,reviews,add")
+    on_find = function() end, on_lists = function() end }) == "find,zlibrary+add+lists+reviews")
+  assert(names(BookDetailDialog:new { detail = detail(FULL), on_open = function() end, on_reviews = function() end }) == "open,add+reviews")
 end)
 
-check("Edition: a button beside Add, only with a handler, calling back with the dialog", function()
+check("Edition: a button in the round row, only with a handler, calling back with the dialog", function()
   local got
   local d = BookDetailDialog:new { detail = detail(FULL), on_edition = function(dialog) got = dialog end }
   assert(d.edition_button and d.edition_button.text == "Edition", "no Edition button")
   d.edition_button.callback()
   assert(got == d, "tapping it did not call back")
-  assert(deep(d.action_bar, d.edition_button) and d.edition_button.width < d.content_width, "Edition is not in the Add row")
-  assert(d.add_button.width == d.edition_button.width, "Add and Edition do not share the row equally")
+  assert(deep(d.action_bar, d.edition_button), "Edition is not in the bar")
   assert(BookDetailDialog:new { detail = detail(FULL) }.edition_button == nil, "Edition without a handler")
   d:setSeries(nil, nil)
   assert(d.edition_button, "the rebuild lost the button")
@@ -938,9 +938,9 @@ check("Your rating is five stars, the whole row a tap to rate", function()
   assert(BookDetailDialog:new { detail = detail(FULL) }.rating_tap == nil, "a rating tap with nothing to open")
 end)
 
-check("its label is Add, whether or not the book is on a shelf", function()
-  assert(BookDetailDialog:new { detail = detail(FULL) }.add_button.text == "Add")
-  assert(BookDetailDialog:new { detail = { book = FULL } }.add_button.text == "Add")
+check("its label is Shelf, whether or not the book is on a shelf", function()
+  assert(BookDetailDialog:new { detail = detail(FULL) }.add_button.text == "Shelf")
+  assert(BookDetailDialog:new { detail = { book = FULL } }.add_button.text == "Shelf")
 end)
 
 check("with only the shelf to offer, tapping it calls the owner's shelf handler with the dialog", function()
@@ -951,23 +951,13 @@ check("with only the shelf to offer, tapping it calls the owner's shelf handler 
   BookDetailDialog:new { detail = detail(FULL) }.add_button.callback() -- no handler: no error
 end)
 
-check("with lists too, Add opens a sheet with the shelf and Lists rows, each calling its handler", function()
-  local UIManager = UIManagerStub
-  local shown
-  local was_show, was_close, was_picker = UIManager.show, UIManager.close, package.loaded["hardcover/lib/ui/picker"]
-  package.loaded["hardcover/lib/ui/picker"] = { new = function(o) return o end }
-  UIManager.show = function(_, w) shown = w end
-  UIManager.close = function() end
+check("Shelf and Lists are buttons of their own, each calling its handler", function()
   local got = {}
   local d = BookDetailDialog:new { detail = detail(FULL), on_shelf = function() got.shelf = true end,
     on_lists = function() got.lists = true end }
-  d.add_button.callback()
-  assert(shown, "nothing shown; lists=" .. tostring(d.on_lists))
-  assert(#shown.rows == 2, "no sheet of two rows")
-  assert(shown.rows[1].text == "Change shelf" and shown.rows[2].text == "Lists", shown.rows[1].text)
-  shown.rows[1].callback(); shown.rows[2].callback()
-  UIManager.show, UIManager.close, package.loaded["hardcover/lib/ui/picker"] = was_show, was_close, was_picker
-  assert(got.shelf and got.lists, "a row did not call its handler")
+  d.add_button.callback(); d.lists_button.callback()
+  assert(got.shelf and got.lists, "a button did not call its handler")
+  assert(BookDetailDialog:new { detail = detail(FULL) }.lists_button == nil, "Lists without a handler")
 end)
 
 check("setStatus updates the label, and keeps the cover", function()
@@ -1013,9 +1003,6 @@ check("a page that fits the screen reaches the right margin: buttons, rating and
   local d = BookDetailDialog:new { detail = detail(FULL), on_reviews = function() end, on_edition = function() end }
   assert(d.reserve_gutter ~= true, "kept a strip for a scroll bar the page does not have")
   assert(d.content_width == FULL_WIDTH, "content " .. d.content_width .. " of " .. FULL_WIDTH)
-  assert(d.reviews_button.width == FULL_WIDTH, "Reviews is " .. d.reviews_button.width)
-  assert(d.add_button.width + Theme.space.s + d.edition_button.width >= FULL_WIDTH - 1,
-    "Add and Edition stop short of the edge")
   assert(d.description_text.width == FULL_WIDTH, "About is " .. tostring(d.description_text.width))
 end)
 
@@ -1025,7 +1012,6 @@ check("a page taller than the screen keeps the strip for the scroll bar", functi
     local ScrollControl = real_require("hardcover/lib/ui/components/scroll_control")
     assert(d.reserve_gutter == true, "did not reserve the strip")
     assert(d.content_width == FULL_WIDTH - ScrollControl.gutter(), "content " .. d.content_width)
-    assert(d.reviews_button.width == d.content_width, "Reviews is " .. d.reviews_button.width)
   end)
 end)
 

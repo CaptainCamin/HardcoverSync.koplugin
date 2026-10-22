@@ -53,10 +53,9 @@ return {
       emu:tapExpecting(d.x + math.floor(d.w / 2), d.y + math.floor(d.h / 2))
       emu:pump()
     end
-    -- Add opens a sheet when the book can go on lists too: tap its row (shelf rows are "Add to shelf" / "Change shelf")
+    -- Shelf and Lists are buttons of their own: `row` is "Lists", or a shelf row's text for Shelf
     local function tapAdd(dialog, row)
-      tapButton(dialog.add_button)
-      if dialog.on_lists then tapText(row) end
+      tapButton(row == "Lists" and dialog.lists_button or dialog.add_button)
     end
     local function count(name)
       local n = 0
@@ -84,7 +83,7 @@ return {
     local dialog = topmost()
     assert(dialog and dialog.name == "hardcover_book_detail", "the details did not open")
     emu:expectText("The Obelisk Gate")
-    emu:expectText("Add")
+    emu:expectText("Shelf")
     emu:expectText("Not on a shelf")
     assert(not screenHas("Currently Reading"), "a book not in the library shows a status")
     assert(not dialog.detail.user_book_id, "a book not in the library has a library record")
