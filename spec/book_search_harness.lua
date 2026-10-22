@@ -52,14 +52,19 @@ package.preload["logger"] = function()
   return { dbg = function() end, info = function() end, warn = function() end, err = function() end }
 end
 
--- the input dialog: records what it was built with and what is typed into it
+-- the search bar: records what it was built with and what is typed into it; Enter runs `submit`, which
+-- closes the bar when the caller says the search is on its way, and Back / the arrow runs `cancel`
 local inputs = {}
-package.preload["hardcover/lib/ui/components/input_dialog"] = function()
+package.preload["hardcover/lib/ui/components/search_bar"] = function()
   return {
     new = function(_, o)
       o.typed = o.input or ""
       o.getInputText = function(self) return self.typed end
       o.onShowKeyboard = function() end
+      o.submit = function(self)
+        if self.on_submit(self.typed) then require("ui/uimanager"):close(self) end
+      end
+      o.cancel = function(self) require("ui/uimanager"):close(self) end
       inputs[#inputs + 1] = o
       return o
     end,
@@ -125,7 +130,7 @@ end
 local function submit(m, text)
   local input = m:showSearchInput()
   input.typed = text
-  input.buttons[2].callback()
+  input:submit()
   return input
 end
 
@@ -147,12 +152,15 @@ check("results are capped at 25, in order", function()
 end)
 
 print("\n== the input ==")
-check("the input has a Cancel and a Search button, Search on Enter", function()
+check("the search bar opens with the hint, empty, and is shown", function()
   local m = manager()
   local input = m:showSearchInput()
   assert(UIManager:isWidgetShown(input))
-  assert(input.buttons[2].primary == true)
-  assert(input.buttons[1].label == "Cancel" and input.buttons[2].label == "Search")
+  assert(input.hint == "Title or author" and input.input == "")
+end)
+check("the bar can be reopened with the words searched for", function()
+  local m = manager()
+  assert(m:showSearchInput("dune").input == "dune")
 end)
 check("an empty submit makes no request and leaves the input open", function()
   local m = manager()
@@ -161,10 +169,10 @@ check("an empty submit makes no request and leaves the input open", function()
   assert(UIManager:isWidgetShown(input), "closed the input")
   assert(loadings == 0)
 end)
-check("Cancel closes the input without searching", function()
+check("leaving closes the bar without searching", function()
   local m = manager()
   local input = m:showSearchInput()
-  input.buttons[1].callback()
+  input:cancel()
   assert(not UIManager:isWidgetShown(input) and #searches == 0)
 end)
 check("nothing is searched while typing: only submitting searches", function()

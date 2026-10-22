@@ -7,7 +7,7 @@
 -- setItems, setEmptyState, onClose, and the two callbacks. The row handed to select_book_cb is the
 -- ListRow row they have always read (book_id, edition_id, edition_format, pages, title, ...).
 
-local InputDialog = require("hardcover/lib/ui/components/input_dialog")
+local SearchBar = require("hardcover/lib/ui/components/search_bar")
 local UIManager = require("ui/uimanager")
 local _ = require("gettext")
 
@@ -63,35 +63,16 @@ function HardcoverSearchDialog:searchStrip()
   }
 end
 
--- The keyboard box for a new search. Its Search button hands the words to search_callback, which
--- returns true once the results are on their way, and the box then closes.
+-- The search bar for a new search, over the top bar. Enter hands the words to search_callback, which
+-- returns true once the results are on their way, and the bar then closes.
 function HardcoverSearchDialog:promptSearch(initial)
-  local search_dialog
-  search_dialog = InputDialog:new {
-    title = _("New search"),
+  local bar = SearchBar:new {
     input = initial or self.search_value,
-    buttons = {
-      {
-        label = _("Cancel"),
-        callback = function()
-          UIManager:close(search_dialog)
-        end,
-      },
-      {
-        label = _("Search"),
-        primary = true, -- also what Enter runs
-        callback = function()
-          local result = self.search_callback(search_dialog:getInputText())
-          if result then
-            UIManager:close(search_dialog)
-          end
-        end,
-      }
-    }
+    hint = _("Title or author"),
+    on_submit = function(text) return self.search_callback(text) and true or false end,
   }
-
-  UIManager:show(search_dialog)
-  search_dialog:onShowKeyboard()
+  UIManager:show(bar)
+  bar:onShowKeyboard()
 end
 
 -- A new list for the picker: its rows, the chosen one marked, and the search field showing the words

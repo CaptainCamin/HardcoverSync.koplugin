@@ -46,8 +46,19 @@ jobs:
 
   # Renders the plugin's screens with the real KOReader frontend, headless (spec/emu/README.md).
   # Scenarios that fail today are listed with their reasons in spec/emu/parked.txt.
+  # It runs at three screen sizes with the same aspect as the Kindle Paperwhite and Kobo/Kindle 6"-7"
+  # readers (spec/emu/README.md, "Screen sizes"); the first is the owner's Paperwhite 7". Narrow or
+  # wide-and-short panels such as the Boox Palma are not covered yet.
   emulator:
+    name: emulator ${{ matrix.size }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { size: 1264x1680, w: 1264, h: 1680, dpi: 300 } # Paperwhite 7", Libra
+          - { size: 1072x1448, w: 1072, h: 1448, dpi: 300 } # Kindle 6", Kobo Clara
+          - { size: 758x1024, w: 758, h: 1024, dpi: 212 }   # older 6" Kindle and Kobo
     env:
       KOREADER_VERSION: v2025.10
       KOREADER_SHA256: 712f94c014a4e24420b7da1935759861cb286d3207a094e5a849be9077c620b9
@@ -72,12 +83,15 @@ jobs:
           KO_EMU_APP: ${{ github.workspace }}/squashfs-root
           KO_EMU_HOME: ${{ runner.temp }}/ko-home
           KO_EMU_OUT: ${{ runner.temp }}/ko-out
+          KO_EMU_W: ${{ matrix.w }}
+          KO_EMU_H: ${{ matrix.h }}
+          KO_EMU_DPI: ${{ matrix.dpi }}
         run: spec/emu/run.sh --ci
 
       - name: Keep the screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: emulator-screens
+          name: emulator-screens-${{ matrix.size }}
           path: ${{ runner.temp }}/ko-out
           if-no-files-found: ignore

@@ -15,8 +15,22 @@ local Popover = {}
 
 Popover.WIDTH = Theme.px(320)
 
--- opts { items = { { label, current, callback } }, x, y (the box's top-right corner), width (default WIDTH,
--- wider for long labels), on_dismiss }
+-- The width that fits the longest label: its text, the row's side padding, the tick's place and the
+-- border, never under MIN_WIDTH and never wider than `max`.
+Popover.MIN_WIDTH = Theme.px(200)
+function Popover.fitWidth(items, max)
+  local widest = 0
+  for _i, item in ipairs(items) do
+    widest = math.max(widest, Theme.mmdText(item.label, "strong", 21):getSize().w)
+  end
+  local tick = Theme.px(18) + Theme.px(16)
+  local w = widest + tick + 2 * ListItem.PAD + 2 * Theme.line.firm + Theme.px(8)
+  w = math.max(Popover.MIN_WIDTH, w)
+  return max and math.min(max, w) or w
+end
+
+-- opts { items = { { label, current, disabled (dim, no tap), callback } }, x, y (the box's top-right corner), width (default WIDTH; pass
+-- Popover.fitWidth(items, max) to fit the labels), on_dismiss }
 -- Returns the shown overlay.
 function Popover.show(opts)
   local w = opts.width or Popover.WIDTH
@@ -31,11 +45,12 @@ function Popover.show(opts)
       strong = item.current and true or false,
       h = Theme.px(56),
       lead = item.current and Draw.check(tick, Theme.px(3)) or Draw.drawn(tick, tick, function() end),
+      dim = item.disabled,
       divider = (i < #opts.items) and "dotted" or nil,
-      callback = function()
+      callback = (not item.disabled) and function()
         overlay:close()
         if item.callback then item.callback() end
-      end,
+      end or nil,
     }
   end
   local menu = FrameContainer:new {

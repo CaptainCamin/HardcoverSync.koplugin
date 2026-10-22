@@ -43,6 +43,7 @@ return {
                statusText = function() return "Signed in" end },
       dialog_manager = {
         showBookDetail = function(_, id) calls.details = id end,
+        showSettings = function() calls.settings = true end,
         showReviews = function(_, id) calls.reviews = id end,
         journalEntryForm = function() calls.note = true end,
         maybeConfirm = function(_, o) calls.confirm = o.text end,
@@ -92,6 +93,25 @@ return {
     tapText("Open book page")
     assert(calls.details == 328491, "Open book page did not open the book")
 
+    -- the gear at the top right of the sheet opens the menu: linking, the edition, all settings
+    emu:closeAll()
+    panel = menu:showReaderPanel()
+    emu:pump()
+    emu:screenNodes()
+    local Theme = require("hardcover/lib/ui/theme")
+    local Screen = require("device").screen
+    emu:tapExpecting(Screen:getWidth() - Theme.px(20) - math.floor(Theme.TOUCH_MIN / 2),
+      panel.sheet_rect.y + Theme.px(30) + math.floor(Theme.TOUCH_MIN / 2))
+    local menu_text = emu:screenText()
+    for _, want in ipairs({ "Link a different book", "Change edition", "All Hardcover settings" }) do
+      assert(menu_text:find(want, 1, true), want .. " is not in the gear menu")
+    end
+    emu:shot("reader_panel_gear_menu")
+    tapText("All Hardcover settings")
+    assert(calls.settings, "All Hardcover settings did not open the settings")
+    emu:closeAll()
+    panel = menu:showReaderPanel()
+    emu:pump()
 
     tapText("Update progress")
     emu:shot("reader_panel_set_page")

@@ -37,4 +37,9 @@ if not ok then
 end
 
 print(string.format("  %d screenshot(s)", #emu.shots))
+if (emu.layout_failures or 0) > 0 then
+  io.stderr:write(string.format("scenario '%s': %d layout problem(s), see LAYOUT lines above\n",
+    tostring(scenario.name), emu.layout_failures))
+  emu:quit(1)
+end
 emu:quit(0)

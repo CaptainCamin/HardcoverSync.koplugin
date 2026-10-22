@@ -1,0 +1,15 @@
+# Layout problems the per-shot checks (Tree.layout_problems) find today, so they do not fail CI.
+# One shot per line, optionally with the screen size it only breaks at:  <shot> [<W>x<H>]  # why
+# Fix the screen, then delete its line. A shot that is not listed here fails the scenario.
+#
+# Compact buttons under Theme.TOUCH_MIN: an open decision in docs/e-ink-design.md ("compact button heights").
+shell_home            # "Sync now" is 80px tall at 300 dpi, TOUCH_MIN is 96
+shell_home_cards      # same button
+reviews_first         # "Read more" is 80px tall
+reviews_more
+reviews_scrolled
+reviews_spoiler_shown
+reviews_end
+# The search results' row is 88px tall (a 44dp row), TOUCH_MIN is 96.
+search_results
+search_empty
