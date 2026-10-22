@@ -103,7 +103,7 @@ function ReaderPanel:openMenu(menu)
   local x = at and at.x and (at.x + at.w) or (screen_w - Theme.px(20))
   local y = at and at.y and (at.y + at.h) or ((self.sheet_top or 0) + Theme.TOUCH_MIN)
   self.menu_popup = Popover.show { items = items, x = x, y = y,
-    width = math.min(Theme.px(420), screen_w - Theme.px(16)),
+    width = Popover.fitWidth(items, screen_w - Theme.px(16)),
     on_dismiss = function() self.menu_popup = nil end }
   return self.menu_popup
 end
