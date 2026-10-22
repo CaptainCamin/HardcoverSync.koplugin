@@ -756,7 +756,8 @@ end
 -- Write, change or remove your review on the details screen. The text is asked for first, then
 -- whether it gives the story away; both are kept in the review queue, so it works without a
 -- connection, and it is sent now if there is one, or when the connection is back. Empty text
--- removes the review. `on_kept(text, spoilers)` runs once it is kept (Activity shows it at once).
+-- removes the review. `on_kept(text, spoilers)` runs once it is kept (the Journal tab shows it at
+-- once).
 function Flows:writeReview(dialog, on_kept)
   local detail = dialog.detail
   local queue = self.review_queue

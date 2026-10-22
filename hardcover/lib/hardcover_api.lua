@@ -6,7 +6,7 @@ local T = require("ffi/util").template
 local Network = require("hardcover/lib/network")
 
 local Book = require("hardcover/lib/book")
-local Feed = require("hardcover/lib/feed")
+local Journal = require("hardcover/lib/journal")
 local Goals = require("hardcover/lib/goals")
 local Lists = require("hardcover/lib/lists")
 local Recommendations = require("hardcover/lib/recommendations")
@@ -2121,37 +2121,18 @@ function HardcoverApi:getReviews(book_id, limit, offset)
 end
 
 --
--- Who you follow, as user ids (most MAX_READERS of them). Returns the ids, or nil and the
--- error. Needs the read:social scope.
+-- One page of your journal, newest first: every entry Hardcover wrote for you (progress, starts
+-- and finishes, ratings, statuses, lists, notes, quotes, reviews), from `opts.offset` (see
+-- Journal.query). One request. Returns { entries, count, more } or nil and the error.
 --
-function HardcoverApi:getFollowedIds()
-  -- This screen's follow list is part of the user's requested Activity load. Taps on the
-  -- screen (for example, scrolling while the feed loads) must not cancel the request.
-  local results, err = self:query([[
-    query { me { followed_users { followed_user_id } } }
-  ]], nil, true)
-  local me = results and results.me and results.me[1]
-  if not me then return nil, err or { completed = false } end
-  local ids = {}
-  for _, row in ipairs(me.followed_users or {}) do
-    if row.followed_user_id and #ids < Feed.MAX_READERS then ids[#ids + 1] = row.followed_user_id end
-  end
-  return ids
-end
-
---
--- One page of the activity feed: status changes, notes, quotes and reviews of you and the
--- readers in `opts.user_ids`, newest first (see Feed.query for the options). One request.
--- Returns { entries, cursor, more } or nil and the error.
---
-function HardcoverApi:getFeed(opts)
-  local query = Feed.query(opts)
-  if not query then return { entries = {}, more = false } end
-  -- Activity pages are requested by the user; scrolling or tapping the screen while
+function HardcoverApi:getJournal(opts)
+  local query = Journal.query(opts)
+  if not query then return { entries = {}, count = 0, more = false } end
+  -- Journal pages are requested by the user; scrolling or tapping the screen while
   -- one loads must not interrupt the subprocess.
   local results, err = self:query(query, nil, true)
   if not results then return nil, err or { completed = false } end
-  return Feed.parse(results, opts and opts.limit)
+  return Journal.parse(results, opts and opts.limit)
 end
 
 --
@@ -2409,8 +2390,7 @@ local ASYNC_METHODS = {
   "getSimilarBooks",
   "getBookDetail",
   "getReviews",
-  "getFollowedIds",
-  "getFeed",
+  "getJournal",
   "updateUserBook",
   "removeUserBook",
   "findBooks",

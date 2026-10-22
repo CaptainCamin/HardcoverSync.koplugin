@@ -16,11 +16,34 @@ Table `reading_journals`. Fields read back: `id` (bigint), `event`, `entry`, `pr
 
 **Read** `reading_journals(where: ..., order_by: ..., limit: ...)`. Filters by `book_id`, `user_id`, `event`, `privacy_setting_id`, `id` all work, with `_eq` and `_in`. `me { reading_journals }` does not exist; filter by `user_id` instead. Verified for your own entries and for the entries of readers you follow (public ones come back).
 
-Hardcover also writes its own journal events, with other `event` values, when you change a book's status or progress (`rated`, `user_book_read_started`, `user_book_read_finished`, with `metadata` such as `started_at`, `finished_at`, `user_book_read_id`). A journal screen has to decide whether to show them (see the plan).
+Hardcover also writes its own journal entries, with other `event` values, whenever you do something with a book. They are what the Journal tab lists; see "The journal page" below.
 
 Ids in the API are `Int` in mutation arguments and `bigint` in the table. Variables declared `Int!` work for mutation arguments; for a `where: { id: ... }` on `reading_journals` put the number in the query text.
 
 **Reading right after writing can miss the new row.** It happened once in five runs (the live check now looks again for up to eight seconds). A screen that adds an entry should show it from the queue or the response, and not rely on a re-read at once.
+
+## The journal page (the Journal tab)
+
+Hardcover's web Journals page is your `reading_journals`, every `event`, newest first. Checked on 2026-10-22 (live run 39818328460) for the test account and two followed readers, 100 rows each:
+
+| `event` | what happened | `entry` | `metadata` |
+|---|---|---|---|
+| `note`, `quote` | you wrote it | the text | `{}`; a quote's `position` `{ type: "pages", value, possible }` |
+| `reviewed` | you reviewed the book | null | `user_book_id`, and sometimes `review`, `review_raw`, `review_slate` (the text when written) |
+| `rated` | you rated it | null | `rating` as a string (`"4.0"`), or `{}` |
+| `progress_updated` | progress moved | null | `progress`, `progress_was` (percent), `progress_pages`, `progress_pages_was`, `pages_delta`, `percent_delta`, `seconds_delta`, `completion_pages_delta`, `completion_seconds_delta`, `source`, `user_book_read_id` |
+| `user_book_read_started` | started a read | null | `started_at`, `user_book_read_id` |
+| `user_book_read_finished` | finished a read | null | `started_at`, `finished_at`, `user_book_read_id` |
+| `status_want_to_read`, `status_read`, `status_stopped` | status changed (stopped is did not finish) | null | `{}` |
+| `list_book` | added to a list | null | `list_id`, `list_name`, `slug`, `username` (the list's owner) |
+| `prompt_book` | added to a prompt | null | `prompt`, `prompt_id`, `slug` |
+| `referral_to` | referred another reader (not about a book you read) | null | `referred_user_id`, `referred_username` |
+
+- `book { id title cached_image contributions: cached_contributors }` gives each row its cover (`cached_image.url`) and authors (`cached_contributors` is a list of `{ author { name }, contribution, primary }`).
+- `action_at` (timestamptz, with a zone) is when it happened; a start or a finish is stamped at the reader's local midnight. `created_at` is when the row was written.
+- `order_by: [{ action_at: desc }, { id: desc }]` with `offset` and `limit` pages it. `event: { _in: [...] }` and `_nin` filter it.
+- **No total.** `reading_journals_aggregate` is refused to API tokens (HTTP 403, "Not available to API tokens"), so a page that comes back full is taken to have more.
+- A `reviewed` entry stays after the review is cleared and after the book leaves the library. The tab shows your review as it is now, from `book { reviews: user_books(where: { user_id: { _eq: me }, has_review: { _eq: true } }, limit: 1) { id review_raw review_has_spoilers } }`, and says only "Reviewed" when there is none.
 
 ## Reviews
 
@@ -45,6 +68,6 @@ Who you follow: `me { followed_users { followed_user_id } }` returns the ids (th
 
 ## Not yet verified
 
-- Paging the merged feed (offset or cursor across three sources) and how many requests a screen needs against the 60-a-minute limit.
 - Likes and comments on entries.
+- Event names for Currently Reading and Paused were not seen; the tab guesses `status_currently_reading` and `status_paused`, and says "Changed the status" for any other `status_` event.
 - What the followed users' activity looks like at scale: the test account follows two readers.
