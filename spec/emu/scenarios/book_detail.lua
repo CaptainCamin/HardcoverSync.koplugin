@@ -201,7 +201,7 @@ return {
 
     -- the page is the same size for every book: About is cut and Read more opens the whole
     -- synopsis on a screen of its own
-    emu:expectText("Add")
+    emu:expectText("Shelf")
     emu:expectText("Currently Reading")
     local function open_and_close(button, expect, shot)
       emu:screenNodes() -- paint first: a tap range is only real once painted
