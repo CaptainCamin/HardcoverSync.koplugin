@@ -14,6 +14,7 @@
 --     shelf_action (nil, or { text, run }: a button beside the shelf line),
 --     hint (string or nil: what reading will do, where there is no switch),
 --     track = { checked, toggle, note (string or nil) } or nil,
+--     menu = { title, rows = { { text, enabled, run }, ... } } or nil (the gear at the top right),
 --     actions = { { text, enabled, primary, run }, ... } }
 --
 -- Tapping above the sheet, or the Back key, closes it.
@@ -80,6 +81,33 @@ function ReaderPanel:buildShelfRow(text, action, width)
     Theme.hspan(width - label:getSize().w - button_w), button }
 end
 
+-- the settings gear: an icon in a TOUCH_MIN square that opens the panel's menu as a list sheet
+function ReaderPanel:buildGear(menu)
+  local size = Theme.TOUCH_MIN
+  self.gear = TapRow:new { callback = function() self:openMenu(menu) end,
+    dimen = Geom:new { w = size, h = size },
+    CenterContainer:new { dimen = Geom:new { w = size, h = size }, Theme.icon("settings", Theme.px(28)) } }
+  return self.gear
+end
+
+-- the gear's menu: a small popup under the gear (its right edge on the gear's), not a sheet
+function ReaderPanel:openMenu(menu)
+  local Popover = require("hardcover/lib/ui/components/popover")
+  local screen_w = Screen:getWidth()
+  local at = self.gear and self.gear.dimen
+  local items = {}
+  for _i, item in ipairs(menu.rows) do
+    items[#items + 1] = { label = item.text, disabled = item.enabled == false, callback = item.run }
+  end
+  -- (before the gear has been painted it has no place yet: the top right of the sheet stands in)
+  local x = at and at.x and (at.x + at.w) or (screen_w - Theme.px(20))
+  local y = at and at.y and (at.y + at.h) or ((self.sheet_top or 0) + Theme.TOUCH_MIN)
+  self.menu_popup = Popover.show { items = items, x = x, y = y,
+    width = Popover.fitWidth(items, screen_w - Theme.px(16)),
+    on_dismiss = function() self.menu_popup = nil end }
+  return self.menu_popup
+end
+
 function ReaderPanel:render()
   local model = self.opts.model()
   local screen_w, screen_h = Screen:getWidth(), Screen:getHeight()
@@ -100,15 +128,29 @@ function ReaderPanel:render()
         label = pill.text, selected = pill.filled, size = 15, width = width })
     end
   end
-  local title = Theme.mmdText(model.title, "strong", 25, { width = width })
+  -- the gear sits at the top right of the sheet, a touch target square; the title gives it room
+  local gear = model.menu and self:buildGear(model.menu)
+  local gear_w = gear and gear:getSize().w or 0
+  local title = Theme.mmdText(model.title, "strong", 25, { width = width - gear_w })
+  -- (a group measures itself once, so the width is added up here before anything is put in it)
+  local used = title:getSize().w
+  local head = HorizontalGroup:new { align = "top", title }
   if landscape and pill_row then
-    table.insert(content, HorizontalGroup:new { align = "center", title, Theme.hspan(Theme.px(20)), pill_row })
-  else
-    table.insert(content, title)
-    if pill_row then
-      table.insert(content, Theme.span("s"))
-      table.insert(content, pill_row)
-    end
+    used = used + Theme.px(20) + pill_row:getSize().w
+    table.insert(head, Theme.hspan(Theme.px(20)))
+    table.insert(head, pill_row)
+  end
+  if gear then
+    -- the gear's square ends at the top app bar's side margin from the edge, a little past the
+    -- content's own margin
+    local reach = M - Theme.mmd.top_bar.side
+    table.insert(head, Theme.hspan(math.max(0, width + reach - used - gear_w)))
+    table.insert(head, gear)
+  end
+  table.insert(content, head)
+  if pill_row and not landscape then
+    table.insert(content, Theme.span("s"))
+    table.insert(content, pill_row)
   end
 
   -- what the book is: how far or how long, right under the title, then where it is; each line only
