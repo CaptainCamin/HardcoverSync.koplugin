@@ -155,7 +155,7 @@ function ReaderPanel:render()
     end)
     if ok then cover = image; self.cover_widget = image end
   end
-  cover = cover or Theme.box(cw, ch, Theme.icon("book", Theme.px(28)), { radius = 0 })
+  cover = cover or Theme.box(cw, ch, Theme.icon("book", math.floor(cw / 2)), { radius = 0 })
   table.insert(content, HorizontalGroup:new { align = "top", cover, Theme.hspan(gap), book })
   if model.message and model.shelf_action then
     table.insert(content, Theme.span("m"))
