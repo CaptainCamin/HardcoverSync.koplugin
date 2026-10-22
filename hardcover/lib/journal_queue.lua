@@ -14,6 +14,11 @@
 -- Hardcover has no way to say "this entry is already there", so an entry whose answer was lost
 -- (sent, but the connection dropped before the reply) is sent again at the next flush and shows
 -- up twice. The op is removed as soon as the reply arrives, which keeps that window small.
+--
+-- An entry Hardcover already has can be changed or deleted from Activity, offline too: those wait
+-- here as ops with an `action` ("update" with the new text, or "delete") and the entry's
+-- `journal_id`. One waiting change per entry: a newer edit replaces an older one, and a delete
+-- drops a waiting edit. An entry not sent yet is edited in place (editWaiting) or cancelled.
 
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local OfflineQueue = require("hardcover/lib/offline_queue")
@@ -22,9 +27,12 @@ local JournalQueue = OfflineQueue.extend({})
 JournalQueue.store_key = "journal_ops"
 
 local EVENTS = { note = true, quote = true }
+local ACTIONS = { update = true, delete = true }
 
 local function valid(op)
-  return type(op) == "table" and op.book_id ~= nil and EVENTS[op.event] == true and type(op.id) == "string"
+  if type(op) ~= "table" or EVENTS[op.event] ~= true or type(op.id) ~= "string" then return false end
+  if op.action == nil then return op.book_id ~= nil end
+  return ACTIONS[op.action] == true and tonumber(op.journal_id) ~= nil
 end
 
 function JournalQueue:valid(op)
@@ -53,15 +61,20 @@ end
 -- text, privacy_setting_id, page, pages, tags, hidden_tags (lists of strings), title }.
 -- Returns the id it is kept under, or nil when it is not an entry (no book, no kind).
 --
-function JournalQueue:queue(entry)
-  if type(entry) ~= "table" or entry.book_id == nil or not EVENTS[entry.event] then return nil end
-  local ops = self:ops()
+-- the next op's id and place in the order
+local function nextId(ops)
   local seq = 0
   for _, op in pairs(ops) do
     if type(op) == "table" and (tonumber(op.seq) or 0) > seq then seq = tonumber(op.seq) end
   end
   seq = seq + 1
-  local id = string.format("%d-%d", os.time(), seq)
+  return string.format("%d-%d", os.time(), seq), seq
+end
+
+function JournalQueue:queue(entry)
+  if type(entry) ~= "table" or entry.book_id == nil or not EVENTS[entry.event] then return nil end
+  local ops = self:ops()
+  local id, seq = nextId(ops)
   ops[id] = {
     id = id, seq = seq, at = os.time(),
     user_id = entry.user_id, book_id = tonumber(entry.book_id) or entry.book_id,
@@ -73,6 +86,49 @@ function JournalQueue:queue(entry)
   }
   self:persist()
   return id
+end
+
+-- The waiting change to the entry Hardcover has as `journal_id`, or nil.
+function JournalQueue:changeFor(journal_id)
+  for _, op in pairs(self:ops()) do
+    if valid(op) and op.action and tonumber(op.journal_id) == tonumber(journal_id) then return op end
+  end
+end
+
+--
+-- Change or delete an entry Hardcover has. `action`: "update" or "delete". `entry`: { user_id,
+-- journal_id, book_id, event ("note" or "quote"), text (the new text, for "update"), title }.
+-- It replaces the entry's waiting change, if any. Returns the id it is kept under, or nil.
+--
+function JournalQueue:change(action, entry)
+  if not ACTIONS[action] or type(entry) ~= "table" or tonumber(entry.journal_id) == nil
+    or not EVENTS[entry.event] then
+    return nil
+  end
+  if action == "update" and type(entry.text) ~= "string" then return nil end
+  local ops = self:ops()
+  local before = self:changeFor(entry.journal_id)
+  if before then ops[before.id] = nil end
+  local id, seq = nextId(ops)
+  ops[id] = {
+    id = id, seq = seq, at = os.time(), action = action,
+    user_id = entry.user_id, journal_id = tonumber(entry.journal_id),
+    book_id = tonumber(entry.book_id) or entry.book_id, event = entry.event,
+    text = action == "update" and entry.text or nil, title = entry.title,
+  }
+  self:persist()
+  return id
+end
+
+-- Change the text of an entry that has not been sent yet. Returns whether there was one.
+function JournalQueue:editWaiting(id, text)
+  local op = self:ops()[id]
+  if not (valid(op) and op.action == nil and type(text) == "string") then return false end
+  op.text = text
+  -- a refused entry gets another chance with its new text
+  op.held, op.failures, op.reason = nil, nil, nil
+  self:persist()
+  return true
 end
 
 --
@@ -121,7 +177,7 @@ function JournalQueue:cancel(id)
 end
 
 --
--- Send what is waiting, one request each, oldest first. An entry Hardcover did not answer for
+-- Send what is waiting, one request each, oldest first (new entries, changes and deletes alike). An entry Hardcover did not answer for
 -- stays queued and stops the flush (the next ones would wait for the same connection). One it
 -- refused is counted and the rest go on; the third refusal in a row holds it until the user
 -- presses Sync (retryHeld).
@@ -155,11 +211,26 @@ function JournalQueue:flush(api, opts)
     local stopped = false
     for _, op in ipairs(self:list()) do
       if mine(op) and not op.held then
-        local entry, err = api:createJournalEntry(JournalQueue.object(op, opts.json))
+        local entry, err
+        local sent_text = op.text
+        if op.action == "update" then
+          entry, err = api:updateJournalEntry(op.journal_id, op.text)
+        elseif op.action == "delete" then
+          entry, err = api:deleteJournalEntry(op.journal_id)
+        else
+          entry, err = api:createJournalEntry(JournalQueue.object(op, opts.json))
+        end
         if entry then
-          ops[op.id] = nil
+          -- edited while it was on its way: the new text goes next, as a change to the entry it made
+          local edited = op.action == nil and op.text ~= sent_text and tonumber(entry.id) ~= nil
+            and ops[op.id] == op
+          if not edited then ops[op.id] = nil end
           self:persist()
           if opts.on_sent then opts.on_sent(op, entry) end
+          if edited then
+            op.action, op.journal_id = "update", tonumber(entry.id)
+            self:persist()
+          end
         elseif OfflineQueue.transient(err) then
           stopped = true
           break

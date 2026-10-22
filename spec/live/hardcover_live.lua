@@ -435,6 +435,37 @@ step("createJournalEntry: a quote with a page and tags, read back", function()
   end
 end)
 
+-- Editing and deleting from Activity (HardcoverApi:updateJournalEntry, deleteJournalEntry): the
+-- text changes and nothing else does, and a deleted entry is gone.
+step("updateJournalEntry and deleteJournalEntry: a note changed, read back, then deleted", function()
+  local id = createJournal("note", "hardcoversync live check: to change", {
+    metadata = { position = { type = "pages", value = 7, possible = 400 } },
+  })
+  is_table(Api:updateJournalEntry(id, "hardcoversync live check: changed"), "the change")
+  local row
+  for _ = 1, 4 do
+    row = readJournal(id)
+    if row and row.entry == "hardcoversync live check: changed" then break end
+    os.execute("sleep 2")
+  end
+  is_table(row, "the changed note read back")
+  if row.entry ~= "hardcoversync live check: changed" then error("entry is " .. tostring(row.entry), 0) end
+  if tonumber(row.privacy_setting_id) ~= 3 then error("the change moved privacy to " .. tostring(row.privacy_setting_id), 0) end
+  local position = type(row.metadata) == "table" and row.metadata.position
+  if not (type(position) == "table" and tonumber(position.value) == 7) then
+    error("the change lost the page: " .. json.encode(row.metadata), 0)
+  end
+
+  is_table(Api:deleteJournalEntry(id), "the delete")
+  local gone = false
+  for _ = 1, 4 do
+    local rows = Api:query("query { reading_journals(where: { id: { _eq: " .. math.floor(id) .. " } }) { id } }")
+    if rows and type(rows.reading_journals) == "table" and #rows.reading_journals == 0 then gone = true break end
+    os.execute("sleep 2")
+  end
+  if not gone then error("journal " .. id .. " is still there after the delete", 0) end
+end)
+
 -- The activity feed, as the plugin asks for it (HardcoverApi:getFeed): your own private note comes
 -- back in a note-only feed, and the full feed of you and the readers you follow pages cleanly.
 step("getFeed: your note, then the full feed and its next page", function()
