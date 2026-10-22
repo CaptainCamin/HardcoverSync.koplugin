@@ -1,0 +1,138 @@
+--[[--
+The Library's Activity tab, driven with real taps: the rows (a status change, a quote, a review
+that hides its spoilers, notes), a row opening the whole text, Load more adding the next page without
+repeating the entry both pages share, and the offline message.
+
+Screens: activity, activity_full, activity_more, activity_offline.
+]]
+
+local fixtures = require("fixtures")
+local UIManager = require("ui/uimanager")
+
+local function tap_text(emu, needle)
+  local node = emu:expectText(needle)
+  emu:tapExpecting(node.x + math.floor(node.w / 2), node.y + math.floor(node.h / 2))
+  emu:pump()
+end
+
+return {
+  name = "activity",
+
+  run = function(emu)
+    local Feed = require("hardcover/lib/feed")
+    local calls = {}
+
+    -- what Hardcover holds: 24 notes, a quote, a status change and a review with spoilers
+    local raw = { activities = {}, journals = {}, reviews = {} }
+    for day = 1, 24 do
+      raw.journals[#raw.journals + 1] = { id = 100 + day, event = "note", entry = string.format("Note number %d", day),
+        user_id = 11, created_at = string.format("2026-10-%02dT10:00:00+00:00", day),
+        user = { name = "Dana" }, book = { id = 5, title = "Dune" } }
+    end
+    raw.journals[#raw.journals + 1] = { id = 200, event = "quote", entry = "Fear is the mind-killer.", user_id = 11,
+      created_at = "2026-10-25T10:00:00+00:00", metadata = { position = { type = "pages", value = 12 } },
+      user = { name = "Dana" }, book = { id = 5, title = "Dune" } }
+    raw.activities[1] = { id = 300, event = "UserBookActivity", user_id = 12, created_at = "2026-10-24T12:00:00+00:00",
+      user = { name = "Ravi" }, book = { id = 6, title = "Kindred" }, data = { userBook = { statusId = 3, rating = 4 } } }
+    raw.reviews[1] = { id = 400, user_id = 12, rating = 5, review_raw = "The ending is wonderful.",
+      review_has_spoilers = true, reviewed_at = "2026-10-23", user = { name = "Ravi" }, book = { id = 6, title = "Kindred" } }
+
+    -- Hardcover's own paging by time: newest first, nothing newer than `before`, `limit` of each source
+    local function answer(opts)
+      local data = {}
+      for key, rows in pairs(raw) do
+        local kept = {}
+        local stamp = key == "reviews" and "reviewed_at" or "created_at"
+        for _, row in ipairs(rows) do
+          local at = row[stamp]
+          local bound = opts.before and (key == "reviews" and opts.before:sub(1, 10) or opts.before)
+          if not bound or at <= bound then kept[#kept + 1] = row end
+        end
+        table.sort(kept, function(a, b) return a[stamp] > b[stamp] end)
+        while #kept > opts.limit do table.remove(kept) end
+        data[key] = kept
+      end
+      return Feed.parse(data, opts.limit)
+    end
+
+    local settings = fixtures.real_settings(emu)
+    fixtures.install({
+      settings = settings,
+      overrides = {
+        getFollowedIds = function() calls[#calls + 1] = { name = "getFollowedIds" } return { 11, 12 } end,
+        getFeed = function(_, opts)
+          calls[#calls + 1] = { name = "getFeed", before = opts.before, readers = #(opts.user_ids or {}) }
+          return answer(opts)
+        end,
+      },
+    })
+
+    local function feed_calls()
+      local n = 0
+      for _, c in ipairs(calls) do if c.name == "getFeed" then n = n + 1 end end
+      return n
+    end
+
+    local DialogManager = require("hardcover/lib/ui/dialog_manager")
+    local manager = DialogManager:new { settings = settings }
+
+    -- the first page: the newest 20 of the 27 entries
+    manager:showActivity()
+    emu:pump()
+    local dialog = UIManager:getTopmostVisibleWidget()
+    assert(dialog and dialog.name == "hardcover_activity", "the tab did not open: " .. tostring(dialog and dialog.name))
+    assert(#dialog.entries == 20, "the first page holds " .. #dialog.entries .. " entries, not 20")
+    assert(dialog.has_more, "the first page should say there is more")
+    assert(calls[1].name == "getFollowedIds" and calls[2].name == "getFeed" and calls[2].readers == 2,
+      "the first page did not ask who is followed, then the feed")
+    emu:expectText("Fear is the mind-killer")
+    emu:expectText("Dana \194\183 Quote \194\183 Dune")
+    emu:expectText("Kindred")
+    emu:shot("activity")
+
+    -- the quote opens in full
+    tap_text(emu, "Fear is the mind-killer")
+    local full = UIManager:getTopmostVisibleWidget()
+    assert(full and full.name == "hardcover_text_screen", "the quote did not open: " .. tostring(full and full.name))
+    emu:expectText("Dana \194\183 Quote \194\183 Dune \194\183 p. 12")
+    emu:shot("activity_full")
+    full:onClose()
+    emu:pump()
+
+    -- the review does not give away the story in the list
+    emu:expectText(Feed.SPOILER_LABEL)
+
+    -- the next page: asks for rows no newer than the oldest shown, and the entry both pages share
+    -- appears once
+    local oldest = dialog.entries[#dialog.entries].at
+    dialog:loadMore()
+    emu:pump()
+    assert(feed_calls() == 2, "Load more should have made the second feed request")
+    assert(calls[#calls].before == oldest, "the next page was not asked for from " .. oldest)
+    assert(#dialog.entries == 27, "after Load more there are " .. #dialog.entries .. " entries, not 27")
+    assert(not dialog.has_more, "the last page should end the list")
+    local seen = {}
+    for _, e in ipairs(dialog.entries) do
+      assert(not seen[e.key], "an entry is listed twice: " .. e.key)
+      seen[e.key] = true
+    end
+    emu:shot("activity_more")
+    emu:closeAll()
+
+    -- offline: a clear message and no request
+    local before = feed_calls()
+    local NetworkManager = require("ui/network/manager")
+    local was = NetworkManager.isConnected
+    local was_state = NetworkManager.getConnectionState
+    NetworkManager.isConnected = function() return false end
+    NetworkManager.getConnectionState = function() return false end
+    manager:showActivity()
+    emu:pump()
+    NetworkManager.isConnected = was
+    NetworkManager.getConnectionState = was_state
+    emu:expectText("internet connection")
+    assert(feed_calls() == before, "asked for the feed while offline")
+    emu:shot("activity_offline")
+    emu:closeAll()
+  end,
+}

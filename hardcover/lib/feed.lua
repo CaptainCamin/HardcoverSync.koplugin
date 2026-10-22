@@ -263,6 +263,80 @@ function Feed.parse(data, limit)
   }
 end
 
+-- ---------------------------------------------------------------------------
+-- What the Activity screen shows for an entry
+-- ---------------------------------------------------------------------------
+
+local MONTHS = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" }
+
+-- "Oct 21" from an entry's "2026-10-21", or nil
+function Feed.shortDate(date)
+  local month, day = tostring(date or ""):match("^%d%d%d%d%-(%d%d)%-(%d%d)$")
+  month = tonumber(month)
+  if not (month and MONTHS[month]) then return nil end
+  return string.format("%s %d", MONTHS[month], tonumber(day))
+end
+
+local KIND_WORD = { note = "Note", quote = "Quote", review = "Review" }
+
+-- U+201C and U+201D as bytes, for the CI Lua
+local OPEN_QUOTE, CLOSE_QUOTE = "\226\128\156", "\226\128\157"
+
+Feed.SPOILER_LABEL = "Review that gives away the story"
+
+--
+-- One list row for an entry: { label (the line in bold), support (the small line), icon, action }.
+-- `action` is "full" (a note, quote or review opens its whole text), "book" (a status change opens
+-- the book) or nil (nothing to open). A kind is always said in words, never by the icon alone.
+--
+function Feed.row(entry)
+  local when = Feed.shortDate(entry.date)
+  local function join(...)
+    local parts = {}
+    for _, part in ipairs({ ... }) do
+      if part and part ~= "" then parts[#parts + 1] = part end
+    end
+    return table.concat(parts, " \194\183 ")
+  end
+
+  if entry.kind == "status" then
+    return {
+      label = entry.title,
+      support = join(when, entry.who, entry.text),
+      icon = "book-open",
+      action = entry.book_id and "book" or nil,
+    }
+  end
+
+  local label = entry.excerpt or entry.text or ""
+  if entry.kind == "quote" then
+    label = OPEN_QUOTE .. label .. CLOSE_QUOTE
+  elseif entry.kind == "review" then
+    if entry.spoilers then
+      label = Feed.SPOILER_LABEL
+    elseif entry.rating then
+      label = entry.rating .. "  " .. label
+    end
+  end
+  return {
+    label = label,
+    support = join(when, entry.who, KIND_WORD[entry.kind], entry.title),
+    icon = entry.kind == "quote" and "bookmark" or (entry.kind == "review" and "star-filled" or "edit"),
+    action = "full",
+  }
+end
+
+-- The heading over an entry's whole text: "Dana · Quote · Dune".
+function Feed.heading(entry)
+  local parts = { entry.who, KIND_WORD[entry.kind], entry.title }
+  local out = {}
+  for _, part in ipairs(parts) do
+    if part and part ~= "" then out[#out + 1] = part end
+  end
+  if entry.page then out[#out + 1] = "p. " .. entry.page end
+  return table.concat(out, " \194\183 ")
+end
+
 -- `held` with the entries of a newer page added at the end, keeping each entry once.
 function Feed.append(held, page)
   local out, seen = {}, {}
