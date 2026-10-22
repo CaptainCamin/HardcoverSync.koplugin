@@ -189,6 +189,36 @@ return {
     assert(typed == "Twelve books", "the input dialog returned " .. tostring(typed))
     assert(UIManager:getTopmostVisibleWidget() == page, "the input dialog stayed open")
 
+    -- search bar: the top bar turned into a field, the keyboard under it; Enter searches with what
+    -- was typed, the X clears, the arrow leaves
+    local SearchBar = require("hardcover/lib/ui/components/search_bar")
+    local searched
+    local sbar
+    sbar = SearchBar:new { input = "", hint = "Title or author",
+      on_submit = function(q) searched = q; return q ~= "" end }
+    UIManager:show(sbar)
+    sbar:onShowKeyboard()
+    emu:pump()
+    assert(sbar:isKeyboardVisible(), "the search bar's keyboard did not come up")
+    emu:shot("components_search_bar_empty")
+    sbar:setInputText("earthsea")
+    emu:pump()
+    emu:shot("components_search_bar_typed")
+    sbar:clear()
+    assert(sbar:getInputText() == "", "the X did not clear the words")
+    sbar:setInputText("the left hand")
+    sbar:submit()
+    assert(searched == "the left hand", "Enter did not hand over the words")
+    assert(not UIManager:isWidgetShown(sbar), "the search bar stayed open after a search")
+    local again = SearchBar:new { input = "x", on_submit = function() return false end }
+    UIManager:show(again)
+    again:onShowKeyboard()
+    again:onBack()
+    assert(not again:isKeyboardVisible(), "Back did not put the keyboard down first")
+    again:onBack()
+    assert(not UIManager:isWidgetShown(again), "Back did not leave the search bar")
+    emu:pump()
+
     -- progress dialog: a bar, a visible Stop that is acknowledged, and a tap outside does nothing
     local ProgressDialog = require("hardcover/lib/ui/components/progress_dialog")
     local stopped

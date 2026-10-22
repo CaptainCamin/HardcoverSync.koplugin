@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Search bar in the top bar.** Searching for books (Home, Library, and the link-book and edition pickers) now turns the top bar into a search field with the keyboard under it, instead of a box in the middle of the screen. The keyboard's Enter key searches, the X clears the words, and the arrow leaves without searching.
 - **Books behind a goal.** A book-count goal's screen shows the two books you finished most recently in its period, with author and finish date, and "See all N books" opens the whole list, newest first, on a screen of its own. It is a best match of Hardcover's own count: a note says when the list and Hardcover's number differ, and a goal with filters set on Hardcover (author, category, format) has no list. Page goals are unchanged.
 
 ## 2.0.0

@@ -427,36 +427,24 @@ end
 -- minute, so it only runs on submit, never while typing.
 --
 function DialogManager:showSearchInput(initial)
-  local input
-  local function submit()
-    local query = BookSearch.normalize(input:getInputText())
-    if not query then return end
-    UIManager:close(input)
-    -- Let the panel repaint without the box and keyboard before the loading
-    -- line goes up and the request starts; run in the same tick, the page
-    -- under them is never redrawn and the results appear over a stale screen.
-    UIManager:setDirty("all", "ui")
-    UIManager:nextTick(function() self:searchBooks(query) end)
-  end
-  input = require("hardcover/lib/ui/components/input_dialog"):new {
-    title = _("Search books"),
+  local bar = require("hardcover/lib/ui/components/search_bar"):new {
     input = initial or "",
     hint = _("Title or author"),
-    buttons = {
-      {
-        label = _("Cancel"),
-        callback = function() UIManager:close(input) end,
-      },
-      {
-        label = _("Search"),
-        primary = true,
-        callback = submit,
-      },
-    },
+    -- an empty query is not a search: the bar stays up for words
+    on_submit = function(text)
+      local query = BookSearch.normalize(text)
+      if not query then return false end
+      -- Let the panel repaint without the bar and keyboard before the loading
+      -- line goes up and the request starts; run in the same tick, the page
+      -- under them is never redrawn and the results appear over a stale screen.
+      UIManager:setDirty("all", "ui")
+      UIManager:nextTick(function() self:searchBooks(query) end)
+      return true
+    end,
   }
-  UIManager:show(input)
-  input:onShowKeyboard()
-  return input
+  UIManager:show(bar)
+  bar:onShowKeyboard()
+  return bar
 end
 
 function DialogManager:searchBooks(query)
