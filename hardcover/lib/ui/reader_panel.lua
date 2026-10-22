@@ -136,10 +136,6 @@ function ReaderPanel:render()
     table.insert(book, Theme.span("xs"))
     table.insert(book, Theme.mmdText(model.line, "text", 18, { secondary = true, width = text_w }))
   end
-  if model.progress ~= nil then
-    table.insert(book, Theme.span("xs"))
-    table.insert(book, Theme.progress { width = text_w, height = Theme.px(12), percentage = model.progress })
-  end
   local cover
   if model.cover_path then
     local ok, image = pcall(function()
@@ -159,6 +155,10 @@ function ReaderPanel:render()
   end
   cover = cover or Theme.box(cw, ch, Theme.icon("book", math.floor(cw / 2)), { radius = 0 })
   table.insert(content, HorizontalGroup:new { align = "top", cover, Theme.hspan(gap), book })
+  if model.progress ~= nil then
+    table.insert(content, Theme.span("s"))
+    table.insert(content, Theme.progress { width = width, height = Theme.px(12), percentage = model.progress })
+  end
   if model.message and model.shelf_action then
     table.insert(content, Theme.span("m"))
     table.insert(content, self:buildShelfRow(model.message, model.shelf_action, width))
