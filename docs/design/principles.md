@@ -9,19 +9,13 @@ are in [mmd-reference.md](mmd-reference.md).
 This plugin runs on 6 to 7 inch e-readers (Kindle, Kobo, Boox), about 3.3 to 4.1 in wide in a 3:4 shape. Mudita
 Mindful Design (MMD) was drawn for the Mudita Kompakt, about 2.3 in wide and 9:15. So **the e-reader is the
 design target** and MMD is a source: we keep what it got right (the e-ink principles, line weights, touch
-sizes, black and white) and adapt its layout numbers, which assume a much narrower screen.
-
-Two size classes, by physical width, not pixel count (one helper, `Theme.sizeClass()`, when it is built; no
-component measures the screen itself):
-
-- **Regular**: about 3.3 in and wider. Every e-reader we target, and the three CI sizes (758, 1072, 1264 px
-  wide). This is what the specs describe first.
-- **Compact**: about 2.5 in or less. MMD as drawn. Only built where a component needs to differ.
+sizes, black and white) and adapt its layout numbers, which assume a much narrower screen. Phone-sized
+screens are not a target; there is one layout, for e-readers.
 
 Every rule below and in the component specs carries a provenance, so a departure is never a surprise:
 
 - **MMD**: taken as drawn.
-- **Adapted**: MMD's idea, changed for Regular, with the reason.
+- **Adapted**: MMD's idea, changed for the e-reader, with the reason.
 - **Ours**: not in MMD (the plugin's own screens and components).
 
 ## Layout on a wider screen (Adapted)
@@ -29,19 +23,18 @@ Every rule below and in the component specs carries a provenance, so a departure
 1. **Use the width for content, not for slabs.** Text keeps a readable line length; a control does not stretch
    across the screen just because the screen is wide.
 2. **Overlays are sized for the screen they are on.**
-   - *Dialog*: a floating box, outlined all round (MMD hangs it off the bottom at full width). On Regular it is
-     about 75 to 80% of the screen width, and its two actions sit side by side in one 64 px row, the filled one
-     on the right. Compact stays at MMD's stacked buttons.
+   - *Dialog*: a floating box, outlined all round (MMD hangs it off the bottom at full width). About 80% of
+     the screen width, and its two actions sit side by side in one 64 px row, the filled one on the right.
+     (MMD stacks them.)
    - *Sheet*: still anchored to the bottom edge across the full width, but its content is held to a centred
      column, and a sheet's actions are rows of at most two. A choice sheet's list keeps one row per option.
    - *Snackbar*: full width at the bottom, one line, as MMD.
 3. **Pages** (lists, forms, settings) already use the full width. A second column or a wider measure on Goals
    and Stats is a separate decision per screen, not a default.
-4. **Unchanged by size**: touch targets (never under `Theme.TOUCH_MIN`), outline weights, the black and grey
-   policy, no animation, fixed row heights.
+4. **Unchanged**: touch targets (never under `Theme.TOUCH_MIN`), outline weights, the black and grey policy,
+   no animation, fixed row heights.
 
-Status: the dialog and sheet rules above are the spec. The code still uses the older rule (dialog about 60%
-wide, stacked buttons; sheets full width) until the follow-up PR.
+Status: the dialog rule is built in its own PR (the code in `components/dialog.lua`). The sheet rule is the spec; sheets still run full width with stacked buttons.
 
 ## Where it comes from
 

@@ -1,6 +1,6 @@
 # MMD reference
 
-Mudita Mindful Design as drawn, for a small phone-shaped panel. This is the **Compact** reference: where a component is used on a wider e-reader, [principles.md](principles.md) says what is adapted. Units are the appendix's own px, scaled with `Theme.px`; `hardcover/lib/ui/theme.lua` wins on any number.
+Mudita Mindful Design as drawn, for a small phone-shaped panel. This is MMD's own spec: where our e-reader layout differs, [principles.md](principles.md) says what is adapted. Units are the appendix's own px, scaled with `Theme.px`; `hardcover/lib/ui/theme.lua` wins on any number.
 
 ## Which catalog components the plugin uses
 
@@ -38,7 +38,7 @@ Where the Kotlin differs, the appendix wins (Kotlin: switch 52x32, checkbox 23, 
 | Nav bar | container 57, icon 18, active indicator 4, 2 white gap under the top rule, label 15 |
 | Top app bar | height 67, icons 28 (touch 48), 3 black rule below, 16 side margins, 14 top/bottom |
 | Snackbar | container 64, top rule 3 black + 2 white gap, message Medium 21 / 25, icon 28, close touch 48, button touch 83 x 48 |
-| Dialog | (Compact reference; the Regular adaptation is in principles.md) a floating box about 60% of the screen wide (364 to 520), outlined all round (2, radius 12) in place of MMD's 3 black + 2 white top rule, which would double up with it; MMD itself hangs the dialog off the bottom edge at full width, drawn for a phone-sized screen; heading Black 25 / 28, text Medium 21 / 25, black; 12 side and bottom padding, 12 above the heading or icon, 10 heading to text, 24 text to buttons, 12 between buttons; buttons stacked, filled first, 340 x 64; icon 28; close icon 28 (touch 48) only on the no-button configuration; the input dialog is the same box with 8 spacing in place of 12 to 24, sitting right above the keyboard so it stays clear of the top bar |
+| Dialog | (MMD's; our adaptation is in principles.md) a floating box about 60% of the screen wide (364 to 520), outlined all round (2, radius 12) in place of MMD's 3 black + 2 white top rule, which would double up with it; MMD itself hangs the dialog off the bottom edge at full width, drawn for a phone-sized screen; heading Black 25 / 28, text Medium 21 / 25, black; 12 side and bottom padding, 12 above the heading or icon, 10 heading to text, 24 text to buttons, 12 between buttons; buttons stacked, filled first, 340 x 64; icon 28; close icon 28 (touch 48) only on the no-button configuration; the input dialog is the same box with 8 spacing in place of 12 to 24, sitting right above the keyboard so it stays clear of the top bar |
 | Menu | 2 border, rounded, dotted dividers, leading icon 28 |
 | Bottom sheet | top rule 3 + 2 white gap; title Black 25 / 28, text Medium 18 / 22; side padding 12, top 24; buttons 16 apart; **action sheet** = outlined buttons + one filled Cancel; **choice sheet** = radio list + an X, no Cancel; never both |
 | List item | label Black 21 / 23, supporting Medium 18 / 18, padding 16 side and 15.5 top/bottom, 4 between the lines, tile icon 48, icon 28, toggle touch 56, checkbox / radio touch 48; divider 1px **dotted**, starting after the leading icon |
