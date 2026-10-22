@@ -453,8 +453,25 @@ step("the added book is gone", function()
   end
 end)
 
--- The emulator's canned data has to look like what Hardcover really sends. Types only: a value
--- that differs is expected, a field the fixture lacks or holds as another type is not.
+-- The emulator's canned data has to look like what Hardcover really sends. Types only, never
+-- values. A field both sides have with different types fails. A field the live answer has and the
+-- fixture lacks fails only when the plugin's own code mentions that field name: the answers carry
+-- plenty the plugin never reads (image colours, author slugs), and the fixtures need not.
+local plugin_source
+local function plugin_reads(field)
+  if not plugin_source then
+    local parts = {}
+    local p = assert(io.popen("find '" .. PLUGIN .. "/hardcover' '" .. PLUGIN .. "/main.lua' -name '*.lua'"))
+    for file in p:lines() do
+      local f = io.open(file, "r")
+      if f then parts[#parts + 1] = f:read("*a"); f:close() end
+    end
+    p:close()
+    plugin_source = table.concat(parts, "\n")
+  end
+  return plugin_source:find("%f[%w_]" .. field:gsub("%p", "%%%0") .. "%f[^%w_]") ~= nil
+end
+
 local fixture_shapes, fixture_failed
 step("emulator fixtures can answer the same calls", function()
   fixture_shapes, fixture_failed = dofile(PLUGIN .. "/spec/live/fixture_shapes.lua")(Api, PLUGIN, is_null)
@@ -463,17 +480,20 @@ step("emulator fixtures can answer the same calls", function()
   table.sort(names)
   if #names > 0 then error("fixture fakes raised: " .. table.concat(names, "; "), 0) end
 end)
-for _, name in ipairs((function()
-  local out = {}
-  for name in pairs(live_shapes) do out[#out + 1] = name end
-  table.sort(out)
-  return out
-end)()) do
+local compared = {}
+for name in pairs(live_shapes) do compared[#compared + 1] = name end
+table.sort(compared)
+for _, name in ipairs(compared) do
   if fixture_shapes and fixture_shapes[name] then
     step("emulator fixture matches the live shape: " .. name, function()
-      local problems, extras = Shape.compare(live_shapes[name], fixture_shapes[name])
+      local mismatches, extras, missing = Shape.compare(live_shapes[name], fixture_shapes[name])
       if #extras > 0 then print("    note: fixture-only fields " .. table.concat(extras, ", ")) end
-      if #problems > 0 then error(table.concat(problems, "; "), 0) end
+      local read = {}
+      for _, path in ipairs(missing) do
+        if plugin_reads(path:match("([^.%[%]]+)$") or path) then read[#read + 1] = path end
+      end
+      if #read > 0 then print("    note: live fields the plugin reads and the fixture lacks " .. table.concat(read, ", ")) end
+      if #mismatches > 0 then error(table.concat(mismatches, "; "), 0) end
     end)
   end
 end

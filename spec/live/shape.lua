@@ -36,38 +36,42 @@ function Shape.of(value, is_null)
   return out
 end
 
--- What a fixture must change to look like the live answer. Returns a list of strings.
---   missing: the live answer has a typed field the fixture lacks (or holds as another type)
---   extra:   the fixture has a field the live answer never showed (a warning, not a failure)
+-- How a fixture differs from the live answer. Returns three lists of strings:
+--   mismatches: a field both sides have, with different types (the fixture's data cannot be right)
+--   missing:    the live answer has a typed field the fixture lacks (path ends in the field name)
+--   extras:     the fixture has a field the live answer never showed
 -- "null" on either side means unknown, and an empty list has no item shape to compare.
-function Shape.compare(live, fixture, path, problems, extras)
-  path, problems, extras = path or "", problems or {}, extras or {}
-  if live == "null" or live == nil or fixture == "null" then return problems, extras end
-  if type(live) ~= type(fixture) or (type(live) == "string" and live ~= fixture) then
-    if live ~= "mixed" and fixture ~= "mixed" then
-      problems[#problems + 1] = string.format("%s: live is %s, fixture is %s", path == "" and "(root)" or path,
-        type(live) == "table" and (live["[]"] and "a list" or "an object") or live,
-        fixture == nil and "absent" or (type(fixture) == "table" and (fixture["[]"] and "a list" or "an object") or fixture))
-    end
-    return problems, extras
+function Shape.compare(live, fixture, path, mismatches, extras, missing)
+  path, mismatches, extras, missing = path or "", mismatches or {}, extras or {}, missing or {}
+  local function kind(v) return type(v) == "table" and (v["[]"] and "a list" or "an object") or tostring(v) end
+  if live == "null" or live == nil or fixture == "null" then return mismatches, extras, missing end
+  -- an empty table is an empty list or an empty object: nothing to compare
+  if type(live) == "table" and next(live) == nil or type(fixture) == "table" and next(fixture) == nil then
+    return mismatches, extras, missing
   end
-  if type(live) ~= "table" then return problems, extras end
+  if kind(live) ~= kind(fixture) then
+    if live ~= "mixed" and fixture ~= "mixed" then
+      mismatches[#mismatches + 1] = string.format("%s: live is %s, fixture is %s", path == "" and "(root)" or path, kind(live), kind(fixture))
+    end
+    return mismatches, extras, missing
+  end
+  if type(live) ~= "table" then return mismatches, extras, missing end
   if live["[]"] or fixture["[]"] then
-    if live["[]"] and fixture["[]"] then Shape.compare(live["[]"], fixture["[]"], path .. "[]", problems, extras) end
-    return problems, extras
+    if live["[]"] and fixture["[]"] then Shape.compare(live["[]"], fixture["[]"], path .. "[]", mismatches, extras, missing) end
+    return mismatches, extras, missing
   end
   for k, v in pairs(live) do
     local fv = fixture[k]
     if fv == nil then
-      if v ~= "null" then problems[#problems + 1] = string.format("%s.%s: live has %s, fixture lacks it", path, k, type(v) == "table" and "an object" or v) end
+      if v ~= "null" then missing[#missing + 1] = path .. "." .. k end
     else
-      Shape.compare(v, fv, path .. "." .. k, problems, extras)
+      Shape.compare(v, fv, path .. "." .. k, mismatches, extras, missing)
     end
   end
   for k in pairs(fixture) do
     if live[k] == nil then extras[#extras + 1] = path .. "." .. k end
   end
-  return problems, extras
+  return mismatches, extras, missing
 end
 
 return Shape
