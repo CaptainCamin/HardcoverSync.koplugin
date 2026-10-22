@@ -15,6 +15,7 @@ local Feed = require("hardcover/lib/feed")
 local Network = require("hardcover/lib/network")
 local User = require("hardcover/lib/user")
 
+local AuthScope = require("hardcover/lib/ui/auth_scope")
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 
 local Flows = {}
@@ -33,18 +34,27 @@ function Flows:openActivityEntry(entry)
   }, "full")
 end
 
-function Flows:showActivity(host)
-  self:screens():discard("activity")
-
-  local online = Network.connected()
+function Flows:  local online = Network.connected()
+  -- Older OAuth sign-ins predate the social scopes. The rest of the plugin can still
+  -- work with such a token, but Activity cannot read follows, journal entries or reviews.
+  local missing_social = AuthScope.missing("read:social") or AuthScope.missing("read:users")
+  local message
+  if not online then
+    message = _("Activity needs an internet connection.")
+  elseif missing_social then
+    message = _("Activity needs access to social activity. Sign out and sign back in to allow it.")
+  else
+    message = _("Loading activity\226\128\166")
+  end
   local dialog
   dialog = require("hardcover/lib/ui/activity_body"):new {
     shell = host and host.shell, width = host and host.width, height = host and host.height,
     parent = host and host.parent,
-    message = online and _("Loading activity\226\128\166") or _("Activity needs an internet connection."),
+    message = message,
     select_cb = function(entry) self:openActivityEntry(entry) end,
   }
   self:openScreen("activity", dialog, host)
+  if not online or missing_social then return dialog endty", dialog, host)
   if not online then return dialog end
 
   local state = { followed = nil, entries = {}, cursor = nil }
