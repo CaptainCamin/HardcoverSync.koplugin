@@ -71,6 +71,29 @@ Api.enabled = true
 -- are read by curl from stdin / the environment, so the token is never on a command line.
 Api.runtime = { subprocess = function(fn) return true, fn() end }
 
+local Shape = dofile(PLUGIN .. "/spec/live/shape.lua")
+local is_null = function(v) return v == NULL end
+
+-- The shape of the first answer each method gives, kept to compare with the emulator's fixtures
+-- at the end (see "emulator fixtures match" below). Only types are kept, never values.
+local live_shapes = {}
+for _, name in ipairs({
+  "me", "search", "findBooks", "findEditions", "getBookDetail", "getBooksByIds", "getReviews",
+  "getSimilarBooks", "getBookLists", "getLists", "getListCount", "getListBooks", "getListMembers",
+  "getShelf", "getShelfCounts", "getCurrentlyReading", "getStats", "getForYou", "getVibes",
+  "getGoals", "updateUserBook", "updateRating", "updatePage", "createRead", "createJournalEntry",
+  "addToList",
+}) do
+  local original = Api[name]
+  if original then
+    Api[name] = function(self, ...)
+      local result, a, b = original(self, ...)
+      if result ~= nil then live_shapes[name] = Shape.merge(live_shapes[name], Shape.of(result, is_null)) end
+      return result, a, b
+    end
+  end
+end
+
 local failures_http = {}
 local API_URL = "https://api.hardcover.app/v1/graphql"
 Api.transport = {
@@ -429,6 +452,39 @@ step("the added book is gone", function()
     if type(left) == "table" and left.id then error("user book " .. tostring(left.id) .. " is still on the account", 0) end
   end
 end)
+
+-- The emulator's canned data has to look like what Hardcover really sends. Types only: a value
+-- that differs is expected, a field the fixture lacks or holds as another type is not.
+local fixture_shapes, fixture_failed
+step("emulator fixtures can answer the same calls", function()
+  fixture_shapes, fixture_failed = dofile(PLUGIN .. "/spec/live/fixture_shapes.lua")(Api, PLUGIN, is_null)
+  local names = {}
+  for name, err in pairs(fixture_failed) do names[#names + 1] = name .. " (" .. err:gsub("\n.*", "") .. ")" end
+  table.sort(names)
+  if #names > 0 then error("fixture fakes raised: " .. table.concat(names, "; "), 0) end
+end)
+for _, name in ipairs((function()
+  local out = {}
+  for name in pairs(live_shapes) do out[#out + 1] = name end
+  table.sort(out)
+  return out
+end)()) do
+  if fixture_shapes and fixture_shapes[name] then
+    step("emulator fixture matches the live shape: " .. name, function()
+      local problems, extras = Shape.compare(live_shapes[name], fixture_shapes[name])
+      if #extras > 0 then print("    note: fixture-only fields " .. table.concat(extras, ", ")) end
+      if #problems > 0 then error(table.concat(problems, "; "), 0) end
+    end)
+  end
+end
+local shapes_out = os.getenv("HARDCOVER_LIVE_SHAPES")
+if shapes_out and shapes_out ~= "" then
+  local f = io.open(shapes_out, "w")
+  if f then
+    f:write(encode({ live = live_shapes, fixtures = fixture_shapes or {} }), "\n")
+    f:close()
+  end
+end
 
 step("no request was refused at HTTP level", function()
   if #failures_http > 0 then error("non-2xx answers: " .. table.concat(failures_http, ","), 0) end

@@ -35,9 +35,21 @@ jobs:
         env:
           HARDCOVER_DEV_KEY: ${{ secrets.HARDCOVER_DEV_KEY }}
           HARDCOVER_LIVE_GOALS: ${{ inputs.goals && '1' || '' }}
+          HARDCOVER_LIVE_SHAPES: ${{ runner.temp }}/shapes.json
         run: |
           if [ -z "$HARDCOVER_DEV_KEY" ]; then
             echo "HARDCOVER_DEV_KEY is not set as a repository secret"
             exit 1
           fi
           luajit spec/live/hardcover_live.lua .
+
+      # Types only, no values from the account: what the API returned next to what the emulator's
+      # fixtures return, for working out which fixture to fix when a shape check fails.
+      - name: Keep the response shapes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: response-shapes
+          path: ${{ runner.temp }}/shapes.json
+          if-no-files-found: ignore
+          retention-days: 14
