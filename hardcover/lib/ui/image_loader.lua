@@ -172,6 +172,10 @@ end
 local LOCAL_BUDGET_MS = 250
 local LOCAL_PAUSE = 0.5
 local FETCH_DELAY = 0.05
+-- Covers that are not on the device are downloaded this many at a time. Each is a subprocess
+-- that waits on a TLS handshake and, for a book not seen before, on the image service making
+-- the size; one after another a strip of new books took as long as all of them added up.
+local MAX_DOWNLOADS = 3
 
 local function now_ms()
   local ok, time = pcall(require, "ui/time")
@@ -202,15 +206,19 @@ function Batch:loadImages(urls, size, box)
   local cache = ImageLoader:getCache()
   local run_image
   local stop_loading = false
+  local in_flight = 0
+  local queued = false -- a run_image is already waiting its turn
 
   local schedule_next = function(delay)
     if #url_queue > 0 then
+      if queued then return end
+      queued = true
       if delay then
         UIManager:scheduleIn(delay, run_image)
       else
         UIManager:nextTick(run_image)
       end
-    else
+    elseif in_flight == 0 then
       self.loading = false
     end
   end
@@ -243,7 +251,10 @@ function Batch:loadImages(urls, size, box)
   end
 
   run_image = function()
+    queued = false
     if stop_loading then return end
+    -- every download slot is busy: the one that finishes first calls this again
+    if in_flight >= MAX_DOWNLOADS then return end
 
     local began = now_ms()
     local url, fetch
@@ -260,8 +271,12 @@ function Batch:loadImages(urls, size, box)
       end
     end
 
+    in_flight = in_flight + 1
     Trapper:wrap(function()
-      if stop_loading then return end
+      if stop_loading then
+        in_flight = in_flight - 1
+        return
+      end
 
       -- Not cancellable by a tap: a cancellable download covers the whole screen with a
       -- widget that takes the tap, so turning the page would only cancel one cover, and
@@ -278,10 +293,13 @@ function Batch:loadImages(urls, size, box)
         logger.dbg("HARDCOVER cover fetch failed", url, content)
       end
 
+      in_flight = in_flight - 1
       if not stop_loading then
         schedule_next(FETCH_DELAY)
       end
     end)
+    -- the download is under way (Trapper:wrap returns when it first waits): start the next
+    if not stop_loading and in_flight < MAX_DOWNLOADS then schedule_next(FETCH_DELAY) end
   end
 
   UIManager:nextTick(run_image)
@@ -289,6 +307,7 @@ function Batch:loadImages(urls, size, box)
   return function()
     stop_loading = true
     self.loading = false
+    queued = false
     UIManager:unschedule(run_image)
   end
 end
