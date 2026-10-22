@@ -13,11 +13,16 @@
 -- Or several fields, each { label, value, min, max, step, big_step, format }, with `on_change(values,
 -- index)` returning the values to show once field `index` moved (the other one follows it), and
 -- `on_save(first, second, ...)`.
+--
+-- `toggle = { label, support, on }` adds a switch row under the steppers (the whole row is the tap);
+-- its state is the last argument of `on_save`.
 
 local UIManager = require("ui/uimanager")
 
 local Button = require("hardcover/lib/ui/components/button")
 local Dialog = require("hardcover/lib/ui/components/dialog")
+local ListItem = require("hardcover/lib/ui/components/list_item")
+local Switch = require("hardcover/lib/ui/components/switch")
 local Draw = require("hardcover/lib/ui/components/draw")
 local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
@@ -105,6 +110,23 @@ function StepperDialog.show(opts)
     end
   end
 
+  local toggled = opts.toggle and opts.toggle.on == true
+  if opts.toggle then
+    local item
+    local function build()
+      item = ListItem.new { width = inner_w, label = opts.toggle.label, support = opts.toggle.support,
+        divider = nil, trailing = Switch.new { on = toggled },
+        callback = function()
+          toggled = not toggled
+          body[#body] = build()
+          refresh()
+        end }
+      return item
+    end
+    body[#body + 1] = Theme.span(Theme.px(12))
+    body[#body + 1] = build()
+  end
+
   overlay = Dialog.show {
     title = opts.title,
     text = opts.text,
@@ -112,7 +134,11 @@ function StepperDialog.show(opts)
     buttons = {
       { label = _("Cancel") },
       { label = opts.save_label or _("Save"), primary = true, callback = function()
-        if opts.on_save then opts.on_save(unpack(values)) end
+        if opts.on_save then
+          local args = { unpack(values) }
+          if opts.toggle then args[#fields + 1] = toggled end
+          opts.on_save(unpack(args, 1, #fields + (opts.toggle and 1 or 0)))
+        end
       end },
     },
   }

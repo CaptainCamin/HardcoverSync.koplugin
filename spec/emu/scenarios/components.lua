@@ -223,6 +223,19 @@ return {
     assert(stepped == 3, "the stepper saved " .. tostring(stepped))
     assert(UIManager:getTopmostVisibleWidget() == page, "the stepper stayed open")
 
+    -- a switch row under the stepper: tapping it flips it, and Save hands the state over
+    local switched, kept
+    StepperDialog.show { title = "Set current page", value = 10, min = 0, max = 300, step = 1, big_step = 20,
+      toggle = { label = "Track automatically", support = "Send this book's pages.", on = false },
+      save_label = "Set page", on_save = function(v, on) kept, switched = v, on end }
+    emu:pump()
+    emu:expectText("Track automatically")
+    emu:shot("components_stepper_toggle")
+    tapText("Track automatically")
+    tapText("Set page")
+    assert(kept == 10 and switched == true, "the toggle state was " .. tostring(switched))
+    assert(UIManager:getTopmostVisibleWidget() == page, "the stepper with a switch stayed open")
+
     -- date picker: a month back, a day chosen, Set date hands over the date
     local DatePicker = require("hardcover/lib/ui/components/date_picker")
     local picked

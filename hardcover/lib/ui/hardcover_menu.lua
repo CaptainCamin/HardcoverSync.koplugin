@@ -412,19 +412,6 @@ function HardcoverMenu:getSubMenuItems(book_view)
       separator = true
     },
     book_view and {
-      text = _("Automatically track progress"),
-      checked_func = function()
-        return self.settings:syncEnabled()
-      end,
-      enabled_func = function()
-        return self.settings:bookLinked()
-      end,
-      callback = function()
-        local sync = not self.settings:syncEnabled()
-        self.settings:setSync(sync)
-      end,
-    },
-    book_view and {
       text = _("Update status"),
       enabled_func = function()
         return self.settings:bookLinked()
@@ -1566,8 +1553,14 @@ function HardcoverMenu:getStatusSubMenuItems()
             end
             return { self.page_mapper:getMappedPage(values[2], document_pages, remote_pages), values[2] }
           end,
+          toggle = self.settings:bookLinked() and {
+            label = _("Track automatically"),
+            support = _("Send this book's pages to Hardcover as you read."),
+            on = self.settings:syncEnabled(),
+          } or nil,
           save_label = _("Set page"),
-          on_save = function(edition_page)
+          on_save = function(edition_page, _local_page, track)
+            if track ~= nil then self.settings:setSync(track) end
             self:savePage(current_read, edition_page, menu_instance)
           end,
         }
