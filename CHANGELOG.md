@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.3.1
+
 ### Added
 
 - **Search bar in the top bar.** Searching for books (Home, Library, and the link-book and edition pickers) now turns the top bar into a search field with the keyboard under it, instead of a box in the middle of the screen. The keyboard's Enter key searches, the X clears the words, and the arrow leaves without searching.
