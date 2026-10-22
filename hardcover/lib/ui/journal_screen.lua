@@ -3,7 +3,6 @@
 -- back arrow) around the Activity tab's list, which it hosts the way the
 -- shell hosts a tab: it is the window the body repaints through.
 
-local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
@@ -14,6 +13,7 @@ local _ = require("gettext")
 
 local ActivityBody = require("hardcover/lib/ui/activity_body")
 local TopBar = require("hardcover/lib/ui/components/top_bar")
+local Theme = require("hardcover/lib/ui/theme")
 
 local Screen = Device.screen
 
@@ -36,7 +36,7 @@ function JournalScreen:init()
     message = self.message, select_cb = self.select_cb, more_cb = self.more_cb,
   }
   self[1] = FrameContainer:new {
-    width = screen_w, height = screen_h, background = Blitbuffer.COLOR_WHITE,
+    width = screen_w, height = screen_h, background = Theme.WHITE,
     bordersize = 0, padding = 0, margin = 0,
     VerticalGroup:new { align = "left", bar, self.body },
   }
