@@ -1,8 +1,8 @@
 -- Input dialog (MMD Dialog with a field): a heading, an optional line of text, a field and one or
--- two stacked buttons, the filled one first. KOReader's InputText does the typing and its virtual
+-- two buttons side by side, the filled one on the right. KOReader's InputText does the typing and its virtual
 -- keyboard comes up under the dialog, which sits on top of it. The frame, heading and buttons are the
--- plugin's own, as Dialog's (the same width and outline, buttons stacked 64 high, the filled one
--- first), with tighter spacing: the keyboard leaves little height, and a tall box would reach up
+-- plugin's own, as Dialog's (the same width and outline, buttons side by side 64 high, the filled one on the right),
+-- with tighter spacing: the keyboard leaves little height, and a tall box would reach up
 -- under the top bar.
 --
 --   local input
@@ -34,7 +34,6 @@ local TextBoxWidget = require("ui/widget/textboxwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 
-local Button = require("hardcover/lib/ui/components/button")
 local Dialog = require("hardcover/lib/ui/components/dialog")
 local Theme = require("hardcover/lib/ui/theme")
 
@@ -97,11 +96,9 @@ function InputDialog:init()
   col[#col + 1] = Theme.span(Theme.px(8))
   indented(self._input_widget)
   col[#col + 1] = Theme.span(Theme.px(12))
-  for i, spec in ipairs(self.ordered) do
-    if i > 1 then col[#col + 1] = Theme.span(Theme.px(8)) end
-    indented(Button.new { label = spec.label, w = inner_w, primary = spec.primary,
-      callback = function() if spec.callback then spec.callback() end end })
-  end
+  indented(Dialog.buttonRow(self.ordered, inner_w, Theme.px(8), function(spec)
+    if spec.callback then spec.callback() end
+  end))
   col[#col + 1] = Theme.span(Theme.px(8))
 
   self.frame = FrameContainer:new { width = w, bordersize = Theme.line.firm, radius = Dialog.RADIUS,

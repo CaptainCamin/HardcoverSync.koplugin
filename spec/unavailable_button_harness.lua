@@ -1,4 +1,4 @@
--- An unavailable button and a plain rule never rest on grey (MMD: black and white only; docs/e-ink-design.md
+-- An unavailable button and a plain rule never rest on grey (MMD: black and white only; docs/design/principles.md
 -- rule 3): the button keeps a Black label, is never filled, draws a dotted border and takes no tap; Theme.rule
 -- is a black dotted divider unless it is a firm heading underline.
 --

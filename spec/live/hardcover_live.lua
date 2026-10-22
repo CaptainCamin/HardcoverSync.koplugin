@@ -395,6 +395,37 @@ step("createJournalEntry: a quote with a page and tags, read back", function()
   end
 end)
 
+-- The activity feed, as the plugin asks for it (HardcoverApi:getFeed): your own private note comes
+-- back in a note-only feed, and the full feed of you and the readers you follow pages cleanly.
+step("getFeed: your note, then the full feed and its next page", function()
+  local id = createJournal("note", "hardcoversync live check: feed note")
+  local found
+  for _ = 1, 4 do
+    local page = is_table(Api:getFeed({ me_id = ctx.user_id, mine = true, kinds = { "note" }, limit = 10 }), "the feed")
+    for _, e in ipairs(page.entries) do
+      if e.kind == "note" and e.text == "hardcoversync live check: feed note" then found = e end
+    end
+    if found then break end
+    os.execute("sleep 2")
+  end
+  if not found then error("the new note (journal " .. id .. ") is not in the feed", 0) end
+  if found.title == "A book" then error("the entry has no book title", 0) end
+
+  local followed = is_table(Api:getFollowedIds(), "followed ids")
+  local first = is_table(Api:getFeed({ me_id = ctx.user_id, user_ids = followed, limit = 5 }), "the full feed")
+  print(string.format("    full feed: %d entries, %d readers followed, more=%s", #first.entries, #followed, tostring(first.more)))
+  for i = 2, #first.entries do
+    if first.entries[i - 1].at < first.entries[i].at then error("the feed is not newest first", 0) end
+  end
+  if first.cursor then
+    local second = is_table(Api:getFeed({ me_id = ctx.user_id, user_ids = followed, limit = 5, before = first.cursor }), "the next page")
+    local Feed = require("hardcover/lib/feed")
+    local all, added = Feed.append(first.entries, second.entries)
+    print(string.format("    next page: %d entries, %d new", #second.entries, added))
+    if #all < #first.entries then error("paging lost entries", 0) end
+  end
+end)
+
 -- Exploratory, never fails the run: what Hardcover calls the things the plugin does not use yet
 -- (journal reads and deletes, the review fields, an activity feed). Each answer is printed so the
 -- run's log is the record, and docs/hardcover-journal-api.md is written from it. A refused

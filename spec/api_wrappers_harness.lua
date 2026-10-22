@@ -55,7 +55,7 @@ end
 local WRAPPERS = {
   saveGoal = 2, archiveGoal = 1, getGoals = 0, getLists = 0, getBookLists = 1, addToList = 3,
   removeFromList = 1, getListCount = 0, getShelf = 4, getShelfCounts = 2, getStats = 1, getBooksByIds = 1,
-  getVibes = 1, getForYou = 0, me = 0, getSimilarBooks = 3, getBookDetail = 3, getReviews = 3,
+  getVibes = 1, getForYou = 0, me = 0, getSimilarBooks = 3, getBookDetail = 3, getReviews = 3, getFollowedIds = 0, getFeed = 1,
   updateUserBook = 4, removeUserBook = 1, findBooks = 3, findEditions = 2,
   findDefaultEdition = 2, findBookByIdentifiers = 2,
 }

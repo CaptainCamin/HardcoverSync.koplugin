@@ -1,6 +1,7 @@
 -- Dialog (MMD): a question or notice in a box in the middle of the screen, outlined all round with
 -- rounded corners (MMD's 3px rule on top is this outline here). A Black 25 heading that says what it is about ("No internet connection", not
--- "Connection Error"), Medium 21 text, and its actions stacked, each the full width and 64 high.
+-- "Connection Error"), Medium 21 text, and its actions side by side in one row, 64 high, the filled one on the right (MMD stacks
+-- them; an e-reader is wide enough for a row).
 -- The configurations are MMD's six:
 --   standard             heading, text, a filled and an outlined button
 --   warning              the same under a warning triangle, everything centred
@@ -27,16 +28,30 @@ local Dialog = {}
 
 -- MMD hangs its dialogs off the bottom edge at the full width of a small phone-shaped screen. On the
 -- larger, wider readers this plugin runs on that is a strip with a lot of air in it, so the dialog
--- floats instead, about 60% of the screen wide: never under MMD's 364, never over 520.
+-- floats instead, about 80% of the screen wide (docs/design/principles.md): never under MMD's 364.
 local function width()
   local sw = Device.screen:getWidth()
-  return math.min(sw - 2 * Theme.margin, math.max(Theme.px(364), math.min(Theme.px(520), math.floor(sw * 0.6))))
+  return math.min(sw - 2 * Theme.margin, math.max(Theme.px(364), math.floor(sw * 0.8)))
 end
 local SIDE = Theme.px(12)
 local RADIUS = Theme.px(12) -- as the goal cards
 
 Dialog.width = width
 Dialog.RADIUS = RADIUS
+
+-- Actions in one row, as wide as `inner_w` in all: the filled one on the right, the outlined one on its
+-- left. `ordered` is the filled one first; `press(spec)` runs when one is tapped.
+function Dialog.buttonRow(ordered, inner_w, gap, press)
+  local bw = #ordered == 2 and math.floor((inner_w - gap) / 2) or inner_w
+  local row = HorizontalGroup:new { align = "top" }
+  for i = #ordered, 1, -1 do
+    local spec = ordered[i]
+    if i < #ordered then row[#row + 1] = Theme.hspan(gap) end
+    row[#row + 1] = Button.new { label = spec.label, w = bw, primary = spec.primary,
+      callback = function() press(spec) end }
+  end
+  return row
+end
 
 -- the width inside the padding: what a `body` can be as wide as
 function Dialog.innerWidth()
@@ -45,14 +60,14 @@ end
 
 -- opts { title, text, warning (the triangle, and centred text), body (a widget under the text, up to
 -- Dialog.innerWidth() wide: a field, a progress bar), buttons = { { label, callback, primary } }
--- (none, one or two: with none the dialog has an X instead), locked (a tap outside, Back and the X do
+-- (none, one or two, side by side: with none the dialog has an X instead), locked (a tap outside, Back and the X do
 -- nothing: the dialog goes when its work is done, and has no X), on_dismiss }
 function Dialog.show(opts)
   local w = width()
   local side = SIDE
   local inner_w = Dialog.innerWidth()
   local buttons = {}
-  -- stacked, the filled one first
+  -- the filled one first; buttonRow puts it on the right
   for _, spec in ipairs(opts.buttons or {}) do if spec.primary then buttons[#buttons + 1] = spec end end
   for _, spec in ipairs(opts.buttons or {}) do if not spec.primary then buttons[#buttons + 1] = spec end end
   local overlay
@@ -115,14 +130,10 @@ function Dialog.show(opts)
   end
   if #buttons > 0 then
     col[#col + 1] = Theme.span(Theme.px(24))
-    for i, spec in ipairs(buttons) do
-      if i > 1 then col[#col + 1] = Theme.span(Theme.px(12)) end
-      indented(Button.new { label = spec.label, w = inner_w, primary = spec.primary,
-        callback = function()
-          overlay:close()
-          if spec.callback then spec.callback() end
-        end })
-    end
+    indented(Dialog.buttonRow(buttons, inner_w, Theme.px(12), function(spec)
+      overlay:close()
+      if spec.callback then spec.callback() end
+    end))
   end
   col[#col + 1] = Theme.span(Theme.px(12))
 

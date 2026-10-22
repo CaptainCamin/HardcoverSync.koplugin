@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to create: v0.7.0 (stable, must match the version in _meta.lua), v1.4.2-beta.1 (a beta, published as a pre-release), or v1.4.2-beta to take the next beta number automatically'
+        description: 'Tag to create: v2.1.0-stable (a stable release: the version in _meta.lua and the changelog are updated for you), v0.7.0 (stable, must already match _meta.lua), v1.4.2-beta.1 (a beta, published as a pre-release), or v1.4.2-beta to take the next beta number automatically'
         required: true
       intro:
         description: 'Optional sentence or two put above the generated release notes'
@@ -28,7 +28,9 @@ jobs:
           # the release notes need the earlier tags and the history back to them
           fetch-depth: 0
 
-      # Typed by hand as a beta with no number ("v2.0.0-beta"), the tag gets the
+      # Typed as "v2.1.0-stable", the tag is v2.1.0 and the run itself updates
+      # the version in _meta.lua and the changelog (see the next steps), so
+      # nobody edits a file first. Typed by hand as a beta with no number ("v2.0.0-beta"), the tag gets the
       # next number after the betas already on origin, so nobody has to remember
       # the last one. A tag containing "beta" is a pre-release, and is never
       # "latest".
@@ -40,6 +42,9 @@ jobs:
         run: |
           tag=${INPUT:-$REF}
           case "$INPUT" in
+            *-stable)
+              tag=${INPUT%-stable}
+              ;;
             *-beta)
               base=${INPUT%-beta}
               last=$(git ls-remote --tags origin "refs/tags/$base-beta.*" \
@@ -52,9 +57,41 @@ jobs:
             *beta*) prerelease=true ;;
             *)      prerelease=false ;;
           esac
+          case "$INPUT" in
+            *-stable) bump=true ;;
+            *)        bump=false ;;
+          esac
+          echo "bump=$bump" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
           echo "Release $tag: prerelease=$prerelease"
+
+      # "v2.1.0-stable": put the version in _meta.lua and turn the changelog's
+      # "Unreleased" heading into "2.1.0" (with a new empty "Unreleased" above
+      # it). The commit is pushed to main only after the tests pass, and the
+      # release is cut from it.
+      - name: Bump the version and the changelog
+        if: steps.kind.outputs.bump == 'true'
+        env:
+          TAG: ${{ steps.kind.outputs.tag }}
+        run: |
+          if [ "${{ github.ref_name }}" != "main" ]; then
+            echo "A stable release is cut from main (this run is on ${{ github.ref_name }})"
+            exit 1
+          fi
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "A stable tag must look like v2.1.0-stable (got: $TAG)"
+            exit 1
+          fi
+          version=${TAG#v}
+          if ! grep -q '^## Unreleased' CHANGELOG.md; then
+            echo 'CHANGELOG.md has no "## Unreleased" section to release'
+            exit 1
+          fi
+          sed -i "s/^\([[:space:]]*version[[:space:]]*=[[:space:]]*\)\"[^\"]*\"/\1\"$version\"/" _meta.lua
+          sed -i "0,/^## Unreleased/s//## Unreleased\n\n## $version/" CHANGELOG.md
+          grep -n 'version' _meta.lua
+          sed -n 1,8p CHANGELOG.md
 
       - name: Run Busted
         uses: lunarmodules/busted@v2.2.0
@@ -92,7 +129,7 @@ jobs:
       - name: Check the tag matches _meta.lua
         if: github.event_name == 'workflow_dispatch' && steps.kind.outputs.prerelease == 'false'
         env:
-          TAG: ${{ github.event.inputs.tag }}
+          TAG: ${{ steps.kind.outputs.tag }}
         run: |
           version=$(sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' _meta.lua | head -1)
           tag="$TAG"
@@ -117,11 +154,25 @@ jobs:
             --intro "$INTRO" > "$RUNNER_TEMP/release_notes.md"
           cat "$RUNNER_TEMP/release_notes.md"
 
+      # Everything passed: keep the bump on main and release from that commit.
+      - name: Commit the bump to main
+        id: bump
+        if: steps.kind.outputs.bump == 'true'
+        env:
+          TAG: ${{ steps.kind.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add _meta.lua CHANGELOG.md
+          git commit -m "Release ${TAG#v}"
+          git push origin HEAD:main
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.kind.outputs.tag }}
-          target_commitish: ${{ github.sha }}
+          target_commitish: ${{ steps.bump.outputs.sha || github.sha }}
           prerelease: ${{ steps.kind.outputs.prerelease == 'true' }}
           body_path: ${{ steps.notes.outcome == 'success' && format('{0}/release_notes.md', runner.temp) || '' }}
           generate_release_notes: ${{ steps.notes.outcome != 'success' }}
