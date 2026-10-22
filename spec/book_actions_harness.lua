@@ -180,25 +180,6 @@ check("a book being read, wanted, or on no shelf is written as before", function
   end
 end)
 
-print("\n== the progress switch ==")
-
-check("the switch is offered for a book being read", function()
-  assert(BookActions.offerTrackSwitch(HARDCOVER.STATUS.READING, true))
-  assert(BookActions.offerTrackSwitch(HARDCOVER.STATUS.READING, false))
-end)
-
-check("the switch is left out for any other book while tracking is on", function()
-  for _, status in ipairs({ HARDCOVER.STATUS.TO_READ, HARDCOVER.STATUS.FINISHED, HARDCOVER.STATUS.DNF, 4 }) do
-    assert(not BookActions.offerTrackSwitch(status, true), status)
-  end
-  assert(not BookActions.offerTrackSwitch(nil, true))
-end)
-
-check("a book with tracking off always shows the switch, so it can be turned back on", function()
-  assert(BookActions.offerTrackSwitch(nil, false))
-  assert(BookActions.offerTrackSwitch(HARDCOVER.STATUS.FINISHED, false))
-end)
-
 print("\n== turning a page ==")
 
 check("a page is sent while the book is being read", function()

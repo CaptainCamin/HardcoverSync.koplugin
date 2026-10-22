@@ -1,9 +1,9 @@
 -- The panel for the book that is open: a sheet that rises from the bottom of the
 -- reading screen, so the page stays visible above it.
 --
--- It shows where the book stands (title, status, page, rating, whether progress
--- is tracked) and the few things a reader does mid-book as big buttons: set the
--- page, change the status, rate, note, details, reviews. Everything is asked of
+-- It shows where the book stands (title, page, shelf) and the few things a reader
+-- does mid-book as buttons, two to a row: set the page, change the status, open the
+-- book's page. Tracking is switched in the set-page dialog. Everything is asked of
 -- `opts.model()` on every draw, so after an action the panel shows what is true
 -- now instead of what was true when it opened.
 --
@@ -12,12 +12,10 @@
 --     line (string or nil: how far or how long, right under the title),
 --     shelf (string or nil: where the book is, in words),
 --     shelf_action (nil, or { text, run }: a button beside the shelf line),
---     hint (string or nil: what reading will do, where there is no switch),
---     track = { checked, toggle, note (string or nil) } or nil,
 --     menu = { title, rows = { { text, enabled, run }, ... } } or nil (the gear at the top right),
 --     actions = { { text, enabled, primary, run }, ... } }
 --
--- Tapping above the sheet, or the Back key, closes it.
+-- Tapping above the sheet, the Close button, or the Back key closes it.
 
 local Blitbuffer = require("ffi/blitbuffer")
 local BottomContainer = require("ui/widget/container/bottomcontainer")
@@ -36,7 +34,6 @@ local _ = require("gettext")
 local Button = require("hardcover/lib/ui/components/button")
 local Overlay = require("hardcover/lib/ui/components/overlay")
 local Refresh = require("hardcover/lib/ui/refresh")
-local Switch = require("hardcover/lib/ui/components/switch")
 local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
 
@@ -54,18 +51,6 @@ function ReaderPanel:init()
     TapOutside = { GestureRange:new { ges = "tap", range = self.dimen } },
   }
   self:render()
-end
-
--- the "update Hardcover as I read" row: a label and a real switch, the whole row the touch area
-function ReaderPanel:buildTrackRow(track, width)
-  local sw = Switch.new { on = track.checked }
-  local label = Theme.mmdText(_("Update Hardcover as I read"), "strong", 21,
-    { width = width - sw:getSize().w - Theme.px(16) })
-  local h = math.max(Theme.TOUCH_MIN, label:getSize().h + Theme.px(16))
-  local row = HorizontalGroup:new { align = "center", label,
-    Theme.hspan(width - label:getSize().w - sw:getSize().w), sw }
-  return TapRow:new { callback = function() track.toggle(); self:render() end,
-    dimen = Geom:new { w = width, h = h }, CenterContainer:new { dimen = Geom:new { w = width, h = h }, row } }
 end
 
 -- where the book is, in words. When the book can be started again, the button sits on the right
@@ -164,30 +149,13 @@ function ReaderPanel:render()
     table.insert(content, self:buildShelfRow(model.shelf, model.shelf_action, width))
   end
 
-  -- no switch for this book: what reading will do
-  if model.hint then
-    table.insert(content, Theme.span("l"))
-    table.insert(content, Theme.mmdText(model.hint, "text", 18, { width = width }))
-  end
-
-  -- what to do about it: the switch, with its explanation attached to it
-  if model.track then
-    table.insert(content, Theme.span("l"))
-    table.insert(content, self:buildTrackRow(model.track, width))
-    if model.track.note then
-      table.insert(content, Theme.span("xs"))
-      table.insert(content, Theme.mmdText(model.track.note, "text", 18, { width = width }))
-    end
-  end
-
   -- the actions, two to a row; an action that cannot be used right now keeps its place, in
   -- a dotted box and without a tap
-  table.insert(content, Theme.span((model.track or model.hint) and "m" or "l"))
-  -- stacked as in the mock; two to a row only when the screen is wider than it is tall
+  table.insert(content, Theme.span("l"))
   local gap = Theme.space.m
-  local cols = landscape and 2 or 1
+  local cols = 2
   local cell = math.floor((width - (cols - 1) * gap) / cols)
-  local bh = nil
+  local bh = Theme.px(56)
   local function button(action, w)
     local enabled = action.enabled ~= false
     return Button.new { label = action.text, w = w, h = bh, primary = action.primary and enabled,
@@ -211,7 +179,7 @@ function ReaderPanel:render()
     end
     table.insert(content, Theme.span("m"))
   end
-  table.insert(content, Button.new { label = _("Cancel"), w = width, h = bh, primary = true,
+  table.insert(content, Button.new { label = _("Close"), w = width, h = bh, primary = true,
     callback = function() self:onClose() end })
   table.insert(content, Theme.span(Theme.margin))
 

@@ -1,7 +1,7 @@
 --[[--
-The reader panel's progress slot for a linked book that is not Currently Reading:
-it offers "Change status" (not a dead "Update progress"), the status list sets
-Currently Reading, and the panel redraws to "Update progress" once it lands.
+The reader panel for a linked book that is not Currently Reading: "Set page" keeps its place but
+is dotted and does nothing, "Change status" opens the status list, the list sets Currently
+Reading, and the panel redraws with "Set page" live.
 The reader and book state are stand-ins; the menu code is the real thing.
 ]]
 
@@ -62,10 +62,12 @@ return {
     emu:pump()
     emu:screenNodes() -- paint first: tap ranges are only real once painted
 
-    -- the slot says what it does, and there is no dead progress button
+    -- the same buttons as for any book; the page cannot be set until the book is being read
     local nodes = emu:screenText()
     assert(nodes:find("Change status", 1, true), "a book not being read has no Change status button")
-    assert(not nodes:find("Update progress", 1, true), "Update progress is still shown for a book not being read")
+    assert(nodes:find("Set page", 1, true), "Set page moved away for a book not being read")
+    tapText("Set page")
+    assert(emu:top().name == "hardcover_reader_panel", "Set page did something on a book not being read")
 
     -- the status list sets Currently Reading
     tapText("Change status")
@@ -80,12 +82,11 @@ return {
     assert(emu:top().name == "hardcover_settings", "the status list closed on its own")
     emu:top():onClose()
 
-    -- the panel redraws to the progress button, in the same slot
+    -- the panel redraws with the buttons where they were
     emu:pump()
     emu:screenNodes()
     nodes = emu:screenText()
-    assert(nodes:find("Update progress", 1, true), "the panel did not redraw to Update progress")
-    assert(not nodes:find("Change status", 1, true), "Change status is still shown after Currently Reading was set")
+    assert(nodes:find("Set page", 1, true) and nodes:find("Change status", 1, true), "the panel lost a button after Currently Reading was set")
     emu:shot("reader_panel_change_status")
     emu:closeAll()
   end,

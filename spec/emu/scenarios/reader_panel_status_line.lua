@@ -1,6 +1,6 @@
 --[[--
-The reader panel says where the book is, in words, and offers the progress switch only where
-it does something. One panel per status: Currently Reading, Want to Read, not on a shelf, not
+The reader panel says where the book is, in words, with the same three buttons for every status.
+One panel per status: Currently Reading, Want to Read, not on a shelf, not
 checked yet, Finished and Did not finish. The book and the library are stand-ins; the menu and
 the panel are the real thing.
 ]]
@@ -15,35 +15,30 @@ local cases = {
     book_status = { id = 501, status_id = HARDCOVER.READING, user_book_reads = { { progress_pages = 120 } } },
     shelf = nil, -- no shelf line for Currently Reading
     line = "Page 120 of 387",
-    switch = true, note = false,
   },
   {
     key = "want_to_read",
     book_status = { id = 502, status_id = HARDCOVER.TO_READ, user_book_reads = {} },
     shelf = "On your 'Want to Read' shelf",
     line = "387 pages",
-    switch = false, note = false, hint = true,
   },
   {
     key = "not_on_shelf",
     book_status = { not_on_shelf = true, user_book_reads = {} },
     shelf = "Not on a shelf",
     line = "387 pages",
-    switch = false, note = false, hint = true,
   },
   {
     key = "not_checked",
     book_status = { user_book_reads = {} },
     shelf = "Shelf not checked yet",
     line = "387 pages",
-    switch = false, note = false, hint = true,
   },
   {
     key = "finished",
     book_status = { id = 503, status_id = HARDCOVER.FINISHED, user_book_reads = { { progress_pages = 387 } } },
     shelf = "On your 'Read' shelf",
     line = "Page 387 of 387",
-    switch = false, note = false,
   },
   {
     -- no page was ever saved, so the panel says how long the book is and must not claim "Page 0 of 387" (nor may Want to Read, no shelf, or unchecked)
@@ -51,24 +46,6 @@ local cases = {
     book_status = { id = 504, status_id = HARDCOVER.DNF, user_book_reads = {} },
     shelf = "On your 'Did Not Finish' shelf",
     line = "387 pages",
-    switch = false, note = false,
-  },
-  {
-    -- tracking off: the switch comes back for any book, and says how to update by hand
-    key = "want_to_read_tracking_off",
-    sync = false,
-    book_status = { id = 502, status_id = HARDCOVER.TO_READ, user_book_reads = {} },
-    shelf = "On your 'Want to Read' shelf",
-    line = "387 pages",
-    switch = true, note = true,
-  },
-  {
-    key = "not_on_shelf_tracking_off",
-    sync = false,
-    book_status = { not_on_shelf = true, user_book_reads = {} },
-    shelf = "Not on a shelf",
-    line = "387 pages",
-    switch = true, note = true,
   },
 }
 
@@ -87,7 +64,7 @@ return {
         getLinkedEditionId = function() return nil end,
         getLinkedEditionFormat = function() return nil end,
         pages = function() return 387 end,
-        syncEnabled = function() return case.sync ~= false end,
+        syncEnabled = function() return true end,
         setSync = function() end,
         readSetting = function() return nil end,
       }
@@ -124,12 +101,13 @@ return {
           case.key .. ": has a shelf line, which Currently Reading leaves out")
       end
       assert(text:find(case.line, 1, true), case.key .. ": line under the title says '" .. case.line .. "'")
-      assert(text:find("Update Hardcover as I read", 1, true) ~= nil == case.switch,
-        case.key .. ": switch shown is " .. tostring(case.switch))
-      assert(text:find("Change status to update progress.", 1, true) ~= nil == case.note,
-        case.key .. ": the switch note shown is " .. tostring(case.note))
-      assert(text:find("asked to start reading", 1, true) ~= nil == (case.hint == true),
-        case.key .. ": the 'asked to start reading' hint shown is " .. tostring(case.hint == true))
+      -- tracking is switched in the set-page dialog, and nothing on the panel explains how reading starts a book
+      for _, gone in ipairs({ "Update Hardcover as I read", "Change status to update progress.", "asked to start reading", "Cancel" }) do
+        assert(not text:find(gone, 1, true), case.key .. ": '" .. gone .. "' is still on the panel")
+      end
+      for _, want in ipairs({ "Set page", "Change status", "Open book page", "Close" }) do
+        assert(text:find(want, 1, true), case.key .. ": '" .. want .. "' is not on the panel")
+      end
       assert(not text:find("Page 0", 1, true), case.key .. ": claims 'Page 0' with no saved page")
 
       emu:shot("reader_panel_status_" .. case.key)

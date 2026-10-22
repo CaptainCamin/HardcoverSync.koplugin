@@ -228,10 +228,7 @@ function HardcoverMenu:showReaderPanel()
       not_on_shelf = not_on_shelf,
       saved_page = read and read.progress_pages,
       pages = self.settings:pages(),
-      sync_on = self.settings:syncEnabled(),
       status_label = status_id and Shelf.statusLabel(status_id) or nil,
-      -- (the emulator scenarios' settings stand-ins have no such method; the facts default to 5)
-      start_pages = self.settings.startReadingPages and self.settings:startReadingPages() or nil,
     }
     -- a finished book can be read again: a new read starts, and the finished one is kept
     local shelf_action = (linked and facts.finished) and {
@@ -256,15 +253,12 @@ function HardcoverMenu:showReaderPanel()
     -- the mid-book actions, as in the mock. The edition and the link are changed from the book's
     -- page (its Edition button; see showLinkActions)
     if linked then
-      -- progress can only be set on a book being read; when it is not, the same button
-      -- opens the statuses, so it never sits there dead with no reason given
-      if status_id == HARDCOVER.STATUS.READING then
-        add(_("Update progress"), pages_item)
-      else
-        add(_("Change status"), status_item)
-      end
+      -- the same three buttons for every linked book, so nothing swaps places; the page can only
+      -- be set on a book being read, so otherwise its button keeps its place, dotted
+      add(_("Set page"), pages_item)
+      add(_("Change status"), status_item)
       actions[#actions + 1] = {
-        text = _("Open book page"), enabled = self.enabled,
+        text = _("Open book page"), enabled = self.enabled, wide = true,
         run = function()
           self:withWifiThen(function()
             self.dialog_manager:showBookDetail(self.settings:getLinkedBookId(), self.settings:getLinkedEditionId())
@@ -272,7 +266,7 @@ function HardcoverMenu:showReaderPanel()
         end,
       }
     else
-      add(_("Link this book"), link_item)
+      add(_("Link this book"), link_item, { wide = true })
     end
     -- the mock has nothing else; status, note, reviews and settings are on the book page
     -- and in the Hardcover menu
@@ -297,15 +291,6 @@ function HardcoverMenu:showReaderPanel()
       line = facts.line,
       shelf = facts.shelf,
       shelf_action = shelf_action,
-      hint = facts.hint,
-      -- the switch means "Hardcover follows this book". It is not offered for a Finished or Did not
-      -- finish book: neither page progress nor a status change is sent for those, so it would do nothing.
-      -- Where reading moves the book (Want to Read, no shelf) a line under it says what to do, switch on or off.
-      track = facts.track and {
-        checked = self.settings:syncEnabled(),
-        toggle = function() self.settings:setSync(not self.settings:syncEnabled()) end,
-        note = facts.track_note,
-      } or nil,
       actions = actions,
     }
   end

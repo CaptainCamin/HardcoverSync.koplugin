@@ -121,13 +121,4 @@ function BookActions.pageWrite(status_id)
   return "block"
 end
 
---
--- Whether the reader panel offers the "Update Hardcover as I read" switch. It is offered for a book
--- being read, and also while it is off (so a book whose tracking was turned off can always be turned
--- back on); for any other book reading asks first, and a switch there would promise what does not happen.
---
-function BookActions.offerTrackSwitch(status_id, sync_on)
-  return status_id == HARDCOVER.STATUS.READING or not sync_on
-end
-
 return BookActions

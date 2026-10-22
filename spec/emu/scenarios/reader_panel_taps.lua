@@ -1,7 +1,6 @@
 --[[--
 Tapping through the reader panel: every button does what the menu item it stands
-for does, the tick toggles tracking and redraws, and a tap above the sheet closes
-it. The reader and book state are stand-ins; the menu code is the real thing.
+for does, and a tap above the sheet closes it. The reader and book state are stand-ins; the menu code is the real thing.
 ]]
 
 local fixtures = require("fixtures")
@@ -12,7 +11,6 @@ return {
 
   run = function(emu)
     local calls = {}
-    local sync = true
     local settings = {
       bookLinked = function() return true end,
       getLinkedTitle = function() return "The Dispossessed" end,
@@ -20,8 +18,8 @@ return {
       getLinkedEditionId = function() return nil end,
       getLinkedEditionFormat = function() return nil end,
       pages = function() return 387 end,
-      syncEnabled = function() return sync end,
-      setSync = function(_, v) sync = v; calls.sync = v end,
+      syncEnabled = function() return true end,
+      setSync = function() end,
       readSetting = function() return nil end,
     }
     fixtures.install({ settings = fixtures.real_settings(emu) })
@@ -73,12 +71,7 @@ return {
     -- the book's record is fetched after the panel is up, not before it can appear
     assert(calls.fetched_with_panel_up == true, "the record was fetched before the panel was shown")
 
-    -- the tick
-    tapText("Update Hardcover as I read")
-    assert(calls.sync == false, "the tick did not turn tracking off")
-    assert(panel_is_top())
-
-    -- the panel is the mid-book actions and Cancel; the mock has nothing else
+    -- the panel is the mid-book actions and Close; the mock has nothing else
     local nodes = emu:screenText()
     for _, gone in ipairs({ "Add a note", "Reviews", "Change edition", "More", "Rate this book" }) do
       assert(not nodes:find(gone, 1, true), gone .. " is not on the panel")
@@ -113,7 +106,7 @@ return {
     panel = menu:showReaderPanel()
     emu:pump()
 
-    tapText("Update progress")
+    tapText("Set page")
     emu:shot("reader_panel_set_page")
     emu:closeAll()
     -- closeAll also removed the panel; reopen for the dismissal check

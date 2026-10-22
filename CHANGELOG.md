@@ -17,6 +17,7 @@
 
 ### Changed
 
+- **A shorter reader panel.** The panel you open while reading no longer has the "Update Hardcover as I read" switch (it is in the Set page dialog) or the lines that explained it. A linked book always shows the same buttons, two to a row: Set page and Change status, then Open book page. Set page is dotted until the book is being read. The bottom button now says Close.
 - **Notes and quotes save without waiting.** Saving a note or quote keeps it on the device and closes the form at once; it is sent when there is a connection, and with none it is sent when the connection is back. Before, saving waited for Hardcover, failed offline, and the text was lost. A note that is waiting shows in Sync's list (tap it to cancel) and counts in the number of changes waiting. If Hardcover never answered for one that was sent, it is sent again and can appear twice.
 
 ## 2.0.0
