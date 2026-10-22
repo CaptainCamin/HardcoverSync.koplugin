@@ -20,6 +20,7 @@ local Screen = Device.screen
 local JournalScreen = InputContainer:extend {
   name = "hardcover_journal_screen",
   message = nil,    -- loading, offline: shown in place of the rows
+  entries = nil,    -- Feed.parse's entries to start with (the saved ones)
   select_cb = nil,  -- function(entry)
   more_cb = nil,    -- function(), Load more
   close_callback = nil,
@@ -33,7 +34,7 @@ function JournalScreen:init()
   local bar = TopBar.new { width = screen_w, title = _("Journal"), on_back = function() self:onClose() end }
   self.body = ActivityBody:new {
     shell = self, width = screen_w, height = screen_h - bar:getSize().h,
-    message = self.message, select_cb = self.select_cb, more_cb = self.more_cb,
+    message = self.message, entries = self.entries, select_cb = self.select_cb, more_cb = self.more_cb,
   }
   self[1] = FrameContainer:new {
     width = screen_w, height = screen_h, background = Theme.WHITE,
