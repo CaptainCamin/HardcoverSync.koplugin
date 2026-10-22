@@ -324,13 +324,84 @@ check("nothing waiting, or no queues, is an empty list", function()
   eq(#Feed.waiting({}, {}, 1), 0)
 end)
 
-check("waiting entries go above what Hardcover has", function()
-  local all = Feed.withWaiting({ { key = "w1" }, { key = "w2" } }, { { key = "a" } })
-  eq(#all, 3)
-  eq(all[1].key, "w1")
-  eq(all[3].key, "a")
-  eq(#Feed.withWaiting(nil, nil), 0)
-  eq(Feed.withWaiting(nil, { { key = "a" } })[1].key, "a")
+-- Hardcover's entries as the tab holds them
+local function held()
+  return {
+    { key = "note:4001", id = 4001, kind = "note", user_id = 1, who = "Dana", title = "Dune", text = "Old words", excerpt = "Old words", date = "2026-10-20" },
+    { key = "quote:4002", id = 4002, kind = "quote", user_id = 1, who = "Dana", title = "Dune", text = "A quote", excerpt = "A quote", date = "2026-10-19" },
+    { key = "review:900", id = 900, kind = "review", user_id = 1, who = "Dana", title = "Dune", text = "Fine", excerpt = "Fine", date = "2026-10-18" },
+    { key = "review:901", id = 901, kind = "review", user_id = 1, who = "Dana", title = "Kindred", text = "Great", excerpt = "Great", date = "2026-10-17" },
+    { key = "status:1", kind = "status", user_id = 1, who = "Dana", title = "Dune", text = "Finished", date = "2026-10-16" },
+  }
+end
+
+check("with nothing waiting, the tab shows what Hardcover has", function()
+  local all = Feed.withPending(held(), {}, {}, 1)
+  eq(#all, 5)
+  eq(all[1].key, "note:4001")
+  eq(all[1].waiting, nil)
+  eq(#Feed.withPending(nil, nil, nil, 1), 0)
+end)
+
+check("new writing goes above what Hardcover has", function()
+  local all = Feed.withPending(held(), journalOps(), {}, 1)
+  eq(#all, 8)
+  eq(all[1].key, "waiting:100-5")
+  eq(all[1].queue_id, "100-5")
+  eq(all[4].key, "note:4001")
+end)
+
+check("an edit waiting to send shows its new text in place; a delete waiting to send hides the entry", function()
+  local ops = {
+    { id = "1-1", seq = 1, action = "update", user_id = 1, journal_id = 4001, event = "note", text = "New words" },
+    { id = "1-2", seq = 2, action = "delete", user_id = 1, journal_id = 4002, event = "quote" },
+    { id = "1-3", seq = 3, action = "delete", user_id = 2, journal_id = 4001, event = "note" },
+  }
+  local h = held()
+  local all = Feed.withPending(h, ops, {}, 1)
+  eq(#all, 4, "the deleted quote is left out, and another account's delete is not yours")
+  eq(all[1].key, "note:4001", "an edit stays where the entry is")
+  eq(all[1].text, "New words")
+  eq(all[1].excerpt, "New words")
+  eq(all[1].waiting, true)
+  eq(all[1].id, 4001)
+  eq(Feed.row(all[1]).support, "Waiting to send \194\183 Dana \194\183 Note \194\183 Dune")
+  eq(all[2].key, "review:900")
+  eq(h[1].text, "Old words", "the held entry itself (what is saved) is not changed")
+  eq(h[1].waiting, nil)
+end)
+
+check("a review waiting for a book whose review is listed changes it in place; an empty one hides it", function()
+  local reviews = {
+    { user_book_id = 900, text = "Better now", spoilers = true, title = "Dune" },
+    { user_book_id = 901, text = "", spoilers = false, title = "Kindred" },
+    { user_book_id = 902, text = "A new one", spoilers = false, title = "Emma" },
+  }
+  local all = Feed.withPending(held(), {}, reviews, 1)
+  eq(#all, 5)
+  eq(all[1].key, "waiting:review:902", "a review Hardcover does not list yet is new writing")
+  eq(all[1].user_book_id, 902)
+  local review = all[4]
+  eq(review.key, "review:900")
+  eq(review.text, "Better now"); eq(review.spoilers, true); eq(review.waiting, true)
+  for _, e in ipairs(all) do
+    if e.key == "review:901" then error("a review being removed is still listed") end
+  end
+end)
+
+check("the id an edit is sent for, from the entry or from its key", function()
+  eq(Feed.idOf({ id = 7, key = "note:9" }), 7)
+  eq(Feed.idOf({ key = "quote:4002" }), 4002)
+  eq(Feed.idOf({ key = "waiting:1-2" }), nil)
+  eq(Feed.idOf(nil), nil)
+end)
+
+check("parsed entries carry their id", function()
+  local entries = Feed.parse(answer(), 20).entries
+  for _, e in ipairs(entries) do
+    eq(e.id ~= nil, true, "no id on " .. e.key)
+    eq(tostring(e.id), e.key:match(":(%d+)$"), "id of " .. e.key)
+  end
 end)
 
 print(string.format("\n%d passed, %d failed", results.passed, results.failed))

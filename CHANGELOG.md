@@ -11,6 +11,8 @@
 
 - **Activity.** The Library has a fourth tab, Activity: your journal on Hardcover, newest first. It shows status changes (started, finished, rated), notes, quotes and reviews, one row each; tap a note, quote or review to read it whole, or a status change to open the book. A review that gives away the story shows no text in the list. "Load more" fetches the next page. What it last showed (up to 100 entries) is kept on the device, so it opens at once and opens offline, with a note saying when it is from; online it is brought up to date. Notes, quotes and reviews you wrote that have not been sent yet are listed first, marked "Waiting to send". The first time needs a connection.
 
+- **Edit and delete your notes, quotes and reviews.** In Activity, your note, quote or review opens in full with Edit and Delete along the bottom. Edit opens the text to change (a review goes through the review form, spoilers question included); Delete asks first. Both work offline: the change shows in Activity at once, marked "Waiting to send", is listed in Sync (tap it to cancel), and is sent when you are back online. Something not sent yet is changed where it waits, or discarded. Only the text changes: privacy, tags and page stay as they were.
+
 ### Fixed
 
 - **Activity sign-in permissions.** Sign-in now requests `read:journal`, which Hardcover requires to load notes and quotes. Update the plugin, then sign out and back in once to grant it. Older sign-ins are prompted before the request is sent.

@@ -996,7 +996,8 @@ function HardcoverApp:_flushJournals()
   if not queue or queue:isEmpty() then
     return true
   end
-  local result = queue:flush(Api, { user_id = User:getId(), json = json })
+  local result = queue:flush(Api, { user_id = User:getId(), json = json,
+    on_sent = function(op) self.dialog_manager:journalChangeSent(op) end })
   self:_noticeHeld("journal", result.held)
   return not result.stopped and result.waiting == result.held
 end
@@ -1008,7 +1009,12 @@ function HardcoverApp:_flushReviews()
   if not queue or queue:isEmpty() then
     return true
   end
-  local waiting = queue:flush(Api, { json = json })
+  local waiting = queue:flush(Api, { json = json,
+    on_sent = function(user_book_id, user_book)
+      local has = type(user_book) == "table" and user_book.has_review ~= false
+      self.dialog_manager:reviewChangeSent(user_book_id, has and user_book.review_raw or nil,
+        has and user_book.review_has_spoilers)
+    end })
   self:_noticeHeld("review", queue:heldCount())
   return waiting <= queue:heldCount()
 end

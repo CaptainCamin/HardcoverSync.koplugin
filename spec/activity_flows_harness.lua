@@ -53,6 +53,32 @@ package.preload["hardcover_version"] = function() return { "0", "0", "0", "spec"
 package.preload["logger"] = function()
   return { dbg = function() end, info = function() end, warn = function() end, err = function() end }
 end
+-- the screens an entry opens, as plain tables: what they were given, to read and tap
+local opened = {}
+local function fakeScreen(kind)
+  return function()
+    return { new = function(_, o)
+      o = o or {}
+      o.kind = kind
+      o.getInputText = function(self) return self.typed or self.input end
+      opened[#opened + 1] = o
+      return o
+    end }
+  end
+end
+package.preload["hardcover/lib/ui/text_screen"] = fakeScreen("text")
+package.preload["hardcover/lib/ui/components/input_dialog"] = fakeScreen("input")
+package.preload["hardcover/lib/ui/picker"] = function()
+  return { new = function(o) o.kind = "picker"; opened[#opened + 1] = o; return o end }
+end
+local function last(kind)
+  for i = #opened, 1, -1 do if opened[i].kind == kind then return opened[i] end end
+end
+local function button(widget, label)
+  for _, b in ipairs(widget.buttons or {}) do if b.label == label then return b end end
+  error("no " .. label .. " button")
+end
+
 local real_require = require
 _G.require = function(name)
   if name:match("^hardcover/") or package.preload[name] or package.loaded[name] then
@@ -79,9 +105,10 @@ Api.getFeedAsync = function(_, opts, cb)
   if answer then cb(answer(opts)) end
 end
 
-local infos, retries
+local infos, retries, confirms
 StatusDialogs.info = function(text) infos[#infos + 1] = text end
 StatusDialogs.retry = function() retries = retries + 1 end
+StatusDialogs.confirm = function(options) confirms[#confirms + 1] = options end
 
 -- ------------------------------------------------------------ the tab, faked
 local tab
@@ -119,11 +146,13 @@ local function fakeSettings()
            flush = function() end }
 end
 
+local flushes
 local function newManager()
-  requests, infos, retries, stack, tab, answer = {}, {}, 0, {}, nil, nil
+  requests, infos, retries, confirms, stack, tab, answer, opened, flushes = {}, {}, 0, {}, {}, nil, nil, {}, 0
   online = true
   Api.auth = nil
   local m = setmetatable({
+    flush_goals = function() flushes = flushes + 1 end,
     settings = { compatibilityMode = function() return false end, readSetting = function() end,
                  updateSetting = function() end },
     activity_store = ActivityStore:new { db = MemoryStore.new(), now = function() return clock end },
@@ -270,6 +299,162 @@ check("a sign-in without journal access says so online and asks nothing", functi
   Api.auth = nil
   assert(#requests == 0)
   assert(tab.message and tab.message:find("reading journal"), tostring(tab.message))
+end)
+
+print("\n== editing and deleting your entries ==")
+
+-- the tab open offline on a saved copy: a note, a quote, a review and a status change
+local function savedTab()
+  local m = newManager()
+  m.activity_store:put(1, {
+    { key = "note:4001", id = 4001, kind = "note", user_id = 1, who = "Dana", book_id = 5, title = "Dune",
+      text = "Old words", excerpt = "Old words", at = "2026-10-20T10:00:00+00:00", date = "2026-10-20" },
+    { key = "quote:4002", id = 4002, kind = "quote", user_id = 1, who = "Dana", book_id = 5, title = "Dune",
+      text = "Fear is the mind-killer.", excerpt = "Fear is the mind-killer.", at = "2026-10-19T10:00:00+00:00", date = "2026-10-19" },
+    { key = "review:900", id = 900, kind = "review", user_id = 1, who = "Dana", book_id = 6, title = "Kindred",
+      text = "Fine", excerpt = "Fine", at = "2026-10-18", date = "2026-10-18" },
+    { key = "status:7", kind = "status", user_id = 1, who = "Dana", book_id = 6, title = "Kindred",
+      text = "Finished", at = "2026-10-17T10:00:00+00:00", date = "2026-10-17" },
+  }, false)
+  online = false
+  m:showActivity()
+  infos = {}
+  return m
+end
+local function find(key)
+  for _, e in ipairs(tab.entries) do if e.key == key then return e end end
+end
+
+check("your note opens in full with Edit and Delete; another reader's has neither", function()
+  local m = savedTab()
+  tab.select_cb(find("note:4001"))
+  local screen = last("text")
+  assert(screen and screen.text == "Old words")
+  button(screen, "Edit"); button(screen, "Delete")
+  m:openActivityEntry({ key = "note:1", id = 1, kind = "note", user_id = 2, who = "Sam", text = "Theirs" })
+  assert(last("text").buttons == nil, "someone else's note must not offer Edit or Delete")
+end)
+
+check("editing a note offline keeps the change, shows it in place, and says it waits", function()
+  local m = savedTab()
+  tab.select_cb(find("note:4001"))
+  button(last("text"), "Edit").callback()
+  local input = last("input")
+  assert(input.input == "Old words", "the field should start with the note")
+  input.typed = "  New words \r\n"
+  button(input, "Save").callback()
+  local op = m.journal_queue:changeFor(4001)
+  assert(op and op.action == "update" and op.text == "New words" and op.book_id == 5 and op.event == "note")
+  local shown = find("note:4001")
+  assert(shown.text == "New words" and shown.waiting, "the tab should show the change at once")
+  assert(infos[#infos]:find("offline", 1, true), tostring(infos[#infos]))
+  assert(flushes == 0)
+  assert(m.activity_store:get(1).entries[1].text == "Old words", "the saved copy keeps what Hardcover has until it takes the change")
+end)
+
+check("an empty edit is refused and the field stays open; an unchanged one does nothing", function()
+  local m = savedTab()
+  tab.select_cb(find("note:4001"))
+  button(last("text"), "Edit").callback()
+  local input = last("input")
+  input.typed = "   "
+  button(input, "Save").callback()
+  assert(infos[#infos]:find("Use Delete", 1, true), tostring(infos[#infos]))
+  assert(m.journal_queue:count() == 0)
+  input.typed = "Old words"
+  button(input, "Save").callback()
+  assert(m.journal_queue:count() == 0, "nothing changed, nothing to send")
+end)
+
+check("editing online sends it now", function()
+  local m = savedTab()
+  online = true
+  tab.select_cb(find("quote:4002"))
+  button(last("text"), "Edit").callback()
+  last("input").typed = "Fear is the little-death."
+  button(last("input"), "Save").callback()
+  assert(flushes == 1, "the change should go now")
+  assert(infos[#infos] == "Quote saved.", tostring(infos[#infos]))
+end)
+
+check("a note not sent yet is edited where it waits", function()
+  local m = savedTab()
+  local id = m.journal_queue:queue({ user_id = 1, book_id = 5, event = "note", text = "Draft", title = "Dune" })
+  m:showActivity()
+  tab.select_cb(tab.entries[1])
+  button(last("text"), "Edit").callback()
+  last("input").typed = "Final"
+  button(last("input"), "Save").callback()
+  assert(m.journal_queue:count() == 1 and m.journal_queue:list()[1].id == id and m.journal_queue:list()[1].text == "Final")
+  assert(tab.entries[1].text == "Final")
+end)
+
+check("deleting a quote asks first, then hides it and keeps the delete", function()
+  local m = savedTab()
+  tab.select_cb(find("quote:4002"))
+  button(last("text"), "Delete").callback()
+  local ask = confirms[#confirms]
+  assert(ask and ask.title == "Delete this quote?" and ask.ok_text == "Delete", tostring(ask and ask.title))
+  assert(m.journal_queue:count() == 0, "nothing is deleted before the answer")
+  ask.ok_callback()
+  local op = m.journal_queue:changeFor(4002)
+  assert(op and op.action == "delete")
+  assert(find("quote:4002") == nil, "the deleted quote is still listed")
+  assert(#tab.entries == 3)
+end)
+
+check("deleting a note not sent yet discards it", function()
+  local m = savedTab()
+  m.journal_queue:queue({ user_id = 1, book_id = 5, event = "note", text = "Oops", title = "Dune" })
+  m:showActivity()
+  tab.select_cb(tab.entries[1])
+  button(last("text"), "Delete").callback()
+  local ask = confirms[#confirms]
+  assert(ask.title == "Discard this note?" and ask.ok_text == "Discard", ask.title)
+  ask.ok_callback()
+  assert(m.journal_queue:count() == 0)
+  assert(tab.entries[1].key == "note:4001")
+end)
+
+check("deleting your review keeps its removal and hides it", function()
+  local m = savedTab()
+  tab.select_cb(find("review:900"))
+  button(last("text"), "Delete").callback()
+  assert(confirms[#confirms].title == "Delete your review?")
+  confirms[#confirms].ok_callback()
+  local waiting = m.review_queue:get(900)
+  assert(waiting and waiting.text == "", "the removal should wait in the review queue")
+  assert(find("review:900") == nil)
+end)
+
+check("editing your review goes through the review form and shows in place", function()
+  local m = savedTab()
+  tab.select_cb(find("review:900"))
+  button(last("text"), "Edit").callback()
+  local input = last("input")
+  assert(input.input == "Fine", "the form should start with the review")
+  input.typed = "Wonderful after all"
+  button(input, "Next").callback()
+  local picker = last("picker")
+  picker.rows[2].callback() -- has spoilers
+  local waiting = m.review_queue:get(900)
+  assert(waiting and waiting.text == "Wonderful after all" and waiting.spoilers == true)
+  local shown = find("review:900")
+  assert(shown and shown.waiting and shown.text == "Wonderful after all" and shown.spoilers == true)
+end)
+
+check("once Hardcover has a change, the saved copy shows it", function()
+  local m = savedTab()
+  m:journalChangeSent({ action = "update", event = "note", journal_id = 4001, text = "Sent words" })
+  m:journalChangeSent({ action = "delete", event = "quote", journal_id = 4002 })
+  m:journalChangeSent({ event = "note", book_id = 5, text = "a new one is fetched, not patched" })
+  m:reviewChangeSent(900, nil)
+  local entries = m.activity_store:get(1).entries
+  assert(#entries == 2, "kept " .. #entries)
+  assert(entries[1].key == "note:4001" and entries[1].text == "Sent words" and entries[1].excerpt == "Sent words")
+  assert(entries[2].key == "status:7")
+  m:reviewChangeSent(901, "not listed")
+  assert(#m.activity_store:get(1).entries == 2)
 end)
 
 r.finish()
