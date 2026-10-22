@@ -45,6 +45,11 @@ r.check("rows are edge to edge", grid[1].top == 0 and grid[1].bottom == 39 and g
   and grid[2].bottom == 99 and grid[3].top == 100 and grid[3].bottom == 119)
 r.check("no children, no grid (free scrolling)", ScrollControl.grid({}) == nil and ScrollControl.grid(nil) == nil)
 
+local tall = ScrollControl.grid({ row(40), row(250), row(20) }, 100)
+r.check("a row taller than the view is cut into pieces that fit", #tall == 5 and tall[2].top == 40
+  and tall[2].bottom == 139 and tall[3].top == 140 and tall[3].bottom == 239 and tall[4].top == 240
+  and tall[4].bottom == 289 and tall[5].top == 290 and tall[5].bottom == 309)
+
 -- hold: a paged list jumps to its first or last page; other holds are ignored
 local went
 local paged = ScrollControl.paged { height = 1000, pages = function() return 5 end, page = function() return 3 end,

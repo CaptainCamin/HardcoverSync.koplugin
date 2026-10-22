@@ -52,13 +52,22 @@ function ScrollControl.gutter()
 end
 
 -- Row edges for the container's page steps: one { top, bottom } per child of `group`, in content
--- coordinates. Nil when `group` has no children to step by (free scrolling then).
-function ScrollControl.grid(group)
+-- coordinates. Nil when `group` has no children to step by (free scrolling then). A child taller than
+-- `view_h` (a big chart at a large DPI) is cut into pieces that fit, so a page step always has an edge
+-- inside it to land on and no part of it is out of reach.
+function ScrollControl.grid(group, view_h)
   if type(group) ~= "table" or #group == 0 then return nil end
   local rows, y = {}, 0
   for i = 1, #group do
     local h = group[i]:getSize().h
-    rows[#rows + 1] = { top = y, bottom = y + h - 1 }
+    local top, bottom = y, y + h - 1
+    if view_h and view_h > 0 and h > view_h then
+      while bottom - top + 1 > view_h do
+        rows[#rows + 1] = { top = top, bottom = top + view_h - 1 }
+        top = top + view_h
+      end
+    end
+    rows[#rows + 1] = { top = top, bottom = bottom }
     y = y + h
   end
   return rows
@@ -192,7 +201,7 @@ function ScrollControl.wrap(scroll, rows)
   local scroll_by = scroll._scrollBy
   if type(scroll_by) == "function" then
     scroll._scrollBy = function(self, dx, dy, ...)
-      if rows then self.step_scroll_grid = ScrollControl.grid(rows) end
+      if rows then self.step_scroll_grid = ScrollControl.grid(rows, scroll.dimen.h) end
       local before = self._scroll_offset_y or 0
       local max = self._max_scroll_offset_y or 0
       scroll_by(self, dx, dy, ...)
@@ -208,7 +217,7 @@ function ScrollControl.wrap(scroll, rows)
   -- snaps to a row, which queues a refresh of the whole scroll area, and a screen redrawn in place
   -- (an option ticked) must not cost that.
   scroll:initState()
-  if rows then scroll.step_scroll_grid = ScrollControl.grid(rows) end
+  if rows then scroll.step_scroll_grid = ScrollControl.grid(rows, scroll.dimen.h) end
 
   local control = ScrollControl:new { scroll = scroll, width = gutter, height = total_h }
   control.overlap_offset = { total_w - gutter, 0 }
