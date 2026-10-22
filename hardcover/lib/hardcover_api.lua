@@ -1418,10 +1418,11 @@ function HardcoverApi:createJournalEntry(object)
     }
   ]]
 
-  local result = self:query(query, { object = object })
-  if result then
-    return result.insert_reading_journal.reading_journal
-  end
+  local result, err = self:query(query, { object = object })
+  local created = result and result.insert_reading_journal and result.insert_reading_journal.reading_journal
+  if created then return created end
+  -- the reason goes back too: the queue holds a refused entry but retries one never answered
+  return nil, err
 end
 
 --

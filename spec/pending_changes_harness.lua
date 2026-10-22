@@ -21,6 +21,7 @@ local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local SyncQueue = require("hardcover/lib/sync_queue")
 local GoalQueue = require("hardcover/lib/goal_queue")
 local RatingQueue = require("hardcover/lib/rating_queue")
+local JournalQueue = require("hardcover/lib/journal_queue")
 local PendingChanges = require("hardcover/lib/pending_changes")
 
 local function fakeSettings()
@@ -186,6 +187,30 @@ check("a plain page change has no shelf op", function()
   local q = queues()
   q.sync_queue:enqueuePage("/b/dune.epub", { mapped_page = 12, book_id = 7 })
   assert(PendingChanges.list(q)[1].shelf_op == nil)
+end)
+
+check("a waiting note or quote gets a line with its first words, and cancelling removes just it", function()
+  local q = queues()
+  q.journal_queue = JournalQueue:new { settings = fakeSettings() }
+  local first = q.journal_queue:queue({ user_id = 1, book_id = 7, event = "note", text = "what a  delightfully\nweird book", title = "Beautyland" })
+  q.journal_queue:queue({ user_id = 1, book_id = 8, event = "quote", text = "", title = "Dune" })
+  local rows = PendingChanges.list(q)
+  assert(#rows == 2 and rows[1].kind == "journal", texts(rows))
+  assert(rows[1].text == 'Beautyland: note "what a delightfully weird book"', rows[1].text)
+  assert(rows[2].text == "Dune: quote", rows[2].text)
+  assert(rows[1].cancel() == true)
+  assert(q.journal_queue:count() == 1 and q.journal_queue:list()[1].text == "")
+  assert(first)
+end)
+
+check("a long note is cut for its line, and a refused one says so", function()
+  local q = queues()
+  q.journal_queue = JournalQueue:new { settings = fakeSettings() }
+  q.journal_queue:queue({ user_id = 1, book_id = 7, event = "note", text = string.rep("word ", 30), title = "Dune" })
+  q.journal_queue:list()[1].held, q.journal_queue:list()[1].reason = true, "refused"
+  local row = PendingChanges.list(q)[1]
+  assert(#row.text < 80, row.text)
+  assert(PendingChanges.line(row):find("Hardcover refused it", 1, true), PendingChanges.line(row))
 end)
 
 r.finish()

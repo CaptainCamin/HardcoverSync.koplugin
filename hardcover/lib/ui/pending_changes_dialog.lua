@@ -2,7 +2,7 @@
 -- change (Hardcover keeps what it has); "Send them now" sends the rest, and "Discard" throws
 -- away the queued progress and status changes without sending them.
 --
--- opts: queues ({ sync_queue, goal_queue, rating_queue, shelf_queue, list_queue }),
+-- opts: queues ({ sync_queue, goal_queue, rating_queue, shelf_queue, list_queue, journal_queue }),
 -- on_cancel(row) after a change was cancelled (so the screens that showed it can show
 -- Hardcover's version again), on_send() after the list is closed, on_discard() after the
 -- queued changes were discarded.
