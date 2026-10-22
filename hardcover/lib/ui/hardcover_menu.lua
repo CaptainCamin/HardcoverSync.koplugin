@@ -253,12 +253,14 @@ function HardcoverMenu:showReaderPanel()
     -- the mid-book actions, as in the mock. The edition and the link are changed from the book's
     -- page (its Edition button; see showLinkActions)
     if linked then
-      -- the same three buttons for every linked book, so nothing swaps places; the page can only
-      -- be set on a book being read, so otherwise its button keeps its place, dotted
-      add(_("Set page"), pages_item)
-      add(_("Change status"), status_item)
+      -- the same four buttons for every linked book, so nothing swaps places; the page can only
+      -- be set on a book being read, so otherwise its button keeps its place, dotted. Journal
+      -- writes a note on this book
+      add(_("Page"), pages_item, { icon = "bookmark" })
+      add(_("Status"), status_item, { icon = "shelf" })
+      add(_("Journal"), note_item, { icon = "edit" })
       actions[#actions + 1] = {
-        text = _("Open book page"), enabled = self.enabled, wide = true,
+        text = _("Book"), icon = "book-open", enabled = self.enabled,
         run = function()
           self:withWifiThen(function()
             self.dialog_manager:showBookDetail(self.settings:getLinkedBookId(), self.settings:getLinkedEditionId())
@@ -266,7 +268,7 @@ function HardcoverMenu:showReaderPanel()
         end,
       }
     else
-      add(_("Link this book"), link_item, { wide = true })
+      add(_("Link this book"), link_item)
     end
     -- the mock has nothing else; status, note, reviews and settings are on the book page
     -- and in the Hardcover menu

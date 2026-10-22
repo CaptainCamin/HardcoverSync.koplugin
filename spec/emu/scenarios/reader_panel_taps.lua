@@ -59,8 +59,16 @@ return {
     -- Details and Reviews go through withWifiThen; wifi handling is not under test
     menu.withWifiThen = function(_, action) action(false) end
 
+    -- a button's label exactly (the page line also has "Page" in it); text in any other row as
+    -- part of it
+    local function exact(text)
+      for _, node in ipairs(emu:screenNodes()) do
+        if node.text == text then return node end
+      end
+      return emu:expectText(text)
+    end
     local function tapText(text)
-      local node = emu:expectText(text)
+      local node = exact(text)
       emu:tapExpecting(node.x + math.floor(node.w / 2), node.y + math.floor(node.h / 2))
     end
     local function panel_is_top() return emu:top() and emu:top().name == "hardcover_reader_panel" end
@@ -83,8 +91,15 @@ return {
     emu:pump()
     assert(panel_is_top())
 
-    tapText("Open book page")
-    assert(calls.details == 328491, "Open book page did not open the book")
+    tapText("Book")
+    assert(calls.details == 328491, "Book did not open the book")
+
+    -- Journal writes a note on this book
+    emu:closeAll()
+    panel = menu:showReaderPanel()
+    emu:pump()
+    tapText("Journal")
+    assert(calls.note, "Journal did not open the note form")
 
     -- the gear at the top right of the sheet opens the menu: linking, the edition, all settings
     emu:closeAll()
@@ -106,7 +121,7 @@ return {
     panel = menu:showReaderPanel()
     emu:pump()
 
-    tapText("Set page")
+    tapText("Page")
     emu:shot("reader_panel_set_page")
     emu:closeAll()
     -- closeAll also removed the panel; reopen for the dismissal check

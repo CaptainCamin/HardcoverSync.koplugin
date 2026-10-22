@@ -2,8 +2,8 @@
 -- reading screen, so the page stays visible above it.
 --
 -- It shows where the book stands (title, page, shelf) and the few things a reader
--- does mid-book as buttons, two to a row: set the page, change the status, open the
--- book's page. Tracking is switched in the set-page dialog. Everything is asked of
+-- does mid-book as a row of round buttons: set the page, change the status, write
+-- in the journal, open the book's page. Tracking is switched in the set-page dialog. Everything is asked of
 -- `opts.model()` on every draw, so after an action the panel shows what is true
 -- now instead of what was true when it opened.
 --
@@ -13,7 +13,7 @@
 --     shelf (string or nil: where the book is, in words),
 --     shelf_action (nil, or { text, run }: a button beside the shelf line),
 --     menu = { title, rows = { { text, enabled, run }, ... } } or nil (the gear at the top right),
---     actions = { { text, enabled, primary, run }, ... } }
+--     actions = { { text, icon (a round button when given), enabled, run }, ... } }
 --
 -- Tapping above the sheet, the Close button, or the Back key closes it.
 
@@ -149,34 +149,33 @@ function ReaderPanel:render()
     table.insert(content, self:buildShelfRow(model.shelf, model.shelf_action, width))
   end
 
-  -- the actions, two to a row; an action that cannot be used right now keeps its place, in
-  -- a dotted box and without a tap
+  -- the actions: the ones with an icon as a row of labelled circle buttons, spread across the
+  -- width; the rest (Link this book) as a full-width button. An action that cannot be used right
+  -- now keeps its place, dotted and without a tap
   table.insert(content, Theme.span("l"))
-  local gap = Theme.space.m
-  local cols = 2
-  local cell = math.floor((width - (cols - 1) * gap) / cols)
   local bh = Theme.px(56)
-  local function button(action, w)
-    local enabled = action.enabled ~= false
-    return Button.new { label = action.text, w = w, h = bh, primary = action.primary and enabled,
-      enabled = enabled, callback = enabled and action.run or nil }
+  local round, wide = {}, {}
+  for _i, a in ipairs(model.actions) do
+    table.insert(a.icon and round or wide, a)
   end
-  local i = 1
-  while i <= #model.actions do
-    local a = model.actions[i]
-    if a.wide then
-      table.insert(content, button(a, width))
-      i = i + 1
-    else
-      local row = HorizontalGroup:new {}
-      local n = 0
-      while n < cols and model.actions[i] and not model.actions[i].wide do
-        if n > 0 then table.insert(row, Theme.hspan(gap)) end
-        table.insert(row, button(model.actions[i], cell))
-        i, n = i + 1, n + 1
-      end
-      table.insert(content, row)
+  if #round > 0 then
+    local cell = math.floor(width / #round)
+    local row = HorizontalGroup:new { align = "top" }
+    for _i, a in ipairs(round) do
+      local enabled = a.enabled ~= false
+      table.insert(row, CenterContainer:new {
+        dimen = Geom:new { w = cell, h = Theme.mmd.round_button.size.large + Theme.px(40) },
+        Button.round { icon = a.icon, label = a.text, scale = "large", enabled = enabled,
+          callback = enabled and a.run or nil },
+      })
     end
+    table.insert(content, row)
+    table.insert(content, Theme.span("m"))
+  end
+  for _i, a in ipairs(wide) do
+    local enabled = a.enabled ~= false
+    table.insert(content, Button.new { label = a.text, w = width, h = bh, enabled = enabled,
+      callback = enabled and a.run or nil })
     table.insert(content, Theme.span("m"))
   end
   table.insert(content, Button.new { label = _("Close"), w = width, h = bh, primary = true,

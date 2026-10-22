@@ -46,10 +46,11 @@ return {
     emu:pump()
     emu:expectText("The Dispossessed")
     emu:expectText("Page 142 of 387")
-    emu:expectText("Set page")
-    emu:expectText("Change status")
-    emu:expectText("Close")
-    emu:expectText("Open book page")
+    for _, label in ipairs({ "Page", "Status", "Journal", "Book", "Close" }) do
+      local found = false
+      for _, node in ipairs(emu:screenNodes()) do found = found or node.text == label end
+      assert(found, label .. " is not on the panel")
+    end
     emu:shot("reader_panel")
     emu:closeAll()
 

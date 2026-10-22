@@ -105,8 +105,10 @@ return {
       for _, gone in ipairs({ "Update Hardcover as I read", "Change status to update progress.", "asked to start reading", "Cancel" }) do
         assert(not text:find(gone, 1, true), case.key .. ": '" .. gone .. "' is still on the panel")
       end
-      for _, want in ipairs({ "Set page", "Change status", "Open book page", "Close" }) do
-        assert(text:find(want, 1, true), case.key .. ": '" .. want .. "' is not on the panel")
+      local labels = {}
+      for _, node in ipairs(emu:screenNodes()) do labels[node.text] = true end
+      for _, want in ipairs({ "Page", "Status", "Journal", "Book", "Close" }) do
+        assert(labels[want], case.key .. ": '" .. want .. "' is not on the panel")
       end
       assert(not text:find("Page 0", 1, true), case.key .. ": claims 'Page 0' with no saved page")
 
