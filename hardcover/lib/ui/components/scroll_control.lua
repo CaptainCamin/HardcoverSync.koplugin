@@ -185,11 +185,23 @@ function ScrollControl.wrap(scroll, rows)
   -- A page step by the row grid may overshoot the first or last row and show blank space there (the
   -- container allows it so a reader can find their place). With a visible control that only looks
   -- broken, so the offset is held inside the content.
+  -- The row grid is a snapshot, so it is rebuilt before each step (a section opened, a cover or a list
+  -- arriving later change the heights; a stale grid stops the page short of the real end). A row taller
+  -- than the screen has no edge inside it, so a step that would not move falls back to a plain page
+  -- step instead of leaving the rest of that row out of reach.
   local scroll_by = scroll._scrollBy
   if type(scroll_by) == "function" then
-    scroll._scrollBy = function(self, ...)
-      scroll_by(self, ...)
-      self._scroll_offset_y = math.max(0, math.min(self._scroll_offset_y, self._max_scroll_offset_y or 0))
+    scroll._scrollBy = function(self, dx, dy, ...)
+      if rows then self.step_scroll_grid = ScrollControl.grid(rows) end
+      local before = self._scroll_offset_y or 0
+      local max = self._max_scroll_offset_y or 0
+      scroll_by(self, dx, dy, ...)
+      local after = math.max(0, math.min(self._scroll_offset_y or 0, max))
+      if type(dy) == "number" and dy ~= 0 and after == before
+          and ((dy > 0 and before < max) or (dy < 0 and before > 0)) then
+        after = math.max(0, math.min(before + dy, max))
+      end
+      self._scroll_offset_y = after
     end
   end
   -- Work out the container's state first, then give it the row grid: with a grid in place initState
