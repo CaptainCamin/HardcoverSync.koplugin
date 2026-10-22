@@ -38,12 +38,14 @@ function Flows:showActivity(host)
   self:screens():discard("activity")
 
   local online = Network.connected()
-  -- Older OAuth sign-ins predate the social scopes. The rest of the plugin can still
-  -- work with such a token, but Activity cannot read follows, journal entries or reviews.
+  -- Journal reads require an explicit permission, even when library reads work.
+  local missing_journal = AuthScope.missing("read:journal")
   local missing_social = AuthScope.missing("read:social") or AuthScope.missing("read:users")
   local message
   if not online then
     message = _("Activity needs an internet connection.")
+  elseif missing_journal then
+    message = _("Activity needs access to your reading journal. Sign out and sign back in to allow it.")
   elseif missing_social then
     message = _("Activity needs access to social activity. Sign out and sign back in to allow it.")
   else
@@ -57,7 +59,7 @@ function Flows:showActivity(host)
     select_cb = function(entry) self:openActivityEntry(entry) end,
   }
   self:openScreen("activity", dialog, host)
-  if not online or missing_social then return dialog end
+  if not online or missing_journal or missing_social then return dialog end
 
   local state = { followed = nil, entries = {}, cursor = nil }
   local me_id = User:getId()

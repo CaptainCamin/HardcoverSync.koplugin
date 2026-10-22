@@ -11,6 +11,10 @@
 
 - **Activity.** The Library has a fourth tab, Activity: what you and the readers you follow lately did on Hardcover, newest first. It shows status changes (started, finished, rated), notes, quotes and reviews, one row each; tap a note, quote or review to read it whole, or a status change to open the book. A review that gives away the story shows no text in the list. "Load more" fetches the next page. It needs a connection for now; keeping it on the device for offline comes later.
 
+### Fixed
+
+- **Activity sign-in permissions.** Sign-in now requests `read:journal`, which Hardcover requires to load notes and quotes. Update the plugin, then sign out and back in once to grant it. Older sign-ins are prompted before the request is sent.
+
 ### Changed
 
 - **Notes and quotes save without waiting.** Saving a note or quote keeps it on the device and closes the form at once; it is sent when there is a connection, and with none it is sent when the connection is back. Before, saving waited for Hardcover, failed offline, and the text was lost. A note that is waiting shows in Sync's list (tap it to cancel) and counts in the number of changes waiting. If Hardcover never answered for one that was sent, it is sent again and can appear twice.
