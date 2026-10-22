@@ -628,8 +628,8 @@ step("probe: activity feed shapes (prints only)", function()
 end)
 
 -- What Hardcover's Journals page is made of: every kind of journal entry a reader has, with what
--- each keeps in `metadata`, counted, plus whether the page can be numbered (offset, a total) and
--- filtered by kind. For you, and for a reader you follow (their public entries), whose journal is
+-- each keeps in `metadata`, counted, plus whether the page can be stepped by offset and filtered by
+-- kind. (A total is not to be had: reading_journals_aggregate is refused to API tokens, HTTP 403.) For you, and for a reader you follow (their public entries), whose journal is
 -- fuller than a test account's. Entry text is cut short in the log.
 step("probe: the journal page, every kind of entry (prints only)", function()
   local followed = probe("journal page: followed", [[{ me { followed_users { followed_user_id } } }]])
@@ -647,15 +647,13 @@ step("probe: the journal page, every kind of entry (prints only)", function()
           id event entry metadata action_at created_at likes_count privacy_setting_id book_id edition_id
           book { id title cached_image contributions: cached_contributors }
         }
-        total: reading_journals_aggregate(where: { user_id: { _eq: ]] .. id .. [[ } }) { aggregate { count } }
       }
     ]])
     Api.on_error = saved
     if not result then
       print("  probe journal page " .. label .. ": refused " .. (type(err) == "table" and json.encode(err) or tostring(err)))
     else
-      local total = result.total and result.total.aggregate and result.total.aggregate.count
-      print("  probe journal page " .. label .. ": " .. #result.reading_journals .. " read, total " .. tostring(total))
+      print("  probe journal page " .. label .. ": " .. #result.reading_journals .. " read")
       local kinds, order = {}, {}
       for _, row in ipairs(result.reading_journals) do
         local kind = kinds[row.event]
