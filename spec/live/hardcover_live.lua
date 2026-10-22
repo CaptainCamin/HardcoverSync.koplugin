@@ -71,6 +71,29 @@ Api.enabled = true
 -- are read by curl from stdin / the environment, so the token is never on a command line.
 Api.runtime = { subprocess = function(fn) return true, fn() end }
 
+local Shape = dofile(PLUGIN .. "/spec/live/shape.lua")
+local is_null = function(v) return v == NULL end
+
+-- The shape of the first answer each method gives, kept to compare with the emulator's fixtures
+-- at the end (see "emulator fixtures match" below). Only types are kept, never values.
+local live_shapes = {}
+for _, name in ipairs({
+  "me", "search", "findBooks", "findEditions", "getBookDetail", "getBooksByIds", "getReviews",
+  "getSimilarBooks", "getBookLists", "getLists", "getListCount", "getListBooks", "getListMembers",
+  "getShelf", "getShelfCounts", "getCurrentlyReading", "getStats", "getForYou", "getVibes",
+  "getGoals", "updateUserBook", "updateRating", "updatePage", "createRead", "createJournalEntry",
+  "addToList",
+}) do
+  local original = Api[name]
+  if original then
+    Api[name] = function(self, ...)
+      local result, a, b = original(self, ...)
+      if result ~= nil then live_shapes[name] = Shape.merge(live_shapes[name], Shape.of(result, is_null)) end
+      return result, a, b
+    end
+  end
+end
+
 local failures_http = {}
 local API_URL = "https://api.hardcover.app/v1/graphql"
 Api.transport = {
@@ -429,6 +452,59 @@ step("the added book is gone", function()
     if type(left) == "table" and left.id then error("user book " .. tostring(left.id) .. " is still on the account", 0) end
   end
 end)
+
+-- The emulator's canned data has to look like what Hardcover really sends. Types only, never
+-- values. A field both sides have with different types fails. A field the live answer has and the
+-- fixture lacks fails only when the plugin's own code mentions that field name: the answers carry
+-- plenty the plugin never reads (image colours, author slugs), and the fixtures need not.
+local plugin_source
+local function plugin_reads(field)
+  if not plugin_source then
+    local parts = {}
+    local p = assert(io.popen("find '" .. PLUGIN .. "/hardcover' '" .. PLUGIN .. "/main.lua' -name '*.lua'"))
+    for file in p:lines() do
+      local f = io.open(file, "r")
+      if f then parts[#parts + 1] = f:read("*a"); f:close() end
+    end
+    p:close()
+    plugin_source = table.concat(parts, "\n")
+  end
+  return plugin_source:find("%f[%w_]" .. field:gsub("%p", "%%%0") .. "%f[^%w_]") ~= nil
+end
+
+local fixture_shapes, fixture_failed
+step("emulator fixtures can answer the same calls", function()
+  fixture_shapes, fixture_failed = dofile(PLUGIN .. "/spec/live/fixture_shapes.lua")(Api, PLUGIN, is_null)
+  local names = {}
+  for name, err in pairs(fixture_failed) do names[#names + 1] = name .. " (" .. err:gsub("\n.*", "") .. ")" end
+  table.sort(names)
+  if #names > 0 then error("fixture fakes raised: " .. table.concat(names, "; "), 0) end
+end)
+local compared = {}
+for name in pairs(live_shapes) do compared[#compared + 1] = name end
+table.sort(compared)
+for _, name in ipairs(compared) do
+  if fixture_shapes and fixture_shapes[name] then
+    step("emulator fixture matches the live shape: " .. name, function()
+      local mismatches, extras, missing = Shape.compare(live_shapes[name], fixture_shapes[name])
+      if #extras > 0 then print("    note: fixture-only fields " .. table.concat(extras, ", ")) end
+      local read = {}
+      for _, path in ipairs(missing) do
+        if plugin_reads(path:match("([^.%[%]]+)$") or path) then read[#read + 1] = path end
+      end
+      if #read > 0 then print("    note: live fields the plugin reads and the fixture lacks " .. table.concat(read, ", ")) end
+      if #mismatches > 0 then error(table.concat(mismatches, "; "), 0) end
+    end)
+  end
+end
+local shapes_out = os.getenv("HARDCOVER_LIVE_SHAPES")
+if shapes_out and shapes_out ~= "" then
+  local f = io.open(shapes_out, "w")
+  if f then
+    f:write(encode({ live = live_shapes, fixtures = fixture_shapes or {} }), "\n")
+    f:close()
+  end
+end
 
 step("no request was refused at HTTP level", function()
   if #failures_http > 0 then error("non-2xx answers: " .. table.concat(failures_http, ","), 0) end

@@ -3,8 +3,10 @@ Fixture data and a fake API for emulator scenarios.
 
 A scenario needs the plugin to build real widgets, and the plugin builds them
 from what the API returns. So the API is replaced here, at the module boundary,
-with canned responses in the exact shape Hardcover's GraphQL returns -- verified
-against the live schema, not guessed from the query text.
+with canned responses in the shape Hardcover's GraphQL returns, not guessed from the query
+text. The nightly live check (spec/live/hardcover_live.lua) holds them to that: it compares the
+fields and types the real API returned with what each fake here returns, and fails on a field
+the fixture lacks.
 
 The point is that the code under test is unchanged: ShelfDialog still parses
 items, ListMenu still picks its draw path, CoverMenu still resolves covers.

@@ -37,6 +37,9 @@ never runs. Those are exactly the bugs that reach a device:
 All four were live in `book_detail_dialog.lua` when this harness was first run.
 The dialog did not open at all.
 
+The canned API data is checked against the real API by the nightly live check
+(`spec/live/hardcover_live.lua`): fields and types only, never values.
+
 ## How it works
 
 `boot.lua` boots KOReader headlessly and hands a scenario a live `UIManager`:
