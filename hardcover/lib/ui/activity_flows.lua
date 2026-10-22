@@ -331,7 +331,7 @@ function Flows:showBookJournal(book_id, title)
     return out
   end
   local function withWaiting(entries)
-    return Feed.withWaiting(ofBook(self:waitingActivity(me_id)), entries)
+    return ofBook(self:pendingActivity(entries, me_id))
   end
   local shown = withWaiting(ofBook(saved and saved.entries))
 

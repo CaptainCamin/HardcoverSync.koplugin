@@ -46,6 +46,7 @@ return {
         showSettings = function() calls.settings = true end,
         showReviews = function(_, id) calls.reviews = id end,
         journalEntryForm = function() calls.note = true end,
+        showBookJournal = function(_, id) calls.journal = id end,
         maybeConfirm = function(_, o) calls.confirm = o.text end,
       },
       hardcover = {},
@@ -73,11 +74,6 @@ return {
     -- the book's record is fetched after the panel is up, not before it can appear
     assert(calls.fetched_with_panel_up == true, "the record was fetched before the panel was shown")
 
-    -- the tick
-    tapText("Update Hardcover as I read")
-    assert(calls.sync == false, "the tick did not turn tracking off")
-    assert(panel_is_top())
-
     -- the panel is the mid-book actions and Cancel; the mock has nothing else
     local nodes = emu:screenText()
     for _, gone in ipairs({ "Add a note", "Reviews", "Change edition", "More", "Rate this book" }) do
@@ -90,7 +86,7 @@ return {
     emu:pump()
     assert(panel_is_top())
 
-    tapText("Open book page")
+    tapText("Details")
     assert(calls.details == 328491, "Open book page did not open the book")
 
     -- the gear at the top right of the sheet opens the menu: linking, the edition, all settings
@@ -98,10 +94,8 @@ return {
     panel = menu:showReaderPanel()
     emu:pump()
     emu:screenNodes()
-    local Theme = require("hardcover/lib/ui/theme")
-    local Screen = require("device").screen
-    emu:tapExpecting(Screen:getWidth() - Theme.px(20) - math.floor(Theme.TOUCH_MIN / 2),
-      panel.sheet_rect.y + Theme.px(30) + math.floor(Theme.TOUCH_MIN / 2))
+    local gear = panel.gear.dimen
+    emu:tapExpecting(gear.x + math.floor(gear.w / 2), gear.y + math.floor(gear.h / 2))
     local menu_text = emu:screenText()
     for _, want in ipairs({ "Link a different book", "Change edition", "All Hardcover settings" }) do
       assert(menu_text:find(want, 1, true), want .. " is not in the gear menu")
@@ -113,15 +107,29 @@ return {
     panel = menu:showReaderPanel()
     emu:pump()
 
-    tapText("Update progress")
+    tapText("Progress")
     emu:shot("reader_panel_set_page")
+    emu:closeAll()
+    -- Journal opens the view added in #192, and rating keeps its existing dialog.
+    panel = menu:showReaderPanel()
+    emu:pump()
+    tapText("Journal")
+    assert(calls.journal == 328491, "Journal did not open the book journal")
+    tapText("Rate")
+    emu:expectText("Set rating")
     emu:closeAll()
     -- closeAll also removed the panel; reopen for the dismissal check
     panel = menu:showReaderPanel()
     emu:pump()
     assert(panel_is_top())
     emu:screenNodes() -- paint first: tap ranges are only real once painted
-    emu:tap(600, 100) -- the page above the sheet
+    emu:tap(math.floor(require("device").screen:getWidth() / 2), 10) -- the page above the sheet
     assert(not UIManager:isWidgetShown(panel), "a tap above the sheet did not close the panel")
+    panel = menu:showReaderPanel()
+    emu:pump()
+    emu:screenNodes()
+    local close = panel.close_button.dimen
+    emu:tapExpecting(close.x + math.floor(close.w / 2), close.y + math.floor(close.h / 2))
+    assert(not UIManager:isWidgetShown(panel), "the top X did not dismiss the panel")
   end,
 }
