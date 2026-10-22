@@ -116,6 +116,7 @@ function SD.describe(err)
     -- Show their server message instead of calling them a missing response.
     local first = type(err.errors) == "table" and err.errors[1]
     if type(first) == "table" and type(first.message) == "string" then return first.message end
+    if type(first) == "string" and first ~= "" then return first end
     if err.completed == false then return _("no response from Hardcover") end
     if err.status then return string.format(_("Hardcover returned an error (%s)"), tostring(err.status)) end
   end

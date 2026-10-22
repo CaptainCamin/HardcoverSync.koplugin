@@ -195,7 +195,9 @@ function HardcoverApi:query(query, parameters, background)
           end
         end
 
-        return nil, { errors = err, status = tonumber(code) }
+        return nil, { errors = err, status = tonumber(code),
+          message = type(data.error_description) == "string" and data.error_description ~= ""
+            and data.error_description or nil }
       end
     else
       return nil, { completed = false }

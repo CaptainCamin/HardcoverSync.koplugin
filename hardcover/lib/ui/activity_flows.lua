@@ -66,11 +66,19 @@ function Flows:showActivity(host)
   -- asked once and kept for the later pages.
   local function fetch(before, callback)
     local function ask(ids)
-      Api:getFeedAsync({ me_id = me_id, user_ids = ids, before = before, limit = Feed.PAGE_SIZE }, callback)
+      Api:getFeedAsync({ me_id = me_id, user_ids = ids, before = before, limit = Feed.PAGE_SIZE },
+        function(page, err)
+          if not page then
+            return callback(nil, { message = string.format(_("Activity feed: %s"), StatusDialogs.describe(err)) })
+          end
+          callback(page, err)
+        end)
     end
     if state.followed then return ask(state.followed) end
     Api:getFollowedIdsAsync(function(ids, err)
-      if not ids then return callback(nil, err) end
+      if not ids then
+        return callback(nil, { message = string.format(_("Followed readers: %s"), StatusDialogs.describe(err)) })
+      end
       state.followed = ids
       ask(ids)
     end)
