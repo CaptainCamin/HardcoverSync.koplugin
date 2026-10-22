@@ -1,7 +1,8 @@
 --[[--
 The Library's Activity tab, driven with real taps: the rows (a status change, a quote, a review
 that hides its spoilers, notes), a row opening the whole text, Load more adding the next page without
-repeating the entry both pages share, and the offline message.
+repeating the entry both pages share, and offline: the message before anything was saved, then the
+copy kept in the real SQLite file, with a note written offline listed first as waiting to send.
 
 Screens: activity, activity_full, activity_more, activity_offline.
 ]]
@@ -73,8 +74,41 @@ return {
       return n
     end
 
+    local NetworkManager = require("ui/network/manager")
+    local function offline(fn)
+      local was, was_state = NetworkManager.isConnected, NetworkManager.getConnectionState
+      NetworkManager.isConnected = function() return false end
+      NetworkManager.getConnectionState = function() return false end
+      local ok, err = pcall(fn)
+      NetworkManager.isConnected, NetworkManager.getConnectionState = was, was_state
+      if not ok then error(err, 0) end
+    end
+
+    -- the activity kept in a real SQLite file, and notes written offline in a real settings file
+    local SqliteStore = require("hardcover/lib/sqlite_store")
+    local ActivityStore = require("hardcover/lib/activity_store")
+    local JournalQueue = require("hardcover/lib/journal_queue")
+    local LuaSettings = require("luasettings")
+    local dir = emu.DataStorage:getSettingsDir()
+    local path = dir .. "/hardcoversync_activity_emu.sqlite3"
+    for _, suffix in ipairs({ "", "-wal", "-shm", "-journal" }) do os.remove(path .. suffix) end
+    local queue_path = dir .. "/hardcoversync_activity_queue_emu.lua"
+    os.remove(queue_path)
+    local activity_store = ActivityStore:new { db = SqliteStore:new { path = path } }
+    local journal_queue = JournalQueue:new { settings = LuaSettings:open(queue_path) }
+
     local DialogManager = require("hardcover/lib/ui/dialog_manager")
-    local manager = DialogManager:new { settings = settings }
+    local manager = DialogManager:new { settings = settings, activity_store = activity_store,
+      journal_queue = journal_queue }
+
+    -- offline before anything was saved: a clear message and no request
+    offline(function()
+      manager:showActivity()
+      emu:pump()
+    end)
+    emu:expectText("internet connection the first time")
+    assert(feed_calls() == 0, "asked for the feed while offline")
+    emu:closeAll()
 
     -- the first page: the newest 20 of the 27 entries
     manager:showActivity()
@@ -122,20 +156,30 @@ return {
     emu:shot("activity_more")
     emu:closeAll()
 
-    -- offline: a clear message and no request
+    -- offline again, with a note written meanwhile: the kept copy opens from the file, under the
+    -- note, which says it is waiting to send
+    local kept = activity_store:get(fixtures.USER_ID)
+    assert(kept and #kept.entries == 27 and kept.more == false, "the 27 entries were not kept")
+    journal_queue:queue({ user_id = fixtures.USER_ID, book_id = 5, event = "note",
+      text = "Written on the train", title = "Dune" })
     local before = feed_calls()
-    local NetworkManager = require("ui/network/manager")
-    local was = NetworkManager.isConnected
-    local was_state = NetworkManager.getConnectionState
-    NetworkManager.isConnected = function() return false end
-    NetworkManager.getConnectionState = function() return false end
-    manager:showActivity()
+    offline(function()
+      manager:showActivity()
+      emu:pump()
+    end)
+    emu:expectText("Offline: showing your activity as of")
+    UIManager:close(UIManager:getTopmostVisibleWidget())
     emu:pump()
-    NetworkManager.isConnected = was
-    NetworkManager.getConnectionState = was_state
-    emu:expectText("internet connection")
     assert(feed_calls() == before, "asked for the feed while offline")
+    local tab = UIManager:getTopmostVisibleWidget()
+    assert(tab and tab.name == "hardcover_activity", "the tab did not open offline: " .. tostring(tab and tab.name))
+    assert(#tab.entries == 28 and tab.entries[1].waiting and tab.entries[2].key == kept.entries[1].key,
+      "the waiting note should come first, then the kept copy")
+    emu:expectText("Written on the train")
+    emu:expectText(Feed.WAITING .. " \194\183 You")
+    emu:expectText("Fear is the mind-killer")
     emu:shot("activity_offline")
     emu:closeAll()
+    os.remove(queue_path)
   end,
 }

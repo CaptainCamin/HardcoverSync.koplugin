@@ -286,6 +286,8 @@ local KIND_WORD = { note = "Note", quote = "Quote", review = "Review" }
 local OPEN_QUOTE, CLOSE_QUOTE = "\226\128\156", "\226\128\157"
 
 Feed.SPOILER_LABEL = "Review that gives away the story"
+-- said instead of the date by an entry that is still on the device
+Feed.WAITING = "Waiting to send"
 
 --
 -- One list row for an entry: { label (the line in bold), support (the small line), icon, action }.
@@ -293,7 +295,7 @@ Feed.SPOILER_LABEL = "Review that gives away the story"
 -- the book) or nil (nothing to open). A kind is always said in words, never by the icon alone.
 --
 function Feed.row(entry)
-  local when = Feed.shortDate(entry.date)
+  local when = entry.waiting and Feed.WAITING or Feed.shortDate(entry.date)
   local function join(...)
     local parts = {}
     for _, part in ipairs({ ... }) do
@@ -338,6 +340,51 @@ function Feed.heading(entry)
   end
   if entry.page then out[#out + 1] = "p. " .. entry.page end
   return table.concat(out, " \194\183 ")
+end
+
+--
+-- What you wrote that is still on the device: notes and quotes from the journal queue
+-- (JournalQueue:list, only `user_id`'s and those with no user) and reviews from the review queue
+-- (ReviewQueue:list). Notes and quotes newest first (the queue lists them oldest first), then
+-- reviews, which keep no time. Each says it is waiting instead of a date. A review being removed
+-- (empty text) is left out: there is nothing to show.
+--
+function Feed.waiting(journal_ops, review_ops, user_id)
+  local out = {}
+  journal_ops = journal_ops or {}
+  for i = #journal_ops, 1, -1 do
+    local op = journal_ops[i]
+    local mine = op.user_id == nil or tonumber(op.user_id) == tonumber(user_id)
+    local body = type(op.text) == "string" and op.text:match("%S") and op.text or nil
+    if mine and body and (op.event == "note" or op.event == "quote") then
+      local excerpt, truncated = Reviews.excerpt(body)
+      out[#out + 1] = {
+        key = "waiting:" .. tostring(op.id), kind = op.event, waiting = true,
+        who = "You", title = op.title or "A book", book_id = tonumber(op.book_id),
+        text = body, excerpt = excerpt, truncated = truncated, page = tonumber(op.page),
+      }
+    end
+  end
+  for _, op in ipairs(review_ops or {}) do
+    local body = type(op.text) == "string" and op.text:match("%S") and op.text or nil
+    if body then
+      local excerpt, truncated = Reviews.excerpt(body)
+      out[#out + 1] = {
+        key = "waiting:review:" .. tostring(op.user_book_id), kind = "review", waiting = true,
+        who = "You", title = op.title or "A book",
+        text = body, excerpt = excerpt, truncated = truncated, spoilers = op.spoilers == true,
+      }
+    end
+  end
+  return out
+end
+
+-- The waiting entries, then the entries from Hardcover.
+function Feed.withWaiting(waiting, entries)
+  local out = {}
+  for _, e in ipairs(waiting or {}) do out[#out + 1] = e end
+  for _, e in ipairs(entries or {}) do out[#out + 1] = e end
+  return out
 end
 
 -- `held` with the entries of a newer page added at the end, keeping each entry once.
