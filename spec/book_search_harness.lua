@@ -54,7 +54,7 @@ end
 
 -- the input dialog: records what it was built with and what is typed into it
 local inputs = {}
-package.preload["ui/widget/inputdialog"] = function()
+package.preload["hardcover/lib/ui/components/input_dialog"] = function()
   return {
     new = function(_, o)
       o.typed = o.input or ""
@@ -125,7 +125,7 @@ end
 local function submit(m, text)
   local input = m:showSearchInput()
   input.typed = text
-  input.buttons[1][2].callback()
+  input.buttons[2].callback()
   return input
 end
 
@@ -151,8 +151,8 @@ check("the input has a Cancel and a Search button, Search on Enter", function()
   local m = manager()
   local input = m:showSearchInput()
   assert(UIManager:isWidgetShown(input))
-  assert(input.buttons[1][2].is_enter_default == true)
-  assert(input.buttons[1][1].text == "Cancel" and input.buttons[1][2].text == "Search")
+  assert(input.buttons[2].primary == true)
+  assert(input.buttons[1].label == "Cancel" and input.buttons[2].label == "Search")
 end)
 check("an empty submit makes no request and leaves the input open", function()
   local m = manager()
@@ -164,7 +164,7 @@ end)
 check("Cancel closes the input without searching", function()
   local m = manager()
   local input = m:showSearchInput()
-  input.buttons[1][1].callback()
+  input.buttons[1].callback()
   assert(not UIManager:isWidgetShown(input) and #searches == 0)
 end)
 check("nothing is searched while typing: only submitting searches", function()

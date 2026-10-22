@@ -249,6 +249,7 @@ package.preload["ui/geometry"] = function() return { new = function(_, o) return
 package.preload["ui/size"] = function() return { border = { window = 1, thin = 1 }, padding = { button = 2, small = 2 }, line = { medium = 2 } } end
 package.preload["ui/font"] = function() return { getFace = function() return {} end } end
 package.preload["ui/widget/inputdialog"] = function() return widget_stub() end
+package.preload["hardcover/lib/ui/components/input_dialog"] = function() return widget_stub() end
 package.preload["ui/widget/spinwidget"] = function() return { new = function(_, o) return o end } end
 package.preload["ui/downloadmgr"] = function() return {} end
 package.preload["ui/trapper"] = function()

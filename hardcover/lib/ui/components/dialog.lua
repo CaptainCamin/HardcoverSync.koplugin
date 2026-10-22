@@ -1,5 +1,5 @@
--- Dialog (MMD): a question or notice in a box in the middle of the screen, with the 3px rule on top
--- (2 white under it). A Black 25 heading that says what it is about ("No internet connection", not
+-- Dialog (MMD): a question or notice in a box in the middle of the screen, outlined all round with
+-- rounded corners (MMD's 3px rule on top is this outline here). A Black 25 heading that says what it is about ("No internet connection", not
 -- "Connection Error"), Medium 21 text, and its actions stacked, each the full width and 64 high.
 -- The configurations are MMD's six:
 --   standard             heading, text, a filled and an outlined button
@@ -25,10 +25,18 @@ local Theme = require("hardcover/lib/ui/theme")
 
 local Dialog = {}
 
+-- MMD hangs its dialogs off the bottom edge at the full width of a small phone-shaped screen. On the
+-- larger, wider readers this plugin runs on that is a strip with a lot of air in it, so the dialog
+-- floats instead, about 60% of the screen wide: never under MMD's 364, never over 520.
 local function width()
-  return math.min(Device.screen:getWidth() - 2 * Theme.margin, Theme.px(364))
+  local sw = Device.screen:getWidth()
+  return math.min(sw - 2 * Theme.margin, math.max(Theme.px(364), math.min(Theme.px(520), math.floor(sw * 0.6))))
 end
 local SIDE = Theme.px(12)
+local RADIUS = Theme.px(12) -- as the goal cards
+
+Dialog.width = width
+Dialog.RADIUS = RADIUS
 
 -- the width inside the padding: what a `body` can be as wide as
 function Dialog.innerWidth()
@@ -69,7 +77,7 @@ function Dialog.show(opts)
   end
 
   local tface, tbold = Theme.mmdFace("strong", 25)
-  local col = VerticalGroup:new { align = "left", Overlay.top_rule(w - 2 * Theme.line.firm), Theme.span(Theme.px(12)) }
+  local col = VerticalGroup:new { align = "left", Theme.span(Theme.px(12)) }
   local function indented(widget)
     col[#col + 1] = HorizontalGroup:new { Theme.hspan(side), widget }
   end
@@ -118,7 +126,7 @@ function Dialog.show(opts)
   end
   col[#col + 1] = Theme.span(Theme.px(12))
 
-  local box = FrameContainer:new { width = w, bordersize = Theme.line.firm,
+  local box = FrameContainer:new { width = w, bordersize = Theme.line.firm, radius = RADIUS,
     padding = 0, margin = 0, color = Theme.BLACK, background = Theme.WHITE, col }
   overlay = Overlay:new { anchor = "center", on_dismiss = opts.on_dismiss, box }
   if opts.locked then overlay.dismiss = function() end end

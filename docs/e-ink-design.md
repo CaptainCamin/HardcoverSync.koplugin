@@ -80,7 +80,7 @@ Settled, with the date and where it is built. If something here disagrees with a
 - `Theme.hatchRect` paints at 40% opacity, so its stripes anti-alias to grey; nothing calls it yet.
 - Search: `components/search_field.lua` is the field (Home, the query on the results screen, and the two pickers, "Select book" and "Select edition"). Tapping it opens KOReader's `InputDialog` for the typing; there is no inline typing. Mock 3's search icon on a shelf is still not built. A picker's field has no clear X: a picker has to end in a choice.
 - The pickers are not in the mocks. They reuse the shelf screen with a radio at the right end for the chosen row (filled, as in the choice sheets: no state by grey alone), and no chevron, since a tap chooses rather than opens. The edition's second line is its format and pages, because the title and author are the same for every edition.
-- KOReader's own widgets are still used for typing and numbers: the text and number boxes, the date picker and the rating/page spinner. Everything else is on the new components.
+- KOReader's own widgets are still used for typing (the text field and keyboard inside the input dialog) and in the journal dialog. Numbers are set with the stepper dialog and dates with the date picker; everything else is on the new components.
 
 ## Which catalog components the plugin uses
 
@@ -118,7 +118,7 @@ Where the Kotlin differs, the appendix wins (Kotlin: switch 52x32, checkbox 23, 
 | Nav bar | container 57, icon 18, active indicator 4, 2 white gap under the top rule, label 15 |
 | Top app bar | height 67, icons 28 (touch 48), 3 black rule below, 16 side margins, 14 top/bottom |
 | Snackbar | container 64, top rule 3 black + 2 white gap, message Medium 21 / 25, icon 28, close touch 48, button touch 83 x 48 |
-| Dialog | top rule 3 black + 2 white gap; heading Black 25 / 28, text Medium 21 / 25, black; 12 side and bottom padding, 12 above the heading or icon, 10 heading to text, 24 text to buttons, 12 between buttons; buttons stacked, filled first, 340 x 64; icon 28; close icon 28 (touch 48) only on the no-button configuration |
+| Dialog | a floating box about 60% of the screen wide (364 to 520), outlined all round (2, radius 12) in place of MMD's 3 black + 2 white top rule, which would double up with it; MMD itself hangs the dialog off the bottom edge at full width, drawn for a phone-sized screen; heading Black 25 / 28, text Medium 21 / 25, black; 12 side and bottom padding, 12 above the heading or icon, 10 heading to text, 24 text to buttons, 12 between buttons; buttons stacked, filled first, 340 x 64; icon 28; close icon 28 (touch 48) only on the no-button configuration; the input dialog is the same box with 8 spacing in place of 12 to 24, sitting right above the keyboard so it stays clear of the top bar |
 | Menu | 2 border, rounded, dotted dividers, leading icon 28 |
 | Bottom sheet | top rule 3 + 2 white gap; title Black 25 / 28, text Medium 18 / 22; side padding 12, top 24; buttons 16 apart; **action sheet** = outlined buttons + one filled Cancel; **choice sheet** = radio list + an X, no Cancel; never both |
 | List item | label Black 21 / 23, supporting Medium 18 / 18, padding 16 side and 15.5 top/bottom, 4 between the lines, tile icon 48, icon 28, toggle touch 56, checkbox / radio touch 48; divider 1px **dotted**, starting after the leading icon |
@@ -168,3 +168,7 @@ The approved whole-UI mockup is `docs/redesign/index.html`; the build is judged 
 Throwaway comparison scenes for the headless emulator (`spec/emu/scenarios/proto_*.lua`) live on branch
 `claude/mmd-prototypes`. They are for deciding, not shipping. The emulator cannot show ghosting or refresh
 latency; finalists need a look on a real Kobo or Kindle.
+
+## Refreshing overlays
+
+A dialog or sheet refreshes the full width of the screen across its height (and a few pixels more), with the same fast "ui" waveform as KOReader's own boxes. Refreshing exactly its box lost the right edge of a dialog on a real panel until the next full redraw. A toast keeps its exact box. The refresh is queued when the overlay closes, whoever closes it (`UIManager:close(picker)` as well as `overlay:close()`), as KOReader's own widgets do in `onCloseWidget`; a sheet closed without one stayed on the panel until something else redrew that area. A dialog that redraws as it changes (the progress dialog, the date picker) shows the new box first and closes the old one without a refresh (`Overlay:close(new)`), so a change is one refresh of the box, not two.

@@ -176,6 +176,13 @@ function ICONS.info(bb, x, y, s, t)
   bb:paintRect(x + round(s / 2) - 1, y + round(s * 0.42), math.max(2, t), round(s * 0.28), BLACK)
   bb:paintRect(x + round(s / 2) - 1, y + round(s * 0.26), math.max(2, t), math.max(2, t), BLACK)
 end
+function ICONS.plus(bb, x, y, s, t)
+  Draw.stroke(bb, x + s * 0.15, y + s * 0.5, x + s * 0.85, y + s * 0.5, t)
+  Draw.stroke(bb, x + s * 0.5, y + s * 0.15, x + s * 0.5, y + s * 0.85, t)
+end
+function ICONS.minus(bb, x, y, s, t)
+  Draw.stroke(bb, x + s * 0.15, y + s * 0.5, x + s * 0.85, y + s * 0.5, t)
+end
 -- a triangle with an exclamation mark: the Dialog's warning
 function ICONS.warning(bb, x, y, s, t)
   local top_x, top_y = x + s * 0.5, y + s * 0.1

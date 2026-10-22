@@ -4,8 +4,8 @@ a top bar, tabs, list items (switch, checkbox, radio, chevron) and a nav bar, th
 shelf-like page: the popover, the choice sheet, the action sheet, the dialog and the snackbar. Every tap
 is made with the real gesture path and checked against what it should do.
 
-Screens: components_page, components_popover, components_choice, components_action, components_dialog,
-components_snackbar.
+Screens: components_page, components_popover, components_choice, components_action, components_dialog, components_stepper,
+components_date_picker, components_snackbar.
 ]]
 
 local fixtures = require("fixtures")
@@ -166,6 +166,29 @@ return {
     UIManager:getTopmostVisibleWidget():dismiss()
     assert(UIManager:getTopmostVisibleWidget() == page, "close-only dialog stayed open")
 
+    -- input dialog: a field above the keyboard, the filled button runs with what was typed
+    local InputDialog = require("hardcover/lib/ui/components/input_dialog")
+    local typed
+    local box
+    box = InputDialog:new { title = "Goal name", text = "What you call it.", input = "Read more", hint = "Name",
+      buttons = { { label = "Cancel", callback = function() UIManager:close(box) end },
+                  { label = "Set", primary = true, callback = function() typed = box:getInputText(); UIManager:close(box) end } } }
+    UIManager:show(box)
+    emu:pump()
+    emu:expectText("Goal name")
+    emu:shot("components_input")
+    -- the keyboard is a window of its own on top: look at it, then put it down to tap the dialog
+    box:onShowKeyboard()
+    emu:pump()
+    emu:shot("components_input_keyboard")
+    assert(box:isKeyboardVisible(), "the keyboard did not come up")
+    box:onCloseKeyboard()
+    emu:pump()
+    box:setInputText("Twelve books")
+    tapText("Set")
+    assert(typed == "Twelve books", "the input dialog returned " .. tostring(typed))
+    assert(UIManager:getTopmostVisibleWidget() == page, "the input dialog stayed open")
+
     -- progress dialog: a bar, a visible Stop that is acknowledged, and a tap outside does nothing
     local ProgressDialog = require("hardcover/lib/ui/components/progress_dialog")
     local stopped
@@ -184,6 +207,36 @@ return {
     emu:expectText("Stopping")
     job:close()
     assert(UIManager:getTopmostVisibleWidget() == page, "the progress dialog stayed open")
+
+    -- stepper dialog: plus moves the value by a step, Save hands it over
+    local StepperDialog = require("hardcover/lib/ui/components/stepper_dialog")
+    local stepped
+    StepperDialog.show { title = "Set rating", text = "0 clears the rating.", value = 2.5, min = 0, max = 5, step = 0.5,
+      on_save = function(v) stepped = v end }
+    emu:pump()
+    emu:expectText("2.5")
+    emu:shot("components_stepper")
+    tapText("plus")
+    emu:expectText("3.0")
+    emu:shot("components_stepper_plus")
+    tapText("Save")
+    assert(stepped == 3, "the stepper saved " .. tostring(stepped))
+    assert(UIManager:getTopmostVisibleWidget() == page, "the stepper stayed open")
+
+    -- date picker: a month back, a day chosen, Set date hands over the date
+    local DatePicker = require("hardcover/lib/ui/components/date_picker")
+    local picked
+    DatePicker.show { title = "First day", year = 2026, month = 10, day = 2, save_label = "Set date",
+      on_save = function(y, m, d) picked = y .. "-" .. m .. "-" .. d end }
+    emu:pump()
+    emu:expectText("October")
+    emu:shot("components_date_picker")
+    tapText("minus")
+    emu:expectText("September")
+    tapText("15")
+    tapText("Set date")
+    assert(picked == "2026-9-15", "the date picker returned " .. tostring(picked))
+    assert(UIManager:getTopmostVisibleWidget() == page, "the date picker stayed open")
 
     -- snackbar: the rest of the screen keeps working; only the bar takes taps, and its action runs
     local undone
