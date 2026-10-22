@@ -195,7 +195,9 @@ function HardcoverApi:query(query, parameters, background)
           end
         end
 
-        return nil, { errors = err, status = tonumber(code) }
+        return nil, { errors = err, status = tonumber(code),
+          message = type(data.error_description) == "string" and data.error_description ~= ""
+            and data.error_description or nil }
       end
     else
       return nil, { completed = false }
@@ -1465,6 +1467,38 @@ function HardcoverApi:createJournalEntry(object)
   return nil, err
 end
 
+-- Change the text of one of your journal entries. Only the text is sent: privacy, tags and page
+-- stay as they are. Returns { id }, or nil and the reason (as createJournalEntry).
+function HardcoverApi:updateJournalEntry(id, text)
+  local query = [[
+    mutation UpdateReadingJournalEntry($id: Int!, $object: ReadingJournalUpdateType!) {
+      update_reading_journal(id: $id, object: $object) {
+        id
+      }
+    }
+  ]]
+  local result, err = self:query(query, { id = tonumber(id), object = { entry = text } })
+  local updated = result and result.update_reading_journal
+  if type(updated) == "table" then return updated end
+  return nil, err
+end
+
+-- Delete one of your journal entries. Returns { id }, or nil and the reason.
+function HardcoverApi:deleteJournalEntry(id)
+  local query = [[
+    mutation DeleteReadingJournalEntry($id: Int!) {
+      delete_reading_journal(id: $id) {
+        id
+      }
+    }
+  ]]
+  local result, err = self:query(query, { id = tonumber(id) })
+  -- an answer at all is the entry gone: what it says about the id it no longer has is not needed
+  local deleted = result and result.delete_reading_journal
+  if type(deleted) == "table" then return deleted end
+  return nil, err
+end
+
 --
 -- The books you have finished, for Stats: lean rows (no covers, no descriptions) in pages of
 -- STATS_PAGE, in a fixed order so the pages do not overlap, plus your genre counts. Returns
@@ -2091,9 +2125,11 @@ end
 -- error. Needs the read:social scope.
 --
 function HardcoverApi:getFollowedIds()
+  -- This screen's follow list is part of the user's requested Activity load. Taps on the
+  -- screen (for example, scrolling while the feed loads) must not cancel the request.
   local results, err = self:query([[
     query { me { followed_users { followed_user_id } } }
-  ]])
+  ]], nil, true)
   local me = results and results.me and results.me[1]
   if not me then return nil, err or { completed = false } end
   local ids = {}
@@ -2111,7 +2147,9 @@ end
 function HardcoverApi:getFeed(opts)
   local query = Feed.query(opts)
   if not query then return { entries = {}, more = false } end
-  local results, err = self:query(query)
+  -- Activity pages are requested by the user; scrolling or tapping the screen while
+  -- one loads must not interrupt the subprocess.
+  local results, err = self:query(query, nil, true)
   if not results then return nil, err or { completed = false } end
   return Feed.parse(results, opts and opts.limit)
 end

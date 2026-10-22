@@ -200,6 +200,53 @@ check("a long note gets an excerpt and keeps its whole text", function()
   eq(page.entries[1].text, long)
 end)
 
+print("\n== the rows ==")
+
+check("a status change shows the book, and opens it", function()
+  local row = Feed.row(Feed.parse(answer(), 20).entries[2])
+  eq(row.label, "Dune")
+  eq(row.support, "Oct 20 \194\183 Dana \194\183 Reading, 40%")
+  eq(row.action, "book")
+end)
+
+check("a quote is quoted, says it is a quote and opens in full", function()
+  local row = Feed.row(Feed.parse(answer(), 20).entries[1])
+  eq(row.label, "\226\128\156Fear is the mind-killer.\226\128\157")
+  eq(row.support, "Oct 21 \194\183 Dana \194\183 Quote \194\183 Dune")
+  eq(row.action, "full")
+  eq(row.icon, "bookmark")
+end)
+
+check("a review leads with its rating, and a spoiler is not given away", function()
+  local entries = Feed.parse(answer(), 20).entries
+  local row = Feed.row(entries[3])
+  eq(row.label, Feed.SPOILER_LABEL)
+  eq(row.support, "Oct 19 \194\183 ravi \194\183 Review \194\183 Kindred")
+  local data = answer()
+  data.reviews[1].review_has_spoilers = false
+  row = Feed.row(Feed.parse(data, 20).entries[3])
+  eq(row.label, "5*  Loved it.")
+end)
+
+check("a status change with no book opens nothing", function()
+  local data = answer()
+  data.activities[2].book = nil
+  eq(Feed.row(Feed.parse(data, 20).entries[4]).action, nil)
+end)
+
+check("the heading over the whole text names who, what and which book", function()
+  local entries = Feed.parse(answer(), 20).entries
+  eq(Feed.heading(entries[1]), "Dana \194\183 Quote \194\183 Dune \194\183 p. 12")
+  eq(Feed.heading(entries[3]), "ravi \194\183 Review \194\183 Kindred")
+end)
+
+check("short dates", function()
+  eq(Feed.shortDate("2026-01-05"), "Jan 5")
+  eq(Feed.shortDate("2026-12-31"), "Dec 31")
+  eq(Feed.shortDate(nil), nil)
+  eq(Feed.shortDate("soon"), nil)
+end)
+
 print("\n== the next page ==")
 
 check("append adds the new entries and drops the ones already held", function()
@@ -216,6 +263,145 @@ check("append of nothing keeps what is held", function()
   local all, added = Feed.append({ { key = "a" } }, nil)
   eq(#all, 1)
   eq(added, 0)
+end)
+
+print("\n== what is waiting to send ==")
+
+-- as JournalQueue:list and ReviewQueue:list give them
+local function journalOps()
+  return {
+    { id = "100-1", seq = 1, user_id = 1, book_id = 5, event = "note", text = "First note", title = "Dune" },
+    { id = "100-2", seq = 2, user_id = 2, book_id = 5, event = "note", text = "Someone else's", title = "Dune" },
+    { id = "100-3", seq = 3, book_id = 6, event = "quote", text = "Truth is\nsimple", page = 12, title = "Kindred" },
+    { id = "100-4", seq = 4, user_id = 1, book_id = 5, event = "note", text = "   ", title = "Dune" },
+    { id = "100-5", seq = 5, user_id = 1, book_id = 7, event = "note", text = "No title" },
+  }
+end
+local function reviewOps()
+  return {
+    { user_book_id = 900, text = "It gives it all away", spoilers = true, title = "Dune" },
+    { user_book_id = 901, text = "", spoilers = false, title = "Kindred" },
+  }
+end
+
+check("your notes and quotes come newest first, then your reviews; others' and blank ones are left out", function()
+  local waiting = Feed.waiting(journalOps(), reviewOps(), 1)
+  eq(#waiting, 4, "count")
+  eq(waiting[1].key, "waiting:100-5")
+  eq(waiting[2].key, "waiting:100-3", "an entry with no user is yours")
+  eq(waiting[3].key, "waiting:100-1")
+  eq(waiting[4].key, "waiting:review:900")
+  for _, e in ipairs(waiting) do
+    eq(e.waiting, true, "waiting")
+    eq(e.who, "You", "who")
+  end
+end)
+
+check("a waiting entry has what a row and the full text need", function()
+  local waiting = Feed.waiting(journalOps(), reviewOps(), 1)
+  eq(waiting[1].title, "A book", "a missing title")
+  eq(waiting[2].kind, "quote")
+  eq(waiting[2].page, 12)
+  eq(waiting[2].book_id, 6)
+  eq(waiting[2].text, "Truth is\nsimple", "the whole text is kept")
+  has(waiting[2].excerpt, "Truth is")
+  lacks(waiting[2].excerpt, "\n")
+  eq(waiting[4].kind, "review")
+  eq(waiting[4].spoilers, true)
+end)
+
+check("a waiting row says so instead of a date", function()
+  local waiting = Feed.waiting(journalOps(), reviewOps(), 1)
+  local row = Feed.row(waiting[3])
+  eq(row.support, "Waiting to send \194\183 You \194\183 Note \194\183 Dune")
+  eq(row.action, "full")
+  eq(Feed.row(waiting[4]).label, Feed.SPOILER_LABEL, "a waiting review still hides its spoilers")
+  eq(Feed.heading(waiting[2]), "You \194\183 Quote \194\183 Kindred \194\183 p. 12")
+end)
+
+check("nothing waiting, or no queues, is an empty list", function()
+  eq(#Feed.waiting(nil, nil, 1), 0)
+  eq(#Feed.waiting({}, {}, 1), 0)
+end)
+
+-- Hardcover's entries as the tab holds them
+local function held()
+  return {
+    { key = "note:4001", id = 4001, kind = "note", user_id = 1, who = "Dana", title = "Dune", text = "Old words", excerpt = "Old words", date = "2026-10-20" },
+    { key = "quote:4002", id = 4002, kind = "quote", user_id = 1, who = "Dana", title = "Dune", text = "A quote", excerpt = "A quote", date = "2026-10-19" },
+    { key = "review:900", id = 900, kind = "review", user_id = 1, who = "Dana", title = "Dune", text = "Fine", excerpt = "Fine", date = "2026-10-18" },
+    { key = "review:901", id = 901, kind = "review", user_id = 1, who = "Dana", title = "Kindred", text = "Great", excerpt = "Great", date = "2026-10-17" },
+    { key = "status:1", kind = "status", user_id = 1, who = "Dana", title = "Dune", text = "Finished", date = "2026-10-16" },
+  }
+end
+
+check("with nothing waiting, the tab shows what Hardcover has", function()
+  local all = Feed.withPending(held(), {}, {}, 1)
+  eq(#all, 5)
+  eq(all[1].key, "note:4001")
+  eq(all[1].waiting, nil)
+  eq(#Feed.withPending(nil, nil, nil, 1), 0)
+end)
+
+check("new writing goes above what Hardcover has", function()
+  local all = Feed.withPending(held(), journalOps(), {}, 1)
+  eq(#all, 8)
+  eq(all[1].key, "waiting:100-5")
+  eq(all[1].queue_id, "100-5")
+  eq(all[4].key, "note:4001")
+end)
+
+check("an edit waiting to send shows its new text in place; a delete waiting to send hides the entry", function()
+  local ops = {
+    { id = "1-1", seq = 1, action = "update", user_id = 1, journal_id = 4001, event = "note", text = "New words" },
+    { id = "1-2", seq = 2, action = "delete", user_id = 1, journal_id = 4002, event = "quote" },
+    { id = "1-3", seq = 3, action = "delete", user_id = 2, journal_id = 4001, event = "note" },
+  }
+  local h = held()
+  local all = Feed.withPending(h, ops, {}, 1)
+  eq(#all, 4, "the deleted quote is left out, and another account's delete is not yours")
+  eq(all[1].key, "note:4001", "an edit stays where the entry is")
+  eq(all[1].text, "New words")
+  eq(all[1].excerpt, "New words")
+  eq(all[1].waiting, true)
+  eq(all[1].id, 4001)
+  eq(Feed.row(all[1]).support, "Waiting to send \194\183 Dana \194\183 Note \194\183 Dune")
+  eq(all[2].key, "review:900")
+  eq(h[1].text, "Old words", "the held entry itself (what is saved) is not changed")
+  eq(h[1].waiting, nil)
+end)
+
+check("a review waiting for a book whose review is listed changes it in place; an empty one hides it", function()
+  local reviews = {
+    { user_book_id = 900, text = "Better now", spoilers = true, title = "Dune" },
+    { user_book_id = 901, text = "", spoilers = false, title = "Kindred" },
+    { user_book_id = 902, text = "A new one", spoilers = false, title = "Emma" },
+  }
+  local all = Feed.withPending(held(), {}, reviews, 1)
+  eq(#all, 5)
+  eq(all[1].key, "waiting:review:902", "a review Hardcover does not list yet is new writing")
+  eq(all[1].user_book_id, 902)
+  local review = all[4]
+  eq(review.key, "review:900")
+  eq(review.text, "Better now"); eq(review.spoilers, true); eq(review.waiting, true)
+  for _, e in ipairs(all) do
+    if e.key == "review:901" then error("a review being removed is still listed") end
+  end
+end)
+
+check("the id an edit is sent for, from the entry or from its key", function()
+  eq(Feed.idOf({ id = 7, key = "note:9" }), 7)
+  eq(Feed.idOf({ key = "quote:4002" }), 4002)
+  eq(Feed.idOf({ key = "waiting:1-2" }), nil)
+  eq(Feed.idOf(nil), nil)
+end)
+
+check("parsed entries carry their id", function()
+  local entries = Feed.parse(answer(), 20).entries
+  for _, e in ipairs(entries) do
+    eq(e.id ~= nil, true, "no id on " .. e.key)
+    eq(tostring(e.id), e.key:match(":(%d+)$"), "id of " .. e.key)
+  end
 end)
 
 print(string.format("\n%d passed, %d failed", results.passed, results.failed))

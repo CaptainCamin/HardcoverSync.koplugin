@@ -756,8 +756,8 @@ end
 -- Write, change or remove your review on the details screen. The text is asked for first, then
 -- whether it gives the story away; both are kept in the review queue, so it works without a
 -- connection, and it is sent now if there is one, or when the connection is back. Empty text
--- removes the review.
-function Flows:writeReview(dialog)
+-- removes the review. `on_kept(text, spoilers)` runs once it is kept (Activity shows it at once).
+function Flows:writeReview(dialog, on_kept)
   local detail = dialog.detail
   local queue = self.review_queue
   local gate = BookActions.ratingGate(detail, queue ~= nil)
@@ -781,6 +781,7 @@ function Flows:writeReview(dialog)
       StatusDialogs.info(text == "" and _("You're offline. Removing your review is kept and will be sent when you're connected.")
         or _("You're offline. Your review is kept and will be sent when you're connected."))
     end
+    if on_kept then on_kept(text, spoilers) end
   end
 
   local input

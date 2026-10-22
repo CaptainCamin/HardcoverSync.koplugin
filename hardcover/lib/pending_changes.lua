@@ -146,9 +146,17 @@ function PendingChanges.list(queues)
       local id = op.id
       local first = Reviews.excerpt((tostring(op.text or ""):gsub("%s+", " ")), 40)
       local what = op.event == "quote" and _("quote") or _("note")
+      local text
+      if op.action == "delete" then
+        text = op.event == "quote" and T(_("%1: delete a quote"), title) or T(_("%1: delete a note"), title)
+      elseif op.action == "update" then
+        text = op.event == "quote" and T(_("%1: change a quote to \"%2\""), title, first)
+          or T(_("%1: change a note to \"%2\""), title, first)
+      else
+        text = first ~= "" and T(_("%1: %2 \"%3\""), title, what, first) or T(_("%1: %2"), title, what)
+      end
       rows[#rows + 1] = {
-        kind = "journal", title = title, note = heldNote(op),
-        text = first ~= "" and T(_("%1: %2 \"%3\""), title, what, first) or T(_("%1: %2"), title, what),
+        kind = "journal", title = title, note = heldNote(op), text = text,
         cancel = function() return journals:cancel(id) end,
       }
     end

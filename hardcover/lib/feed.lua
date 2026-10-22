@@ -188,6 +188,8 @@ local function entry(kind, row, at, extra)
   local book = type(row.book) == "table" and row.book or {}
   local out = {
     key = kind .. ":" .. tostring(row.id),
+    -- the journal entry's id, or the library record's for a review: what an edit is sent for
+    id = tonumber(row.id),
     kind = kind,
     at = at,
     date = Reviews.dateText(at),
@@ -261,6 +263,179 @@ function Feed.parse(data, limit)
     cursor = all[#all] and all[#all].at or nil,
     more = full and #all > 0,
   }
+end
+
+-- ---------------------------------------------------------------------------
+-- What the Activity screen shows for an entry
+-- ---------------------------------------------------------------------------
+
+local MONTHS = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" }
+
+-- "Oct 21" from an entry's "2026-10-21", or nil
+function Feed.shortDate(date)
+  local month, day = tostring(date or ""):match("^%d%d%d%d%-(%d%d)%-(%d%d)$")
+  month = tonumber(month)
+  if not (month and MONTHS[month]) then return nil end
+  return string.format("%s %d", MONTHS[month], tonumber(day))
+end
+
+local KIND_WORD = { note = "Note", quote = "Quote", review = "Review" }
+
+-- U+201C and U+201D as bytes, for the CI Lua
+local OPEN_QUOTE, CLOSE_QUOTE = "\226\128\156", "\226\128\157"
+
+Feed.SPOILER_LABEL = "Review that gives away the story"
+-- said instead of the date by an entry that is still on the device
+Feed.WAITING = "Waiting to send"
+
+--
+-- One list row for an entry: { label (the line in bold), support (the small line), icon, action }.
+-- `action` is "full" (a note, quote or review opens its whole text), "book" (a status change opens
+-- the book) or nil (nothing to open). A kind is always said in words, never by the icon alone.
+--
+function Feed.row(entry)
+  local when = entry.waiting and Feed.WAITING or Feed.shortDate(entry.date)
+  local function join(...)
+    local parts = {}
+    for _, part in ipairs({ ... }) do
+      if part and part ~= "" then parts[#parts + 1] = part end
+    end
+    return table.concat(parts, " \194\183 ")
+  end
+
+  if entry.kind == "status" then
+    return {
+      label = entry.title,
+      support = join(when, entry.who, entry.text),
+      icon = "book-open",
+      action = entry.book_id and "book" or nil,
+    }
+  end
+
+  local label = entry.excerpt or entry.text or ""
+  if entry.kind == "quote" then
+    label = OPEN_QUOTE .. label .. CLOSE_QUOTE
+  elseif entry.kind == "review" then
+    if entry.spoilers then
+      label = Feed.SPOILER_LABEL
+    elseif entry.rating then
+      label = entry.rating .. "  " .. label
+    end
+  end
+  return {
+    label = label,
+    support = join(when, entry.who, KIND_WORD[entry.kind], entry.title),
+    icon = entry.kind == "quote" and "bookmark" or (entry.kind == "review" and "star-filled" or "edit"),
+    action = "full",
+  }
+end
+
+-- The heading over an entry's whole text: "Dana · Quote · Dune".
+function Feed.heading(entry)
+  local parts = { entry.who, KIND_WORD[entry.kind], entry.title }
+  local out = {}
+  for _, part in ipairs(parts) do
+    if part and part ~= "" then out[#out + 1] = part end
+  end
+  if entry.page then out[#out + 1] = "p. " .. entry.page end
+  return table.concat(out, " \194\183 ")
+end
+
+local function nonBlank(text)
+  return type(text) == "string" and text:match("%S") and text or nil
+end
+
+local function mine(op, user_id)
+  return op.user_id == nil or tonumber(op.user_id) == tonumber(user_id)
+end
+
+-- The id an entry's edit is sent for (a copy saved before entries carried it has it in its key).
+function Feed.idOf(entry)
+  if type(entry) ~= "table" then return nil end
+  return tonumber(entry.id) or tonumber(tostring(entry.key or ""):match("^%a+:(%d+)$"))
+end
+
+--
+-- What you wrote that is still on the device and Hardcover does not have yet: new notes and quotes
+-- from the journal queue (JournalQueue:list, only `user_id`'s and those with no user) and reviews
+-- from the review queue (ReviewQueue:list). Notes and quotes newest first (the queue lists them
+-- oldest first), then reviews, which keep no time. Each says it is waiting instead of a date. A
+-- review being removed (empty text) is left out: there is nothing to show. `queue_id` (a note's or
+-- quote's id in the queue) and `user_book_id` (a review's) are how an edit finds it again.
+--
+function Feed.waiting(journal_ops, review_ops, user_id)
+  local out = {}
+  journal_ops = journal_ops or {}
+  for i = #journal_ops, 1, -1 do
+    local op = journal_ops[i]
+    local body = nonBlank(op.text)
+    if op.action == nil and mine(op, user_id) and body and (op.event == "note" or op.event == "quote") then
+      local excerpt, truncated = Reviews.excerpt(body)
+      out[#out + 1] = {
+        key = "waiting:" .. tostring(op.id), kind = op.event, waiting = true, queue_id = op.id,
+        who = "You", title = op.title or "A book", book_id = tonumber(op.book_id),
+        text = body, excerpt = excerpt, truncated = truncated, page = tonumber(op.page),
+      }
+    end
+  end
+  for _, op in ipairs(review_ops or {}) do
+    local body = nonBlank(op.text)
+    if body then
+      local excerpt, truncated = Reviews.excerpt(body)
+      out[#out + 1] = {
+        key = "waiting:review:" .. tostring(op.user_book_id), kind = "review", waiting = true,
+        user_book_id = tonumber(op.user_book_id) or op.user_book_id,
+        who = "You", title = op.title or "A book",
+        text = body, excerpt = excerpt, truncated = truncated, spoilers = op.spoilers == true,
+      }
+    end
+  end
+  return out
+end
+
+--
+-- What the Activity tab shows: Hardcover's entries as changed on this device. A note, quote or
+-- review edited and not sent yet shows its new text where it is, saying it is waiting; one being
+-- deleted (or a review being removed) is left out. Above them, what Hardcover does not have yet
+-- (Feed.waiting). A review waiting for a book whose review is in the list is that review edited,
+-- not a new one.
+--
+function Feed.withPending(entries, journal_ops, review_ops, user_id)
+  local changes = {}
+  for _, op in ipairs(journal_ops or {}) do
+    if op.action and mine(op, user_id) then
+      changes[tostring(op.event) .. ":" .. tostring(op.journal_id)] = op.action == "update" and { text = op.text } or false
+    end
+  end
+  for _, op in ipairs(review_ops or {}) do
+    local body = nonBlank(op.text)
+    changes["review:" .. tostring(op.user_book_id)] = body and { text = body, spoilers = op.spoilers == true } or false
+  end
+
+  local held, used = {}, {}
+  for _, e in ipairs(entries or {}) do
+    local change = changes[e.key]
+    if change ~= nil then used[e.key] = true end
+    if change and nonBlank(change.text) then
+      local copy = {}
+      for k, v in pairs(e) do copy[k] = v end
+      copy.text = change.text
+      copy.excerpt, copy.truncated = Reviews.excerpt(change.text)
+      copy.waiting = true
+      if e.kind == "review" then copy.spoilers = change.spoilers end
+      held[#held + 1] = copy
+    elseif change == nil then
+      held[#held + 1] = e
+    end
+  end
+
+  local new_reviews = {}
+  for _, op in ipairs(review_ops or {}) do
+    if not used["review:" .. tostring(op.user_book_id)] then new_reviews[#new_reviews + 1] = op end
+  end
+  local out = Feed.waiting(journal_ops, new_reviews, user_id)
+  for _, e in ipairs(held) do out[#out + 1] = e end
+  return out
 end
 
 -- `held` with the entries of a newer page added at the end, keeping each entry once.

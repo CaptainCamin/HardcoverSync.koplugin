@@ -333,63 +333,62 @@ function BookDetailDialog:init()
     table.insert(rating_row, star)
   end
 
-  -- the buttons, one slot after another: Open (filled) when the book is on this device, else Find on
-  -- device and Z-library (outlined, side by side) to get it; Reviews; then Add (shelf or lists), beside Edition when that is offered.
-  -- There is no one main button. They scroll with the page, so each tap is cut to the visible area
-  -- (see viewport.lua) or one scrolled away could catch a tap meant for what is over it.
+  -- the buttons: one filled primary, full width: Open when the book is on this device, else Find on
+  -- device (the file may be there without the plugin knowing); then a row of round buttons with their
+  -- names under them, every other action on the page and none behind another: Download (only for a book
+  -- not on the device), Shelf, Lists, Reviews, Your review and Edition (only for the book open in the
+  -- reader), spread evenly over the row. They scroll with the page, so each tap is cut to the visible
+  -- area (see viewport.lua) or one scrolled away could catch a tap meant for what is over it.
   self.open_button, self.find_button, self.zlibrary_button = nil, nil, nil
-  self.reviews_button, self.review_button, self.add_button, self.edition_button = nil, nil, nil, nil
-  local function button(field, text, handler, opts)
-    local b = Button.new {
-      label = text, w = opts.w, h = Theme.TOUCH_MIN, size = 19, primary = opts.primary,
-      viewport = viewport,
+  self.reviews_button, self.review_button, self.add_button, self.edition_button, self.lists_button =
+    nil, nil, nil, nil, nil
+  local action_bar = VerticalGroup:new { align = "left" }
+  local action_rows = {} -- the buttons of each row, for the focus order
+  local primary_field, primary_label, primary_handler
+  if self.on_open then
+    primary_field, primary_label, primary_handler = "open_button", _("Open"), "on_open"
+  elseif self.on_find then
+    primary_field, primary_label, primary_handler = "find_button", _("Find on device"), "on_find"
+  end
+  if primary_field then
+    self[primary_field] = Button.new {
+      label = primary_label, w = width, h = Theme.TOUCH_MIN, size = 19, primary = true, viewport = viewport,
+      callback = function()
+        local fn = self[primary_handler]
+        if fn then fn(self) end
+      end,
+    }
+    table.insert(action_bar, self[primary_field])
+    table.insert(action_rows, { primary_field })
+  end
+  local round, fields = {}, {}
+  local function add_round(field, icon, text, handler, available)
+    if not available then return end
+    self[field] = Button.round {
+      icon = icon, label = text, viewport = viewport,
       callback = function()
         local fn = self[handler]
         if fn then fn(self) end
       end,
     }
-    self[field] = b
-    return b
+    round[#round + 1] = self[field]
+    fields[#fields + 1] = field
   end
-  local action_bar = VerticalGroup:new { align = "left" }
-  local action_rows = {} -- the buttons of each row, for the focus order
-  -- `specs`: { field, label, handler, primary }, sharing the width equally; `slots` (default
-  -- #specs) is how many equal columns the row has, so a row can leave room beside its buttons
-  local function add_row(specs, slots)
-    if #specs == 0 then return end
-    if #action_bar > 0 then table.insert(action_bar, Theme.span("s")) end
-    local gap = Theme.space.s
-    slots = slots or #specs
-    local each = math.floor((width - (slots - 1) * gap) / slots)
-    local row = HorizontalGroup:new { align = "top" }
-    local fields = {}
-    for i, spec in ipairs(specs) do
-      if i > 1 then table.insert(row, HorizontalSpan:new { width = gap }) end
-      table.insert(row, button(spec[1], spec[2], spec[3], { w = each, primary = spec[4] }))
-      fields[#fields + 1] = spec[1]
+  add_round("zlibrary_button", "download", _("Download"), "on_zlibrary", self.on_zlibrary and not self.on_open)
+  add_round("add_button", "shelf", _("Shelf"), "on_shelf", true)
+  add_round("lists_button", "bookmark", _("Lists"), "on_lists", self.on_lists)
+  add_round("reviews_button", "chat", _("Reviews"), "on_reviews", self.on_reviews)
+  add_round("review_button", "edit", _("Your review"), "on_review", self.on_review)
+  add_round("edition_button", "link", _("Edition"), "on_edition", self.on_edition)
+  if #round > 0 then
+    local slot_w = math.floor(width / #round)
+    local round_row = HorizontalGroup:new { align = "top" }
+    for _i, b in ipairs(round) do
+      table.insert(round_row, CenterContainer:new { dimen = Geom:new { w = slot_w, h = b:getSize().h }, b })
     end
-    table.insert(action_bar, row)
+    if #action_bar > 0 then table.insert(action_bar, Theme.span("m")) end
+    table.insert(action_bar, round_row)
     table.insert(action_rows, fields)
-  end
-  if self.on_open then
-    add_row({ { "open_button", _("Open"), "on_open", true } })
-  else
-    local get = {}
-    if self.on_find then get[#get + 1] = { "find_button", _("Find on device"), "on_find" } end
-    if self.on_zlibrary then get[#get + 1] = { "zlibrary_button", self.source_label, "on_zlibrary" } end
-    add_row(get)
-  end
-  local review_specs = {}
-  if self.on_reviews then review_specs[#review_specs + 1] = { "reviews_button", _("Reviews"), "on_reviews" } end
-  if self.on_review then review_specs[#review_specs + 1] = { "review_button", _("Your review"), "on_review" } end
-  add_row(review_specs)
-  -- Add: one button for the shelf and the lists (see openAdd). With Edition (only for the book open
-  -- in the reader) the two share the row; without it, Add takes the whole row.
-  local add_spec = { "add_button", _("Add"), "openAdd" }
-  if self.on_edition then
-    add_row({ add_spec, { "edition_button", _("Edition"), "on_edition" } })
-  else
-    add_row({ add_spec })
   end
   self.action_bar = action_bar
 
@@ -848,31 +847,6 @@ function BookDetailDialog:setRating(rating)
   if offset and self.scroll and self.scroll.setScrolledOffset then
     self.scroll:setScrolledOffset(offset)
   end
-end
-
---
--- The Add button: a sheet of what to add the book to (its shelf, and your lists when they can be
--- changed). With nothing but the shelf to offer it opens the shelf sheet at once.
-function BookDetailDialog:openAdd()
-  if not self.on_lists then
-    if self.on_shelf then self:on_shelf() end
-    return
-  end
-  local picker
-  local function row(text, handler)
-    return { text = text, callback = function()
-      UIManager:close(picker)
-      if handler then handler(self) end
-    end }
-  end
-  picker = require("hardcover/lib/ui/picker").new {
-    title = _("Add"),
-    rows = {
-      row(_(Shelf.shelfButtonText((self.detail or {}).status_id)), self.on_shelf),
-      row(_("Lists"), self.on_lists),
-    },
-  }
-  UIManager:show(picker)
 end
 
 -- The lists the book is on are known (or changed): `rows` is Lists.membership's

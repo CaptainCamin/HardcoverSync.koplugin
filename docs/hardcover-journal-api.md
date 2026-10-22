@@ -2,7 +2,7 @@
 
 What the plugin can rely on for writing journal entries and reviews and for reading a feed of recent activity. Everything here was checked against the live API by `spec/live/hardcover_live.lua` (run on 2026-10-21 from the `live` workflow, on the throwaway test account), not taken from documentation, which was not reachable. Names and shapes can change; the live check is how to find out.
 
-No new sign-in scope is needed. There is no journal scope: journal reads and writes ride on `read:library` and `write:library`, and reading other readers' public entries and reviews rides on `read:social`.
+OAuth journal reads require `read:journal` explicitly; `read:library` does not imply it. This was confirmed by Hardcover's `403` response on the Kindle on 2026-10-22. The registered app accepts the sign-in scope set with `read:journal` added (device authorization returned HTTP 200). Existing users must update the plugin, then sign out and back in to grant it. Journal writes still use `write:library`; social reads also need `read:social` and names need `read:users`. A successful check with the repository test token alone does not verify the OAuth grants requested by the plugin.
 
 ## Journal entries (notes and quotes)
 

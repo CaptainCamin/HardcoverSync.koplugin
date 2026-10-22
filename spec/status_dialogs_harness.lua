@@ -176,4 +176,9 @@ r.check("retry does not assert the failure is temporary",
         rb.text:find("temporary issue", 1, true) == nil,
         "hard-codes a cause that is often wrong")
 
+r.check("retry shows OAuth descriptions and string error codes",
+  SD.describe({ status = 403, message = "Missing permission for this operation" }) == "Missing permission for this operation"
+  and SD.describe({ status = 403, errors = { "unsupported_operation" } }) == "unsupported_operation"
+  and SD.describe({ status = 403, errors = { { message = "Unknown field" } } }) == "Unknown field")
+
 r.finish()

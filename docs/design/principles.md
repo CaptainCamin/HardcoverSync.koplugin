@@ -26,15 +26,16 @@ Every rule below and in the component specs carries a provenance, so a departure
    - *Dialog*: a floating box, outlined all round (MMD hangs it off the bottom at full width). About 80% of
      the screen width, and its two actions sit side by side in one 64 px row, the filled one on the right.
      (MMD stacks them.)
-   - *Sheet*: still anchored to the bottom edge across the full width, but its content is held to a centred
-     column, and a sheet's actions are rows of at most two. A choice sheet's list keeps one row per option.
+   - *Sheet*: unchanged for now (full width, stacked buttons, as MMD). The owner judged the current action and
+     choice sheets good enough on an e-reader (2026-10-22); a centred content column with action buttons two
+     to a row was rendered and set aside, to be revisited only if they prove a problem.
    - *Snackbar*: full width at the bottom, one line, as MMD.
 3. **Pages** (lists, forms, settings) already use the full width. A second column or a wider measure on Goals
    and Stats is a separate decision per screen, not a default.
 4. **Unchanged**: touch targets (never under `Theme.TOUCH_MIN`), outline weights, the black and grey policy,
    no animation, fixed row heights.
 
-Status: the dialog rule is built (`components/dialog.lua`, also the input dialog). The sheet rule is the spec; sheets still run full width with stacked buttons.
+Status: the dialog rule is built (`components/dialog.lua` and the input dialog). Sheets are not changed.
 
 ## Where it comes from
 
