@@ -13,12 +13,15 @@
 
 - **Journal from the reader panel.** The panel for the open book has a Journal button. It opens that book's journal: your status changes, notes, quotes and reviews of it, newest first, and a tap on a note, quote or review reads it whole. Offline it shows what Activity has saved for the book, and notes, quotes and reviews of it that are waiting to send.
 
+- **Edit and delete your notes, quotes and reviews.** In Activity, your note, quote or review opens in full with Edit and Delete along the bottom. Edit opens the text to change (a review goes through the review form, spoilers question included); Delete asks first. Both work offline: the change shows in Activity at once, marked "Waiting to send", is listed in Sync (tap it to cancel), and is sent when you are back online. Something not sent yet is changed where it waits, or discarded. Only the text changes: privacy, tags and page stay as they were.
+
 ### Fixed
 
 - **Activity sign-in permissions.** Sign-in now requests `read:journal`, which Hardcover requires to load notes and quotes. Update the plugin, then sign out and back in once to grant it. Older sign-ins are prompted before the request is sent.
 
 ### Changed
 
+- **Book details: every action is a button.** The stacked bars are now one filled button (Open, or Find on device for a book that is not on the device) and a row of round buttons under it: Download, Shelf, Lists, Reviews, Your review and Edition. Shelf and Lists are separate buttons instead of one Add button that opened a sheet, and the download button says Download whichever source it uses.
 - **Notes and quotes save without waiting.** Saving a note or quote keeps it on the device and closes the form at once; it is sent when there is a connection, and with none it is sent when the connection is back. Before, saving waited for Hardcover, failed offline, and the text was lost. A note that is waiting shows in Sync's list (tap it to cancel) and counts in the number of changes waiting. If Hardcover never answered for one that was sent, it is sent again and can appear twice.
 
 ## 2.0.0

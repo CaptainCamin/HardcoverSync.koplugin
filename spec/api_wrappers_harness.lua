@@ -172,6 +172,43 @@ check("createJournalEntry says why it failed, and answers the entry when it work
   assert(entry == nil, "an answer without an entry is not a saved entry")
 end)
 
+check("updateJournalEntry sends only the new text for the entry, and says why it failed", function()
+  local original = Api.query
+  local seen_query, seen
+  Api.query = function(_, query, vars)
+    seen_query, seen = query, vars
+    return { update_reading_journal = { id = 41 } }
+  end
+  local done = Api:updateJournalEntry("41", "better")
+  assert(done and done.id == 41)
+  assert(seen.id == 41 and seen.object.entry == "better", "the id goes as a number, the text as entry")
+  local fields = 0
+  for _ in pairs(seen.object) do fields = fields + 1 end
+  assert(fields == 1, "privacy, tags and page must not be sent: they would be overwritten")
+  assert(seen_query:find("update_reading_journal", 1, true))
+  Api.query = function() return nil, { status = 503 } end
+  local entry, err = Api:updateJournalEntry(41, "better")
+  Api.query = original
+  assert(entry == nil and err.status == 503)
+end)
+
+check("deleteJournalEntry deletes by id, and says why it failed", function()
+  local original = Api.query
+  local seen_query, seen
+  Api.query = function(_, query, vars)
+    seen_query, seen = query, vars
+    return { delete_reading_journal = { id = 41 } }
+  end
+  assert(Api:deleteJournalEntry(41))
+  assert(seen.id == 41 and seen_query:find("delete_reading_journal", 1, true))
+  Api.query = function() return { delete_reading_journal = {} } end
+  assert(Api:deleteJournalEntry(41), "an answer is the entry gone, whatever it says of the id")
+  Api.query = function() return nil, { errors = { { message = "not yours" } } } end
+  local entry, err = Api:deleteJournalEntry(41)
+  Api.query = original
+  assert(entry == nil and err.errors)
+end)
+
 check("updateReview sends the text as a Slate document with the spoiler flag, and says why it failed", function()
   local original = Api.query
   local seen

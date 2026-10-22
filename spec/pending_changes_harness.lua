@@ -214,6 +214,18 @@ check("a long note is cut for its line, and a refused one says so", function()
   assert(PendingChanges.line(row):find("Hardcover refused it", 1, true), PendingChanges.line(row))
 end)
 
+check("an edit and a delete of an entry Hardcover has each get a line that can be cancelled", function()
+  local q = queues()
+  q.journal_queue = JournalQueue:new { settings = fakeSettings() }
+  q.journal_queue:change("update", { user_id = 1, journal_id = 40, book_id = 7, event = "note", text = "better  words", title = "Dune" })
+  q.journal_queue:change("delete", { user_id = 1, journal_id = 41, book_id = 7, event = "quote", title = "Dune" })
+  local rows = PendingChanges.list(q)
+  assert(#rows == 2, texts(rows))
+  assert(rows[1].text == 'Dune: change a note to "better words"', rows[1].text)
+  assert(rows[2].text == "Dune: delete a quote", rows[2].text)
+  assert(rows[2].cancel() == true and q.journal_queue:count() == 1)
+end)
+
 check("a waiting review, and one waiting to be removed, each get a line that can be cancelled", function()
   local q = queues()
   q.review_queue = ReviewQueue:new { settings = fakeSettings() }

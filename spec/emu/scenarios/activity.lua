@@ -4,7 +4,12 @@ that hides its spoilers, notes), a row opening the whole text, Load more adding 
 repeating the entry both pages share, and offline: the message before anything was saved, then the
 copy kept in the real SQLite file, with a note written offline listed first as waiting to send.
 
-Screens: activity, activity_full, activity_more, activity_offline.
+Then, still offline, your entries changed from there: the quote edited (it shows its new text,
+waiting to send), the note not sent yet discarded, and a note Hardcover has deleted, each after
+tapping the full text's Edit or Delete and the dialog it opens.
+
+Screens: activity, activity_full, activity_more, activity_offline, activity_entry, activity_edit,
+activity_changed.
 ]]
 
 local fixtures = require("fixtures")
@@ -13,6 +18,51 @@ local UIManager = require("ui/uimanager")
 local function tap_text(emu, needle)
   local node = emu:expectText(needle)
   emu:tapExpecting(node.x + math.floor(node.w / 2), node.y + math.floor(node.h / 2))
+  emu:pump()
+end
+
+-- notes along the bottom ("Note saved") are windows of their own and spend the next tap: put them
+-- away, as a reader's tap would
+local function dismiss_notes(emu)
+  for i = #UIManager._window_stack, 1, -1 do
+    local w = UIManager._window_stack[i].widget
+    if w and (w.toast or w.snackbar) then UIManager:close(w) end
+  end
+  emu:pump()
+end
+
+-- the topmost window that is not a note or the on-screen keyboard
+local function top()
+  for i = #UIManager._window_stack, 1, -1 do
+    local w = UIManager._window_stack[i].widget
+    if w and not (w.toast or w.snackbar or w.name == "VirtualKeyboard") then return w end
+  end
+end
+
+-- a widget under `root` with this text that can be tapped (a button)
+local function find_button(root, label, seen)
+  seen = seen or {}
+  if type(root) ~= "table" or seen[root] then return end
+  seen[root] = true
+  if root.text == label and root.callback and root.dimen and root.dimen.w and root.dimen.w > 0 then return root end
+  for _, child in pairs(root) do
+    local found = find_button(child, label, seen)
+    if found then return found end
+  end
+end
+
+local function tap_button(emu, label)
+  dismiss_notes(emu)
+  -- the on-screen keyboard can cover a dialog's buttons: put it away first, as a reader would
+  local dialog = top()
+  if dialog and dialog.onCloseKeyboard and dialog.keyboard_visible then
+    dialog:onCloseKeyboard()
+    emu:pump()
+  end
+  emu:screenNodes()
+  local b = find_button(top(), label)
+  assert(b, "no button '" .. label .. "' on top (" .. tostring(top() and top().name) .. "):\n" .. emu:screenText())
+  emu:tapExpecting(b.dimen.x + math.floor(b.dimen.w / 2), b.dimen.y + math.floor(b.dimen.h / 2))
   emu:pump()
 end
 
@@ -179,6 +229,54 @@ return {
     emu:expectText(Feed.WAITING .. " \194\183 You")
     emu:expectText("Fear is the mind-killer")
     emu:shot("activity_offline")
+
+    offline(function()
+      -- the quote, edited: Edit and Delete are along the bottom of its full text
+      tap_text(emu, "Fear is the mind-killer")
+      assert(top().name == "hardcover_text_screen", "the quote did not open")
+      emu:expectText("Edit")
+      emu:expectText("Delete")
+      emu:shot("activity_entry")
+      tap_button(emu, "Edit")
+      local input = top()
+      assert(input and input.getInputText and input:getInputText() == "Fear is the mind-killer.",
+        "the field should hold the quote: " .. tostring(input and input.getInputText and input:getInputText()))
+      input:setInputText("Fear is the little-death.")
+      emu:shot("activity_edit")
+      tap_button(emu, "Save")
+      emu:expectText("Your change is kept")
+      local change = journal_queue:changeFor(200)
+      assert(change and change.action == "update" and change.text == "Fear is the little-death.", "the edit was not kept")
+      dismiss_notes(emu)
+      assert(top() == tab, "the tab should be back on top: " .. tostring(top() and top().name))
+      emu:expectText("Fear is the little-death")
+
+      -- the note not sent yet, discarded
+      tap_text(emu, "Written on the train")
+      tap_button(emu, "Delete")
+      emu:expectText("Discard this note?")
+      tap_button(emu, "Discard")
+      assert(#journal_queue:list() == 1, "the note not sent should be gone, the edit kept")
+
+      -- a note Hardcover has, deleted
+      dismiss_notes(emu)
+      tap_text(emu, "Note number 24")
+      tap_button(emu, "Delete")
+      emu:expectText("Delete this note?")
+      tap_button(emu, "Delete")
+      local delete = journal_queue:changeFor(124)
+      assert(delete and delete.action == "delete", "the delete was not kept")
+      dismiss_notes(emu)
+    end)
+    assert(#tab.entries == 26, "the tab shows " .. #tab.entries .. " entries, not 26")
+    for _, node in ipairs(emu:screenNodes()) do
+      assert(not node.text:find("Note number 24", 1, true), "the deleted note is still on screen")
+      assert(not node.text:find("Written on the train", 1, true), "the discarded note is still on screen")
+    end
+    assert(feed_calls() == before, "asked for the feed while offline")
+    assert(activity_store:get(fixtures.USER_ID).entries[1].text == "Fear is the mind-killer.",
+      "the saved copy keeps Hardcover's text until the change is sent")
+    emu:shot("activity_changed")
     emu:closeAll()
     os.remove(queue_path)
   end,

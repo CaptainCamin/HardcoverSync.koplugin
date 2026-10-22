@@ -1467,6 +1467,38 @@ function HardcoverApi:createJournalEntry(object)
   return nil, err
 end
 
+-- Change the text of one of your journal entries. Only the text is sent: privacy, tags and page
+-- stay as they are. Returns { id }, or nil and the reason (as createJournalEntry).
+function HardcoverApi:updateJournalEntry(id, text)
+  local query = [[
+    mutation UpdateReadingJournalEntry($id: Int!, $object: ReadingJournalUpdateType!) {
+      update_reading_journal(id: $id, object: $object) {
+        id
+      }
+    }
+  ]]
+  local result, err = self:query(query, { id = tonumber(id), object = { entry = text } })
+  local updated = result and result.update_reading_journal
+  if type(updated) == "table" then return updated end
+  return nil, err
+end
+
+-- Delete one of your journal entries. Returns { id }, or nil and the reason.
+function HardcoverApi:deleteJournalEntry(id)
+  local query = [[
+    mutation DeleteReadingJournalEntry($id: Int!) {
+      delete_reading_journal(id: $id) {
+        id
+      }
+    }
+  ]]
+  local result, err = self:query(query, { id = tonumber(id) })
+  -- an answer at all is the entry gone: what it says about the id it no longer has is not needed
+  local deleted = result and result.delete_reading_journal
+  if type(deleted) == "table" then return deleted end
+  return nil, err
+end
+
 --
 -- The books you have finished, for Stats: lean rows (no covers, no descriptions) in pages of
 -- STATS_PAGE, in a fixed order so the pages do not overlap, plus your genre counts. Returns
