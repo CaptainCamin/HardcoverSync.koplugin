@@ -95,6 +95,7 @@ function ReaderPanel:openMenu(menu)
 end
 
 function ReaderPanel:render()
+  if self.cover_widget then self.cover_widget:free(); self.cover_widget = nil end
   local model = self.opts.model()
   local screen_w, screen_h = Screen:getWidth(), Screen:getHeight()
   local M = Theme.px(20)
@@ -140,11 +141,19 @@ function ReaderPanel:render()
   local cover
   if model.cover_path then
     local ok, image = pcall(function()
+      -- The image cache uses extensionless names; decode bytes, not a guessed file type.
+      local file = io.open(model.cover_path, "rb")
+      if not file then return nil end
+      local bytes = file:read("*a")
+      file:close()
+      if not bytes then return nil end
+      local bb = require("ui/renderimage"):renderImageData(bytes, #bytes, false, cw, ch)
+      if not bb then return nil end
       return require("ui/widget/imagewidget"):new {
-        file = model.cover_path, width = cw, height = ch, scale_factor = 0,
+        image = bb, image_disposable = true, width = cw, height = ch, scale_factor = 0,
       }
     end)
-    if ok then cover = image end
+    if ok then cover = image; self.cover_widget = image end
   end
   cover = cover or Theme.box(cw, ch, Theme.icon("book", Theme.px(28)), { radius = 0 })
   table.insert(content, HorizontalGroup:new { align = "top", cover, Theme.hspan(gap), book })
@@ -216,6 +225,7 @@ end
 
 -- leaving the panel must repaint the page under it
 function ReaderPanel:onCloseWidget()
+  if self.cover_widget then self.cover_widget:free(); self.cover_widget = nil end
   -- the page under the sheet is already in the framebuffer (close() repaints it);
   -- the panel only needs to redraw where the sheet was
   UIManager:setDirty(nil, "ui", self.sheet_rect and self:rect(self.sheet_rect) or nil)
