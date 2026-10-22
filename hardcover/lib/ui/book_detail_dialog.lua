@@ -352,7 +352,7 @@ function BookDetailDialog:init()
   end
   if primary_field then
     self[primary_field] = Button.new {
-      label = primary_label, w = width, h = Theme.TOUCH_MIN, size = 19, primary = true, viewport = viewport,
+      label = primary_label, w = width, primary = true, viewport = viewport,
       callback = function()
         local fn = self[primary_handler]
         if fn then fn(self) end
@@ -365,7 +365,8 @@ function BookDetailDialog:init()
   local function add_round(field, icon, text, handler, available)
     if not available then return end
     self[field] = Button.round {
-      icon = icon, label = text, viewport = viewport,
+      icon = icon, label = text, scale = "large", label_size = Theme.type.title,
+      label_width = width, viewport = viewport,
       callback = function()
         local fn = self[handler]
         if fn then fn(self) end
@@ -381,14 +382,27 @@ function BookDetailDialog:init()
   add_round("review_button", "edit", _("Your review"), "on_review", self.on_review)
   add_round("edition_button", "link", _("Edition"), "on_edition", self.on_edition)
   if #round > 0 then
-    local slot_w = math.floor(width / #round)
-    local round_row = HorizontalGroup:new { align = "top" }
-    for _i, b in ipairs(round) do
-      table.insert(round_row, CenterContainer:new { dimen = Geom:new { w = slot_w, h = b:getSize().h }, b })
+    -- Keep readable captions and full-size circles. More actions take another row
+    -- instead of shrinking the controls or clipping a label such as "Your review".
+    local min_slot = 0
+    for _, b in ipairs(round) do min_slot = math.max(min_slot, b:getSize().w + Theme.space.s) end
+    local max_cols = math.max(1, math.floor(width / min_slot))
+    local rows = math.ceil(#round / max_cols)
+    local cols = math.ceil(#round / rows)
+    for first = 1, #round, cols do
+      local count = math.min(cols, #round - first + 1)
+      local slot_w = math.floor(width / count)
+      local round_row = HorizontalGroup:new { align = "top" }
+      local row_fields = {}
+      for i = first, first + count - 1 do
+        local b = round[i]
+        table.insert(round_row, CenterContainer:new { dimen = Geom:new { w = slot_w, h = b:getSize().h }, b })
+        row_fields[#row_fields + 1] = fields[i]
+      end
+      if #action_bar > 0 then table.insert(action_bar, Theme.span("m")) end
+      table.insert(action_bar, round_row)
+      table.insert(action_rows, row_fields)
     end
-    if #action_bar > 0 then table.insert(action_bar, Theme.span("m")) end
-    table.insert(action_bar, round_row)
-    table.insert(action_rows, fields)
   end
   self.action_bar = action_bar
 
