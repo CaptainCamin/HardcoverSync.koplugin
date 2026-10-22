@@ -6,6 +6,7 @@ local T = require("ffi/util").template
 local Network = require("hardcover/lib/network")
 
 local Book = require("hardcover/lib/book")
+local Feed = require("hardcover/lib/feed")
 local Goals = require("hardcover/lib/goals")
 local Lists = require("hardcover/lib/lists")
 local Recommendations = require("hardcover/lib/recommendations")
@@ -2086,6 +2087,36 @@ function HardcoverApi:getReviews(book_id, limit, offset)
 end
 
 --
+-- Who you follow, as user ids (most MAX_READERS of them). Returns the ids, or nil and the
+-- error. Needs the read:social scope.
+--
+function HardcoverApi:getFollowedIds()
+  local results, err = self:query([[
+    query { me { followed_users { followed_user_id } } }
+  ]])
+  local me = results and results.me and results.me[1]
+  if not me then return nil, err or { completed = false } end
+  local ids = {}
+  for _, row in ipairs(me.followed_users or {}) do
+    if row.followed_user_id and #ids < Feed.MAX_READERS then ids[#ids + 1] = row.followed_user_id end
+  end
+  return ids
+end
+
+--
+-- One page of the activity feed: status changes, notes, quotes and reviews of you and the
+-- readers in `opts.user_ids`, newest first (see Feed.query for the options). One request.
+-- Returns { entries, cursor, more } or nil and the error.
+--
+function HardcoverApi:getFeed(opts)
+  local query = Feed.query(opts)
+  if not query then return { entries = {}, more = false } end
+  local results, err = self:query(query)
+  if not results then return nil, err or { completed = false } end
+  return Feed.parse(results, opts and opts.limit)
+end
+
+--
 -- Books like this one: Hardcover's own similar-books ranking for `book_id`, as shelf
 -- entries in rank order. Two requests (the ids, then the books for them), both with
 -- the permissions the plugin already has. Returns entries, or nil, err. A book with
@@ -2340,6 +2371,8 @@ local ASYNC_METHODS = {
   "getSimilarBooks",
   "getBookDetail",
   "getReviews",
+  "getFollowedIds",
+  "getFeed",
   "updateUserBook",
   "removeUserBook",
   "findBooks",
