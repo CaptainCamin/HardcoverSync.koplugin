@@ -47,7 +47,9 @@ end
 function ReaderPanel:buildShelfRow(text, action, width)
   local pad = Theme.space.m
   local inner = width - 2 * pad
-  local button_w = math.min(Theme.px(142), math.floor(inner * 0.42))
+  local action_w = Theme.mmdText(action.text, "strong", 21):getSize().w
+    + 2 * (Theme.mmd.button.border + Theme.px(8))
+  local button_w = math.min(math.floor(inner * 0.48), math.max(Theme.px(142), action_w))
   local label_w = inner - button_w - Theme.space.m
   local label = require("ui/widget/textboxwidget"):new {
     text = text, face = Theme.mmdFace("text", 20), width = label_w,
