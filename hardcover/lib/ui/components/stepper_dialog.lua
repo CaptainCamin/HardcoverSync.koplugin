@@ -34,7 +34,6 @@ local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local InputContainer = require("ui/widget/container/inputcontainer")
-local HorizontalGroup_ = nil = require("ui/widget/horizontalgroup")
 local VerticalGroup = require("ui/widget/verticalgroup")
 
 local _ = require("gettext")
