@@ -949,8 +949,45 @@ function DialogManager:showGoal(goal, note)
     archive_cb = function(current)
       self:archiveGoal(dialog, current, nil)
     end,
+    books_cb = function(current, books)
+      self:showGoalBooks(current, books)
+    end,
   }
   self:openScreen("goal", dialog)
+  if goal.metric == "book" then self:loadGoalBooks(dialog) end
+end
+
+-- Every book behind a book goal: plain rows (title, then author and finish date), paged by the
+-- settings screen's scroll control.
+function DialogManager:showGoalBooks(goal, books)
+  local items = {}
+  for _i, row in ipairs(books.rows) do
+    local meta = { Goals.dateLabel(row.date) }
+    if row.author then table.insert(meta, 1, row.author) end
+    items[#items + 1] = { text = row.title or _("Untitled"), support = table.concat(meta, "  \194\183  ") }
+  end
+  require("hardcover/lib/ui/settings_dialog").show { title = goal.name, items = items }
+end
+
+-- The finished books a book goal lists: the copy Stats saved, else one load (kept for Stats too).
+function DialogManager:loadGoalBooks(dialog)
+  local user_id = User:getId()
+  local cache = self.shelf_cache
+  local saved = cache and cache:stats(user_id)
+  if saved then
+    dialog.stats = saved
+    dialog:rebuild()
+    return
+  end
+  if not Network.connected() then
+    dialog:setStats(nil)
+    return
+  end
+  Api:getStatsAsync(user_id, function(stats)
+    if not Live.shown(dialog) then return end
+    if stats and cache then cache:putStats(user_id, stats, nil) end
+    dialog:setStats(stats)
+  end)
 end
 
 --

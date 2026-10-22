@@ -263,4 +263,35 @@ check("labels for the form's rows", function()
   assert(Goals.WRITE_SCOPE == "write:goals")
 end)
 
+print("\n== the books behind a goal ==")
+
+check("a book goal lists the books finished in its period, newest first", function()
+  local g = Goals.normalize({ row({ progress = 3 }) })[1]
+  local rows = {
+    { id = 1, title = "A", date = "2026-02-03" }, { id = 2, title = "B", date = "2025-12-31" },
+    { id = 3, title = "C", date = "2026-12-31" }, { id = 4, title = "D", date = "2027-01-01" },
+    { id = 5, title = "E", date = "2026-05" }, { id = 6, title = "F" }, { id = 7, title = "G", date = "2026" },
+  }
+  local out = Goals.books(g, rows)
+  assert(#out.rows == 4 and out.rows[1].title == "C" and out.rows[2].title == "E" and out.rows[3].title == "A" and out.rows[4].title == "G")
+  assert(out.count == 3 and not out.match)
+  local m = Goals.books(Goals.normalize({ row({ progress = 4 }) })[1], rows)
+  assert(m.match)
+end)
+
+check("a month or year only partly inside the period does not count", function()
+  local g = Goals.normalize({ row({ start_date = "2026-01-15", end_date = "2026-03-01", progress = 0 }) })[1]
+  local out = Goals.books(g, { { id = 1, date = "2026-01" }, { id = 2, date = "2026-02" }, { id = 3, date = "2026" } })
+  assert(#out.rows == 1 and out.rows[1].id == 2)
+end)
+
+check("page goals and goals with filters get no list", function()
+  local _, why = Goals.books(Goals.normalize({ row({ metric = "page" }) })[1], {})
+  assert(why == "pages")
+  local f = Goals.normalize({ row({ conditions = { readingFormatId = 2 } }) })[1]
+  local none, why2 = Goals.books(f, {})
+  assert(none == nil and why2 == "filters")
+  assert(Goals.books(Goals.normalize({ row({ conditions = { junk = 1 } }) })[1], {}) ~= nil)
+end)
+
 r.finish()
