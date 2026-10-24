@@ -641,7 +641,11 @@ function DialogManager:showHomeBody(host)
   self:screens():discard("home")
 
   local saved_counts = cache and cache:counts(user_id, ids) or {}
-  local saved_reading = cache and cache:reading(user_id) or {}
+  local saved_reading = cache and cache:reading(user_id)
+  if not saved_reading or #saved_reading == 0 then
+    -- nothing saved for Home itself (or an empty list): the saved Currently reading shelf
+    saved_reading = self:readingFromShelf(user_id, 5)
+  end
   -- what Currently Reading shows: the saved or fetched cards with the reading done
   -- offline (pages turned, books finished or started) laid over them
   local function shownReading(entries)

@@ -6,8 +6,11 @@
 
 - **Add to the book's journal.** The Journal screen opened from the reader panel has a plus button at the bottom right. It offers Note, Quote and Review (Edit your review when you already have one), using the same forms as before, offline included. What you add shows in the list at once. The highlight shortcut and the book page's review button are unchanged.
 
+- **Jump to Hardcover's page.** Open a book while online and, if Hardcover has you 5 or more pages further along (you read on another device), you are asked whether to jump there. "Stay here" keeps your place and does not ask again until Hardcover moves on. It is not asked when this device has changes waiting; the sync question covers that.
+
 ### Fixed
 
+- **"Start reading this book?" now appears when tracking is off.** It was only asked for a book with "Update Hardcover as I read" on, and tracking is off for every book until you turn it on, so the question almost never came. A linked book that is not on Currently Reading is now counted from the moment it is opened, whether tracking is on or not. Nothing is sent while it is only counted; saying yes turns tracking on for that book.
 - **Smaller buttons on the book details screen.** The round buttons and their captions are back to a size that fits the screen, and the Open / Find on device button is its normal height again.
 
 ## 2.3.1

@@ -551,7 +551,8 @@ function SyncQueue:_flushEntry(api, filepath, opts)
       local reads = user_book.user_book_reads
       local current_read = reads and reads[#reads]
       local server_page = current_read and tonumber(current_read.progress_pages)
-      local finished = current and current ~= HARDCOVER.STATUS.READING and current ~= HARDCOVER.STATUS.TO_READ
+      -- A Paused book is still being read: a page on it is progress, not the start of a re-read
+      local finished = current == HARDCOVER.STATUS.FINISHED or current == HARDCOVER.STATUS.DNF
 
       -- Finished / Did Not Finish with new progress here: this may be a
       -- re-read, which only the user can say. The old read is never touched.
