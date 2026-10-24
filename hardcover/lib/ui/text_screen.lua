@@ -1,8 +1,8 @@
 -- A screen of text of its own: a book's whole synopsis, one review in full. The MMD top bar (a back
 -- arrow and a short title), the subject as a serif heading under a thick rule, then the text, which
 -- scrolls by page with the scroll control when it is longer than the screen. A short text fits and
--- shows no control. `buttons` (your own note in Activity: Edit, Delete) stay along the bottom,
--- under the text, however far it is scrolled.
+-- shows no control. `buttons` (your own note in the Journal tab: Edit, Delete) stay along the
+-- bottom, under the text, however far it is scrolled.
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Device = require("device")

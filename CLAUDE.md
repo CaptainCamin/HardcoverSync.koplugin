@@ -10,6 +10,7 @@
 - Rules learned from Mudita Mindful Design, for any new or changed UI: every tappable, scrollable or holdable thing has a visible control (a swipe or long press is only a shortcut); rows keep one fixed height and stay in place from page to page; state never rests on grey alone (check, fill, dotted border, or leave the control out); try an outline or pattern before a big solid fill; acknowledge actions with visible text. Do not add hold-only actions.
 - `docs/design/` holds the design docs: `principles.md` (the design target, layout rules, sources and how much to trust them), `decisions.md` (the owner's dated calls, the known deviations in the code and the **open decisions**) and `mmd-reference.md` (Mudita's numbers as drawn). Open decisions include divider weight, compact button heights and bottom nav, plus the direction below. Do not treat open decisions as rules. The owner's direction (2026-10-10, not yet implemented): charts may keep greys, Lato is liked, pure-black secondary text is wanted as a beta setting with `DARK_GREY` the default. Do not change the grey policy or fonts in code without the user's say-so.
 - The design-system artifact above has drifted from `theme.lua` (it describes an aspirational v2 with `wash`/`mid` greys and hard shadows that `theme.lua` does not use). `theme.lua` wins.
+- Every PR with a UI-facing change includes a screenshot in its description. Capture one with the emulator (`spec/emu/README.md`: `spec/emu/run.sh`, PNGs land in `KO_EMU_OUT`; set `KO_EMU_W`/`KO_EMU_H`/`KO_EMU_DPI` to `1264`/`1680`/`300` for a Paperwhite), or download the `emulator-screens-*` artifact from the PR's `test` run. Attach it to the PR, since a file committed to the branch is not the same thing as one the reviewer sees.
 
 ## Git workflow (trunk-based)
 
@@ -19,3 +20,9 @@
 - Release notes are written by `.github/scripts/release_notes.py` from the PRs merged since the previous tag, grouped by label or by the first word of the PR title (New, Improved, Fixes, For developers, Other); label `skip-release-notes` leaves a PR out. The Run workflow form has an optional `intro` for a sentence above the list. Write PR titles as a plain sentence starting with the verb ("Fix ...", "Add ...").
 - A hotfix for stable while `main` holds unfinished work branches from the release tag (e.g. `v1.7.0`), is released from there, then is cherry-picked onto `main`.
 - `gh` needs `--repo CaptainCamin/HardcoverSync.koplugin`. No AI attribution trailers in commits or PRs.
+
+## Versioning
+
+- Semver. A new feature bumps the minor number (2.2.0 to 2.3.0), a fix bumps the patch (2.2.0 to 2.2.1), and the major number only goes up for a redesign or a change that breaks things for users, such as settings or saved data that stop working.
+- Betas are `-beta.N`, and every tag starts with `v`.
+- Each release's version must be higher than the last one, because the update check compares them. `_meta.lua` must never go backwards. For a stable release, run the Releases action with `vX.Y.Z-stable` and let it set `_meta.lua` and the changelog.

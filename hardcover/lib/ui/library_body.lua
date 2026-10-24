@@ -1,4 +1,4 @@
--- The Library tab: Shelves | Lists | Vibes as three tabs of its own under the tab row, one body
+-- The Library tab: Shelves | Lists | Vibes | Journal as tabs of its own under the tab row, one body
 -- shown at a time. No chips, no "All books", no filter. Each inner body is built the first time it
 -- is opened and kept, like the shell's own tabs, so a list keeps its scroll position and an answer
 -- that arrived while another tab was showing is there when you come back.

@@ -31,7 +31,7 @@ local debounce = require("hardcover/lib/debounce")
 local Hardcover = require("hardcover/lib/hardcover")
 local HardcoverSettings = require("hardcover/lib/hardcover_settings")
 local ListStore = require("hardcover/lib/list_store")
-local ActivityStore = require("hardcover/lib/activity_store")
+local JournalStore = require("hardcover/lib/journal_store")
 local PageMapper = require("hardcover/lib/page_mapper")
 local Scheduler = require("hardcover/lib/scheduler")
 local ShelfCache = require("hardcover/lib/shelf_cache")
@@ -169,7 +169,7 @@ function HardcoverApp:init()
   self.book_store = BookStore:new { db = self.library_db }
   self.list_store = ListStore:new { db = self.library_db, books = self.book_store }
   self.shelf_store = ShelfStore:new { db = self.library_db, books = self.book_store }
-  self.activity_store = ActivityStore:new { db = self.library_db }
+  self.journal_store = JournalStore:new { db = self.library_db }
 
   self.sync_queue = SyncQueue:new {
     settings = LuaSettings:open(("%s/%s"):format(DataStorage:getSettingsDir(), "hardcoversync_queue.lua"))
@@ -237,7 +237,7 @@ function HardcoverApp:init()
     book_store = self.book_store,
     list_store = self.list_store,
     shelf_store = self.shelf_store,
-    activity_store = self.activity_store,
+    journal_store = self.journal_store,
     -- books finished offline, for the reading goal's number
     sync_queue = self.sync_queue,
     -- goals made or changed offline, and the way to send them
