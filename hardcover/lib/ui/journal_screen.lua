@@ -41,8 +41,9 @@ function JournalScreen:init()
   local footer
   if self.add_cb then
     local fab = Fab.new { icon = "plus", scale = "medium", callback = self.add_cb }
-    footer = HorizontalGroup:new { align = "center",
-      Theme.hspan(screen_w - fab:getSize().w - Theme.px(12)), fab }
+    footer = VerticalGroup:new { align = "left",
+      HorizontalGroup:new { Theme.hspan(screen_w - fab:getSize().w - Theme.px(12)), fab },
+      Theme.span(Theme.px(12)) }
   end
   self.body = ActivityBody:new {
     shell = self, width = screen_w,
