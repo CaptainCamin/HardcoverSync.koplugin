@@ -1,11 +1,6 @@
 name: Progress journal diagnostic
 
 on:
-  push:
-    branches: [claude/project-thread-npzj2w]
-    paths:
-      - .github/workflows/progress-live.yml
-      - spec/live/hardcover_live.lua
   workflow_dispatch:
 
 permissions:
