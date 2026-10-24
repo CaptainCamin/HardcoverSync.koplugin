@@ -318,7 +318,9 @@ end
 -- The journal of one book, opened from the reader panel: the same entries as the Journal tab, for
 -- this book only, on a screen of its own. Offline it shows what the tab has saved for the book and
 -- what is waiting to send for it (a waiting review is known by the book's title, `title`).
-function Flows:showBookJournal(book_id, title)
+-- `opts` (from the reader panel) turns on the Add entry button: { user_book_id, write(event_type,
+-- on_saved) which opens the note and quote form }. A review is written here, for `user_book_id`.
+function Flows:showBookJournal(book_id, title, opts)
   self:screens():discard("book_journal")
 
   local online = Network.connected()
@@ -347,10 +349,39 @@ function Flows:showBookJournal(book_id, title)
   elseif #shown == 0 then
     message = online and _("Loading journal\226\128\166") or _("The journal needs an internet connection the first time.")
   end
+  local state = { entries = ofBook(saved and saved.entries), offset = 0 }
   local screen
+  -- the list as it is now, with what is waiting; a change made from here shows at once
+  local function refresh()
+    if not Live.shown(screen) then return end
+    local all = withWaiting(state.entries)
+    if #all > 0 then screen:setEntries(all, screen.body.has_more) end
+  end
+  local function add_cb()
+    local ActionSheet = require("hardcover/lib/ui/components/action_sheet")
+    local mine
+    for _i, e in ipairs(withWaiting(state.entries)) do
+      if e.kind == "review" then mine = e break end
+    end
+    local actions = {}
+    if opts.write then
+      actions[#actions + 1] = { label = _("Note"), callback = function() opts.write("note", refresh) end }
+      actions[#actions + 1] = { label = _("Quote"), callback = function() opts.write("quote", refresh) end }
+    end
+    actions[#actions + 1] = { label = mine and _("Edit your review") or _("Review"), callback = function()
+      self:writeReview({ detail = {
+        book = { book_id = book_id, title = title },
+        user_book_id = opts.user_book_id,
+        user_review = mine and mine.text or nil,
+        review_spoilers = mine and mine.spoilers == true or nil,
+      } }, refresh)
+    end }
+    ActionSheet.show { title = _("Add to the journal"), actions = actions }
+  end
   screen = require("hardcover/lib/ui/journal_screen"):new {
     message = message, entries = shown,
-    select_cb = function(entry) self:openJournalEntry(entry) end,
+    add_cb = opts and add_cb or nil,
+    select_cb = function(entry) self:openJournalEntry(entry, refresh) end,
   }
   self:screens():track("book_journal", screen)
   require("ui/uimanager"):show(screen, "full")
@@ -363,7 +394,6 @@ function Flows:showBookJournal(book_id, title)
     return screen
   end
 
-  local state = { entries = {}, offset = 0 }
   local function fetch(offset, callback)
     Api:getJournalAsync({ me_id = me_id, book_id = book_id, offset = offset, limit = Journal.PAGE_SIZE },
       function(page, err)

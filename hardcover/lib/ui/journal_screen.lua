@@ -1,16 +1,19 @@
 -- The journal of the open book, reached from the reader panel: this book's status changes, notes,
 -- quotes and reviews on Hardcover, newest first. A full screen of its own (the MMD top bar with a
 -- back arrow) around the Journal tab's list, which it hosts the way the shell hosts a tab: it is
--- the window the body repaints through.
+-- the window the body repaints through. A plus FAB at the bottom right (`add_cb`) is the one place
+-- to write a note, a quote or a review of the book.
 
 local Device = require("device")
 local FrameContainer = require("ui/widget/container/framecontainer")
+local HorizontalGroup = require("ui/widget/horizontalgroup")
 local Geom = require("ui/geometry")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
 
+local Fab = require("hardcover/lib/ui/components/fab")
 local JournalBody = require("hardcover/lib/ui/journal_body")
 local TopBar = require("hardcover/lib/ui/components/top_bar")
 local Theme = require("hardcover/lib/ui/theme")
@@ -23,6 +26,7 @@ local JournalScreen = InputContainer:extend {
   entries = nil,    -- Journal.parse's entries to start with (the saved ones)
   select_cb = nil,  -- function(entry)
   more_cb = nil,    -- function(), Load more
+  add_cb = nil,     -- function(), the Add entry FAB (none: no FAB)
   close_callback = nil,
 }
 
@@ -32,14 +36,24 @@ function JournalScreen:init()
   self.key_events.CloseJournal = { { "Back" } }
 
   local bar = TopBar.new { width = screen_w, title = _("Journal"), on_back = function() self:onClose() end }
+  -- the Add entry FAB (a plus), anchored bottom right; the list stops above it, so it never
+  -- covers a row
+  local footer
+  if self.add_cb then
+    local fab = Fab.new { icon = "plus", scale = "medium", callback = self.add_cb }
+    footer = VerticalGroup:new { align = "left",
+      HorizontalGroup:new { Theme.hspan(screen_w - fab:getSize().w - Theme.px(12)), fab },
+      Theme.span(Theme.px(12)) }
+  end
   self.body = JournalBody:new {
-    shell = self, width = screen_w, height = screen_h - bar:getSize().h,
+    shell = self, width = screen_w,
+    height = screen_h - bar:getSize().h - (footer and footer:getSize().h or 0),
     message = self.message, entries = self.entries, select_cb = self.select_cb, more_cb = self.more_cb,
   }
   self[1] = FrameContainer:new {
     width = screen_w, height = screen_h, background = Theme.WHITE,
     bordersize = 0, padding = 0, margin = 0,
-    VerticalGroup:new { align = "left", bar, self.body },
+    VerticalGroup:new { align = "left", bar, self.body, footer },
   }
 end
 
