@@ -259,7 +259,19 @@ function HardcoverMenu:showReaderPanel()
       add(_("Rate"), rating_item, { icon = "star" })
       actions[#actions + 1] = {
         text = _("Journal"), icon = "edit", enabled = self.enabled and status.id ~= nil,
-        run = function() self.dialog_manager:showBookJournal(self.settings:getLinkedBookId(), self.settings:getLinkedTitle()) end,
+        run = function()
+          self.dialog_manager:showBookJournal(self.settings:getLinkedBookId(), self.settings:getLinkedTitle(), {
+            user_book_id = status.id,
+            -- the note and quote form, as "Add a note" opens it; `on_saved` refreshes the journal
+            write = function(event_type, on_saved)
+              local reads = self.state.book_status.user_book_reads
+              local current_read = reads and reads[#reads]
+              local current_page = current_read and current_read.progress_pages or 0
+              self.dialog_manager:journalEntryForm("", self.ui.document, current_page, self.settings:pages(),
+                current_page, event_type, on_saved)
+            end,
+          })
+        end,
       }
       actions[#actions + 1] = {
         text = _("Details"), icon = "book-open", enabled = self.enabled,

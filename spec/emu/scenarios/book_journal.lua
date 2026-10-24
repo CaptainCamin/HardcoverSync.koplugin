@@ -32,7 +32,7 @@ return {
     local DialogManager = require("hardcover/lib/ui/dialog_manager")
     local manager = DialogManager:new { settings = settings }
 
-    manager:showBookJournal(328491)
+    manager:showBookJournal(328491, "Dune", { user_book_id = 77, write = function() end })
     emu:pump()
     local screen = UIManager:getTopmostVisibleWidget()
     assert(screen and screen.name == "hardcover_journal_screen", "the journal did not open: " .. tostring(screen and screen.name))
@@ -40,6 +40,7 @@ return {
       "the journal should ask for this book's own entries only")
     emu:expectText("Journal")
     emu:expectText("Fear is the mind-killer")
+    emu:expectText("Add entry")
     emu:shot("book_journal")
     screen:onClose()
     emu:pump()

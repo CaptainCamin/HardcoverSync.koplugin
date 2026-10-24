@@ -232,7 +232,8 @@ function DialogManager:updateSearchResults(search)
   end)
 end
 
-function DialogManager:journalEntryForm(text, document, page, remote_pages, mapped_page, event_type)
+-- `on_saved` runs once the entry is kept (the book's journal shows it at once).
+function DialogManager:journalEntryForm(text, document, page, remote_pages, mapped_page, event_type, on_saved)
   local settings = self.settings:readBookSettings(document.file) or {}
   local edition_id = settings.edition_id
   local edition_format = settings.edition_format
@@ -278,6 +279,7 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
 
       UIManager:nextTick(function()
         UIManager:close(dialog)
+        if on_saved then on_saved() end
         if wifi_was_off then
           UIManager:nextTick(function()
             self.wifi:wifiDisablePrompt()
