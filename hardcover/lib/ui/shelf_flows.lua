@@ -53,6 +53,23 @@ function Flows:findShelfEntry(user_id, book_id)
   return self.shelf_cache and self.shelf_cache:findEntry(user_id, book_id) or nil
 end
 
+-- The books Home shows under Currently reading when nothing was saved for it: the first few of
+-- the saved Currently reading shelf, with no progress (the shelf does not keep it). Home saves
+-- its own list only after an online refresh, so a device that has the shelf (a Library sync, a
+-- download from the shelf screen) but never opened Home online would otherwise show an empty card.
+function Flows:readingFromShelf(user_id, limit)
+  local status_id = HARDCOVER.STATUS.READING
+  local store = self:shelves()
+  local entries = store and store:entries(user_id, status_id)
+  if not entries then
+    local saved = self.shelf_cache and self.shelf_cache:get(user_id, status_id)
+    entries = saved and saved.entries
+  end
+  local out = {}
+  for i = 1, math.min(#(entries or {}), limit or 5) do out[i] = entries[i] end
+  return out
+end
+
 --
 -- Download shelf `status_id` and save it, through the lists' queue. `opts`:
 --   fingerprint  Hardcover's, from a check just made (Home's)

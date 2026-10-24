@@ -573,6 +573,44 @@ check("it opens at once with the reading list that was saved", function()
   assert(fake[1].entries and fake[1].entries[1].title == "Seven", "saved reading list not shown")
 end)
 
+check("offline with no saved reading list, it shows the saved Currently reading shelf", function()
+  online = false
+  local m = newManager()
+  m.shelf_store:putEntries(1, 2, {
+    { book_id = 7, title = "Seven", status_id = 2, user_book_id = 70, pages = 100 },
+    { book_id = 8, title = "Eight", status_id = 2, user_book_id = 80, pages = 50 },
+  }, true, "fp")
+  m:showHomeBody(homeHost())
+  assert(fake[1].entries and #fake[1].entries == 2 and fake[1].entries[1].title == "Seven",
+    "the card was left empty though the shelf is saved")
+  assert(reading_calls == 0, "made a request while offline")
+end)
+
+check("an empty saved reading list does not hide a saved Currently reading shelf", function()
+  online = false
+  local m = newManager()
+  m.shelf_cache:putReading(1, {})
+  m.shelf_store:putEntries(1, 2, { { book_id = 7, title = "Seven", status_id = 2, user_book_id = 70 } }, true, "fp")
+  m:showHomeBody(homeHost())
+  assert(#fake[1].entries == 1, "the shelf was ignored")
+end)
+
+check("a saved reading list wins over the shelf, which has no progress", function()
+  online = false
+  local m = newManager()
+  m.shelf_cache:putReading(1, { reading(7, "Seven", 10, 100) })
+  m.shelf_store:putEntries(1, 2, { { book_id = 9, title = "Nine", status_id = 2, user_book_id = 90 } }, true, "fp")
+  m:showHomeBody(homeHost())
+  assert(#fake[1].entries == 1 and fake[1].entries[1].title == "Seven")
+end)
+
+check("offline with neither a saved list nor a shelf, the card is empty and nothing breaks", function()
+  online = false
+  local m = newManager()
+  m:showHomeBody(homeHost())
+  assert(#fake[1].entries == 0)
+end)
+
 check("online, the fresh reading list replaces it and is saved", function()
   online = true
   local m = newManager()
