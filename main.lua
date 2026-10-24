@@ -539,6 +539,10 @@ end
 -- known is not given a status (it may be Finished there); its page is sent and Hardcover starts the
 -- read, or asks, as it does for any page.
 function HardcoverApp:startReading(filename)
+  if not self.settings:syncEnabled() then
+    self.settings:setSync(true)
+    self.state.process_page_turns = true
+  end
   if self:effectiveStatusId(filename) == HARDCOVER.STATUS.TO_READ then
     self.cache:updateBookStatus(filename, HARDCOVER.STATUS.READING)
     StatusDialogs.info(_("Now on your 'Currently Reading' shelf"), 2)
@@ -603,15 +607,17 @@ function HardcoverApp:pageUpdateEvent(page)
   self.state.last_page = self.state.page
   self.state.page = page
 
-  if not self.settings:syncEnabled() then
-    return
-  end
   if not (self.state.book_status.id or self.settings:bookLinked()) then
     return
   end
   --logger.warn("HARDCOVER page update event pending")
+  -- counted whether or not tracking is on: tracking is off for every book until it is turned on,
+  -- and "start reading?" is how a book that is not being read gets there
   if self:pageWriteDecision(self.ui.document.file) == "ask" then
     self:countPageForStart(self.ui.document.file, self.state.last_page, page)
+  end
+  if not self.settings:syncEnabled() then
+    return
   end
   local document_pages = self.ui.document:getPageCount()
   local remote_pages = self.settings:pages()
@@ -664,6 +670,10 @@ function HardcoverApp:onReaderReady()
 
   if self.ui.document and (self.settings:syncEnabled() or (not self.settings:bookLinked() and self.settings:autolinkEnabled())) then
     UIManager:scheduleIn(2, self.startReadCache, self)
+  elseif self.ui.document and self.settings:bookLinked() then
+    -- tracking is off: nothing is sent, but page turns are still counted for "Start reading this book?"
+    self.cache:hydrateBookStatus(self.ui.document.file)
+    self.state.process_page_turns = true
   end
 
   UIManager:scheduleIn(3, self.askAboutOpenBook, self)

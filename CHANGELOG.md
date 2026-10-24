@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- **"Start reading this book?" now appears when tracking is off.** It was only asked for a book with "Update Hardcover as I read" on, and tracking is off for every book until you turn it on, so the question almost never came. A linked book that is not on Currently Reading is now counted from the moment it is opened, whether tracking is on or not. Nothing is sent while it is only counted; saying yes turns tracking on for that book.
 - **Smaller buttons on the book details screen.** The round buttons and their captions are back to a size that fits the screen, and the Open / Find on device button is its normal height again.
 
 ## 2.3.1
