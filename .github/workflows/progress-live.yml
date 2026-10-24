@@ -2,6 +2,11 @@ name: Progress journal diagnostic
 
 on:
   workflow_dispatch:
+    inputs:
+      window:
+        description: 'Find how long Hardcover folds page updates into one journal row (about 45 minutes)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -14,7 +19,7 @@ jobs:
   progress:
     if: github.repository == 'CaptainCamin/HardcoverSync.koplugin'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,4 +30,5 @@ jobs:
         env:
           HARDCOVER_DEV_KEY: ${{ secrets.HARDCOVER_DEV_KEY }}
           HARDCOVER_LIVE_PROGRESS_ONLY: '1'
+          HARDCOVER_LIVE_PROGRESS_WINDOW: ${{ inputs.window && '1' || '' }}
         run: luajit spec/live/hardcover_live.lua .

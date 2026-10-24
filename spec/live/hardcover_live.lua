@@ -386,6 +386,43 @@ if os.getenv("HARDCOVER_LIVE_PROGRESS_ONLY") == "1" then
     end
     return rowsSince(label, 6)
   end
+  -- HARDCOVER_LIVE_PROGRESS_WINDOW=1: how long Hardcover keeps folding page updates into its latest
+  -- progress row. One undated write after each growing wait; for each, say whether a new row was
+  -- made or the latest one was changed in place.
+  if os.getenv("HARDCOVER_LIVE_PROGRESS_WINDOW") == "1" then
+    local function latest()
+      local ok, result = pcall(function()
+        return Api:query([[query { reading_journals(where: { user_id: { _eq: ]] .. math.floor(ctx.user_id) .. [[ }, book_id: { _eq: ]] .. math.floor(ctx.book_id) .. [[ }, event: { _eq: "progress_updated" } }, order_by: { id: desc }, limit: 1) { id action_at created_at metadata } }]])
+      end)
+      return ok and result and result.reading_journals and result.reading_journals[1] or nil
+    end
+    step("progress row window", function()
+      local waits = { 0, 30, 60, 120, 240, 480, 900, 1200 }
+      local last_id = 0
+      local base = latest()
+      if base then last_id = tonumber(base.id) end
+      local at_start = os.time()
+      for i, wait in ipairs(waits) do
+        if wait > 0 then os.execute("sleep " .. wait) end
+        local page = 30 + i * 7
+        local sent_at = os.time()
+        Api:updatePage(ctx.read_id, ctx.edition_id, page, nil, nil)
+        os.execute("sleep 12")
+        local row = latest()
+        local verdict, detail = "no row at all", ""
+        if row then
+          local m = row.metadata or {}
+          detail = string.format("row %s pages %s -> %s, created %s", tostring(row.id), tostring(m.progress_pages_was), tostring(m.progress_pages), tostring(row.created_at))
+          if tonumber(row.id) > last_id then verdict = "NEW ROW"
+          elseif tonumber(m.progress_pages) == page then verdict = "MERGED into the latest row"
+          else verdict = "not shown yet" end
+          last_id = math.max(last_id, tonumber(row.id))
+          made[#made + 1] = tonumber(row.id)
+        end
+        print(string.format("  write %d (page %d) after waiting %ds (%d s since the start): %s; %s", i, page, wait, sent_at - at_start, verdict, detail))
+      end
+    end)
+  else
   step("why rows go missing", function()
     local results = {}
     results[#results + 1] = "plain, fast: " .. burst("1: undated, as fast as the rate limit allows", 0, nil) .. "/6"
@@ -395,6 +432,7 @@ if os.getenv("HARDCOVER_LIVE_PROGRESS_ONLY") == "1" then
     results[#results + 1] = "dated days, fast: " .. burst("5: dated a day apart, sent fast", 0, function(i) return (7 - i) * 86400 end) .. "/6"
     print("  SUMMARY " .. table.concat(results, " | "))
   end)
+  end
   for _, id in ipairs(made) do
     step("delete journal entry " .. id, function() Api:deleteJournalEntry(id) end)
   end
