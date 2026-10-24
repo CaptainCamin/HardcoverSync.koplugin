@@ -88,4 +88,15 @@ function SyncConflicts.documentPage(edition_page, edition_pages, document_pages)
   return math.max(1, math.min(document_pages, page))
 end
 
+-- On opening a book online: is Hardcover's page far enough ahead of ours to
+-- offer a jump? Same distance as the sync conflict question, and a "Stay here"
+-- is remembered for that Hardcover page so it is not asked again until
+-- Hardcover moves on.
+function SyncConflicts.shouldOfferJump(cloud_page, local_page, declined_page, min_ahead)
+  cloud_page, local_page = tonumber(cloud_page), tonumber(local_page)
+  if not (cloud_page and local_page) then return false end
+  if declined_page and tonumber(declined_page) == cloud_page then return false end
+  return cloud_page - local_page >= min_ahead
+end
+
 return SyncConflicts
