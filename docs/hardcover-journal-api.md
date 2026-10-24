@@ -71,3 +71,9 @@ Who you follow: `me { followed_users { followed_user_id } }` returns the ids (th
 - Likes and comments on entries.
 - Event names for Currently Reading and Paused were not seen; the tab guesses `status_currently_reading` and `status_paused`, and says "Changed the status" for any other `status_` event.
 - What the followed users' activity looks like at scale: the test account follows two readers.
+
+## Progress entries and `action_at` (checked 2026-10-24)
+
+Sending a page with `update_user_book_read` makes Hardcover write a `progress_updated` journal row for the user, within a few seconds, with `pages_delta`, `percent_delta`, `progress_was`, `progress_pages_was` and `seconds_delta` (0 unless a time is sent) worked out by the server. The row's `action_at` is the time the page arrived, unless the mutation's `object` carries `action_at` (`timestamptz`, ISO 8601 UTC): then the row has that exact time (a time five days back came back unchanged, to the second) and `journal_date` follows. The plugin sends it from the sync queue (`SyncQueue:_pageSteps`). Hand-written `progress_updated` rows through `insert_reading_journal` are accepted but keep only `progress_pages` and `progress_pages_was`, so they are not used.
+
+Open question: of two back-dated writes in a row, one produced no new row within 40 seconds (the next one did, and counted the first page as its starting point). The cause is not known, so a trail of many back-dated pages may lose entries.

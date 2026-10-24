@@ -232,4 +232,22 @@ check("updateReview sends the text as a Slate document with the spoiler flag, an
   assert(none == nil and err.status == 503)
 end)
 
+check("a page is sent with the time it was read only when there is one", function()
+  local original = Api.query
+  local seen
+  Api.query = function(_, query, variables) seen = { query = query, variables = variables } return {} end
+  Api:updatePage(7, 3, 40, "2026-10-01")
+  assert(not seen.query:find("action_at", 1, true) and not seen.query:find("actionAt", 1, true),
+    "no time: the field is left out, since a missing variable would clear it")
+  Api:updatePage(7, 3, 40, "2026-10-01", "2026-10-23T18:04:11Z")
+  assert(seen.query:find("$actionAt: timestamptz", 1, true) and seen.query:find("action_at: $actionAt", 1, true))
+  assert(seen.variables.actionAt == "2026-10-23T18:04:11Z")
+  Api:createRead(9, 3, 12, "2026-10-01")
+  assert(not seen.query:find("actionAt", 1, true), "a new read without a time has no time")
+  Api:createRead(9, 3, 12, "2026-10-01", "2026-10-23T18:04:11Z")
+  assert(seen.query:find("$actionAt: timestamptz", 1, true) and seen.query:find("action_at: $actionAt", 1, true))
+  assert(seen.variables.actionAt == "2026-10-23T18:04:11Z")
+  Api.query = original
+end)
+
 r.finish()
