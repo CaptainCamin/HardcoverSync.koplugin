@@ -10,6 +10,7 @@
 
 ### Fixed
 
+- **Pages read offline are dated when you read them in the Journal.** A page sent after a reconnect used to appear in Hardcover's journal on the day it arrived, so a book read over several days offline looked like one day of reading. Each page now goes with the time it was read, and several days read offline are sent as one entry per day (the last page of each day), oldest first. Reading on the same day offline still gives one entry. Hardcover sometimes leaves out a dated entry even though the page is saved, so the journal may show fewer days than you read.
 - **"Start reading this book?" now appears when tracking is off.** It was only asked for a book with "Update Hardcover as I read" on, and tracking is off for every book until you turn it on, so the question almost never came. A linked book that is not on Currently Reading is now counted from the moment it is opened, whether tracking is on or not. Nothing is sent while it is only counted; saying yes turns tracking on for that book.
 - **Smaller buttons on the book details screen.** The round buttons and their captions are back to a size that fits the screen, and the Open / Find on device button is its normal height again.
 

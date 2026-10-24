@@ -338,6 +338,71 @@ step("createRead and updatePage", function()
   end
 end)
 
+-- Back-dated progress diagnostic (HARDCOVER_LIVE_PROGRESS_ONLY=1, progress-live.yml): sends bursts
+-- of pages through the plugin's own updatePage with action_at, and counts the journal rows
+-- Hardcover makes for them. Nothing here is plugin code; it cleans up what it made.
+if os.getenv("HARDCOVER_LIVE_PROGRESS_ONLY") == "1" then
+  local baseline = 0
+  local function newest()
+    local ok, result = pcall(function()
+      return Api:query([[query { reading_journals(where: { user_id: { _eq: ]] .. math.floor(ctx.user_id) .. [[ } }, order_by: { id: desc }, limit: 1) { id } }]])
+    end)
+    return (ok and result and result.reading_journals and result.reading_journals[1] and tonumber(result.reading_journals[1].id)) or 0
+  end
+  local made = {}
+  -- poll up to 60 s until `expected` rows newer than the last look exist
+  local function rowsSince(label, expected)
+    local list = {}
+    for _ = 1, 15 do
+      os.execute("sleep 4")
+      local ok, result = pcall(function()
+        return Api:query([[query { reading_journals(where: { user_id: { _eq: ]] .. math.floor(ctx.user_id) .. [[ }, book_id: { _eq: ]] .. math.floor(ctx.book_id) .. [[ }, event: { _eq: "progress_updated" }, id: { _gt: ]] .. baseline .. [[ } }, order_by: { id: asc }) { id action_at journal_date metadata } }]])
+      end)
+      list = ok and result and result.reading_journals or {}
+      if #list >= expected then break end
+    end
+    print(string.format("  %s: expected %d rows, got %d", label, expected, #list))
+    for _, row in ipairs(list) do
+      local m = row.metadata or {}
+      print(string.format("    id %s action_at %s pages %s -> %s", tostring(row.id), tostring(row.action_at), tostring(m.progress_pages_was), tostring(m.progress_pages)))
+      made[#made + 1] = tonumber(row.id)
+      baseline = math.max(baseline, tonumber(row.id))
+    end
+    return #list
+  end
+  local function send(page, secs_ago)
+    local at = secs_ago and os.date("!%Y-%m-%dT%H:%M:%SZ", os.time() - secs_ago) or nil
+    local result = Api:updatePage(ctx.read_id, ctx.edition_id, page, nil, at)
+    if result == nil then print("  updatePage " .. page .. " was refused") end
+  end
+  local page = 20
+  -- six writes `gap` seconds apart; `ago(i)` is how long before now write i was "read" (nil: undated)
+  local function burst(label, gap, ago)
+    baseline = newest()
+    for i = 1, 6 do
+      page = page + 5
+      send(page, ago and ago(i) or nil)
+      if gap > 0 and i < 6 then os.execute("sleep " .. gap) end
+    end
+    return rowsSince(label, 6)
+  end
+  step("why rows go missing", function()
+    local results = {}
+    results[#results + 1] = "plain, fast: " .. burst("1: undated, as fast as the rate limit allows", 0, nil) .. "/6"
+    results[#results + 1] = "plain, 15 s: " .. burst("2: undated, 15 s apart", 15, nil) .. "/6"
+    results[#results + 1] = "dated, 15 s: " .. burst("3: dated 30 min apart, sent 15 s apart", 15, function(i) return (7 - i) * 1800 end) .. "/6"
+    results[#results + 1] = "dated days, 15 s: " .. burst("4: dated a day apart, sent 15 s apart", 15, function(i) return (7 - i) * 86400 end) .. "/6"
+    results[#results + 1] = "dated days, fast: " .. burst("5: dated a day apart, sent fast", 0, function(i) return (7 - i) * 86400 end) .. "/6"
+    print("  SUMMARY " .. table.concat(results, " | "))
+  end)
+  for _, id in ipairs(made) do
+    step("delete journal entry " .. id, function() Api:deleteJournalEntry(id) end)
+  end
+  step("remove the user book", function() is_table(Api:removeUserBook(ctx.user_book_id), "removal") end)
+  r.finish()
+  return
+end
+
 step("setFinishedDate: a book finished earlier keeps that day, and the read keeps its page and start", function()
   local finished = is_table(Api:updateUserBook(need(ctx.book_id, "book id"), 3, nil, ctx.edition_id), "finished user book")
   -- (Hardcover itself moves a finished read to the last page, and dates it today)
