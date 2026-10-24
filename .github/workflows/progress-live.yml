@@ -1,0 +1,33 @@
+name: Progress journal diagnostic
+
+on:
+  push:
+    branches: [claude/project-thread-npzj2w]
+    paths:
+      - .github/workflows/progress-live.yml
+      - spec/live/hardcover_live.lua
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-hardcover
+  cancel-in-progress: false
+
+jobs:
+  progress:
+    if: github.repository == 'CaptainCamin/HardcoverSync.koplugin'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install LuaJIT
+        run: sudo apt-get install -y luajit
+      - name: Back-date progress on the test account
+        env:
+          HARDCOVER_DEV_KEY: ${{ secrets.HARDCOVER_DEV_KEY }}
+          HARDCOVER_LIVE_PROGRESS_ONLY: '1'
+        run: luajit spec/live/hardcover_live.lua .
