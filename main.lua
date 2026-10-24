@@ -689,6 +689,7 @@ function HardcoverApp:onDocumentClose()
   self:cancelPendingUpdates()
   self.state.read_cache_started = false
   self.state.start_reading = nil
+  self.state.jump_offered = nil
 
   if not self.state.book_status.id and not self.settings:syncEnabled() and not self.sync_queue:hasPending() then
     self.state.process_page_turns = false
@@ -923,6 +924,45 @@ function HardcoverApp:askAboutOpenBook()
   elseif resume then
     offer_jump()
   end
+end
+
+-- Online with the book open, Hardcover has you further along than this device
+-- (you read on another device): offer to jump there, once per opening. Skipped
+-- when this device has changes waiting (the sync conflict question covers it),
+-- when the book is not being read, and after a "Stay here" for that same page.
+function HardcoverApp:offerJumpToCloudPage()
+  local file = self.ui.document and self.ui.document.file
+  if not file or self.state.jump_offered or not NetworkManager:isConnected() then return end
+  if self.sync_queue:hasPending(file) then return end
+
+  local status = self.state.book_status
+  if not (status and status.id and status.status_id == HARDCOVER.STATUS.READING) then return end
+  local reads = status.user_book_reads
+  local cloud_page = reads and reads[#reads] and tonumber(reads[#reads].progress_pages)
+  local pages = self.settings:pages()
+  local document_pages = self.ui.document:getPageCount()
+  local current = self.ui.getCurrentPage and self.ui:getCurrentPage()
+  if not (cloud_page and pages and current) then return end
+
+  local local_page = self.page_mapper:getMappedPage(current, document_pages, pages)
+  local declined = self.settings:readBookSetting(file, "jump_declined_page")
+  if not SyncConflicts.shouldOfferJump(cloud_page, local_page, declined, SyncQueue.CONFLICT_PAGES) then return end
+
+  local target = SyncConflicts.documentPage(cloud_page, pages, document_pages)
+  if not target then return end
+  self.state.jump_offered = true
+  StatusDialogs.confirm {
+    title = T(_("Jump to page %1?"), cloud_page),
+    text = _("Hardcover is further along than this device."),
+    ok_text = _("Jump"),
+    cancel_text = _("Stay here"),
+    ok_callback = function()
+      self.ui:handleEvent(Event:new("GotoPage", target))
+    end,
+    cancel_callback = function()
+      self.settings:updateBookSetting(file, { jump_declined_page = cloud_page })
+    end,
+  }
 end
 
 -- Send the goal changes made offline. Returns false when something is still
@@ -1299,6 +1339,7 @@ function HardcoverApp:startReadCache()
 
         self.state.process_page_turns = true
       end
+      self:offerJumpToCloudPage()
     end,
 
     -- a system event, not something the reader did: a plain toast, not a snackbar
