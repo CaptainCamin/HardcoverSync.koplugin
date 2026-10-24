@@ -38,10 +38,12 @@ function HardcoverMenu:new(o)
   }, self)
 end
 
-local function findItem(items, prefix)
+-- `anywhere` also matches after the icon some items start with
+local function findItem(items, prefix, anywhere)
   for _, item in ipairs(items) do
     local text = item.text or (item.text_func and item.text_func())
-    if type(text) == "string" and text:find(prefix, 1, true) == 1 then return item end
+    local at = type(text) == "string" and text:find(prefix, 1, true)
+    if at and (anywhere or at == 1) then return item end
   end
 end
 
@@ -236,7 +238,7 @@ function HardcoverMenu:showReaderPanel()
       reread = { text = _("Read again"), run = function() self:readAgain() end },
       restart = { text = _("Start over"), run = function() self:readAgain(true) end },
       resume = { text = _("Resume"), run = function() self:resumeReading() end },
-      start = { text = _("Start reading"), run = function() run(status_items[2]) end },
+      start = { text = _("Start reading"), run = function() run(findItem(status_items, "Currently Reading", true)) end },
       shelf = { text = _("Add to shelf"), run = function() run(status_item) end },
     }
     local shelf_action = facts.action and contextual[facts.action]

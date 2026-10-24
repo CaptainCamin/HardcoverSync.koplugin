@@ -352,7 +352,7 @@ function BookDetailDialog:init()
   end
   if primary_field then
     self[primary_field] = Button.new {
-      label = primary_label, w = width, primary = true, viewport = viewport,
+      label = primary_label, w = width, h = Theme.TOUCH_MIN, size = 19, primary = true, viewport = viewport,
       callback = function()
         local fn = self[primary_handler]
         if fn then fn(self) end
@@ -365,7 +365,7 @@ function BookDetailDialog:init()
   local function add_round(field, icon, text, handler, available)
     if not available then return end
     self[field] = Button.round {
-      icon = icon, label = text, scale = "large", label_size = Theme.type.title,
+      icon = icon, label = text, label_size = 18,
       label_width = width, viewport = viewport,
       callback = function()
         local fn = self[handler]
@@ -382,8 +382,8 @@ function BookDetailDialog:init()
   add_round("review_button", "edit", _("Your review"), "on_review", self.on_review)
   add_round("edition_button", "link", _("Edition"), "on_edition", self.on_edition)
   if #round > 0 then
-    -- Keep readable captions and full-size circles. More actions take another row
-    -- instead of shrinking the controls or clipping a label such as "Your review".
+    -- More actions take another row instead of shrinking the controls or clipping a label
+    -- such as "Your review".
     local min_slot = 0
     for _, b in ipairs(round) do min_slot = math.max(min_slot, b:getSize().w + Theme.space.s) end
     local max_cols = math.max(1, math.floor(width / min_slot))
