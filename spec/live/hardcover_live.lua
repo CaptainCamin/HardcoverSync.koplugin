@@ -375,20 +375,25 @@ if os.getenv("HARDCOVER_LIVE_PROGRESS_ONLY") == "1" then
     local result = Api:updatePage(ctx.read_id, ctx.edition_id, page, nil, at)
     if result == nil then print("  updatePage " .. page .. " was refused") end
   end
-  step("back-dated bursts", function()
+  local page = 20
+  -- six writes `gap` seconds apart; `ago(i)` is how long before now write i was "read" (nil: undated)
+  local function burst(label, gap, ago)
     baseline = newest()
-    -- A: six writes in the order the queue sends them: oldest first, one per day
-    for i = 1, 6 do send(20 + i * 10, (7 - i) * 86400) end
-    local a = rowsSince("A: six days oldest first", 6)
-    -- B: the pattern that once lost a row: a plain write, then 3 days back, then 5 days back
-    send(75)
-    send(80, 3 * 86400)
-    send(85, 5 * 86400)
-    local b = rowsSince("B: plain, then 3 d back, then 5 d back", 3)
-    -- C: six writes minutes apart, as sessions would be
-    for i = 1, 6 do send(90 + i, (7 - i) * 1800) end
-    local c = rowsSince("C: six sessions 30 min apart", 6)
-    print(string.format("  rows: A %d/6, B %d/3, C %d/6", a, b, c))
+    for i = 1, 6 do
+      page = page + 5
+      send(page, ago and ago(i) or nil)
+      if gap > 0 and i < 6 then os.execute("sleep " .. gap) end
+    end
+    return rowsSince(label, 6)
+  end
+  step("why rows go missing", function()
+    local results = {}
+    results[#results + 1] = "plain, fast: " .. burst("1: undated, as fast as the rate limit allows", 0, nil) .. "/6"
+    results[#results + 1] = "plain, 15 s: " .. burst("2: undated, 15 s apart", 15, nil) .. "/6"
+    results[#results + 1] = "dated, 15 s: " .. burst("3: dated 30 min apart, sent 15 s apart", 15, function(i) return (7 - i) * 1800 end) .. "/6"
+    results[#results + 1] = "dated days, 15 s: " .. burst("4: dated a day apart, sent 15 s apart", 15, function(i) return (7 - i) * 86400 end) .. "/6"
+    results[#results + 1] = "dated days, fast: " .. burst("5: dated a day apart, sent fast", 0, function(i) return (7 - i) * 86400 end) .. "/6"
+    print("  SUMMARY " .. table.concat(results, " | "))
   end)
   for _, id in ipairs(made) do
     step("delete journal entry " .. id, function() Api:deleteJournalEntry(id) end)
