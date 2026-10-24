@@ -254,13 +254,13 @@ local function fakeApi(opts)
       calls[#calls + 1] = { op = "setFinishedDate", date = date }
       return user_book
     end,
-    updatePage = function(_, read_id, edition_id, page)
-      calls[#calls + 1] = { op = "updatePage", read_id = read_id, edition_id = edition_id, page = page }
+    updatePage = function(_, read_id, edition_id, page, started_at, action_at)
+      calls[#calls + 1] = { op = "updatePage", read_id = read_id, edition_id = edition_id, page = page, action_at = action_at }
       if opts.page_fails then return nil end
       return { id = 500, status_id = HARDCOVER.STATUS.READING, user_book_reads = {} }
     end,
-    createRead = function(_, user_book_id, edition_id, page)
-      calls[#calls + 1] = { op = "createRead", user_book_id = user_book_id, page = page }
+    createRead = function(_, user_book_id, edition_id, page, started_at, action_at)
+      calls[#calls + 1] = { op = "createRead", user_book_id = user_book_id, page = page, action_at = action_at }
       return { id = 500, status_id = HARDCOVER.STATUS.READING, user_book_reads = {} }
     end,
   }
@@ -284,6 +284,126 @@ check("a queued page is sent and then cleared", function()
     if c.op == "updatePage" and c.page == 77 then saw_page = true end
   end
   eq(saw_page, true, "the page reached the api")
+end)
+
+-- Reading over several days offline: one dated progress entry per day, oldest first.
+local function atTimes(times, fn)
+  -- queue calls os.time() more than once per page, so the clock moves only when the test says
+  local real, now = os.time, times[1]
+  os.time = function(t) if t then return real(t) end return now end
+  local ok, err = pcall(fn, function(i) now = times[i] end)
+  os.time = real
+  if not ok then error(err, 0) end
+end
+
+local DAY = 86400
+local T0 = 1760000000 -- 2025-10-09, mid-afternoon UTC
+
+check("pages read on separate days are sent one per day, each with the time it was read", function()
+  local q = newQueue()
+  atTimes({ T0, T0 + DAY, T0 + 2 * DAY }, function(at)
+    q:enqueuePage("/books/a.epub", { mapped_page = 30, book_id = 1, edition_id = 3 })
+    at(2)
+    q:enqueuePage("/books/a.epub", { mapped_page = 80, book_id = 1, edition_id = 3 })
+    at(3)
+    q:enqueuePage("/books/a.epub", { mapped_page = 120, book_id = 1, edition_id = 3 })
+  end)
+  local api = fakeApi()
+  eq(q:flush(api, { user_id = 1 }), true, "flush result")
+  local sent = {}
+  for _, c in ipairs(api.calls) do if c.op == "updatePage" then sent[#sent + 1] = c end end
+  eq(#sent, 3, "one write per day")
+  eq(sent[1].page, 30, "oldest day first")
+  eq(sent[2].page, 80, "next day")
+  eq(sent[3].page, 120, "the latest page last")
+  eq(sent[1].action_at, os.date("!%Y-%m-%dT%H:%M:%SZ", T0), "first day's time")
+  eq(sent[3].action_at, os.date("!%Y-%m-%dT%H:%M:%SZ", T0 + 2 * DAY), "last day's time")
+  eq(q:hasPending(), false, "queue drained")
+end)
+
+check("several pages on one day are sent as the last of that day", function()
+  local q = newQueue()
+  atTimes({ T0, T0 + 60, T0 + 120 }, function(at)
+    q:enqueuePage("/books/a.epub", { mapped_page = 10, book_id = 1, edition_id = 3 })
+    at(2)
+    q:enqueuePage("/books/a.epub", { mapped_page = 11, book_id = 1, edition_id = 3 })
+    at(3)
+    q:enqueuePage("/books/a.epub", { mapped_page = 12, book_id = 1, edition_id = 3 })
+  end)
+  eq(#q:get("/books/a.epub").page_days, 1, "one entry for the day")
+  local api = fakeApi()
+  q:flush(api, { user_id = 1 })
+  local sent = {}
+  for _, c in ipairs(api.calls) do if c.op == "updatePage" then sent[#sent + 1] = c end end
+  eq(#sent, 1, "one write")
+  eq(sent[1].page, 12, "the last page of the day")
+  eq(sent[1].action_at, os.date("!%Y-%m-%dT%H:%M:%SZ", T0 + 120), "dated when it was read")
+end)
+
+check("an earlier day Hardcover is already past is not sent", function()
+  local q = newQueue()
+  atTimes({ T0, T0 + DAY }, function(at)
+    q:enqueuePage("/books/a.epub", { mapped_page = 5, book_id = 1, edition_id = 3 })
+    at(2)
+    q:enqueuePage("/books/a.epub", { mapped_page = 50, book_id = 1, edition_id = 3 })
+  end)
+  local api = fakeApi()
+  local find = api.findUserBook
+  api.findUserBook = function(self, ...)
+    local ub = find(self, ...)
+    ub.user_book_reads[1].progress_pages = 20
+    return ub
+  end
+  q:flush(api, { user_id = 1 })
+  local sent = {}
+  for _, c in ipairs(api.calls) do if c.op == "updatePage" then sent[#sent + 1] = c.page end end
+  eq(table.concat(sent, ","), "50", "only the page that moves the read forward")
+end)
+
+check("a day that was sent is not sent again after a failure later in the trail", function()
+  local q = newQueue()
+  atTimes({ T0, T0 + DAY }, function(at)
+    q:enqueuePage("/books/a.epub", { mapped_page = 30, book_id = 1, edition_id = 3 })
+    at(2)
+    q:enqueuePage("/books/a.epub", { mapped_page = 90, book_id = 1, edition_id = 3 })
+  end)
+  local api = fakeApi()
+  local update = api.updatePage
+  api.updatePage = function(self, read_id, edition_id, page, started_at, action_at)
+    if page == 90 then table.insert(self.calls, { op = "updatePage", page = page }) return nil end
+    return update(self, read_id, edition_id, page, started_at, action_at)
+  end
+  eq(q:flush(api, { user_id = 1 }), false, "the flush is kept")
+  eq(#q:get("/books/a.epub").page_days, 1, "the sent day is gone, the latest stays")
+  local again = fakeApi()
+  q:flush(again, { user_id = 1 })
+  local sent = {}
+  for _, c in ipairs(again.calls) do if c.op == "updatePage" then sent[#sent + 1] = c.page end end
+  eq(table.concat(sent, ","), "90", "only the day that was left")
+end)
+
+check("a re-read does not carry the finished read's days", function()
+  local q = newQueue()
+  atTimes({ T0, T0 + DAY }, function(at)
+    q:enqueuePage("/books/a.epub", { mapped_page = 300, book_id = 1, edition_id = 3 })
+    at(2)
+    q:startReread("/books/a.epub", { mapped_page = 2, book_id = 1, edition_id = 3 })
+  end)
+  local days = q:get("/books/a.epub").page_days
+  eq(#days, 1, "one day")
+  eq(days[1].page, 2, "the new read's page")
+end)
+
+check("an entry queued before times were kept is sent undated", function()
+  local q = newQueue()
+  q:enqueuePage("/books/a.epub", { mapped_page = 40, book_id = 1, edition_id = 3 })
+  local entry = q:get("/books/a.epub")
+  entry.page_updated_at, entry.page_days = nil, nil
+  local api = fakeApi()
+  q:flush(api, { user_id = 1 })
+  for _, c in ipairs(api.calls) do
+    if c.op == "updatePage" then eq(c.action_at, nil, "no time sent") end
+  end
 end)
 
 check("a queued status is sent and then cleared", function()

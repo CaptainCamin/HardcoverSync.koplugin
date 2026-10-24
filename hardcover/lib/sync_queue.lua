@@ -103,6 +103,25 @@ function SyncQueue:_ensure(filepath, meta)
   return entry
 end
 
+-- The page the reader had reached at the end of each day, oldest first, so reading over several
+-- days offline reaches Hardcover as one dated progress entry per day instead of one entry for
+-- the day the connection came back. `entry.page_days` holds { day = "2026-10-23", page, at }; a
+-- page on the same local day replaces that day's. The last one is always mapped_page.
+SyncQueue.MAX_DAYS = 31
+
+function SyncQueue:_noteDay(entry)
+  local days = type(entry.page_days) == "table" and entry.page_days or {}
+  local day = os.date("%Y-%m-%d", entry.page_updated_at)
+  local last = days[#days]
+  if last and last.day == day then
+    last.page, last.at = entry.mapped_page, entry.page_updated_at
+  else
+    days[#days + 1] = { day = day, page = entry.mapped_page, at = entry.page_updated_at }
+  end
+  while #days > SyncQueue.MAX_DAYS do table.remove(days, 1) end
+  entry.page_days = days
+end
+
 function SyncQueue:enqueuePage(filepath, payload)
   -- No page to record: keep whatever is already queued rather than erase it
   if payload.mapped_page == nil then
@@ -112,6 +131,7 @@ function SyncQueue:enqueuePage(filepath, payload)
   entry.mapped_page = payload.mapped_page
   entry.page_updated_at = os.time()
   entry.first_page_date = entry.first_page_date or os.date("%Y-%m-%d")
+  self:_noteDay(entry)
   entry.failures = nil
   -- reading on changes the question being asked (and the user's earlier answer)
   entry.conflict = nil
@@ -126,6 +146,8 @@ function SyncQueue:startReread(filepath, payload)
   local held = self:shelfChangeWaiting(filepath)
   local origin = held and self:get(filepath).from_status_id
   local entry = self:enqueuePage(filepath, payload)
+  -- pages queued before the restart belong to the read that finished
+  entry.page_days = { entry.page_days[#entry.page_days] }
   entry.reread = true
   entry.from_status_id = origin or payload.from_status_id or 0
   self:persist()
@@ -173,7 +195,7 @@ end
 function SyncQueue:cancelPage(filepath)
   local entry = self:get(filepath)
   if type(entry) ~= "table" then return false end
-  entry.mapped_page, entry.page_updated_at = nil, nil
+  entry.mapped_page, entry.page_updated_at, entry.page_days = nil, nil, nil
   entry.force_page, entry.first_page_date, entry.reread = nil, nil, nil
   if entry.status_id == nil then entry.from_status_id = nil end
   entry.conflict, entry.failures = nil, nil
@@ -362,6 +384,7 @@ function SyncQueue:resolve(filepath, choice)
     self.settings:saveSetting("resume", resume)
     entry.mapped_page = nil
     entry.page_updated_at = nil
+    entry.page_days = nil
   elseif kind == "page" and choice == "local" then
     entry.force_page = true
   elseif kind == "reread" and choice == "yes" then
@@ -369,6 +392,7 @@ function SyncQueue:resolve(filepath, choice)
   elseif kind == "reread" and choice == "no" then
     entry.mapped_page = nil
     entry.page_updated_at = nil
+    entry.page_days = nil
   else
     return false
   end
@@ -416,6 +440,7 @@ function SyncQueue:_clearSent(filepath, sent)
   if sent.page ~= nil and entry.mapped_page == sent.page and entry.page_updated_at == sent.page_at then
     entry.mapped_page = nil
     entry.page_updated_at = nil
+    entry.page_days = nil
     entry.force_page = nil
     entry.reread = nil
   end
@@ -426,6 +451,35 @@ function SyncQueue:_clearSent(filepath, sent)
   end
   if self:isEmpty(entry) then
     self:pending()[filepath] = nil
+  end
+  self:persist()
+end
+
+-- The writes one queued page needs: the days read before the latest page (only those that
+-- move the read forward from what Hardcover has), then the latest page itself. Every one carries
+-- the time it was read.
+function SyncQueue:_pageSteps(entry, op, server_page)
+  local steps, above = {}, tonumber(server_page) or 0
+  for _, day in ipairs(type(entry.page_days) == "table" and entry.page_days or {}) do
+    if type(day) == "table" and (tonumber(day.at) or 0) > 0 and day.at < op.at
+      and tonumber(day.page) and day.page > above and day.page < op.value then
+      steps[#steps + 1] = { page = day.page, action_at = os.date("!%Y-%m-%dT%H:%M:%SZ", day.at), day = day.day }
+      above = day.page
+    end
+  end
+  -- an entry from before the time was kept has none: send the page undated rather than as 1970
+  steps[#steps + 1] = { page = op.value, action_at = op.at > 0 and os.date("!%Y-%m-%dT%H:%M:%SZ", op.at) or nil }
+  return steps
+end
+
+function SyncQueue:_dropDay(filepath, day)
+  local entry = self:get(filepath)
+  if not (day and type(entry) == "table" and type(entry.page_days) == "table") then return end
+  for i, item in ipairs(entry.page_days) do
+    if item.day == day then
+      table.remove(entry.page_days, i)
+      break
+    end
   end
   self:persist()
 end
@@ -603,27 +657,37 @@ function SyncQueue:_flushEntry(api, filepath, opts)
       end
 
       if not skip then
-        local result
-        if current_read and current_read.id then
-          result = api:updatePage(
-            current_read.id,
-            current_read.edition_id or edition_id,
-            op.value,
-            current_read.started_at or entry.started_at or entry.first_page_date
-          )
-        elseif user_book.id then
-          result = api:createRead(
-            user_book.id,
-            edition_id or user_book.edition_id,
-            op.value,
-            entry.started_at or entry.first_page_date or os.date("%Y-%m-%d")
-          )
+        -- Each earlier day goes first, dated when it was read, then the latest page. A day that
+        -- is sent leaves the list, so a retry after a failure does not send it twice.
+        local steps = self:_pageSteps(entry, op, server_page)
+        for _, step in ipairs(steps) do
+          local reads_now = user_book.user_book_reads
+          current_read = reads_now and reads_now[#reads_now] or current_read
+          local result
+          if current_read and current_read.id then
+            result = api:updatePage(
+              current_read.id,
+              current_read.edition_id or edition_id,
+              step.page,
+              current_read.started_at or entry.started_at or entry.first_page_date,
+              step.action_at
+            )
+          elseif user_book.id then
+            result = api:createRead(
+              user_book.id,
+              edition_id or user_book.edition_id,
+              step.page,
+              entry.started_at or entry.first_page_date or os.date("%Y-%m-%d"),
+              step.action_at
+            )
+          end
+          if not hasUserBook(result) then
+            countRejection(self, filepath)
+            return false
+          end
+          user_book = result
+          self:_dropDay(filepath, step.day)
         end
-        if not hasUserBook(result) then
-          countRejection(self, filepath)
-          return false
-        end
-        user_book = result
       end
       self:_clearSent(filepath, { page = op.value, page_at = op.at })
     end

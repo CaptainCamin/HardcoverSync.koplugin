@@ -1204,13 +1204,21 @@ function HardcoverApi:getCurrentlyReading(user_id, limit)
   end)
 end
 
-function HardcoverApi:createRead(user_book_id, edition_id, page, started_at)
+-- `action_at` (optional, "2026-10-23T18:04:11Z", UTC) is when the page was read. Hardcover stamps
+-- the progress entry it writes in the journal with it; without it the entry gets the time the page
+-- arrives, which is days late for a page read offline. Verified on the live API (see
+-- docs/hardcover-journal-api.md). It is declared only when given: a variable that is not sent reads
+-- as null.
+function HardcoverApi:createRead(user_book_id, edition_id, page, started_at, action_at)
+  local action_var = action_at ~= nil and ", $actionAt: timestamptz" or ""
+  local action_field = action_at ~= nil and "action_at: $actionAt," or ""
   local query = [[
-    mutation InsertUserBookRead($id: Int!, $pages: Int, $editionId: Int, $startedAt: date) {
+    mutation InsertUserBookRead($id: Int!, $pages: Int, $editionId: Int, $startedAt: date]] .. action_var .. [[) {
       insert_user_book_read(user_book_id: $id, user_book_read: {
         progress_pages: $pages,
         edition_id: $editionId,
         started_at: $startedAt,
+        ]] .. action_field .. [[
       }) {
         error
         user_book_read {
@@ -1232,24 +1240,29 @@ function HardcoverApi:createRead(user_book_id, edition_id, page, started_at)
     }
   ]]
 
-  local result = self:query(query, { id = user_book_id, pages = page, editionId = edition_id, startedAt = started_at })
+  local result = self:query(query, {
+    id = user_book_id, pages = page, editionId = edition_id, startedAt = started_at, actionAt = action_at,
+  })
   if result and result.insert_user_book_read then
     local user_book_read = result.insert_user_book_read.user_book_read
     return self:normalizeUserBookRead(user_book_read)
   end
 end
 
-function HardcoverApi:updatePage(user_read_id, edition_id, page, started_at)
+-- `action_at`: when the page was read, as for createRead.
+function HardcoverApi:updatePage(user_read_id, edition_id, page, started_at, action_at)
   -- A variable that is not sent reads as null, and null clears the read's start date (and the
   -- date on the journal's "started" entry), so without a date the field is left out.
   local started_var = started_at ~= nil and ", $startedAt: date" or ""
   local started_field = started_at ~= nil and "started_at: $startedAt," or ""
+  local action_var = action_at ~= nil and ", $actionAt: timestamptz" or ""
+  local action_field = action_at ~= nil and "action_at: $actionAt," or ""
   local query = [[
-    mutation UpdateBookProgress($id: Int!, $pages: Int, $editionId: Int]] .. started_var .. [[) {
+    mutation UpdateBookProgress($id: Int!, $pages: Int, $editionId: Int]] .. started_var .. action_var .. [[) {
       update_user_book_read(id: $id, object: {
         progress_pages: $pages,
         edition_id: $editionId,
-        ]] .. started_field .. [[
+        ]] .. started_field .. action_field .. [[
       }) {
         error
         user_book_read {
@@ -1271,7 +1284,9 @@ function HardcoverApi:updatePage(user_read_id, edition_id, page, started_at)
     }
   ]]
 
-  local result = self:query(query, { id = user_read_id, pages = page, editionId = edition_id, startedAt = started_at })
+  local result = self:query(query, {
+    id = user_read_id, pages = page, editionId = edition_id, startedAt = started_at, actionAt = action_at,
+  })
   if result and result.update_user_book_read then
     return self:normalizeUserBookRead(result.update_user_book_read.user_book_read)
   end
