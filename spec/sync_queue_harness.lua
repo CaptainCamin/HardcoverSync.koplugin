@@ -765,6 +765,35 @@ check("a status survives being rebuilt from settings", function()
   eq(e.privacy_setting_id, 2, "privacy_setting_id")
 end)
 
+-- Want to Read -> Currently Reading -> read a bit -> Paused, all offline.
+local function pausedAfterReading(page_after_pause)
+  local q = newQueue()
+  local f = "/books/a.epub"
+  q:enqueueStatus(f, { status_id = HARDCOVER.STATUS.READING, book_id = 1, edition_id = 3, from_status_id = HARDCOVER.STATUS.TO_READ })
+  q:enqueuePage(f, { mapped_page = 40, book_id = 1, edition_id = 3 })
+  q:enqueueStatus(f, { status_id = HARDCOVER.STATUS.PAUSED, book_id = 1, edition_id = 3, from_status_id = HARDCOVER.STATUS.READING })
+  local e = q:get(f)
+  e.status_updated_at = 1000
+  e.page_updated_at = page_after_pause and 1001 or 999
+  return q, f
+end
+
+check("Paused after offline reading on a Want to Read book is sent", function()
+  local q, f = pausedAfterReading(false)
+  local api = existingBookApi(HARDCOVER.STATUS.TO_READ)
+  eq(q:flush(api, { user_id = 1 }), true, "flush result")
+  eq(api.new_status, HARDCOVER.STATUS.PAUSED, "ends on Paused")
+  eq(q:hasPending(f), false, "the entry is cleared")
+end)
+
+check("a page turn after Paused does not hold the Paused status back", function()
+  local q, f = pausedAfterReading(true)
+  local api = existingBookApi(HARDCOVER.STATUS.TO_READ)
+  eq(q:flush(api, { user_id = 1 }), true, "flush result")
+  eq(api.new_status, HARDCOVER.STATUS.PAUSED, "ends on Paused")
+  eq(q:hasPending(f), false, "the entry is cleared")
+end)
+
 print("")
 print(string.format("  %d passed, %d failed", results.passed, results.failed))
 os.exit(results.failed == 0 and 0 or 1)
