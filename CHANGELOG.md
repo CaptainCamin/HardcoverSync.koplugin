@@ -4,7 +4,7 @@
 
 ### Added
 
-- **Add entry on the book's journal.** The Journal screen opened from the reader panel has an "Add entry" button along the bottom. It offers Note, Quote and Review (Edit your review when you already have one), using the same forms as before, offline included. What you add shows in the list at once. The highlight shortcut and the book page's review button are unchanged.
+- **Add to the book's journal.** The Journal screen opened from the reader panel has a plus button at the bottom right. It offers Note, Quote and Review (Edit your review when you already have one), using the same forms as before, offline included. What you add shows in the list at once. The highlight shortcut and the book page's review button are unchanged.
 
 ### Fixed
 

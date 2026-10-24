@@ -40,7 +40,6 @@ return {
       "the journal should ask for this book's own entries only")
     emu:expectText("Journal")
     emu:expectText("Fear is the mind-killer")
-    emu:expectText("Add entry")
     emu:shot("book_journal")
     screen:onClose()
     emu:pump()
