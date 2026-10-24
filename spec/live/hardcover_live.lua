@@ -95,7 +95,7 @@ for _, name in ipairs({
 end
 
 local failures_http = {}
-local activity_only = os.getenv("HARDCOVER_LIVE_ACTIVITY_ONLY") == "1"
+local journal_only = os.getenv("HARDCOVER_LIVE_JOURNAL_ONLY") == "1"
 local request_label = "me"
 local API_URL = "https://api.hardcover.app/v1/graphql"
 Api.transport = {
@@ -128,11 +128,11 @@ Api.transport = {
     if not code:match("^2") then
       failures_http[#failures_http + 1] = code
     end
-    if activity_only then
+    if journal_only then
       print("    " .. request_label .. ": HTTP " .. code)
       local ok, response = pcall(json.decode, content or "")
       if ok and type(response) == "table" then
-        -- Only error details, never the token or returned account/feed content.
+        -- Only error details, never the token or returned account or journal content.
         if type(response.error) == "string" then print("    error: " .. response.error) end
         if type(response.error_description) == "string" then
           print("    description: " .. response.error_description)
@@ -195,24 +195,19 @@ if not ctx.user_id then
   r.finish()
 end
 
--- A targeted diagnostic for the Activity screen. Return before any mutation or
--- exploratory probe below; this mode only reads the account and feed.
-if activity_only then
-  local Feed = require("hardcover/lib/feed")
-  for _, mode in ipairs({ "full", "status", "note", "quote", "review" }) do
-    request_label = mode .. " activity"
-    step(request_label, function()
-      local page = is_table(Api:getFeed({
-        me_id = ctx.user_id, mine = true, limit = Feed.PAGE_SIZE,
-        kinds = mode ~= "full" and { mode } or nil,
-      }), "activity page")
-      for _, entry in ipairs(page.entries) do
-        if entry.user_id ~= ctx.user_id then error("journal returned another reader's entry", 0) end
-      end
-      print(string.format("    entries=%d, more=%s, page size=%d",
-        #page.entries, tostring(page.more), Feed.PAGE_SIZE))
-    end)
-  end
+-- A targeted diagnostic for the Journal tab. Return before any mutation or exploratory probe
+-- below; this mode only reads the account and the journal.
+if journal_only then
+  local Journal = require("hardcover/lib/journal")
+  request_label = "journal"
+  step("journal: the first page", function()
+    local page = is_table(Api:getJournal({ me_id = ctx.user_id, offset = 0, limit = Journal.PAGE_SIZE }), "journal page")
+    for _, entry in ipairs(page.entries) do
+      if entry.user_id ~= ctx.user_id then error("journal returned another reader's entry", 0) end
+    end
+    print(string.format("    rows=%d, entries=%d, more=%s, page size=%d",
+      page.count, #page.entries, tostring(page.more), Journal.PAGE_SIZE))
+  end)
   step("no HTTP refusals", function()
     if #failures_http > 0 then error(table.concat(failures_http, ","), 0) end
   end)
@@ -466,35 +461,38 @@ step("updateJournalEntry and deleteJournalEntry: a note changed, read back, then
   if not gone then error("journal " .. id .. " is still there after the delete", 0) end
 end)
 
--- The activity feed, as the plugin asks for it (HardcoverApi:getFeed): your own private note comes
--- back in a note-only feed, and the full feed of you and the readers you follow pages cleanly.
-step("getFeed: your note, then the full feed and its next page", function()
-  local id = createJournal("note", "hardcoversync live check: feed note")
-  local found
+-- Your journal, as the Journal tab asks for it (HardcoverApi:getJournal): your new note is on the
+-- first page with its book, every entry is yours and newest first, and the next page (by offset)
+-- carries on from it.
+step("getJournal: your note on the first page, then the next page", function()
+  local Journal = require("hardcover/lib/journal")
+  local id = createJournal("note", "hardcoversync live check: journal note")
+  local first, found
   for _ = 1, 4 do
-    local page = is_table(Api:getFeed({ me_id = ctx.user_id, mine = true, kinds = { "note" }, limit = 10 }), "the feed")
-    for _, e in ipairs(page.entries) do
-      if e.kind == "note" and e.text == "hardcoversync live check: feed note" then found = e end
+    first = is_table(Api:getJournal({ me_id = ctx.user_id, offset = 0, limit = 10 }), "the first page")
+    for _, e in ipairs(first.entries) do
+      if e.kind == "note" and e.text == "hardcoversync live check: journal note" then found = e end
     end
     if found then break end
     os.execute("sleep 2")
   end
-  if not found then error("the new note (journal " .. id .. ") is not in the feed", 0) end
-  if found.title == "A book" then error("the entry has no book title", 0) end
-
-  local followed = is_table(Api:getFollowedIds(), "followed ids")
-  local first = is_table(Api:getFeed({ me_id = ctx.user_id, user_ids = followed, limit = 5 }), "the full feed")
-  print(string.format("    full feed: %d entries, %d readers followed, more=%s", #first.entries, #followed, tostring(first.more)))
-  for i = 2, #first.entries do
-    if first.entries[i - 1].at < first.entries[i].at then error("the feed is not newest first", 0) end
+  if not found then error("the new note (journal " .. id .. ") is not on the first page", 0) end
+  if found.title == "A book" or not found.authors then error("the entry has no book title or authors", 0) end
+  if found.id ~= id then error("the entry's id is " .. tostring(found.id), 0) end
+  if first.count ~= 10 or not first.more then error("a full first page should say there is more", 0) end
+  local kinds = {}
+  for i, e in ipairs(first.entries) do
+    if e.user_id ~= ctx.user_id then error("the journal returned another reader's entry", 0) end
+    if i > 1 and (Journal.epoch(first.entries[i - 1].at) or 0) < (Journal.epoch(e.at) or 0) then
+      error("the journal is not newest first", 0)
+    end
+    kinds[#kinds + 1] = e.kind == "event" and e.event or e.kind
   end
-  if first.cursor then
-    local second = is_table(Api:getFeed({ me_id = ctx.user_id, user_ids = followed, limit = 5, before = first.cursor }), "the next page")
-    local Feed = require("hardcover/lib/feed")
-    local all, added = Feed.append(first.entries, second.entries)
-    print(string.format("    next page: %d entries, %d new", #second.entries, added))
-    if #all < #first.entries then error("paging lost entries", 0) end
-  end
+  print("    first page: " .. table.concat(kinds, ", "))
+  local second = is_table(Api:getJournal({ me_id = ctx.user_id, offset = first.count, limit = 10 }), "the next page")
+  local all, added = Journal.append(first.entries, second.entries)
+  print(string.format("    next page: %d rows, %d entries, %d new", second.count, #second.entries, added))
+  if #all < #first.entries or (second.count > 0 and added == 0) then error("the next page did not carry on", 0) end
 end)
 
 -- Exploratory, never fails the run: what Hardcover calls the things the plugin does not use yet

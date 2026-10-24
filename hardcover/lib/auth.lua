@@ -38,7 +38,7 @@ local OAuthClient = require("hardcover/lib/oauth_client")
 -- There is no separate write:journal scope: requesting one fails the whole
 -- authorization with `invalid_scope`. Journal writes are part of
 -- write:library. Reading journals needs read:journal explicitly: read:library
--- alone does not grant it (the Activity query is refused with HTTP 403).
+-- alone does not grant it (the Journal query is refused with HTTP 403).
 local DEFAULT_SCOPE = "read:catalog read:catalog:search read:me:content read:library read:journal read:social read:users read:vibes write:library write:lists write:goals"
 
 local Auth = {}

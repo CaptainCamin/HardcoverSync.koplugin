@@ -15,8 +15,8 @@
 -- (sent, but the connection dropped before the reply) is sent again at the next flush and shows
 -- up twice. The op is removed as soon as the reply arrives, which keeps that window small.
 --
--- An entry Hardcover already has can be changed or deleted from Activity, offline too: those wait
--- here as ops with an `action` ("update" with the new text, or "delete") and the entry's
+-- An entry Hardcover already has can be changed or deleted from the Journal tab, offline too: those
+-- wait here as ops with an `action` ("update" with the new text, or "delete") and the entry's
 -- `journal_id`. One waiting change per entry: a newer edit replaces an older one, and a delete
 -- drops a waiting edit. An entry not sent yet is edited in place (editWaiting) or cancelled.
 

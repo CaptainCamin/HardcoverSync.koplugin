@@ -1,11 +1,12 @@
--- The Activity tab through DialogManager: the saved copy on screen at once and offline, with a
+-- The Journal tab through DialogManager: the saved copy on screen at once and offline, with a
 -- note saying when it is from; a fresh answer replacing and saving it; a failed check leaving it
--- quietly; and what is still waiting to send listed first.
+-- quietly; Load more asking from where the last page ended; what is still waiting to send listed
+-- first; and your notes, quotes and reviews edited and deleted from there.
 --
 -- A fake tab and a recording API; the store and the queues are the real ones, over the in-memory
 -- stand-in for the SQLite file and a settings table.
 --
--- Run with:  lua spec/activity_flows_harness.lua [plugin-root]
+-- Run with:  lua spec/journal_flows_harness.lua [plugin-root]
 
 local PLUGIN = arg[1] or "."
 package.path = PLUGIN .. "/?.lua;" .. PLUGIN .. "/?/init.lua;" .. package.path
@@ -90,17 +91,17 @@ end
 local Api = real_require("hardcover/lib/hardcover_api")
 local User = real_require("hardcover/lib/user")
 local StatusDialogs = real_require("hardcover/lib/ui/status_dialogs")
-local ActivityStore = real_require("hardcover/lib/activity_store")
+local JournalStore = real_require("hardcover/lib/journal_store")
 local JournalQueue = real_require("hardcover/lib/journal_queue")
 local ReviewQueue = real_require("hardcover/lib/review_queue")
 local DialogManager = real_require("hardcover/lib/ui/dialog_manager")
-local Feed = real_require("hardcover/lib/feed")
+local Journal = real_require("hardcover/lib/journal")
 local MemoryStore = dofile(PLUGIN .. "/spec/lib/memory_store.lua")
 User.getId = function() return 1 end
 
 -- ------------------------------------------------------------ the API, recorded
 local requests, answer
-Api.getFeedAsync = function(_, opts, cb)
+Api.getJournalAsync = function(_, opts, cb)
   requests[#requests + 1] = opts
   if answer then cb(answer(opts)) end
 end
@@ -112,17 +113,19 @@ StatusDialogs.confirm = function(options) confirms[#confirms + 1] = options end
 
 -- ------------------------------------------------------------ the tab, faked
 local tab
-local Body = real_require("hardcover/lib/ui/activity_body")
+local Body = real_require("hardcover/lib/ui/journal_body")
 Body.new = function(_, o)
   o = o or {}
   o.entries = o.entries or {}
   o.setEntries = function(self, entries, more)
     self.message = nil
+    self.loading = false
     self.entries, self.has_more = entries or {}, more == true
-    if #self.entries == 0 then self.message = "No activity yet." end
+    if #self.entries == 0 then self.message = "Nothing in your journal yet." end
   end
   o.setMessage = function(self, m) self.message = m end
-  o.setLoading = function() end
+  o.setLoading = function(self, loading) self.loading = loading end
+  o.loadMore = function(self) self.loading = true; self.more_cb() end
   o.free = function() end
   tab = o
   return o
@@ -130,14 +133,14 @@ end
 
 local clock = 1000000
 local function entry(n)
-  return { key = "journal:" .. n, kind = "note", at = string.format("2026-10-%02dT10:00:00+00:00", n),
-           date = string.format("2026-10-%02d", n), who = "Dana", book_id = 5, title = "Dune",
-           text = "Note " .. n, excerpt = "Note " .. n }
+  return { key = "note:" .. n, id = n, kind = "note", at = string.format("2026-10-%02dT10:00:00+00:00", n),
+           user_id = 1, book_id = 5, title = "Dune", authors = "Frank Herbert", text = "Note " .. n, excerpt = "Note " .. n }
 end
-local function page(from, to, more)
+-- a page as Journal.parse gives it; `count` is how many rows Hardcover sent (some may not be shown)
+local function page(from, to, more, count)
   local entries = {}
   for n = from, to, -1 do entries[#entries + 1] = entry(n) end
-  return { entries = entries, cursor = entries[#entries] and entries[#entries].at, more = more }
+  return { entries = entries, count = count or #entries, more = more }
 end
 
 local function fakeSettings()
@@ -146,18 +149,19 @@ local function fakeSettings()
            flush = function() end }
 end
 
-local flushes
+local flushes, books
 local function newManager()
-  requests, infos, retries, confirms, stack, tab, answer, opened, flushes = {}, {}, 0, {}, {}, nil, nil, {}, 0
+  requests, infos, retries, confirms, stack, tab, answer, opened, flushes, books = {}, {}, 0, {}, {}, nil, nil, {}, 0, {}
   online = true
   Api.auth = nil
   local m = setmetatable({
     flush_goals = function() flushes = flushes + 1 end,
     settings = { compatibilityMode = function() return false end, readSetting = function() end,
                  updateSetting = function() end },
-    activity_store = ActivityStore:new { db = MemoryStore.new(), now = function() return clock end },
+    journal_store = JournalStore:new { db = MemoryStore.new(), now = function() return clock end },
     journal_queue = JournalQueue:new { settings = fakeSettings() },
     review_queue = ReviewQueue:new { settings = fakeSettings() },
+    showBookDetail = function(_, book_id) books[#books + 1] = book_id end,
   }, { __index = DialogManager })
   return m
 end
@@ -168,21 +172,21 @@ print("\n== the first time ==")
 
 check("online with nothing saved: it says it is loading, then shows and keeps the answer", function()
   local m = newManager()
-  m:showActivity()
+  m:showJournal()
   assert(tab.message and tab.message:find("Loading"), "should say it is loading: " .. tostring(tab.message))
-  assert(#requests == 1 and requests[1].mine == true and requests[1].me_id == 1 and requests[1].before == nil)
+  assert(#requests == 1 and requests[1].me_id == 1 and requests[1].offset == 0 and requests[1].limit == Journal.PAGE_SIZE)
   -- the answer arrives
   answer = function() return page(25, 6, true) end
-  m:showActivity()
+  m:showJournal()
   assert(#tab.entries == 20 and tab.has_more == true and tab.message == nil)
-  local saved = m.activity_store:get(1)
+  local saved = m.journal_store:get(1)
   assert(saved and #saved.entries == 20 and saved.more == true and saved.saved_at == clock, "the answer was not kept")
 end)
 
 check("offline with nothing saved: it says it needs a connection the first time, and asks nothing", function()
   local m = newManager()
   online = false
-  m:showActivity()
+  m:showJournal()
   assert(#requests == 0, "asked while offline")
   assert(tab.message and tab.message:find("the first time"), tostring(tab.message))
   assert(#infos == 0)
@@ -192,64 +196,95 @@ print("\n== the saved copy ==")
 
 check("offline: the saved copy opens at once, with when it is from", function()
   local m = newManager()
-  m.activity_store:put(1, page(25, 6, true).entries, true)
+  m.journal_store:put(1, page(25, 6, true).entries, true)
   online = false
-  m:showActivity()
+  m:showJournal()
   assert(#requests == 0, "asked while offline")
-  assert(tab.message == nil and #tab.entries == 20 and tab.entries[1].key == "journal:25")
+  assert(tab.message == nil and #tab.entries == 20 and tab.entries[1].key == "note:25")
   assert(tab.has_more == false, "Load more needs a connection")
-  assert(#infos == 1 and infos[1]:find("Offline: showing your activity as of", 1, true), tostring(infos[1]))
+  assert(#infos == 1 and infos[1]:find("Offline: showing your journal as of", 1, true), tostring(infos[1]))
 end)
 
 check("offline: a saved copy with nothing in it says there is nothing, not that it needs a connection", function()
   local m = newManager()
-  m.activity_store:put(1, {}, false)
+  m.journal_store:put(1, {}, false)
   online = false
-  m:showActivity()
-  assert(tab.message and tab.message:find("No activity"), tostring(tab.message))
+  m:showJournal()
+  assert(tab.message and tab.message:find("Nothing in your journal"), tostring(tab.message))
 end)
 
 check("online: the saved copy is on screen while the newest page is asked for, then replaced", function()
   local m = newManager()
-  m.activity_store:put(1, page(10, 1, false).entries, false)
-  m:showActivity()
-  assert(tab.message == nil and #tab.entries == 10 and tab.entries[1].key == "journal:10", "the saved copy was not shown")
+  m.journal_store:put(1, page(10, 1, false).entries, false)
+  m:showJournal()
+  assert(tab.message == nil and #tab.entries == 10 and tab.entries[1].key == "note:10", "the saved copy was not shown")
   assert(#infos == 0, "online needs no note")
   assert(#requests == 1)
   answer = function() return page(12, 3, false) end
-  m:showActivity()
-  assert(#tab.entries == 10 and tab.entries[1].key == "journal:12")
-  assert(m.activity_store:get(1).entries[1].key == "journal:12", "the fresh page was not kept")
+  m:showJournal()
+  assert(#tab.entries == 10 and tab.entries[1].key == "note:12")
+  assert(m.journal_store:get(1).entries[1].key == "note:12", "the fresh page was not kept")
 end)
 
 check("online: a failed check leaves the saved copy without asking to retry", function()
   local m = newManager()
-  m.activity_store:put(1, page(10, 1, false).entries, false)
+  m.journal_store:put(1, page(10, 1, false).entries, false)
   answer = function() return nil, "timeout" end
-  m:showActivity()
+  m:showJournal()
   assert(retries == 0, "should not interrupt over a saved copy")
   assert(tab.message == nil and #tab.entries == 10)
-  assert(m.activity_store:get(1).entries[1].key == "journal:10", "the saved copy must stay")
+  assert(m.journal_store:get(1).entries[1].key == "note:10", "the saved copy must stay")
 end)
 
 check("online with nothing saved: a failure asks to retry", function()
   local m = newManager()
   answer = function() return nil, "timeout" end
-  m:showActivity()
+  m:showJournal()
   assert(retries == 1)
 end)
 
-check("Load more keeps the longer list, and the copy is saved under each account", function()
+print("\n== the next page ==")
+
+check("Load more asks from where Hardcover's rows ended, keeps the longer list, and saves it under the account", function()
   local m = newManager()
   answer = function(opts)
-    if opts.before then return page(5, 1, false) end
+    if opts.offset > 0 then return page(5, 1, false) end
+    -- 21 rows sent, one of a kind the tab does not show
+    return page(25, 6, true, 21)
+  end
+  m:showJournal()
+  tab:loadMore()
+  assert(requests[2].offset == 21, "the next page starts after every row sent: " .. tostring(requests[2].offset))
+  assert(requests[2].me_id == 1, "the next page is yours too")
+  assert(#tab.entries == 25 and tab.has_more == false)
+  assert(#m.journal_store:get(1).entries == 25 and m.journal_store:get(1).more == false)
+  assert(m.journal_store:get(2) == nil, "another account must not see this one's journal")
+end)
+
+check("an entry the next page repeats (one written meanwhile moved the rest down) is listed once", function()
+  local m = newManager()
+  answer = function(opts)
+    if opts.offset > 0 then return page(6, 2, true) end
     return page(25, 6, true)
   end
-  m:showActivity()
-  tab.more_cb()
-  assert(#tab.entries == 25 and tab.has_more == false)
-  assert(#m.activity_store:get(1).entries == 25 and m.activity_store:get(1).more == false)
-  assert(m.activity_store:get(2) == nil, "another account must not see this one's activity")
+  m:showJournal()
+  tab:loadMore()
+  assert(#tab.entries == 24, "listed " .. #tab.entries)
+  assert(requests[2].offset == 20)
+  tab:loadMore()
+  assert(requests[3].offset == 25, "the offset moves on by the rows sent, repeated or not")
+end)
+
+check("a failed Load more says so, offers to try again, and leaves the list as it was", function()
+  local m = newManager()
+  answer = function(opts)
+    if opts.offset > 0 then return nil, "timeout" end
+    return page(25, 6, true)
+  end
+  m:showJournal()
+  tab:loadMore()
+  assert(retries == 1)
+  assert(tab.loading == false and #tab.entries == 20 and tab.has_more == true)
 end)
 
 print("\n== waiting to send ==")
@@ -260,21 +295,23 @@ check("notes, quotes and reviews still on the device come first, saying they are
   m.journal_queue:queue({ user_id = 1, book_id = 6, event = "quote", text = "Newer quote", title = "Kindred", page = 3 })
   m.journal_queue:queue({ user_id = 2, book_id = 6, event = "note", text = "Not yours", title = "Kindred" })
   m.review_queue:queue(900, "My review", false, "Dune")
-  m.activity_store:put(1, page(10, 1, false).entries, false)
+  m.journal_store:put(1, page(10, 1, false).entries, false)
   online = false
-  m:showActivity()
+  m:showJournal()
   assert(#tab.entries == 13, "shown " .. #tab.entries)
   assert(tab.entries[1].text == "Newer quote" and tab.entries[1].waiting)
   assert(tab.entries[2].text == "Older note" and tab.entries[3].kind == "review")
-  assert(tab.entries[4].key == "journal:10")
-  assert(Feed.row(tab.entries[1]).support:find(Feed.WAITING, 1, true) == 1)
+  assert(tab.entries[4].key == "note:10")
+  assert(Journal.row(tab.entries[1]).detail == Journal.WAITING)
+  assert(Journal.row(tab.entries[2]).detail == "Frank Herbert \194\183 " .. Journal.WAITING,
+    "a waiting note on a book the journal lists has its authors")
 end)
 
 check("offline with only waiting entries: they show, with a note that the rest needs a connection", function()
   local m = newManager()
   m.journal_queue:queue({ user_id = 1, book_id = 5, event = "note", text = "Written offline", title = "Dune" })
   online = false
-  m:showActivity()
+  m:showJournal()
   assert(tab.message == nil and #tab.entries == 1 and tab.entries[1].waiting)
   assert(#infos == 1 and infos[1]:find("waiting to send", 1, true), tostring(infos[1]))
 end)
@@ -283,9 +320,9 @@ check("online: waiting entries stay above each fresh page, and are not saved as 
   local m = newManager()
   m.journal_queue:queue({ user_id = 1, book_id = 5, event = "note", text = "Not sent yet", title = "Dune" })
   answer = function() return page(10, 1, false) end
-  m:showActivity()
-  assert(#tab.entries == 11 and tab.entries[1].waiting and tab.entries[2].key == "journal:10")
-  local saved = m.activity_store:get(1)
+  m:showJournal()
+  assert(#tab.entries == 11 and tab.entries[1].waiting and tab.entries[2].key == "note:10")
+  local saved = m.journal_store:get(1)
   assert(#saved.entries == 10, "the waiting entry was saved as if Hardcover had it")
   for _, e in ipairs(saved.entries) do assert(not e.waiting) end
 end)
@@ -295,29 +332,31 @@ print("\n== permission ==")
 check("a sign-in without journal access says so online and asks nothing", function()
   local m = newManager()
   Api.auth = { hasScope = function(_, scope) return scope ~= "read:journal" end }
-  m:showActivity()
+  m:showJournal()
   Api.auth = nil
   assert(#requests == 0)
-  assert(tab.message and tab.message:find("reading journal"), tostring(tab.message))
+  assert(tab.message and tab.message:find("permission to read your Hardcover journal", 1, true), tostring(tab.message))
 end)
 
-print("\n== editing and deleting your entries ==")
+print("\n== opening, editing and deleting your entries ==")
 
--- the tab open offline on a saved copy: a note, a quote, a review and a status change
+-- the tab open offline on a saved copy: a note, a quote, two entries of one review, and a finish
 local function savedTab()
   local m = newManager()
-  m.activity_store:put(1, {
-    { key = "note:4001", id = 4001, kind = "note", user_id = 1, who = "Dana", book_id = 5, title = "Dune",
-      text = "Old words", excerpt = "Old words", at = "2026-10-20T10:00:00+00:00", date = "2026-10-20" },
-    { key = "quote:4002", id = 4002, kind = "quote", user_id = 1, who = "Dana", book_id = 5, title = "Dune",
-      text = "Fear is the mind-killer.", excerpt = "Fear is the mind-killer.", at = "2026-10-19T10:00:00+00:00", date = "2026-10-19" },
-    { key = "review:900", id = 900, kind = "review", user_id = 1, who = "Dana", book_id = 6, title = "Kindred",
-      text = "Fine", excerpt = "Fine", at = "2026-10-18", date = "2026-10-18" },
-    { key = "status:7", kind = "status", user_id = 1, who = "Dana", book_id = 6, title = "Kindred",
-      text = "Finished", at = "2026-10-17T10:00:00+00:00", date = "2026-10-17" },
+  m.journal_store:put(1, {
+    { key = "note:4001", id = 4001, kind = "note", user_id = 1, book_id = 5, title = "Dune",
+      text = "Old words", excerpt = "Old words", at = "2026-10-20T10:00:00+00:00" },
+    { key = "quote:4002", id = 4002, kind = "quote", user_id = 1, book_id = 5, title = "Dune",
+      text = "Fear is the mind-killer.", excerpt = "Fear is the mind-killer.", at = "2026-10-19T10:00:00+00:00" },
+    { key = "reviewed:4003", id = 4003, kind = "review", user_book_id = 900, user_id = 1, book_id = 6, title = "Kindred",
+      text = "Fine", excerpt = "Fine", at = "2026-10-18T10:00:00+00:00" },
+    { key = "user_book_read_finished:4004", id = 4004, kind = "event", action = "Finished reading", user_id = 1,
+      book_id = 6, title = "Kindred", at = "2026-10-17T10:00:00+00:00" },
+    { key = "reviewed:4005", id = 4005, kind = "review", user_book_id = 900, user_id = 1, book_id = 6, title = "Kindred",
+      text = "Fine", excerpt = "Fine", at = "2026-10-16T10:00:00+00:00" },
   }, false)
   online = false
-  m:showActivity()
+  m:showJournal()
   infos = {}
   return m
 end
@@ -329,10 +368,21 @@ check("your note opens in full with Edit and Delete; another reader's has neithe
   local m = savedTab()
   tab.select_cb(find("note:4001"))
   local screen = last("text")
-  assert(screen and screen.text == "Old words")
+  assert(screen and screen.text == "Old words" and screen.title == "Journal")
+  assert(screen.heading == "Note \194\183 Dune", tostring(screen.heading))
   button(screen, "Edit"); button(screen, "Delete")
-  m:openActivityEntry({ key = "note:1", id = 1, kind = "note", user_id = 2, who = "Sam", text = "Theirs" })
+  m:openJournalEntry({ key = "note:1", id = 1, kind = "note", user_id = 2, text = "Theirs" })
   assert(last("text").buttons == nil, "someone else's note must not offer Edit or Delete")
+end)
+
+check("any other entry opens the book, and so does a review since removed", function()
+  local m = savedTab()
+  local before = #opened
+  tab.select_cb(find("user_book_read_finished:4004"))
+  assert(books[1] == 6, "the book did not open")
+  m:openJournalEntry({ key = "reviewed:9", kind = "review", user_book_id = 900, book_id = 6 })
+  assert(books[2] == 6)
+  assert(#opened == before, "no text screen for an entry with no text")
 end)
 
 check("editing a note offline keeps the change, shows it in place, and says it waits", function()
@@ -349,7 +399,7 @@ check("editing a note offline keeps the change, shows it in place, and says it w
   assert(shown.text == "New words" and shown.waiting, "the tab should show the change at once")
   assert(infos[#infos]:find("offline", 1, true), tostring(infos[#infos]))
   assert(flushes == 0)
-  assert(m.activity_store:get(1).entries[1].text == "Old words", "the saved copy keeps what Hardcover has until it takes the change")
+  assert(m.journal_store:get(1).entries[1].text == "Old words", "the saved copy keeps what Hardcover has until it takes the change")
 end)
 
 check("an empty edit is refused and the field stays open; an unchanged one does nothing", function()
@@ -380,7 +430,7 @@ end)
 check("a note not sent yet is edited where it waits", function()
   local m = savedTab()
   local id = m.journal_queue:queue({ user_id = 1, book_id = 5, event = "note", text = "Draft", title = "Dune" })
-  m:showActivity()
+  m:showJournal()
   tab.select_cb(tab.entries[1])
   button(last("text"), "Edit").callback()
   last("input").typed = "Final"
@@ -400,13 +450,13 @@ check("deleting a quote asks first, then hides it and keeps the delete", functio
   local op = m.journal_queue:changeFor(4002)
   assert(op and op.action == "delete")
   assert(find("quote:4002") == nil, "the deleted quote is still listed")
-  assert(#tab.entries == 3)
+  assert(#tab.entries == 4)
 end)
 
 check("deleting a note not sent yet discards it", function()
   local m = savedTab()
   m.journal_queue:queue({ user_id = 1, book_id = 5, event = "note", text = "Oops", title = "Dune" })
-  m:showActivity()
+  m:showJournal()
   tab.select_cb(tab.entries[1])
   button(last("text"), "Delete").callback()
   local ask = confirms[#confirms]
@@ -416,20 +466,24 @@ check("deleting a note not sent yet discards it", function()
   assert(tab.entries[1].key == "note:4001")
 end)
 
-check("deleting your review keeps its removal and hides it", function()
+check("deleting your review keeps its removal; the book's entries stay, saying only that you reviewed it", function()
   local m = savedTab()
-  tab.select_cb(find("review:900"))
+  tab.select_cb(find("reviewed:4003"))
   button(last("text"), "Delete").callback()
   assert(confirms[#confirms].title == "Delete your review?")
   confirms[#confirms].ok_callback()
   local waiting = m.review_queue:get(900)
   assert(waiting and waiting.text == "", "the removal should wait in the review queue")
-  assert(find("review:900") == nil)
+  for _, key in ipairs({ "reviewed:4003", "reviewed:4005" }) do
+    local e = find(key)
+    assert(e and e.text == nil and e.waiting, key .. " should stay, without the text")
+    assert(Journal.row(e).what == "Reviewed")
+  end
 end)
 
-check("editing your review goes through the review form and shows in place", function()
+check("editing your review goes through the review form and shows on each entry of the book", function()
   local m = savedTab()
-  tab.select_cb(find("review:900"))
+  tab.select_cb(find("reviewed:4005"))
   button(last("text"), "Edit").callback()
   local input = last("input")
   assert(input.input == "Fine", "the form should start with the review")
@@ -439,8 +493,10 @@ check("editing your review goes through the review form and shows in place", fun
   picker.rows[2].callback() -- has spoilers
   local waiting = m.review_queue:get(900)
   assert(waiting and waiting.text == "Wonderful after all" and waiting.spoilers == true)
-  local shown = find("review:900")
-  assert(shown and shown.waiting and shown.text == "Wonderful after all" and shown.spoilers == true)
+  for _, key in ipairs({ "reviewed:4003", "reviewed:4005" }) do
+    local shown = find(key)
+    assert(shown and shown.waiting and shown.text == "Wonderful after all" and shown.spoilers == true, key)
+  end
 end)
 
 check("once Hardcover has a change, the saved copy shows it", function()
@@ -448,13 +504,17 @@ check("once Hardcover has a change, the saved copy shows it", function()
   m:journalChangeSent({ action = "update", event = "note", journal_id = 4001, text = "Sent words" })
   m:journalChangeSent({ action = "delete", event = "quote", journal_id = 4002 })
   m:journalChangeSent({ event = "note", book_id = 5, text = "a new one is fetched, not patched" })
-  m:reviewChangeSent(900, nil)
-  local entries = m.activity_store:get(1).entries
-  assert(#entries == 2, "kept " .. #entries)
+  local entries = m.journal_store:get(1).entries
+  assert(#entries == 4, "kept " .. #entries)
   assert(entries[1].key == "note:4001" and entries[1].text == "Sent words" and entries[1].excerpt == "Sent words")
-  assert(entries[2].key == "status:7")
-  m:reviewChangeSent(901, "not listed")
-  assert(#m.activity_store:get(1).entries == 2)
+  m:reviewChangeSent(900, "Changed review", true)
+  entries = m.journal_store:get(1).entries
+  assert(entries[2].text == "Changed review" and entries[2].spoilers == true and entries[4].text == "Changed review")
+  m:reviewChangeSent(900, nil)
+  entries = m.journal_store:get(1).entries
+  assert(#entries == 4, "a removed review keeps its entries")
+  assert(entries[2].key == "reviewed:4003" and entries[2].text == nil and entries[2].spoilers == nil and entries[4].text == nil)
+  assert(m:reviewChangeSent(901, "not listed") == nil and #m.journal_store:get(1).entries == 4)
 end)
 
 r.finish()
