@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Smaller buttons on the book details screen.** The round buttons and their captions are back to a size that fits the screen, and the Open / Find on device button is its normal height again.
+
 ## 2.3.1
 
 ### Added

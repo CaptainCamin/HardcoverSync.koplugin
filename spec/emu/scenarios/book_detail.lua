@@ -371,7 +371,7 @@ return {
     for _, field in ipairs({ "zlibrary_button", "add_button", "lists_button",
         "reviews_button", "review_button", "edition_button" }) do
       local d = all_actions[field].dimen
-      assert(d.w >= Theme.mmd.round_button.size.large, field .. " is too small")
+      assert(d.w >= Theme.mmd.round_button.size.medium, field .. " is too small")
       assert(d.x >= Theme.margin and d.x + d.w <= W - Theme.margin, field .. " is outside the margins")
       for _, other in ipairs(targets) do
         assert(d.x + d.w <= other.x or other.x + other.w <= d.x
