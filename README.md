@@ -1,395 +1,82 @@
 # Hardcover Sync for KOReader
 
-A KOReader plugin to track your reading on [Hardcover.app](https://hardcover.app) and browse your library: a home
-screen with what you are reading and your shelves, book details with the rest of the series, offline shelves, and
-progress and status syncing.
-
-This is a fork of Billiam's [hardcoverapp.koplugin](https://github.com/Billiam/hardcoverapp.koplugin), and keeps
-all of its tracking features (linking books, progress and status syncing, notes and journal entries, automatic
-linking). Thank you to Billiam for the original plugin. It installs as `hardcoversync.koplugin`, so it can sit next
-to the original in KOReader's App Store, but **the two must not be installed together** (they register the same
-actions and menus): remove `hardcoverapp.koplugin` from your plugins folder first. Your settings carry over.
-
-<p>
-<img src="docs/screenshots/home.png" width="23%" alt="Home screen">
-<img src="docs/screenshots/shelf.png" width="23%" alt="A shelf">
-<img src="docs/screenshots/book-details.png" width="23%" alt="Book details with the series carousel">
-<img src="docs/screenshots/settings.png" width="23%" alt="Settings">
-</p>
+**Your Hardcover library, right on your e-reader.**
 
-*(Rendered in a desktop KOReader with placeholder covers and sample books.)*
+Track your reading on [Hardcover](https://hardcover.app), browse your shelves, and find your next book without leaving [KOReader](https://koreader.rocks). Built for e-ink, with offline reading in mind.
 
-## What this fork adds
+[Download the latest release](https://github.com/CaptainCamin/HardcoverSync.koplugin/releases/latest) · [Changelog](CHANGELOG.md) · [Report an issue](https://github.com/CaptainCamin/HardcoverSync.koplugin/issues)
 
-* **A home screen** with a navigation bar (Home, Library, Goals, Stats): the book you are reading (cover, author,
-  progress), whether anything waits to sync, and your shelves with their counts. Open it from the file browser menu or with the `Hardcover: Home` action, so another plugin or a
-  gesture can launch it.
-* **A separate menu for the reader and the file browser**: tracking and book information while reading; your library
-  everywhere else.
-* **Shelves as cover lists**: the whole shelf loads in the background, in full-screen rows with covers, and is saved
-  for offline use.
-* **A redesigned book details screen**, with the cover, ratings, your status, the description, and a carousel of
-  covers for the rest of the series. Tap one to open it. Books with no cover get a placeholder.
-* **Sign in with your Hardcover account** (OAuth device flow) instead of pasting an API key; no config file needed.
-* **Offline tracking**: progress and status changes made offline are queued and pushed when you reconnect, with a
-  `Sync now` button that greys out when nothing is waiting.
-* **A settings screen** reachable from the home screen and the reader, with Sync and your account at the top.
-* **Fixes and speed**: the e-ink screen is now refreshed when menus close, requests run in the background instead of
-  freezing the screen, covers are cached, and long shelves load completely. See the [changelog](CHANGELOG.md).
-* **Removed**: the "Suggest a book" feature.
+<table>
+  <tr>
+    <td width="33%" align="center"><img src="docs/screenshots/home.png" alt="Home with the current book, reading progress, sync status, and shelf counts"><br><strong>Home</strong></td>
+    <td width="33%" align="center"><img src="docs/screenshots/reader.png" alt="Reader panel over The Time Machine, with progress, status, rating, journal, and book details actions"><br><strong>Reader panel</strong></td>
+    <td width="33%" align="center"><img src="docs/screenshots/book-details.png" alt="Book details with ratings, shelf and review actions, synopsis, and series"><br><strong>Book details</strong></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/quote.png" alt="Add a quote form with passage text, privacy, tags, page number, and Save button"><br><strong>Save a quote</strong></td>
+    <td align="center"><img src="docs/screenshots/note.png" alt="Note editor with a personal reflection, on-screen keyboard, and Done button"><br><strong>Write a note</strong></td>
+    <td align="center"><img src="docs/screenshots/journal.png" alt="Journal feed bringing together progress updates, quotes, finished books, reviews, and notes"><br><strong>Journal feed</strong></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/shelf.png" alt="Want to Read shelf with covers, authors, ratings, and page controls"><br><strong>Shelves</strong></td>
+    <td align="center"><img src="docs/screenshots/vibes.png" alt="Library’s Vibes tab with For you, Hardcover Top Picks, Recommendations, and a custom vibe"><br><strong>Vibes</strong></td>
+    <td align="center"><img src="docs/screenshots/for-you.png" alt="Personalized recommendations with a reason under each book, such as Because you liked Dune"><br><strong>For you recommendations</strong></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/reviews.png" alt="Community reviews with ratings, likes, expandable text, and hidden spoilers"><br><strong>Community reviews</strong></td>
+    <td align="center"><img src="docs/screenshots/goals.png" alt="Reading goals with progress bars and ahead-or-behind pace indicators"><br><strong>Reading goals</strong></td>
+    <td align="center"><img src="docs/screenshots/stats.png" alt="Reading statistics with books-per-year and personal-rating charts"><br><strong>Reading stats</strong></td>
+  </tr>
+</table>
 
-## Installation
+*Captured from the current plugin in desktop KOReader at 1264 × 1680, 300 DPI (Kindle Paperwhite size). Real book covers from [Open Library](https://openlibrary.org); sample account data. The reader backdrop uses a public-domain passage from The Time Machine.*
 
-**From the KOReader App Store** ([appstore.koplugin](https://github.com/omer-faruq/appstore.koplugin)): search for
-"Hardcover Sync". Forks with no stars are hidden by default; turn on "include zero-star forks" in the App Store's
-settings if it does not appear.
+## What you can do
 
-**By hand:**
+- **Keep Hardcover up to date.** Sync progress automatically or manually, change reading status, and rate books from the reader panel.
+- **Browse your library.** Search Hardcover, sort your shelves, explore your own and followed lists, and discover recommendations through Vibes.
+- **Save quotes and take notes.** Send highlighted passages to your journal, or write your own reflections with page numbers, tags, and privacy controls. The Journal feed brings them together with progress, finished books, and reviews. Saved entries work offline; new notes, quotes, and edits sync later.
+- **Go beyond the cover.** Read synopses and community reviews, explore a series, and manage a book’s shelf and list membership.
+- **Keep reading offline.** Progress and library changes queue for later sync. Shelves and lists are saved on-device; browsed reviews stay available offline too. Download covers ahead of time in Settings.
+- **Follow your progress.** Create and edit reading goals, check your pace, and explore charts of your reading history, ratings, genres, and authors.
 
-1. Download the latest release: https://github.com/CaptainCamin/HardcoverSync.koplugin/releases/latest
-   (`hardcoversync.koplugin.zip`) and extract it
-2. Copy the `hardcoversync.koplugin` folder to the KOReader plugins folder on your device
-3. Restart KOReader
+## Install
 
-Signing in needs no config file (see [Signing in](#signing-in)). Rename `hardcover_config.example.lua` to
-`hardcover_config.lua` only for the [advanced options](#advanced-your-own-app-or-an-api-key).
+1. Download **`hardcoversync.koplugin.zip`** from the [latest release](https://github.com/CaptainCamin/HardcoverSync.koplugin/releases/latest).
+2. Extract it and copy the **`hardcoversync.koplugin`** folder into KOReader’s `plugins` folder.
+3. Restart KOReader.
 
-## Signing in
+You can also install through the [KOReader App Store plugin](https://github.com/omer-faruq/appstore.koplugin): search for **Hardcover Sync**. If it is hidden, enable **include zero-star forks** in the App Store settings.
 
-In the file browser, choose `Hardcover` in the menu to open the home screen, tap the cog, and choose `Account` →
-`Sign in to Hardcover` (while reading, the Hardcover menu shows `Account` when you are signed out). The plugin shows a short code and a web address. Open that address on a phone
-or computer, enter the code, and approve. The plugin signs itself in and keeps the connection fresh from then on.
+**Switching from the original plugin?** Remove `hardcoverapp.koplugin` first: the two must not be installed together. Your settings carry over.
 
-<p><img src="docs/screenshots/signin.png" width="45%" alt="The sign-in screen: a web address and a short code to enter on a phone or computer"></p>
+## Get started
 
-*(The code shown here is made up; yours is different each time.)*
+1. In KOReader’s file browser menu, choose **Hardcover** to open Home.
+2. Open **Settings → Account → Sign in to Hardcover**. Follow the displayed web address on your phone or computer, enter the code, and approve. No API key or config file needed.
+3. Open a book and choose **Hardcover → Link this book** in the reader menu. Search for the matching book and choose an edition if needed.
+4. Use **Status** to mark it Currently Reading, then **Progress** to set your position and enable **Track automatically** if you want automatic updates.
 
-That is all: the plugin comes with its own Hardcover app registration, so you do not need to register anything or
-create a config file. There is no secret to store, because this is a public client using the device flow, which is
-also why no browser is needed on the reader. You can see, and revoke, the connection on Hardcover under your
-authorized apps. `Account` → `Sign out` signs out and revokes it.
+Home’s bottom tabs open **Library**, **Goals**, and **Stats**. You can also assign **Hardcover: Home** to a KOReader gesture or quick menu.
 
-## Advanced: your own app or an API key
+Automatic linking by ISBN or Hardcover metadata, batch linking of books on your device, and sync frequency are available in Settings. Progress is mapped to the Hardcover edition’s page count, so page numbers may differ from KOReader’s.
 
-Most people can skip this. Create `hardcover_config.lua` in the plugin folder (copy `hardcover_config.example.lua`
-and edit it) only if you want one of these. The file is never shipped or published, so it is safe to put a token in.
+<details>
+<summary><strong>Advanced: use your own OAuth app or API token</strong></summary>
 
-### Use your own OAuth app
+Copy [`hardcover_config.example.lua`](hardcover_config.example.lua) to `hardcover_config.lua` in the plugin folder. Most users do not need this.
 
-Register an app of your own if you would rather not use the bundled one, for example to control its name and
-permissions, or if you fork the plugin:
+- **Your own OAuth app:** [register a public app](https://hardcover.app/account/developer-apps/new) of type **Mobile, desktop, or CLI**, with **Device Authorization Grant** enabled. Allow `read:catalog read:catalog:search read:me:content read:library read:social write:library`, set `client_id` in the config, then sign in normally. If you change the client ID later, sign out and back in.
+- **Personal API token:** get one from [Hardcover’s API settings](https://hardcover.app/account/api), set `token`, and leave `client_id` empty. Keep the file private and replace the token when it expires.
 
-1. Register an app at https://hardcover.app/account/developer-apps/new
-2. Set the application type to **Mobile, desktop, or CLI**, leave **Device Authorization Grant** enabled, and allow
-   these scopes: `read:catalog read:catalog:search read:me:content read:library read:social write:library`
-3. Put the **client id** in `hardcover_config.lua`, then sign in as above:
-
-   ```lua
-   return {
-     client_id = 'your-client-id',
-   }
-   ```
-
-Anyone can read a client id out of an installed app, so it is not a secret and is safe to publish; that is how the
-bundled one works. If you change the client id after signing in, sign out and sign in again.
-
-### Use a personal access token
-
-If you would rather not sign in at all, get a token from https://hardcover.app/account/api and put it in
-`hardcover_config.lua`:
-
-```lua
-return {
-  token = 'abcde...fghij'
-}
-```
-
-A token in the config is used instead of signing in (unless you also give your own `client_id`, which keeps OAuth).
-Unlike the account sign-in, this token is a secret: do not share the file. Tokens carry an expiration and a list of
-permissions, so choose ones that cover what the plugin uses, and expect to replace an expired token.
-
-## Usage
-
-The Hardcover plugin's menu can be found in the Bookmark top menu when a document is active.
-
-### Linking a book
-
-Before updates can be sent to Hardcover, the plugin needs to know which Hardcover book and/or edition your current
-document represents.
-
-You can search for a book by selecting `Link book` from the Hardcover menu. If any books can be found based
-on your book's metadata, these will be displayed.
-
-If you cannot find the book you're looking for, you can tap the magnifying glass icon in the upper left corner and
-begin a manual search.
-
-Selecting a Hardcover book or edition will link it to your current document, but will not automatically update your
-reading status on Hardcover. This can be done manually from the [update status](#updating-reading-status) menu, or using
-the [track progress](#automatically-track-progress) option.
-
-To clear the currently linked book, tap and hold to the `Linked book` menu item for a moment.
-
-After selecting a book, you can set a specific edition using the `Change edition` menu item. This will present a list
-of available editions for the currently linked book. No manual edition search is available
-
-### Updating reading status
-
-To change your book status (Want To Read, Currently Reading, Read, Did Not Finish) on Hardcover, you open the
-`Update status` menu after [linking your book](#linking-a-book). You can also remove the book from your Hardcover
-library using the `Remove` menu item.
-
-From this menu you can also update your current page and book rating, and add a new journal entry
-
-Tap and hold the book rating menu item to clear your current rating.
-
-### Add a journal entry quote
-
-Selecting text to quote:
-
-After selecting document text in a linked document, choose `Hardcover quote` from the highlight menu to display the
-journal entry form, prefilled with the selected text and page.
-
-### Automatically track progress
-
-Automatic progress tracking is optional: book status and reading progress can instead be
-[updated manually](#update-reading-status) from the `Update status` menu. It is switched on or off per book
-with the `Track automatically` switch in the `Update page` dialog, which is available while the book is
-marked Currently Reading.
-
-When track progress is enabled for a book which has been linked ([manually](#linking-a-book)
-or [automatically](#automatic-linking)),
-page and status updates will automatically be sent to Hardcover for some reading events:
-
-* Your current read will be updated when paging through the document, no more than once per minute. This frequency
-  [can be configured](#track-progress-frequency).
-* When marking a book as finished from the file browser, the book will be marked as finished in Hardcover
-* When reaching the end of the document, if the KOReader settings automatically mark the document as finished, the
-  book will be marked as finished in Hardcover. If the KOReader setting instead opens a popup, the book status will be
-  checked
-  ten seconds later, and if the book has been marked finished, it will be marked as finish in Hardcover.
-
-For all documents, but in particular for reflowable documents (like epubs), the current page in your reader may not
-match that of the original published book.
-
-Some documents contain information allowing the current page to map to the published book's pages. For these documents,
-the mapped page will be sent to Hardcover if possible.
-
-For documents without these, your progress will be converted to a percentage of the number of pages in the original
-published book, with a calculation like:
-`round((document_page_number / document_total_pages) * hardcover_edition_total_pages)`.
-
-In both cases, this may not exactly match the page of the published document, and can even be far off if there
-are large differences in the total pages.
-
-### Reading offline
-
-Progress tracking keeps working without a connection. After each successful sync the plugin saves a local copy of
-the book's status and position, so opening a linked book with no network rebuilds your position from that copy and
-keeps recording from there. Page turns and status changes made while offline are held in a queue and pushed to
-Hardcover as soon as a connection is available — including when you reconnect, resume the device, or close the
-document.
-
-The menu shows how many changes are waiting:
-
-* `Sync now` — no changes waiting. Select it to sync on demand.
-* `Sync pending changes (n)` — `n` changes are queued. Select it to sync now, or when offline it will tell you
-  they will sync later.
-* Tap and hold either to discard everything queued, after confirming.
-
-If a sync fails, the changes stay queued and are retried later rather than dropped.
-
-### Book details
-
-`Book details` shows everything Hardcover knows about a book: the cover beside the title, author, series and a line
-of facts (year, pages, format), then your status and rating, the community rating and readers, the description, and
-the other details (publisher, language, ISBN). A book with no cover shows a placeholder.
-
-If the book is in a series, **More in the series** is a row of covers with each book's number, title and your own
-status (Read, Reading, Want to Read). The book you are on has a heavy border. Longer series have arrows either side
-to page through. Tap a cover to open that book on top; Close brings you back. The series is fetched after the
-details appear, and is left out when you are offline.
-
-**Search in Z-library** (or Anna's Archive, or Kindle Fetch), next to Reviews, appears when the plugin you picked is
-installed and enabled: [Z-library](https://github.com/ZlibraryKO/zlibrary.koplugin),
-[Anna's Archive](https://github.com/fischer-hub/annas.koplugin) or
-[Kindle Fetch](https://github.com/william-spongberg/KindleFetch.koplugin). Choose which one under
-Settings > Book search (Automatic uses the first one installed). It runs that plugin's search for this book
-(title and first author) and its results screen opens on top; Close or Back returns here. This plugin does not
-download anything itself.
-
-**Reviews**, a button under the description, shows what other readers wrote about the book: the most liked first,
-ten to a page, each with the reader's name (or "A reader" when they keep their account private), their rating
-(like `4.5*`), the likes, and the start of the review. A long review ends in "Read more >"; tap it to read the whole
-text in a scrollable viewer. A review marked as containing spoilers is hidden behind "Contains spoilers - tap to show"
-until you tap it. "Load more reviews" at the end fetches the next ten. Nothing is fetched until you press Reviews, and
-each page you browse is saved on the device, including the full text. Open Reviews offline to read the saved pages;
-the screen says when they were saved and whether more reviews need a connection. Online, the saved copy opens
-immediately while a fresh first page is fetched. A successful refresh replaces the old pages (the order may have
-changed); a failed refresh keeps them. Spoilers are hidden again each time you open Reviews. It uses the
-`read:social` permission you grant when you sign in.
-
-The **Shelf** button beside Close puts the book on a shelf: it reads `Add to shelf` for a book that is not in your
-library and `Shelf: <status>` for one that is. Tap it to choose Want to Read, Currently Reading, Read or Did Not
-Finish, or (for a book already in your library) `Remove from library`, which asks first. Your status line and the
-button update in place. Offline the change is kept, shown at once and sent when you are connected again; the
-book then has no library record yet, so rating it waits until the change has been sent. Putting a book on or taking it
-off your own **Lists** works the same way, from the lists saved on the device (a list that was never downloaded in
-full is left out of the picker until you are online). `Pending changes` in the settings shows what is waiting, and
-cancels any one of them.
-
-### Where things are
-
-The Hardcover entry in the menu is different in the reader and in the file browser.
-
-**In the reader** it is about the book you have open: linking it, tracking progress, status, rating, notes, book
-details, sync, and the tracking settings. `Settings` there includes your account (to sign out); if you are signed
-out, an `Account` entry also appears at the top level so you can sign in.
-
-**In the file browser** it is not a menu at all: choosing `Hardcover` opens your home screen. Everything that used to
-be on the first menu screen (sync, your account, the settings and About) is behind the cog in the top bar.
-
-### Home screen
-
-`Hardcover` in the file browser menu opens your home screen, the first of four tabs with a bar at the bottom:
-Home, Library (Shelves, Lists and Vibes), Goals and Stats.
-
-* **Search** and **Settings** are the icons in the top bar.
-* **Currently reading**: a card for the book you read most recently, with its cover, author, a progress bar and an
-  `Open book` button for its details. The other books you are reading are under Shelves > Currently Reading.
-* **Sync**: a box saying whether changes are waiting to send (with `Sync now`); tap it to see what is waiting.
-* **Shelves**: Currently Reading, Want to Read, Read and Did Not Finish, each with how many books are on it. Choose
-  one to browse it; closing the shelf brings you back.
-
-It opens with what it last saved, so it also works with no connection, and refreshes in the background (the screen
-only repaints if something changed).
-
-There is also a `Hardcover: Home` action, available wherever KOReader lists actions (gestures, profiles, quick
-menus), so you can open the home screen from anywhere, including while reading, or have another plugin launch it.
-
-### Settings screen
-
-The cog in the top bar of Home opens the plugin's settings in a screen of their own, with `Sync` and your Hardcover
-account (sign in, sign in again, sign out) at the top, then the options listed below, then `About` (version, latest
-release, project and settings file). Options show a tick when on;
-groups open and have a `Back` row. The same settings are in the Hardcover menu in the reader and file browser.
-
-### Browsing your lists
-
-Choosing a shelf opens it full screen: five rows a page, each a cover, the title and the author (with the series,
-if it is in one), and your rating on the right if you have given one. Select a book to open its details. The whole
-shelf is loaded: the first books appear straight away and the rest arrive in the background; a shelf of several
-hundred books is fetched in a few requests, waiting briefly if Hardcover asks you to slow down. If loading is
-interrupted (for example by tapping the screen while it loads, or by losing your connection), a reload icon appears
-in the upper left so you can carry on from where the list stops.
-
-**Sorting.** The button in the upper left of a shelf opens `Sort by`: date added (newest or oldest first), title (a
-leading "The", "A" or "An" is ignored), author (by surname), year published, pages, most readers on Hardcover,
-community rating, or your own rating. Each shelf remembers its order, and the title shows it when it is not the
-default. Sorting works on the loaded list, so it needs no connection.
-
-Every shelf is saved on the device, whether or not you have opened it: Home checks them each time it opens and
-downloads only what changed, so they open at once, also with no connection. `Refresh` in a shelf's menu (upper left)
-downloads it again.
-
-**Your Hardcover lists.** The `Lists` tab of the Library opens your lists and the ones you follow; choose one to see
-its books (a ranked list is numbered). Every list is kept on the device, whether or not you have opened it: Home checks
-them each time it opens and downloads only what changed, so they all open with no connection, and a book on one of them
-opens with its whole synopsis. `Refresh` in a list's menu (upper left) downloads it again.
-
-**Covers for offline.** Covers are kept once they have been on screen. `Download covers for offline` in the settings
-keeps the cover of every book on your shelves and lists, so they also show with no connection; it says how many and
-about how much first, can be stopped at any time, and carries on where it stopped when run again.
-
-## Settings
-
-### Automatic linking
-
-With automatic linking enabled, the plugin will attempt to find the matching book and/or edition on Hardcover
-when a new document is opened, if no book has been linked already. These options are off by default.
-
-* **Automatically link by ISBN**: If the document contains ISBN or ISBN13 metadata, try to find a matching edition for
-  that ISBN
-* **Automatically link by Hardcover**: If the document metadata contains a `hardcover` identifier (with a URL slug for
-  the book)
-  or a `hardcover-edition` with an edition ID, try to find the matching book or edition.
-  (see: [RobBrazier/calibre-plugins](https://github.com/RobBrazier/calibre-plugins/tree/main/plugins/hardcover))
-* **Automatically link by title**: If the document metadata contains a title, choose the first book returned from
-  hardcover search results for that title and document author (if available).
-
-* **Link all books on this device**: Looks through your home folder for EPUBs that carry an ISBN or a Hardcover
-  identifier and links each unlinked one to its Hardcover book in a single pass. It needs a connection, asks Hardcover
-  about 25 books at a time, and can be stopped by tapping the progress message.
-  When it finishes it also saves the linked books' details and shelves so they open offline.
-  Books it could not match are offered for a guess from their title and author; each guessed link is marked, and
-  **Check guessed links** goes through them so you can keep or undo each one.
-
-* **Save details of linked books**: Saves the details screen's contents (description, ratings, editions, ISBN) for
-  linked books that have none saved, 25 to a request. The device keeps the details of 500 books.
-
-### Track progress settings
-
-By default, (when enabled) updates will be sent to hardcover at a frequency you can select, no more often than once per
-minute. If you don't need updates this frequently, and to preserve battery, you can decrease this frequency further.
-
-You can also choose to update based on your percentage progress through a book. With this option, an update will be sent
-when you cross a percentage threshold (for example, every 10% completed).
-
-### Always track progress by default
-
-When always track progress is enabled, new documents will have the [track progress](#automatically-track-progress)
-option enabled automatically. You can still turn off `Track progress` on a per-document basis when this setting is
-enabled.
-
-Books still must be linked (manually or automatically) to send updates to Hardcover.
-
-### Enable wifi on demand
-
-On some devices, wifi can be enabled on demand without interruption. When this feature is enabled, wifi will be enabled
-automatically before some types of background API requests (namely updating the initial application cache, and updating
-your reading progress), and then disabled afterward.
-
-This can improve battery life significantly on some devices, particularly with infrequent page updates.
-
-This feature is not used for all network requests. If wifi has not been manually enabled the following will not work:
-
-* fetching or updating your reading status manually
-* manually updating your reading progress from the menu
-
-### Confirm changes to book read status
-
-By default, changes to a book's read status (Want to Read, Did Not Finish, etc) will immediately update in Hardcover as
-soon as you press them. Enable this setting to display a confirmation prompt before those changes are sent.
-
-## Roadmap
-
-- Download community reviews ahead of time for offline reading, without first browsing each book's Reviews screen.
+</details>
 
 ## Development
 
-Everything except the live API calls can be checked without a device or an API token:
+Run `./spec/run_all.sh` for syntax checks, specs, and harnesses. Render screens with `spec/emu/run.sh`; see the [emulator guide](spec/emu/README.md) for setup and scenarios. Build a release zip with `./spec/package_release.sh`.
 
-```bash
-./spec/run_all.sh                # LuaJIT if installed (as KOReader uses)
-LUA=lua5.1 ./spec/run_all.sh     # plain Lua 5.1, as CI does
-```
+## Credits & license
 
-That runs a syntax check over every file, the `busted` specs of the original plugin, and the harnesses in
-`spec/*_harness.lua`, which load the real plugin code against small stand-ins for KOReader's widgets and drive it
-(menus, dialogs, OAuth, the offline queue, shelf loading and so on).
+Built on Billiam’s [hardcoverapp.koplugin](https://github.com/Billiam/hardcoverapp.koplugin). Thank you for the original tracking plugin.
 
-**Real KOReader.** `spec/emu/run.sh` renders the plugin's screens, and drives them with taps, in a headless desktop
-KOReader build. See [spec/emu/README.md](spec/emu/README.md). `spec/emu/scenarios/live.lua` does the same against
-the real Hardcover API with an access token file you supply
-(`KO_LIVE_TOKEN_FILE=... spec/emu/run.sh live`); it never runs by default, and the token is never printed or logged.
-
-**Packaging.** `./spec/package_release.sh [output-dir]` builds and verifies `hardcoversync.koplugin.zip` (the name
-comes from `_meta.lua`). Pushing a version tag runs the same script in the release workflow and publishes the zip as
-a GitHub Release, which is what KOReader's App Store installs from.
-
-## License
-
-The plugin is licensed under the GNU Affero General Public License v3.0 ([LICENSE](LICENSE)).
-
-It is a fork of Billiam's [hardcoverapp.koplugin](https://github.com/Billiam/hardcoverapp.koplugin), which was
-released under the MIT License. That original notice is kept in [LICENSE-MIT](LICENSE-MIT) and applies to the
-code that came from it.
+Licensed under [AGPL-3.0](LICENSE). The original plugin’s [MIT notice](LICENSE-MIT) is retained for the code inherited from it.
