@@ -10,6 +10,8 @@ reviews_more
 reviews_scrolled
 reviews_spoiler_shown
 reviews_end
+reviews_cached_offline       # same existing compact Read more button
+reviews_cached_refresh_failed
 # The search results' row is 88px tall (a 44dp row), TOUCH_MIN is 96.
 search_results
 search_empty

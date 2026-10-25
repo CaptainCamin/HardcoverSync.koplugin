@@ -246,26 +246,50 @@ end
 
 -- Other readers' reviews of a book, opened from its details screen.
 --
--- Nothing is fetched until this is called, and then one request per page of
--- ten (Reviews.PAGE_SIZE): the API allows 60 a minute. Show-then-fetch, like
--- the shelves: the list appears at once saying it is loading. Offline there is
--- nothing to wait for, so say so and open nothing. A failed page offers a retry
--- instead of a dead end.
+-- Saved pages open immediately, offline too. Online, replace them with a fresh first page,
+-- then save each page the reader asks for. Never mix old offsets with a refreshed ordering.
+-- A failed refresh leaves the saved copy; a failed later page offers a retry.
 --
 function Flows:showReviews(book_id, summary)
-  if not Network.connected() then
-    StatusDialogs.info(_("Reviews need an internet connection"))
+  local store, user_id = self.review_store, User:getId()
+  local saved = store and store:get(user_id, book_id)
+  local online = Network.connected()
+  if not online and not saved then
+    StatusDialogs.info(_("No reviews saved for this book. Connect and open Reviews to save them."))
     return
   end
-
+  local session = store and store:begin(user_id, book_id)
+  summary = summary or (saved and saved.summary)
   local dialog
+  local held = saved and saved.reviews or {}
 
   -- one page, normalised; callback(rows, err, raw_count)
   local function fetch_page(offset, limit, callback)
+    if not Network.connected() then
+      dialog.offline = true
+      callback(nil, true)
+      return
+    end
     Api:getReviewsAsync(book_id, limit, offset, function(raw, err)
+      local rows
+      if raw then
+        rows = Reviews.normalizeAll(raw)
+        held = Reviews.appendPage(offset == 0 and {} or held, rows)
+        if store then
+          store:put(user_id, book_id, held, offset + #raw, Reviews.hasMore(#raw, limit), summary, session)
+        end
+      end
+      -- Even a page that arrived after closing is worth keeping, but must not touch freed widgets.
       if not Live.shown(dialog) then return end
 
       if not raw then
+        if offset == 0 and saved then
+          dialog.loading = false
+          dialog.cache_note = dialog.cache_note .. " " .. _("Could not refresh; showing saved reviews.")
+          dialog:refresh()
+          callback(nil, err or true)
+          return
+        end
         StatusDialogs.retry(err, _("Loading reviews"),
           function()
             if offset == 0 then
@@ -278,14 +302,16 @@ function Flows:showReviews(book_id, summary)
             end
           end,
           function()
-            -- giving up on the first page leaves nothing to look at
+            -- Without a saved copy the first page leaves nothing to look at.
             if offset == 0 then UIManager:close(dialog) end
           end)
         callback(nil, err or true)
         return
       end
 
-      callback(Reviews.normalizeAll(raw), nil, #raw)
+      dialog.cache_note = nil
+      dialog.offline = false
+      callback(rows, nil, #raw)
     end)
   end
 
@@ -297,15 +323,30 @@ function Flows:showReviews(book_id, summary)
     hint = _("Names are hidden: sign out and back in to see them.")
   end
 
+  local message
+  if not saved then
+    message = _("Loading reviews\226\128\166")
+  elseif #held == 0 and not saved.more then
+    message = _("No reviews yet")
+  end
   dialog = require("hardcover/lib/ui/reviews_dialog"):new {
-    message = _("Loading reviews\226\128\166"),
+    message = message,
+    reviews = held,
+    offset = saved and saved.offset or 0,
+    has_more = saved and saved.more or false,
+    offline = not online,
+    loading = online,
+    cache_note = saved and ((online and "" or _("Offline. "))
+      .. T(_("Saved %1."), os.date("%Y-%m-%d %H:%M", saved.saved_at))) or nil,
     summary = summary,
     hint = hint,
     fetch_page = fetch_page,
   }
   self:openScreen(nil, dialog)
 
+  if not online then return end
   fetch_page(0, Reviews.PAGE_SIZE, function(rows, _err, raw_count)
+    dialog.loading = false
     if not rows then
       -- a failed first page: the retry above reloads it, or closes the screen
       return

@@ -222,8 +222,11 @@ ten to a page, each with the reader's name (or "A reader" when they keep their a
 (like `4.5*`), the likes, and the start of the review. A long review ends in "Read more >"; tap it to read the whole
 text in a scrollable viewer. A review marked as containing spoilers is hidden behind "Contains spoilers - tap to show"
 until you tap it. "Load more reviews" at the end fetches the next ten. Nothing is fetched until you press Reviews, and
-it needs a connection (it says so when you are offline). It uses the `read:social` permission you grant when you
-sign in.
+each page you browse is saved on the device, including the full text. Open Reviews offline to read the saved pages;
+the screen says when they were saved and whether more reviews need a connection. Online, the saved copy opens
+immediately while a fresh first page is fetched. A successful refresh replaces the old pages (the order may have
+changed); a failed refresh keeps them. Spoilers are hidden again each time you open Reviews. It uses the
+`read:social` permission you grant when you sign in.
 
 The **Shelf** button beside Close puts the book on a shelf: it reads `Add to shelf` for a book that is not in your
 library and `Shelf: <status>` for one that is. Tap it to choose Want to Read, Currently Reading, Read or Did Not
@@ -356,6 +359,10 @@ This feature is not used for all network requests. If wifi has not been manually
 
 By default, changes to a book's read status (Want to Read, Did Not Finish, etc) will immediately update in Hardcover as
 soon as you press them. Enable this setting to display a confirmation prompt before those changes are sent.
+
+## Roadmap
+
+- Download community reviews ahead of time for offline reading, without first browsing each book's Reviews screen.
 
 ## Development
 

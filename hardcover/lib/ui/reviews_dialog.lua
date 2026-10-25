@@ -48,6 +48,8 @@ local ReviewsDialog = InputContainer:extend {
   title = _("Reviews"),
   summary = nil,       -- { title, rating, count, distribution }: the book, shown above page one
   hint = nil,          -- a small grey note under the summary
+  cache_note = nil,    -- when the saved copy is from; absent after a successful fetch
+  offline = false,
   reviews = nil,       -- normalised (Reviews.normalize), in display order
   message = nil,       -- a single non-interactive message: loading, empty
   has_more = false,
@@ -80,7 +82,7 @@ function ReviewsDialog:buildItems()
     local text, action = Reviews.rowText(review, self.revealed[review.id or review])
     items[#items + 1] = { text = text, review = review, action = action }
   end
-  if self.has_more then
+  if self.has_more and not self.offline then
     items[#items + 1] = {
       text = self.loading and _("Loading reviews\226\128\166") or _(Reviews.LOAD_MORE),
       action = "more",
@@ -200,13 +202,14 @@ end
 -- The last block: a visible way to ask for more, or the word that there is none.
 function ReviewsDialog:buildFooter(width)
   local group = VerticalGroup:new { align = "left", Theme.rule(width, false), Theme.span("m") }
-  if self.has_more then
+  if self.has_more and not self.offline then
     table.insert(group, Button.new { label = self.loading and _("Loading reviews\226\128\166") or _(Reviews.LOAD_MORE),
       w = width, h = Screen:scaleBySize(56), callback = function() self:loadMore() end })
     self.more_button = group[#group]
   else
     self.more_button = nil
-    local done = text(_("No more reviews"), "body", { grey = true })
+    local done = text(self.has_more and _("More reviews need a connection") or _("No more reviews"),
+      "body", { grey = true, width = width })
     table.insert(group, Theme.span(math.floor((Theme.BUTTON_H - done:getSize().h) / 2)))
     table.insert(group, HorizontalGroup:new { Theme.hspan(math.max(0, math.floor((width - done:getSize().w) / 2))), done })
     table.insert(group, Theme.span(math.ceil((Theme.BUTTON_H - done:getSize().h) / 2)))
@@ -218,7 +221,7 @@ end
 -- The book and its rating, above the first card.
 function ReviewsDialog:buildSummary(width)
   local summary = self.summary
-  if type(summary) ~= "table" and not self.hint then return nil end
+  if type(summary) ~= "table" and not self.hint and not self.cache_note then return nil end
   summary = type(summary) == "table" and summary or {}
   local group = VerticalGroup:new { align = "left" }
   if summary.title then
@@ -254,6 +257,11 @@ function ReviewsDialog:buildSummary(width)
     table.insert(group, text(self.hint, "small", { grey = true, width = width }))
     table.insert(group, Theme.span("m"))
   end
+  if self.cache_note then
+    table.insert(group, TextBoxWidget:new { text = self.cache_note, face = Theme.face("small"),
+      fgcolor = Theme.secondary(), width = width })
+    table.insert(group, Theme.span("m"))
+  end
   return group
 end
 
@@ -281,7 +289,10 @@ function ReviewsDialog:build()
   self.scroll = nil
   if self.message then
     body = CenterContainer:new { dimen = Geom:new { w = self.width, h = room },
-      text(self.message, "body", { grey = true, width = self.width - 2 * M }) }
+      TextBoxWidget:new {
+        text = self.message .. (self.cache_note and ("\n\n" .. self.cache_note) or ""),
+        face = Theme.face("body"), fgcolor = Theme.secondary(), width = self.width - 2 * M,
+      } }
   else
     local width = self.width - 2 * M
     local content = self:buildContent(width)
@@ -332,11 +343,11 @@ end
 --
 function ReviewsDialog:addPage(rows, raw_count, offset)
   self.message = nil
-  self.reviews = Reviews.appendPage(self.reviews, rows)
+  self.reviews = Reviews.appendPage(offset == 0 and {} or self.reviews, rows)
   self.offset = offset + (raw_count or #rows)
   self.has_more = Reviews.hasMore(raw_count, self.page_size)
 
-  if #self.reviews == 0 then
+  if #self.reviews == 0 and not self.has_more then
     self:setMessage(_("No reviews yet"))
     return
   end
@@ -356,7 +367,7 @@ end
 -- Fetch the next page. Guarded so a double tap cannot fire two requests.
 --
 function ReviewsDialog:loadMore()
-  if self.loading or not self.has_more or not self.fetch_page then return end
+  if self.loading or self.offline or not self.has_more or not self.fetch_page then return end
 
   self.loading = true
   self:refresh()
