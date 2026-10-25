@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Prepare the Lua test toolchain and headless KOReader emulator for Amp orbs.
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$repo_root"
+
+log_step() {
+  printf '\n== %s ==\n' "$1"
+}
+
+need_packages=()
+for package in lua5.1 luajit luarocks build-essential liblua5.1-0-dev curl ca-certificates; do
+  if ! dpkg-query -W -f='${db:Status-Abbrev}' "$package" 2>/dev/null | grep -q '^ii '; then
+    need_packages+=("$package")
+  fi
+done
+
+if ((${#need_packages[@]})); then
+  log_step "Installing system packages"
+  sudo apt-get update
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${need_packages[@]}"
+else
+  log_step "System packages already installed"
+fi
+
+install_rock() {
+  local rock="$1"
+  local version="${2:-}"
+  if luarocks --lua-version=5.1 list --porcelain "$rock" | awk -F '\t' '$1 == rock { found = 1 } END { exit !found }' rock="$rock"; then
+    printf 'LuaRocks package %s is already installed\n' "$rock"
+  elif [[ -n "$version" ]]; then
+    luarocks --lua-version=5.1 install "$rock" "$version"
+  else
+    luarocks --lua-version=5.1 install "$rock"
+  fi
+}
+
+log_step "Installing Lua test tools"
+install_rock luacheck
+install_rock busted 2.2.0
+
+# Keep the CI-pinned KOReader build in the snapshot so UI work can run the
+# emulator without downloading and extracting it in every fresh orb.
+koreader_version="v2025.10"
+koreader_sha256="712f94c014a4e24420b7da1935759861cb286d3207a094e5a849be9077c620b9"
+koreader_cache="$HOME/.cache/hardcoversync/koreader-$koreader_version"
+koreader_appimage="$koreader_cache/koreader.AppImage"
+koreader_dir="$koreader_cache/squashfs-root"
+
+if [[ ! -f "$koreader_dir/setupkoenv.lua" ]]; then
+  log_step "Caching KOReader $koreader_version"
+  mkdir -p "$koreader_cache"
+  if [[ ! -f "$koreader_appimage" ]] || ! echo "$koreader_sha256  $koreader_appimage" | sha256sum -c - >/dev/null; then
+    curl --fail --location --retry 3 --output "$koreader_appimage.tmp" \
+      "https://github.com/koreader/koreader/releases/download/$koreader_version/koreader-appimage-x86_64-$koreader_version.AppImage"
+    echo "$koreader_sha256  $koreader_appimage.tmp" | sha256sum -c -
+    mv "$koreader_appimage.tmp" "$koreader_appimage"
+  fi
+  chmod +x "$koreader_appimage"
+  rm -rf "$koreader_dir"
+  (
+    cd "$koreader_cache"
+    "$koreader_appimage" --appimage-extract >/dev/null
+  )
+  cp -- fonts/Lato-Medium.ttf fonts/Lato-Black.ttf "$koreader_dir/fonts/"
+else
+  log_step "KOReader emulator already cached"
+fi
+
+printf '\nOrb setup is ready. For emulator runs use:\n'
+printf '  KO_EMU_APP=%q spec/emu/run.sh --ci\n' "$koreader_dir"
