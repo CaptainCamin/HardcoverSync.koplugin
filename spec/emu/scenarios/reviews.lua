@@ -133,7 +133,13 @@ return {
     end
 
     local DialogManager = require("hardcover/lib/ui/dialog_manager")
-    local manager = DialogManager:new { settings = settings }
+    local SqliteStore = require("hardcover/lib/sqlite_store")
+    local ReviewStore = require("hardcover/lib/review_store")
+    local User = require("hardcover/lib/user")
+    local db = SqliteStore:new { path = os.getenv("KO_HOME") .. "/reviews.sqlite3" }
+    db:clear()
+    local store = ReviewStore:new { db = db }
+    local manager = DialogManager:new { settings = settings, review_store = store }
     local NetworkManager = require("ui/network/manager")
 
     manager:showBookDetail(103)
@@ -264,13 +270,160 @@ return {
     -- the plugin also trusts KOReader's own record of the connection, so go offline in both
     local was_state = NetworkManager.getConnectionState
     NetworkManager.getConnectionState = function() return false end
+    -- A new store instance reads the saved full text and every loaded page from SQLite.
+    db:close()
+    db = SqliteStore:new { path = os.getenv("KO_HOME") .. "/reviews.sqlite3" }
+    manager.review_store = ReviewStore:new { db = db }
     manager:showReviews(103)
     emu:pump()
-    NetworkManager.isConnected = was
-    NetworkManager.getConnectionState = was_state
-    emu:expectText("internet connection")
-    assert(#review_calls() == before, "asked for reviews while offline")
+    dialog = emu:top()
+    assert(#dialog.reviews == 23 and dialog.offset == 23 and not dialog.has_more)
+    emu:expectText("Offline. Saved")
+    emu:expectText("Maya Okafor")
+    emu:shot("reviews_cached_offline")
+    scroll_to(emu, dialog, "Contains spoilers")
+    gone(emu, "turns out to have been dead")
+    tap_button(emu, dialog, "Contains spoilers")
+    emu:expectText("turns out to have been dead")
+    scroll_top(emu, dialog)
+    tap_button(emu, dialog, "Read more")
+    emu:expectText("(6)")
+    emu:shot("reviews_cached_full")
+    emu:closeAll()
+
+    manager:showReviews(105)
+    emu:pump()
+    emu:expectText("No reviews yet")
+    emu:expectText("Offline. Saved")
+    emu:shot("reviews_cached_empty")
+    emu:closeAll()
+
+    manager:showReviews(999)
+    emu:pump()
+    emu:expectText("No reviews saved")
     emu:shot("reviews_offline")
     emu:closeAll()
+    assert(#review_calls() == before, "asked for reviews while offline")
+
+    NetworkManager.isConnected = was
+    NetworkManager.getConnectionState = was_state
+
+    -- A failed background refresh leaves all the saved pages visible and on disk.
+    local Api = require("hardcover/lib/hardcover_api")
+    local async = Api.getReviewsAsync
+    local pending
+    Api.getReviewsAsync = function(_, _, _, _, cb) pending = cb end
+    manager:showReviews(103)
+    emu:pump()
+    dialog = emu:top()
+    assert(#dialog.reviews == 23 and dialog.loading, "saved copy was not shown before refresh")
+    pending(nil, { message = "offline" })
+    emu:pump()
+    emu:expectText("Could not refresh")
+    assert(#dialog.reviews == 23 and not dialog.loading)
+    assert(#manager.review_store:get(User:getId(), 103).reviews == 23)
+    emu:shot("reviews_cached_refresh_failed")
+    emu:closeAll()
+
+    -- Refresh replaces old ordering and old text, rather than appending a second copy.
+    manager:showReviews(103)
+    pending({ { id = 1, review_raw = "Updated review after refresh.", user = { name = "Maya" } } })
+    emu:pump()
+    dialog = emu:top()
+    assert(#dialog.reviews == 1 and dialog.offset == 1 and not dialog.cache_note)
+    emu:expectText("Updated review after refresh.")
+    emu:shot("reviews_refreshed")
+    emu:closeAll()
+
+    -- Closing before a response must still save it, without rebuilding the closed screen.
+    manager:showReviews(103)
+    emu:closeAll()
+    local raw = {}
+    for i = 1, 10 do raw[i] = { id = i, review_raw = "Partial saved review " .. i } end
+    pending(raw)
+    Api.getReviewsAsync = async
+    NetworkManager.isConnected = function() return false end
+    NetworkManager.getConnectionState = function() return false end
+    manager:showReviews(103)
+    emu:pump()
+    dialog = emu:top()
+    assert(#dialog.reviews == 10 and dialog.offset == 10 and dialog.has_more)
+    for _ = 1, 40 do
+      if dialog.scroll:getScrolledOffset().y >= dialog.scroll._max_scroll_offset_y then break end
+      emu:screenNodes()
+      emu:tap(emu.Screen:getWidth() - 10, emu.Screen:getHeight() - 20)
+      emu:pump()
+    end
+    assert(dialog.scroll:getScrolledOffset().y >= dialog.scroll._max_scroll_offset_y)
+    emu:expectText("More reviews need a connection")
+    gone(emu, "No more reviews")
+    gone(emu, "Load more reviews")
+    emu:shot("reviews_cached_partial")
+    emu:closeAll()
+    NetworkManager.isConnected = was
+    NetworkManager.getConnectionState = was_state
+    assert(manager.review_store:get(User:getId() + 1, 103) == nil, "another account saw the saved reviews")
+
+    -- An older pagination response cannot restore pages discarded by a newer visit's refresh.
+    Api.getReviewsAsync = function(_, _, _, _, cb) pending = cb end
+    manager:showReviews(103)
+    pending(raw)
+    dialog = emu:top()
+    dialog:loadMore()
+    local old_page = pending
+    emu:closeAll()
+    manager:showReviews(103)
+    pending({ { id = 901, review_raw = "Newest visit's review." } })
+    old_page({ { id = 902, review_raw = "Late page from the previous visit." } })
+    emu:pump()
+    local latest = manager.review_store:get(User:getId(), 103)
+    assert(#latest.reviews == 1 and latest.reviews[1].id == 901 and latest.offset == 1,
+      "a superseded page overwrote the latest snapshot")
+    emu:expectText("Newest visit's review.")
+    emu:closeAll()
+
+    -- A disk write failure leaves the old saved copy intact, without blocking reading online.
+    manager:showReviews(103)
+    local put = db.putBlob
+    db.putBlob = function() return false end
+    pending({ { id = 903, review_raw = "Readable even when the cache cannot be written." } })
+    db.putBlob = put
+    emu:pump()
+    emu:expectText("Readable even when the cache cannot be written.")
+    assert(manager.review_store:get(User:getId(), 103).reviews[1].id == 901)
+    emu:closeAll()
+
+    -- Sign-out invalidates outstanding requests before clearing the account's library.
+    manager:showReviews(103)
+    emu:closeAll()
+    manager.review_store:invalidate()
+    db:clear()
+    pending(raw)
+    assert(manager.review_store:get(User:getId(), 103) == nil, "a late response repopulated a cleared cache")
+
+    -- Ten rating-only rows are not an empty completed snapshot: paging still starts at ten.
+    manager:showReviews(103)
+    local textless = {}
+    for i = 1, 10 do textless[i] = { id = i, review_raw = "" } end
+    pending(textless)
+    dialog = emu:top()
+    assert(#dialog.reviews == 0 and dialog.has_more and dialog.offset == 10 and not dialog.message)
+    latest = manager.review_store:get(User:getId(), 103)
+    assert(#latest.reviews == 0 and latest.more and latest.offset == 10)
+    emu:pump()
+    emu:expectText("Load more reviews")
+    gone(emu, "No reviews yet")
+    emu:closeAll()
+    NetworkManager.isConnected = function() return false end
+    NetworkManager.getConnectionState = function() return false end
+    manager:showReviews(103)
+    emu:pump()
+    emu:expectText("More reviews need a connection")
+    gone(emu, "No reviews yet")
+    emu:closeAll()
+    NetworkManager.isConnected = was
+    NetworkManager.getConnectionState = was_state
+    Api.getReviewsAsync = async
+    db:close()
   end,
 }

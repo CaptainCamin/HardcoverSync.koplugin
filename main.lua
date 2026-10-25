@@ -32,6 +32,7 @@ local Hardcover = require("hardcover/lib/hardcover")
 local HardcoverSettings = require("hardcover/lib/hardcover_settings")
 local ListStore = require("hardcover/lib/list_store")
 local JournalStore = require("hardcover/lib/journal_store")
+local ReviewStore = require("hardcover/lib/review_store")
 local PageMapper = require("hardcover/lib/page_mapper")
 local Scheduler = require("hardcover/lib/scheduler")
 local ShelfCache = require("hardcover/lib/shelf_cache")
@@ -170,6 +171,7 @@ function HardcoverApp:init()
   self.list_store = ListStore:new { db = self.library_db, books = self.book_store }
   self.shelf_store = ShelfStore:new { db = self.library_db, books = self.book_store }
   self.journal_store = JournalStore:new { db = self.library_db }
+  self.review_store = ReviewStore:new { db = self.library_db }
 
   self.sync_queue = SyncQueue:new {
     settings = LuaSettings:open(("%s/%s"):format(DataStorage:getSettingsDir(), "hardcoversync_queue.lua"))
@@ -238,6 +240,7 @@ function HardcoverApp:init()
     list_store = self.list_store,
     shelf_store = self.shelf_store,
     journal_store = self.journal_store,
+    review_store = self.review_store,
     -- books finished offline, for the reading goal's number
     sync_queue = self.sync_queue,
     -- goals made or changed offline, and the way to send them
@@ -295,6 +298,7 @@ function HardcoverApp:init()
     on_sign_in = function() self:signIn() end,
     on_sign_out = function()
       -- the cache holds this account's library, so it goes with the sign in
+      self.review_store:invalidate()
       self.shelf_cache:clear()
       self.book_store:clear()
       self.auth:signOut()
