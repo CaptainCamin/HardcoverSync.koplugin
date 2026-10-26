@@ -81,7 +81,7 @@ check("a status already sent is not sent again when the page behind it failed", 
   eq(q:get("/b/a.epub").mapped_page, 10, "page kept for the retry")
   fail = false
   q:flush(api, { user_id = 1 })
-  eq(api:count("updateUserBook"), 1, "status sends over both flushes")
+  eq(api:count("updateUserBookStatus"), 1, "status sends over both flushes")
   eq(q:hasPending(), false, "queue drained")
 end)
 
@@ -145,6 +145,27 @@ check("online success clears the queued page but keeps a queued status", functio
   eq(q:get("/b/a.epub").status_id, HARDCOVER.STATUS.READING, "status")
 end)
 
+check("online status change updates the existing user book by its record id", function()
+  local old_update_status, old_insert = Api.updateUserBookStatus, Api.updateUserBook
+  local called
+  Api.updateUserBookStatus = function(_, user_book_id, status_id)
+    called = { user_book_id, status_id }
+    return { id = user_book_id, book_id = 7, status_id = status_id, user_book_reads = {} }
+  end
+  Api.updateUserBook = function() error("insert used for an existing user book") end
+
+  local ok, err = pcall(function()
+    local state = { book_status = { id = 507, book_id = 7, status_id = HARDCOVER.STATUS.TO_READ } }
+    local result = newCache(KB.newQueue(), state):updateBookStatus("/b/a.epub", HARDCOVER.STATUS.READING)
+    eq(called[1], 507, "user book id")
+    eq(called[2], HARDCOVER.STATUS.READING, "new status")
+    eq(result.status_id, HARDCOVER.STATUS.READING, "saved status")
+  end)
+
+  Api.updateUserBookStatus, Api.updateUserBook = old_update_status, old_insert
+  assert(ok, err)
+end)
+
 check("offline status change is queued; online success clears only the status", function()
   KB.network.connected = false
   local q = KB.newQueue()
@@ -154,7 +175,9 @@ check("offline status change is queued; online success clears only the status", 
   eq(result.queued, true, "queued flag")
   eq(q:get("/b/a.epub").status_id, HARDCOVER.STATUS.FINISHED, "queued status")
   q:enqueuePage("/b/a.epub", { mapped_page = 20, book_id = 7 })
-  Api.updateUserBook = function() return { id = 507, status_id = HARDCOVER.STATUS.FINISHED, user_book_reads = {} } end
+  Api.updateUserBookStatus = function(_, user_book_id, status_id)
+    return { id = user_book_id, status_id = status_id, user_book_reads = {} }
+  end
   cache:updateBookStatus("/b/a.epub", HARDCOVER.STATUS.FINISHED)
   eq(q:get("/b/a.epub").status_id, nil, "status after the online send")
   eq(q:get("/b/a.epub").mapped_page, 20, "page untouched")

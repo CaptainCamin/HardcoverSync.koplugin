@@ -828,6 +828,11 @@ function M.install(opts)
     return { id = 9000 + book_id, book_id = book_id, status_id = status_id, rating = 0 }
   end
 
+  Api.updateUserBookStatus = function(_, user_book_id, status_id)
+    record("updateUserBookStatus", { user_book_id = user_book_id, status_id = status_id })
+    return { id = user_book_id, book_id = user_book_id - 9000, status_id = status_id, rating = 0 }
+  end
+
   Api.removeUserBook = function(_, user_book_id)
     record("removeUserBook", { user_book_id = user_book_id })
     return { id = user_book_id }

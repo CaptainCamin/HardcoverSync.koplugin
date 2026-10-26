@@ -584,12 +584,7 @@ function SyncQueue:_flushEntry(api, filepath, opts)
 
   for _, op in ipairs(ops) do
     if op.kind == "status" then
-      local result = api:updateUserBook(
-        book_id,
-        op.value,
-        privacy_setting_id or user_book.privacy_setting_id,
-        edition_id
-      )
+      local result = api:updateUserBookStatus(user_book.id, op.value)
       if not hasUserBook(result) then
         countRejection(self, filepath)
         return false
@@ -601,12 +596,7 @@ function SyncQueue:_flushEntry(api, filepath, opts)
       local current = user_book.status_id
       if current == HARDCOVER.STATUS.TO_READ then
         -- Reading a Want to Read book offline means it is now being read
-        local started = api:updateUserBook(
-          book_id,
-          HARDCOVER.STATUS.READING,
-          privacy_setting_id or user_book.privacy_setting_id,
-          edition_id
-        )
+        local started = api:updateUserBookStatus(user_book.id, HARDCOVER.STATUS.READING)
         if not hasUserBook(started) then
           countRejection(self, filepath)
           return false
@@ -653,12 +643,7 @@ function SyncQueue:_flushEntry(api, filepath, opts)
           countRejection(self, filepath)
           return false
         end
-        local reading = api:updateUserBook(
-          book_id,
-          HARDCOVER.STATUS.READING,
-          privacy_setting_id or made.privacy_setting_id,
-          edition_id
-        )
+        local reading = api:updateUserBookStatus(made.id, HARDCOVER.STATUS.READING)
         if not hasUserBook(reading) then
           countRejection(self, filepath)
           return false

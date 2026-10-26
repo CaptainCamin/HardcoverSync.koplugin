@@ -539,19 +539,25 @@ function HardcoverApp:askToStartReading(filename)
   }
 end
 
--- "Start reading": a Want to Read book is moved to Currently Reading. A book whose shelf is not
--- known is not given a status (it may be Finished there); its page is sent and Hardcover starts the
--- read, or asks, as it does for any page.
+-- "Start reading": after the reader confirms, move a Want to Read book or one with an unknown
+-- status to Currently Reading, then send its current page. Keep the prompt from overwriting a
+-- different status if the book changed while it was open.
 function HardcoverApp:startReading(filename)
-  if not self.settings:syncEnabled() then
-    self.settings:setSync(true)
-    self.state.process_page_turns = true
-  end
-  if self:effectiveStatusId(filename) == HARDCOVER.STATUS.TO_READ then
-    self.cache:updateBookStatus(filename, HARDCOVER.STATUS.READING)
-    StatusDialogs.info(_("Now on your 'Currently Reading' shelf"), 2)
-  end
   Trapper:wrap(function()
+    local status_id = self:effectiveStatusId(filename)
+    if status_id ~= nil
+      and status_id ~= HARDCOVER.STATUS.TO_READ
+      and status_id ~= HARDCOVER.STATUS.READING then
+      return
+    end
+    if not self.settings:syncEnabled() then
+      self.settings:setSync(true)
+      self.state.process_page_turns = true
+    end
+    if status_id ~= HARDCOVER.STATUS.READING then
+      self.cache:updateBookStatus(filename, HARDCOVER.STATUS.READING)
+      StatusDialogs.info(_("Now on your 'Currently Reading' shelf"), 2)
+    end
     self:updatePageNowForced(filename)
   end)
 end

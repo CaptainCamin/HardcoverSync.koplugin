@@ -251,6 +251,11 @@ local function fakeApi(opts)
       if opts.update_fails then return nil end
       return { id = 500, status_id = status_id, user_book_reads = {} }
     end,
+    updateUserBookStatus = function(_, user_book_id, status_id)
+      calls[#calls + 1] = { op = "updateUserBookStatus", user_book_id = user_book_id, status_id = status_id }
+      if opts.update_fails then return nil end
+      return { id = user_book_id, status_id = status_id, user_book_reads = {} }
+    end,
     setFinishedDate = function(_, user_book, date)
       calls[#calls + 1] = { op = "setFinishedDate", date = date }
       return user_book
@@ -412,11 +417,27 @@ check("a queued status is sent and then cleared", function()
   q:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.FINISHED, book_id = 1 })
   local api = fakeApi()
   eq(q:flush(api, { user_id = 1 }), true, "flush result")
-  local saw = false
+  local status_update
   for _, c in ipairs(api.calls) do
-    if c.op == "updateUserBook" and c.status_id == HARDCOVER.STATUS.FINISHED then saw = true end
+    if c.op == "updateUserBookStatus" and c.status_id == HARDCOVER.STATUS.FINISHED then status_update = c end
   end
-  eq(saw, true, "the status reached the api")
+  eq(status_update and status_update.user_book_id, 500, "the existing record reached the api")
+end)
+
+check("a queued status on an existing user book updates it by record id", function()
+  local q = newQueue()
+  q:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.READING, book_id = 1 })
+  local api = fakeApi()
+  api.findUserBook = function()
+    return { id = 501, status_id = HARDCOVER.STATUS.TO_READ, user_book_reads = {} }
+  end
+  eq(q:flush(api, { user_id = 1 }), true, "flush result")
+  local status_update
+  for _, c in ipairs(api.calls) do
+    if c.op == "updateUserBookStatus" then status_update = c end
+  end
+  eq(status_update and status_update.user_book_id, 501, "existing record id")
+  eq(status_update and status_update.status_id, HARDCOVER.STATUS.READING, "new status")
 end)
 
 check("a book finished offline is sent with the day it was finished, not the day of the sync", function()
@@ -483,6 +504,10 @@ local function existingBookApi(status_id)
     return { id = 500, status_id = status_id, user_book_reads = {} }
   end
   api.created_read, api.new_status = false, nil
+  api.updateUserBookStatus = function(self, user_book_id, new_status)
+    self.new_status = new_status
+    return { id = user_book_id, status_id = new_status, user_book_reads = {} }
+  end
   api.createRead = function(self, _, _, page)
     self.created_read = true
     return { id = 500, status_id = self.new_status or status_id,
@@ -501,6 +526,7 @@ check("offline progress on a Want to Read book moves it to Currently Reading", f
   local q = newQueue()
   q:enqueuePage("/books/a.epub", { mapped_page = 120, book_id = 1, edition_id = 3 })
   local api = existingBookApi(HARDCOVER.STATUS.TO_READ)
+  api.updateUserBook = function() error("existing user book was inserted again") end
   eq(q:flush(api, { user_id = 1 }), true, "flush result")
   eq(api.new_status, HARDCOVER.STATUS.READING, "status set to Currently Reading")
   eq(api.created_read, true, "the page was recorded")
@@ -511,7 +537,7 @@ check("a failed move to Currently Reading keeps the entry", function()
   local q = newQueue()
   q:enqueuePage("/books/a.epub", { mapped_page = 120, book_id = 1, edition_id = 3 })
   local api = existingBookApi(HARDCOVER.STATUS.TO_READ)
-  api.updateUserBook = function() return nil end
+  api.updateUserBookStatus = function() return nil end
   eq(q:flush(api, { user_id = 1 }), false, "flush result")
   eq(q:get("/books/a.epub").mapped_page, 120, "the page survives")
   eq(api.created_read, false, "no page was sent on a book still Want to Read")
@@ -538,14 +564,14 @@ check("re-reading: yes makes a NEW read first, then sets Currently Reading", fun
   q:enqueuePage("/books/a.epub", { mapped_page = 120, book_id = 1, edition_id = 3 })
   local api = existingBookApi(HARDCOVER.STATUS.FINISHED)
   local order = {}
-  local create, update = api.createRead, api.updateUserBook
+  local create, update = api.createRead, api.updateUserBookStatus
   api.createRead = function(self, ...) order[#order + 1] = "createRead" return create(self, ...) end
-  api.updateUserBook = function(self, ...) order[#order + 1] = "updateUserBook" return update(self, ...) end
+  api.updateUserBookStatus = function(self, ...) order[#order + 1] = "updateUserBookStatus" return update(self, ...) end
   q:flush(api, { user_id = 1 })
   eq(q:resolve("/books/a.epub", "yes"), true, "resolved")
   eq(q:flush(api, { user_id = 1 }), true, "flush result")
   eq(order[1], "createRead", "the new read comes first")
-  eq(order[2], "updateUserBook", "then the status")
+  eq(order[2], "updateUserBookStatus", "then the status")
   eq(api.new_status, HARDCOVER.STATUS.READING, "now Currently Reading")
   eq(q:hasPending("/books/a.epub"), false, "cleared")
 end)

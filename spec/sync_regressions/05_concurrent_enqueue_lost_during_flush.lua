@@ -40,11 +40,11 @@ KB.check("a status queued while the status request is in flight survives", funct
   local q = KB.newQueue()
   q:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.READING, book_id = 7, edition_id = 3 })
   local api = KB.fakeApi(shelf())
-  local real = api.updateUserBook
-  api.updateUserBook = function(self, book_id, status_id, ...)
+  local real = api.updateUserBookStatus
+  api.updateUserBookStatus = function(self, user_book_id, status_id)
     -- the user marks it Finished while the first status is being sent
     q:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.FINISHED, book_id = 7 })
-    return real(self, book_id, status_id, ...)
+    return real(self, user_book_id, status_id)
   end
   q:flush(api, { user_id = 1 })
   local entry = q:get("/books/a.epub")

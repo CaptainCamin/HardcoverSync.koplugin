@@ -13,9 +13,22 @@ local check = r.test
 
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
+local Trapper = require("ui/trapper")
 
 local asked, asked_options
 StatusDialogs.confirm = function(o) asked = (asked or 0) + 1; asked_options = o end
+
+local function runWithCoroutineTrapper(fn)
+  local original_wrap = Trapper.wrap
+  Trapper.wrap = function(_, task)
+    local co = coroutine.create(task)
+    local ok, err = coroutine.resume(co)
+    assert(ok, err)
+  end
+  local ok, err = pcall(fn)
+  Trapper.wrap = original_wrap
+  assert(ok, err)
+end
 
 -- a book that is linked, on the given shelf, with tracking on or off
 local function newApp(o)
@@ -89,12 +102,42 @@ end)
 check("saying yes turns tracking on, so the next pages are sent", function()
   local o = { process = true, sync = false, shelf_known = true, status = HARDCOVER.STATUS.TO_READ }
   local app = newApp(o)
+  local actions = {}
+  app.cache.updateBookStatus = function(_, file, status)
+    actions[#actions + 1] = { "status", file, status, coroutine.running() ~= nil }
+  end
+  app.cache.syncPage = function(_, file, page)
+    actions[#actions + 1] = { "page", file, page }
+  end
   read(app, 5)
   app.ui.getCurrentPage = function() return 15 end
   app.ui.document.getPageCount = function() return 300 end
   app.page_mapper.getMappedPage = function() return 15 end
-  asked_options.ok_callback()
+  runWithCoroutineTrapper(asked_options.ok_callback)
   assert(o.sync == true, "tracking is still off")
+  assert(actions[1] and actions[1][1] == "status" and actions[1][3] == HARDCOVER.STATUS.READING,
+    "the accepted prompt did not set Currently Reading")
+  assert(actions[1][4], "the shelf update ran outside Trapper's coroutine")
+  assert(actions[2] and actions[2][1] == "page", "the current page was not sent after the status")
+end)
+
+check("saying yes sets Currently Reading when the saved shelf status is unknown", function()
+  local app = newApp { process = true, sync = true, shelf_known = true, status = nil }
+  local actions = {}
+  app.cache.updateBookStatus = function(_, file, status)
+    actions[#actions + 1] = { "status", file, status, coroutine.running() ~= nil }
+  end
+  app.cache.syncPage = function(_, file, page)
+    actions[#actions + 1] = { "page", file, page }
+  end
+  read(app, 5)
+  app.ui.document.getPageCount = function() return 300 end
+  app.page_mapper.getMappedPage = function(_, page) return page end
+  runWithCoroutineTrapper(asked_options.ok_callback)
+  assert(actions[1] and actions[1][1] == "status" and actions[1][3] == HARDCOVER.STATUS.READING,
+    "the accepted prompt did not set Currently Reading")
+  assert(actions[1][4], "the shelf update ran outside Trapper's coroutine")
+  assert(actions[2] and actions[2][1] == "page", "the current page was not sent after the status")
 end)
 
 r.finish()

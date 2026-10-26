@@ -80,6 +80,15 @@ function KB.fakeApi(shelf)
     self.shelf[book_id] = ub
     return ub
   end
+  function api:updateUserBookStatus(user_book_id, status_id)
+    rec("updateUserBookStatus", { user_book_id = user_book_id, status_id = status_id })
+    for _, ub in pairs(self.shelf) do
+      if ub.id == user_book_id then
+        ub.status_id = status_id
+        return ub
+      end
+    end
+  end
   function api:updatePage(read_id, edition_id, page, started_at)
     rec("updatePage", { read_id = read_id, page = page, started_at = started_at })
     if self.page_hook then return self.page_hook(read_id, page) end

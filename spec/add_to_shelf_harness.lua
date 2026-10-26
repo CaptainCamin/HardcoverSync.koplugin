@@ -208,6 +208,17 @@ check("updateUserBook sends the status and book, and returns the record", functi
   assert(sent.vars.object.book_id == 100 and sent.vars.object.status_id == 3, "wrong object")
 end)
 
+check("updateUserBookStatus updates the existing record by id", function()
+  answer({ update_user_book = { user_book = { id = 7, status_id = 2 } } })
+  local out = Api:updateUserBookStatus(7, 2)
+  assert(out and out.id == 7 and out.status_id == 2)
+  assert(sent.q:find("update_user_book(id: $id, object: $object)", 1, true), "wrong mutation")
+  assert(sent.vars.id == 7 and sent.vars.object.status_id == 2, "wrong update arguments")
+  local fields = 0
+  for _ in pairs(sent.vars.object) do fields = fields + 1 end
+  assert(fields == 1, "a status change must not overwrite other user book fields")
+end)
+
 check("an insert refused by Hardcover returns its error text", function()
   answer({ insert_user_book = { error = "Book not found" } })
   local out, err = Api:updateUserBook(100, 3, 1, nil)

@@ -205,14 +205,15 @@ function Cache:shelfChanged(filename, old_status_id, status_id, unsent)
 end
 
 function Cache:updateBookStatus(filename, status, privacy_setting_id)
-  local old_status_id = self.state.book_status and self.state.book_status.status_id
+  local book_status = self.state.book_status or {}
+  local old_status_id = book_status.status_id
+  local user_book_id = book_status.id
   local settings = self.settings:readBookSettings(filename) or {}
   local book_id = settings.book_id
   local edition_id = settings.edition_id
 
   if not privacy_setting_id then
-    privacy_setting_id = self.state.book_status and self.state.book_status.privacy_setting_id
-      or settings.privacy_setting_id
+    privacy_setting_id = book_status.privacy_setting_id or settings.privacy_setting_id
   end
 
   self:applyLocalStatus(filename, status, privacy_setting_id)
@@ -231,7 +232,12 @@ function Cache:updateBookStatus(filename, status, privacy_setting_id)
     return enqueue()
   end
 
-  local result = Api:updateUserBook(book_id, status, privacy_setting_id, edition_id)
+  local result
+  if user_book_id then
+    result = Api:updateUserBookStatus(user_book_id, status)
+  else
+    result = Api:updateUserBook(book_id, status, privacy_setting_id, edition_id)
+  end
   if result then
     self.state.book_status = result
     self.state.book_status_fetched = true

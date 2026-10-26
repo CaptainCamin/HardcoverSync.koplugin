@@ -1373,6 +1373,29 @@ function HardcoverApi:updateUserBook(book_id, status_id, privacy_setting_id, edi
   return nil, err
 end
 
+-- Change the status on an existing library record. The caller has its user_book id; use
+-- update_user_book rather than the insert action used when adding a book to the library.
+function HardcoverApi:updateUserBookStatus(user_book_id, status_id)
+  local query = [[
+    mutation ($id: Int!, $object: UserBookUpdateInput!) {
+      update_user_book(id: $id, object: $object) {
+        error
+        user_book {
+          ...UserBookParts
+        }
+      }
+    }
+  ]] .. user_book_fragment
+
+  local result, err = self:query(query, { id = user_book_id, object = { status_id = status_id } })
+  if result and result.update_user_book then
+    local updated = result.update_user_book
+    if updated.user_book then return updated.user_book end
+    return nil, updated.error
+  end
+  return nil, err
+end
+
 -- Take a book out of the library altogether (its status, rating and reads go
 -- with it). Returns { id = user_book_id } on success.
 function HardcoverApi:removeUserBook(user_book_id)
