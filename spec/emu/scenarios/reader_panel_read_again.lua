@@ -59,6 +59,7 @@ return {
         },
         sync_queue = {
           pendingCount = function() return 0 end,
+          changeCount = function() return 0 end,
           hasPending = function() return false end,
           get = function() return nil end,
           startReread = function(_, _, payload) calls.reread_page = payload.mapped_page end,

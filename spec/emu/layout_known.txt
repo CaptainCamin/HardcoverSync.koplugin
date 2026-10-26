@@ -4,6 +4,7 @@
 #
 # Compact buttons under Theme.TOUCH_MIN: an open decision in docs/e-ink-design.md ("compact button heights").
 shell_home            # "Sync now" is 80px tall at 300 dpi, TOUCH_MIN is 96
+shell_home_waiting    # same button
 shell_home_cards      # same button
 reviews_first         # "Read more" is 80px tall
 reviews_more

@@ -47,7 +47,8 @@ local function newMenu(enabled)
     settings = make(),
     state = { book_status = {} },
     sync_queue = {
-      pendingCount = function() asked = true; return pending end,
+      pendingCount = function() return pending end,
+      changeCount = function() asked = true; return pending end,
       hasPending = function() return pending > 0 end,
     },
   }, { __index = HardcoverMenu })

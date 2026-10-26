@@ -60,7 +60,7 @@ function PendingChangesDialog.show(opts)
     -- Discard was a long press on Sync; it is a row here, and asks first like Cancel does.
     -- It throws away only the progress and status changes, as it always has.
     local sync_queue = opts.queues.sync_queue
-    local queued = sync_queue and sync_queue:pendingCount() or 0
+    local queued = sync_queue and sync_queue:changeCount() or 0
     if queued > 0 then
       items[#items + 1] = {
         text = T(_("Discard %1 queued changes"), queued),

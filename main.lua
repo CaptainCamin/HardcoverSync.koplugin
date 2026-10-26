@@ -829,7 +829,7 @@ function HardcoverApp:on_flush_sync_queue()
   if self.journal_queue then self.journal_queue:retryHeld() end
   if self.review_queue then self.review_queue:retryHeld() end
   if self.rating_queue then self.rating_queue:retryHeld() end
-  local pending = self.sync_queue:pendingCount() + (self.goal_queue and self.goal_queue:count() or 0)
+  local pending = self.sync_queue:changeCount() + (self.goal_queue and self.goal_queue:count() or 0)
     + (self.rating_queue and self.rating_queue:count() or 0)
     + (self.shelf_queue and self.shelf_queue:count() or 0)
     + (self.list_queue and self.list_queue:count() or 0)

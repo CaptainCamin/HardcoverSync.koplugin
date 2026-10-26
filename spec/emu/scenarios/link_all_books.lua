@@ -113,7 +113,8 @@ return {
       enabled = true,
       dialog_manager = manager,
       book_store = book_store,
-      sync_queue = { pendingCount = function() return 0 end, hasPending = function() return false end },
+      sync_queue = { pendingCount = function() return 0 end, changeCount = function() return 0 end,
+        hasPending = function() return false end },
       auth = { usingOAuth = function() return true end, needsReauth = function() return false end,
                statusText = function() return "Signed in" end },
     })

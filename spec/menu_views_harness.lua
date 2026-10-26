@@ -87,7 +87,8 @@ local function newMenu(opts)
       pages = function() return nil end,
     },
     state = { book_status = {} },
-    sync_queue = { pendingCount = function() return 0 end, hasPending = function() return false end },
+    sync_queue = { pendingCount = function() return 0 end, changeCount = function() return 0 end,
+      hasPending = function() return false end },
     auth = {
       usingOAuth = function() return true end,
       needsReauth = function() return opts.signed_out == true end,
@@ -237,7 +238,8 @@ print("\n== pending changes ==")
 
 check("Sync says what is waiting, ratings and goals too; there is no separate Pending changes row", function()
   local m = newMenu()
-  m.sync_queue = { pendingCount = function() return 1 end, hasPending = function() return true end }
+  m.sync_queue = { pendingCount = function() return 1 end, changeCount = function() return 2 end,
+    hasPending = function() return true end }
   m.goal_queue = { count = function() return 1 end }
   m.rating_queue = { count = function() return 1 end }
   local sync, listed = nil, {}
@@ -246,7 +248,7 @@ check("Sync says what is waiting, ratings and goals too; there is no separate Pe
     if ok then listed[#listed + 1] = tostring(t) end
     if ok and tostring(t):find("Sync", 1, true) == 1 then sync = it end
   end
-  assert(sync and sync.text_func() == "Sync pending changes (3)", shown(listed))
+  assert(sync and sync.text_func() == "Sync pending changes (4)", shown(listed))
   assert(not has(listed, "Pending changes"), "a separate row is still listed: " .. shown(listed))
   assert(not has(listed, "queued changes"), "a separate discard row is still listed: " .. shown(listed))
 end)
@@ -256,7 +258,8 @@ check("Sync opens the list when changes wait, and sends only when there is nothi
   local opened, sent = 0, 0
   m.showPendingChanges = function() opened = opened + 1 end
   m.sendPending = function() sent = sent + 1 end
-  m.sync_queue = { pendingCount = function() return 2 end, hasPending = function() return true end }
+  m.sync_queue = { pendingCount = function() return 2 end, changeCount = function() return 2 end,
+    hasPending = function() return true end }
   local sync
   for _, it in ipairs(m:getSubMenuItems(true)) do
     local ok, t = pcall(function() return it.text or (it.text_func and it.text_func()) end)
@@ -266,7 +269,8 @@ check("Sync opens the list when changes wait, and sends only when there is nothi
   assert(sync.hold_callback == nil, "Sync still has a hold shortcut")
   sync.callback({})
   assert(opened == 1 and sent == 0, "with changes waiting: opened " .. opened .. ", sent " .. sent)
-  m.sync_queue = { pendingCount = function() return 0 end, hasPending = function() return false end }
+  m.sync_queue = { pendingCount = function() return 0 end, changeCount = function() return 0 end,
+    hasPending = function() return false end }
   sync.callback({})
   assert(opened == 1 and sent == 1, "with nothing waiting: opened " .. opened .. ", sent " .. sent)
 end)

@@ -660,7 +660,7 @@ function DialogManager:showHomeBody(host)
     shell = host.shell, width = host.width, height = host.height,
     parent = host.parent,
     pending_fn = function()
-      return (self.sync_queue and self.sync_queue:pendingCount() or 0)
+      return (self.sync_queue and self.sync_queue:changeCount() or 0)
         + (self.goal_queue and self.goal_queue:count() or 0)
         + (self.rating_queue and self.rating_queue:count() or 0)
         + (self.shelf_queue and self.shelf_queue:count() or 0)

@@ -76,6 +76,8 @@ local ShelfCache = real_require("hardcover/lib/shelf_cache")
 local BookStore = real_require("hardcover/lib/book_store")
 local ShelfStore = real_require("hardcover/lib/shelf_store")
 local DialogManager = real_require("hardcover/lib/ui/dialog_manager")
+local SyncQueue = real_require("hardcover/lib/sync_queue")
+local HARDCOVER = real_require("hardcover/lib/constants/hardcover")
 -- waiting is the real thing's job (it yields to KOReader); here it is counted
 local slept = 0
 real_require("hardcover/lib/background").sleep = function(seconds) slept = slept + seconds end
@@ -505,6 +507,21 @@ print("\n== the home screen ==")
 local function rowFor(d, status_id)
   for _, row in ipairs(d.rows) do if row.status_id == status_id then return row end end
 end
+
+check("Home counts a queued page and status as separate changes", function()
+  online = false
+  local m = newManager()
+  local saved = {}
+  m.sync_queue = SyncQueue:new { settings = {
+    readSetting = function(_, key) return saved[key] end,
+    saveSetting = function(_, key, value) saved[key] = value end,
+    flush = function() end,
+  } }
+  m.sync_queue:enqueuePage("/books/a.epub", { mapped_page = 10, book_id = 7, title = "A" })
+  m.sync_queue:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.READING, book_id = 7, title = "A" })
+  m:showHomeBody(homeHost())
+  assert(fake[1].pending_fn() == 2, "Home count did not match the two pending changes")
+end)
 
 check("it opens at once with the counts that were saved", function()
   online = true

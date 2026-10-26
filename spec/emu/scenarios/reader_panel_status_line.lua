@@ -124,6 +124,7 @@ return {
         -- nothing waiting to be sent for this book
         sync_queue = {
           pendingCount = function() return 0 end,
+          changeCount = function() return 0 end,
           hasPending = function() return false end,
           get = function() return case.pending end,
         },

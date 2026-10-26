@@ -70,6 +70,18 @@ function SyncQueue:pendingCount()
   return #self:filepaths()
 end
 
+-- How many changes are waiting, counting a page and a status separately when
+-- both are queued for the same book. pendingCount() remains the number of files.
+function SyncQueue:changeCount()
+  local count = 0
+  for _, filepath in ipairs(self:filepaths()) do
+    local entry = self:get(filepath)
+    if entry.mapped_page ~= nil then count = count + 1 end
+    if entry.status_id ~= nil then count = count + 1 end
+  end
+  return count
+end
+
 function SyncQueue:clearAll()
   local pending = self:pending()
   local cleared = 0

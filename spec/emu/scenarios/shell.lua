@@ -6,7 +6,7 @@ reopened; an answer that arrives for a hidden tab is on screen when the tab is o
 from the Goals tab stacks over the shell and closing it reveals the shell, live; Back goes to the
 first tab, then leaves; the registry reaches the hosted body while the shell is up.
 
-Screens: shell_home, shell_goals, shell_goals_hidden_update.
+Screens: shell_home, shell_home_waiting, shell_goals, shell_goals_hidden_update.
 ]]
 
 local fixtures = require("fixtures")
@@ -59,7 +59,8 @@ return {
     local pending = 0
     local sent_now, opened_list = 0, 0
     local manager = DialogManager:new { settings = settings,
-      sync_queue = { finishedCount = function() return 0 end, pendingCount = function() return pending end },
+      sync_queue = { finishedCount = function() return 0 end, pendingCount = function() return pending end,
+        changeCount = function() return pending end },
       shelf_cache = ShelfCache:new { path = path, open = function(p) return LuaSettings:open(p) end },
       send_now = function() sent_now = sent_now + 1 end,
       show_pending = function() opened_list = opened_list + 1 end }
@@ -88,6 +89,7 @@ return {
     emu:pump()
     emu:expectText("2 changes waiting")
     emu:expectText("Sync now")
+    emu:shot("shell_home_waiting")
 
     -- the sync box: a tap on its words opens what is waiting; its Sync now button sends and
     -- does not also open the list (the button sits inside the box's own touch area)

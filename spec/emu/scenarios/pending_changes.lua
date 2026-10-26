@@ -94,15 +94,19 @@ return {
 
     -- discard: asked first, and it throws away the queued progress and status changes only
     q.sync_queue:enqueuePage("/b/dune.epub", { mapped_page = 130, book_id = 7, title = "Dune" })
+    q.sync_queue:enqueueStatus("/b/dune.epub", { status_id = HARDCOVER.STATUS.FINISHED, book_id = 7, title = "Dune" })
     local discarded = 0
     Dialog.show { queues = q, on_discard = function() discarded = discarded + 1 end }
     emu:pump()
-    tap("Discard 1 queued changes")
-    emu:expectText("Discard 1 queued changes?")
+    emu:expectText("Dune: page 130")
+    emu:expectText("Dune: mark as Read")
+    emu:shot("pending_changes_discard_list")
+    tap("Discard 2 queued changes")
+    emu:expectText("Discard 2 queued changes?")
     emu:shot("pending_changes_discard")
     tap("Keep them")
     assert(q.sync_queue:hasPending(), "Keep them discarded the changes")
-    tap("Discard 1 queued changes")
+    tap("Discard 2 queued changes")
     local function tapExact(text) -- "Discard" alone, not the row it sits on top of
       for _, node in ipairs(emu:screenNodes()) do
         if node.text == text then

@@ -687,7 +687,7 @@ end
 -- with Hardcover and the user has not yet said which to keep.
 -- everything waiting to be sent: progress and status changes, and goal changes
 function HardcoverMenu:pendingTotal()
-  return self.sync_queue:pendingCount() + (self.goal_queue and self.goal_queue:count() or 0)
+  return self.sync_queue:changeCount() + (self.goal_queue and self.goal_queue:count() or 0)
     + (self.rating_queue and self.rating_queue:count() or 0)
     + (self.shelf_queue and self.shelf_queue:count() or 0)
     + (self.list_queue and self.list_queue:count() or 0)
