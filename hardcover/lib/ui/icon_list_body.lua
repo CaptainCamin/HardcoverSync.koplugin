@@ -16,14 +16,18 @@ local HorizontalGroup = require("ui/widget/horizontalgroup")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
 local TextBoxWidget = require("ui/widget/textboxwidget")
+local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
 
 local Draw = require("hardcover/lib/ui/components/draw")
 local Hosted = require("hardcover/lib/ui/hosted")
+local LocalSearch = require("hardcover/lib/local_search")
 local Lists = require("hardcover/lib/lists")
 local ListItem = require("hardcover/lib/ui/components/list_item")
 local ScrollControl = require("hardcover/lib/ui/components/scroll_control")
+local SearchBar = require("hardcover/lib/ui/components/search_bar")
+local SearchField = require("hardcover/lib/ui/components/search_field")
 local Theme = require("hardcover/lib/ui/theme")
 
 local IconListBody = InputContainer:extend {
@@ -34,6 +38,8 @@ local IconListBody = InputContainer:extend {
   empty_title = nil,
   system = nil,   -- rows (Vibes.rows): Hardcover's own, "For you" first when it is on
   mine = nil,     -- rows: made by you
+  local_searchable = false,
+  search_query = "",
   message = nil,  -- shown instead of the rows ("Loading your vibes…")
   select_cb = nil,
   shell = nil,
@@ -43,6 +49,7 @@ local IconListBody = InputContainer:extend {
 }
 
 function IconListBody:init()
+  self.search_query = type(self.search_query) == "string" and self.search_query or ""
   local w, h = Hosted.size(self)
   self.dimen = Geom:new { x = 0, y = 0, w = w, h = h }
   self:build()
@@ -84,7 +91,17 @@ function IconListBody:rows(width)
       }
     end
   end
-  local system = self.system or {}
+  local function matches(rows)
+    local found = {}
+    for _, row in ipairs(rows or {}) do
+      if LocalSearch.matches(self.search_query, { row.name, row.owner }) then
+        found[#found + 1] = row
+      end
+    end
+    return found
+  end
+  local system, mine = matches(self.system), matches(self.mine)
+  self.visible_count = #system + #mine
   -- For you is the first row, with no heading of its own
   local first = system[1] and system[1].for_you and { system[1] } or {}
   add(first)
@@ -94,15 +111,45 @@ function IconListBody:rows(width)
     group[#group + 1] = groupHead(self.first_title or _("From Hardcover"), #hardcover, width)
     add(hardcover)
   end
-  if self.mine and #self.mine > 0 then
-    group[#group + 1] = groupHead(self.second_title or _("Made by you"), #self.mine, width)
-    add(self.mine)
+  if #mine > 0 then
+    group[#group + 1] = groupHead(self.second_title or _("Made by you"), #mine, width)
+    add(mine)
   end
   return group
 end
 
+function IconListBody:promptSearch(initial)
+  local bar = SearchBar:new {
+    input = initial or self.search_query,
+    hint = _("Search lists"),
+    on_submit = function(query)
+      self.search_query = type(query) == "string" and query:gsub("^%s+", ""):gsub("%s+$", "") or ""
+      self:rebuild(true)
+      return true
+    end,
+  }
+  UIManager:show(bar)
+  bar:onShowKeyboard()
+end
+
 function IconListBody:build()
   local w, h = Hosted.size(self)
+  local frame_h = h
+  local search_strip
+  if self.local_searchable then
+    local M = Theme.margin
+    self.search_field = SearchField.new {
+      width = w - 2 * M, query = self.search_query, placeholder = _("Search lists"),
+      on_tap = function(query) self:promptSearch(query) end,
+      on_clear = function()
+        self.search_query = ""
+        self:rebuild(true)
+      end,
+    }
+    search_strip = VerticalGroup:new { align = "left", Theme.span("s"),
+      HorizontalGroup:new { Theme.hspan(M), self.search_field }, Theme.span("s") }
+    h = h - search_strip:getSize().h
+  end
   local body
   self.scroll = nil
   if self.message then
@@ -112,8 +159,10 @@ function IconListBody:build()
         alignment = "center", fgcolor = Theme.secondary() } }
   else
     local group = self:rows(w)
-    body = group
-    if group:getSize().h > h then
+    local no_matches = self.local_searchable and self.search_query:match("%S") and self.visible_count == 0
+    body = no_matches and CenterContainer:new { dimen = Geom:new { w = w, h = h },
+      Theme.mmdText(_("No lists found"), "text", 21, { width = w - 2 * Theme.margin, secondary = true }) } or group
+    if not no_matches and group:getSize().h > h then
       group = self:rows(w - ScrollControl.gutter())
       self.scroll = ScrollableContainer:new { dimen = Geom:new { x = 0, y = 0, w = w, h = h },
         show_parent = Hosted.window(self) }
@@ -121,12 +170,13 @@ function IconListBody:build()
       body = ScrollControl.wrap(self.scroll, group)
     end
   end
-  self[1] = FrameContainer:new { width = w, height = h, background = Blitbuffer.COLOR_WHITE,
+  if search_strip then body = VerticalGroup:new { align = "left", search_strip, body } end
+  self[1] = FrameContainer:new { width = w, height = frame_h, background = Blitbuffer.COLOR_WHITE,
     bordersize = 0, padding = 0, margin = 0, body }
 end
 
-function IconListBody:rebuild()
-  local offset = self.scroll and self.scroll:getScrolledOffset()
+function IconListBody:rebuild(reset_scroll)
+  local offset = not reset_scroll and self.scroll and self.scroll:getScrolledOffset()
   if self[1] and type(self[1].free) == "function" then pcall(function() self[1]:free() end) end
   self[1] = nil
   self:build()

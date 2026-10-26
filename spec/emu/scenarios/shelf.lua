@@ -1,16 +1,22 @@
 --[[--
 Shelf list: the Want to Read screen, our own paged list (mock 3).
 
-The screen is built a page at a time: the top bar (back arrow, title, sort icon), fixed-height rows
+The screen is built a page at a time: the top bar (back arrow, title, sort and search icons), fixed-height rows
 (cover, title, author, a chevron), the scroll control at the right edge, a footer saying which books
 are on show. A PNG shows spacing and placement; the assertions read the dialog's own state and the
 painted text.
 
-Screens: shelf_page1, shelf_page2, shelf_sort_menu, shelf_sorted_title.
+Screens: shelf_page1, shelf_search, shelf_search_empty, shelf_page2, shelf_sort_menu, shelf_sorted_title.
 ]]
 
 local fixtures = require("fixtures")
 local UIManager = require("ui/uimanager")
+
+local function search_bar()
+  for widget in UIManager:topdown_widgets_iter() do
+    if widget.name == "hardcover_search_bar" then return widget end
+  end
+end
 
 return {
   name = "shelf",
@@ -95,6 +101,36 @@ return {
     assert(swipe("north") and dialog.page == 2, "a swipe up did not turn the page")
     emu:press("PrevPage")
     assert(dialog.page == 1, "PrevPage did not go back")
+
+    -- Search the downloaded shelf by title and author without requesting more data.
+    local calls_before_search = #fixtures.calls
+    assert(dialog.search_button, "the shelf has no search action")
+    dialog.search_button:onTapSelectRow()
+    local input = search_bar()
+    assert(input and input.name == "hardcover_search_bar", "the shelf search action did not open")
+    input:setInputText("lathe le guin")
+    input:submit()
+    emu:pump()
+    assert(#dialog.visible_entries == 1 and dialog.visible_entries[1].title == "The Lathe of Heaven",
+      "local shelf search returned " .. #dialog.visible_entries .. " rows")
+    assert(#fixtures.calls == calls_before_search, "local shelf search made an API request")
+    emu:expectText("The Lathe of Heaven")
+    assert(not emu:screenText():find("Kindred", 1, true), "an unmatched book was still shown")
+    emu:shot("shelf_search")
+    dialog.search_field.clear_button:onTapSelectRow()
+    emu:pump()
+    assert(#dialog.visible_entries == #dialog.entries, "clearing search did not restore the full shelf")
+    dialog.search_button:onTapSelectRow()
+    input = search_bar()
+    input:setInputText("not on this shelf")
+    input:submit()
+    emu:pump()
+    assert(#dialog.visible_entries == 0, "a non-matching query returned books")
+    emu:expectText("No matches")
+    assert(#fixtures.calls == calls_before_search, "empty local shelf search made an API request")
+    emu:shot("shelf_search_empty")
+    dialog.search_field.clear_button:onTapSelectRow()
+    emu:pump()
 
     -- nothing is drawn off the edge of the panel
     for _, node in ipairs(nodes) do

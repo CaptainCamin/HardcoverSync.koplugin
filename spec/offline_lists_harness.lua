@@ -326,6 +326,7 @@ check("a list that has not changed opens from the device, with no request at all
   m:showList(rowNamed(m, "6 Stars"))
   local d = shown.shelf
   assert(#d.entries == 3 and d.entries[1].title == "Book 1" and d.entries[1].rank == 1)
+  assert(d.local_searchable == true, "the list screen did not enable local search")
   assert(#calls == 0, "asked: " .. table.concat(calls, ","))
 end)
 

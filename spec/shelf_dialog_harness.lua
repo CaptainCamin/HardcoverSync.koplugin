@@ -55,6 +55,7 @@ local errors = {}
 local popovers = {}
 local bars = {}
 local fields = {}
+local search_bars = {}
 
 local widgets = {
   ["ui/widget/focusmanager"] = FocusManager,
@@ -95,6 +96,11 @@ local widgets = {
     local f = widget("Field"):new { opts = opts }
     fields[#fields + 1] = f
     return f
+  end },
+  ["hardcover/lib/ui/components/search_bar"] = { new = function(_, opts)
+    local bar = widget("SearchBar"):new { opts = opts, onShowKeyboard = function() end }
+    search_bars[#search_bars + 1] = bar
+    return bar
   end },
   ["hardcover/lib/ui/components/scroll_control"] = {
     gutter = function() return 18 end,
@@ -416,6 +422,40 @@ check("a shelf has no search field", function()
   fields = {}
   build({ entry() })
   assert(#fields == 0)
+end)
+
+check("a shelf searches local title and author matches, and clearing restores the full list", function()
+  fields, search_bars = {}, {}
+  local source = {
+    entry({ book_id = 1, title = "A Wizard of Earthsea", authors = "Ursula K. Le Guin" }),
+    entry({ book_id = 2, title = "Dune", authors = "Frank Herbert" }),
+  }
+  local d = build(source, { local_searchable = true })
+  local action = bars[1].opts.actions[1]
+  assert(action and action.icon == "search", "no visible search action")
+  action.callback()
+  local bar = search_bars[1]
+  assert(bar and bar.opts.hint == "Title or author", "no local-search input")
+  assert(bar.opts.on_submit("earthsea le guin"), "a local query did not submit")
+  assert(d.local_search_query == "earthsea le guin" and #d.visible_entries == 1
+    and d.visible_entries[1].book_id == 1, "title and author words did not match together")
+  assert(d.entries == source and #d.items == 1, "search replaced the saved entries")
+  fields[#fields].opts.on_clear()
+  assert(d.local_search_query == "" and #d.items == 2, "clearing did not restore every row")
+end)
+
+check("local search can load more books when no downloaded entry matches yet", function()
+  local d = build({ entry({ book_id = 1, title = "First" }) }, {
+    local_searchable = true, has_more = true, offset = 1,
+    fetch_page = function(_, _, callback)
+      callback({ entry({ book_id = 2, title = "Later special book" }) }, nil, false)
+    end,
+  })
+  d:setLocalSearch("special")
+  assert(#d.visible_entries == 0 and d.items[1].kind == "more", "no way to keep searching downloaded pages")
+  d:loadMore()
+  assert(#d.visible_entries == 1 and d.visible_entries[1].book_id == 2 and not d.has_more,
+    "the new downloaded match was not found")
 end)
 
 check("it opens in the arrival order by default", function()

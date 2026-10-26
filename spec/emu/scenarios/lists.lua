@@ -3,7 +3,7 @@ Lists: the index (yours, then the ones you
 follow, each with covers, a name and its small print), opening a list in the shelf
 screen (a ranked list is numbered), an empty list, the failed and offline states.
 
-Screens: lists, lists_ranked, lists_followed, lists_empty_list, lists_none.
+Screens: lists, lists_search, lists_search_empty, lists_ranked, lists_ranked_search, lists_followed, lists_empty_list, lists_none.
 ]]
 
 local fixtures = require("fixtures")
@@ -31,6 +31,12 @@ local function calls_named(name)
   local n = 0
   for _, c in ipairs(fixtures.calls) do if c.name == name then n = n + 1 end end
   return n
+end
+
+local function search_bar()
+  for widget in UIManager:topdown_widgets_iter() do
+    if widget.name == "hardcover_search_bar" then return widget end
+  end
 end
 
 return {
@@ -61,6 +67,34 @@ return {
     end
     emu:shot("lists")
 
+    -- The index searches names locally; it must not issue another API request.
+    local calls_before_search = #fixtures.calls
+    dialog.search_field.field_button:onTapSelectRow()
+    local input = search_bar()
+    assert(input and input.name == "hardcover_search_bar", "the list search field did not open its input")
+    input:setInputText("Research")
+    input:submit()
+    emu:pump()
+    assert(dialog.search_query == "Research", "the query was not applied")
+    emu:expectText("Research")
+    assert(not emu:screenText():find("To Read - SciFi", 1, true), "unmatched lists were still shown")
+    assert(#fixtures.calls == calls_before_search, "local index search made an API request")
+    emu:shot("lists_search")
+    dialog.search_field.clear_button:onTapSelectRow()
+    emu:pump()
+    emu:expectText("To Read - SciFi")
+    dialog.search_field.field_button:onTapSelectRow()
+    input = search_bar()
+    input:setInputText("not a list")
+    input:submit()
+    emu:pump()
+    emu:expectText("No lists found")
+    assert(#fixtures.calls == calls_before_search, "empty local index search made an API request")
+    emu:shot("lists_search_empty")
+    dialog.search_field.clear_button:onTapSelectRow()
+    emu:pump()
+    emu:expectText("To Read - SciFi")
+
     -- a ranked list opens in the shelf screen, in the list's order, numbered
     tap_text(emu, "To Read - SciFi")
     local shelf = manager.shelf_dialog
@@ -72,6 +106,25 @@ return {
     assert(#top.entries == 7, "the list holds 7 books, the screen has " .. #top.entries)
     assert(top.entries[1].rank == 1 and top.entries[7].rank == 7, "ranks are not 1..7")
     emu:shot("lists_ranked")
+    -- Search the downloaded list by title and author, retaining the list's rank order and making no request.
+    calls_before_search = #fixtures.calls
+    assert(top.search_button, "the list has no search action")
+    top.search_button:onTapSelectRow()
+    input = search_bar()
+    assert(input and input.name == "hardcover_search_bar", "the list-content search action did not open")
+    input:setInputText("lathe le guin")
+    input:submit()
+    emu:pump()
+    assert(#top.visible_entries == 1 and top.visible_entries[1].title == "The Lathe of Heaven",
+      "local title-and-author search returned " .. #top.visible_entries .. " rows")
+    assert(top.visible_entries[1].rank == 1, "the ranked list's position was not kept")
+    assert(#fixtures.calls == calls_before_search, "local list search made an API request")
+    emu:expectText("The Lathe of Heaven")
+    assert(not emu:screenText():find("Kindred", 1, true), "an unmatched book was still shown")
+    emu:shot("lists_ranked_search")
+    top.search_field.clear_button:onTapSelectRow()
+    emu:pump()
+    assert(#top.visible_entries == 7, "clearing the search did not restore all books")
     -- the order is the list's own, not the shelf's added-date order
     assert(top.entries[1].title == fixtures.shelf_books[1].title, "not in list order")
     -- a book opens its details; closing comes back to the list

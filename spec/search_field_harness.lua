@@ -48,6 +48,11 @@ package.preload["logger"] = function() return { dbg = function() end, info = fun
 
 local Theme = require("hardcover/lib/ui/theme")
 Theme.mmdText = function(str, _, _, opts) texts[#texts + 1] = { str = str, color = opts and opts.color }; return {} end
+Theme.touchable = function(child, width, callback)
+  local tap = { child = child, callback = callback, dimen = { w = width, h = Theme.TOUCH_MIN } }
+  taps[#taps + 1] = tap
+  return tap
+end
 local SearchField = require("hardcover/lib/ui/components/search_field")
 
 r.check("no query shows the placeholder and nothing to clear", (function()
@@ -67,6 +72,7 @@ local taps_before = #taps
 local f = SearchField.new { width = 600, placeholder = "Search books", on_tap = function(q) tapped = q end }
 r.check("empty: placeholder in full black, one tap area (no clear button)", texts[#texts].str == "Search books"
   and texts[#texts].color == "black" and #taps - taps_before == 1)
+r.check("the field tap target fills at least TOUCH_MIN", f.field_button.dimen.h >= Theme.TOUCH_MIN)
 f.field_button.callback()
 r.check("empty: a tap passes an empty query", tapped == "")
 
@@ -75,6 +81,7 @@ f = SearchField.new { width = 600, query = "dune", placeholder = "Search books",
   on_tap = function(q) tapped = q end, on_clear = function() cleared = true end }
 r.check("with a query: shows it in black and has a clear button", texts[#texts].str == "dune"
   and texts[#texts].color == "black" and #taps - taps_before == 2)
+r.check("the clear tap target fills at least TOUCH_MIN", f.clear_button.dimen.h >= Theme.TOUCH_MIN)
 f.field_button.callback()
 f.clear_button.callback()
 r.check("with a query: a tap passes it, the X clears", tapped == "dune" and cleared == true)

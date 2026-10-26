@@ -13,7 +13,6 @@ local HorizontalGroup = require("ui/widget/horizontalgroup")
 local LeftContainer = require("ui/widget/container/leftcontainer")
 
 local Draw = require("hardcover/lib/ui/components/draw")
-local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
 
 local BLACK = Blitbuffer.COLOR_BLACK
@@ -45,21 +44,17 @@ function SearchField.new(opts)
     Draw.icon("search", m.icon) }
   local text = Theme.mmdText(shown, "text", 21,
     { width = left_w - side - m.icon_touch - Theme.px(8), color = BLACK })
-  local left = TapRow:new {
-    callback = function() if opts.on_tap then opts.on_tap(has_query and opts.query or "") end end,
-    viewport = opts.viewport,
-    LeftContainer:new { dimen = Geom:new { w = left_w, h = h - 2 * border },
-      HorizontalGroup:new { align = "center", Theme.hspan(side), icon_cell, Theme.hspan(Theme.px(8)), text } },
-  }
+  local left_content = LeftContainer:new { dimen = Geom:new { w = left_w, h = h - 2 * border },
+    HorizontalGroup:new { align = "center", Theme.hspan(side), icon_cell, Theme.hspan(Theme.px(8)), text } }
+  local left = Theme.touchable(left_content, left_w,
+    function() if opts.on_tap then opts.on_tap(has_query and opts.query or "") end end, opts.viewport)
   local row = HorizontalGroup:new { align = "center", left }
   local clear
   if clearable then
-    clear = TapRow:new {
-      callback = function() if opts.on_clear then opts.on_clear() end end,
-      viewport = opts.viewport,
-      CenterContainer:new { dimen = Geom:new { w = m.clear_touch, h = h - 2 * border },
-        Draw.icon("close", m.clear) },
-    }
+    local clear_content = CenterContainer:new { dimen = Geom:new { w = m.clear_touch, h = h - 2 * border },
+      Draw.icon("close", m.clear) }
+    clear = Theme.touchable(clear_content, m.clear_touch,
+      function() if opts.on_clear then opts.on_clear() end end, opts.viewport)
     row[#row + 1] = clear
   end
   local box = Theme.box(w, h, row, { round = true, border = border })

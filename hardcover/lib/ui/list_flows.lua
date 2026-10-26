@@ -170,8 +170,10 @@ function Flows:showLists(host)
     parent = host and host.parent,
     first_title = host and _("Your lists") or nil, second_title = host and _("Following") or nil,
     icon_for = host and function() return "shelf" end or nil,
-    mine = saved and saved.mine or nil,
-    following = saved and saved.following or nil,
+    system = host and saved and saved.mine or nil,
+    mine = host and saved and saved.following or (not host and saved and saved.mine or nil),
+    following = not host and saved and saved.following or nil,
+    local_searchable = host ~= nil,
     message = not saved and (online and _("Loading your lists\226\128\166")
       or _("Lists need an internet connection the first time.")) or nil,
     select_cb = function(row)
@@ -242,6 +244,7 @@ function Flows:showList(row)
     compatibility_mode = self.settings:compatibilityMode(),
     title = row.name,
     sortable = false,
+    local_searchable = true,
     entries = {},
     has_more = false,
     offset = 0,

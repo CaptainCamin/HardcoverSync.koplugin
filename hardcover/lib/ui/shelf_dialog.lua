@@ -27,11 +27,13 @@ local Button = require("hardcover/lib/ui/components/button")
 local CoverCells = require("hardcover/lib/ui/cover_cells")
 local Draw = require("hardcover/lib/ui/components/draw")
 local ListRow = require("hardcover/lib/ui/list_row")
+local LocalSearch = require("hardcover/lib/local_search")
 local Popover = require("hardcover/lib/ui/components/popover")
 local Radio = require("hardcover/lib/ui/components/radio")
 local ScrollControl = require("hardcover/lib/ui/components/scroll_control")
 local Shelf = require("hardcover/lib/shelf")
 local ShelfSort = require("hardcover/lib/shelf_sort")
+local SearchBar = require("hardcover/lib/ui/components/search_bar")
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
@@ -72,6 +74,11 @@ local ShelfDialog = FocusManager:extend {
   -- more things the screen can do, { { text, callback }, ... } (a list's Refresh): each is an icon
   -- in the top bar
   actions = nil,
+  -- Search the books already on the device; it never sends a request. Search can also reveal more
+  -- downloaded books using the existing Load more control when the saved list is incomplete.
+  local_searchable = false,
+  local_search_query = "",
+  local_search_active = false,
 }
 
 -- The rating of the row, "4" or "4.5", or nil when it is not rated.
@@ -101,6 +108,7 @@ function ShelfDialog:init()
   self.offset = self.offset or #(self.entries or {})
   self.loading = self.loading or false
   self.page = self.page or 1
+  self.local_search_query = type(self.local_search_query) == "string" and self.local_search_query or ""
 
   self.width = Screen:getWidth()
   self.height = Screen:getHeight()
@@ -136,20 +144,72 @@ function ShelfDialog:displayTitle()
   return self.title
 end
 
+-- Entries that match every query word in their title or author, keeping the shelf's saved order.
+function ShelfDialog:visibleEntries()
+  local entries = self.entries or {}
+  if not self.local_searchable or not self.local_search_query:match("%S") then return entries end
+  local matching = {}
+  for _, entry in ipairs(entries) do
+    if LocalSearch.matches(self.local_search_query, { entry.title, entry.authors }) then
+      matching[#matching + 1] = entry
+    end
+  end
+  return matching
+end
+
+-- Search the downloaded copy in place. The screen's entries remain untouched so clearing the query
+-- restores the original list and its paging, sort and Load more behaviour.
+function ShelfDialog:setLocalSearch(query)
+  self.local_search_query = type(query) == "string" and query:gsub("^%s+", ""):gsub("%s+$", "") or ""
+  self.local_search_active = true
+  self.page = 1
+  self.items_cache = nil
+  self:rebuild()
+end
+
+function ShelfDialog:promptLocalSearch(initial)
+  local bar = SearchBar:new {
+    input = initial or self.local_search_query,
+    hint = _("Title or author"),
+    on_submit = function(query)
+      self:setLocalSearch(query)
+      return true
+    end,
+  }
+  UIManager:show(bar)
+  bar:onShowKeyboard()
+end
+
+-- A completed local search is shown in the same fixed field as search results; the search action
+-- remains in the title bar so the shelf does not lose rows to an empty field before it is needed.
+function ShelfDialog:searchDetails()
+  if self.search then return self.search end
+  if not self.local_searchable or not self.local_search_active then return nil end
+  return {
+    query = self.local_search_query,
+    placeholder = _("Title or author"),
+    on_edit = function(query) self:promptLocalSearch(query) end,
+    on_clear = function() self:setLocalSearch("") end,
+  }
+end
+
 -- Everything the list shows, in order: a row for each entry (in the chosen sort), then the
 -- "Load more" block when the shelf is not all here yet.
 function ShelfDialog:buildItems()
-  local entries = self.entries or {}
-  local more = self.has_more and self.fetch_page and #entries > 0 and true or false
+  local source_entries = self.entries or {}
+  local entries = self:visibleEntries()
+  local more = self.has_more and self.fetch_page and #source_entries > 0 and true or false
   -- turning a page builds the list again, and the entries have not changed: the sorted
   -- list is kept (a book is only ever added at the end, which changes the count)
   local cache = self.items_cache
-  if cache and cache.entries == entries and cache.count == #entries and cache.sort_key == self.sort_key
-      and cache.sortable == self.sortable and cache.more == more then
+  if cache and cache.entries == source_entries and cache.source_count == #source_entries
+      and cache.count == #entries and cache.sort_key == self.sort_key
+      and cache.sortable == self.sortable and cache.more == more and cache.query == self.local_search_query then
     return cache.items
   end
 
   if self.sortable then entries = ShelfSort.sort(entries, self.sort_key) end
+  self.visible_entries = entries
   local dialog = self
   -- A row's data is worked out the first time something reads it, so only the page on
   -- screen is ever shaped (a shelf of thousands of books costs one page).
@@ -167,8 +227,8 @@ function ShelfDialog:buildItems()
   if more then
     items[#items + 1] = { kind = "more" }
   end
-  self.items_cache = { entries = self.entries, count = #(self.entries or {}), sort_key = self.sort_key,
-    sortable = self.sortable, more = more, items = items }
+  self.items_cache = { entries = source_entries, source_count = #source_entries, count = #entries, sort_key = self.sort_key,
+    sortable = self.sortable, more = more, query = self.local_search_query, items = items }
   return items
 end
 
@@ -261,21 +321,26 @@ function ShelfDialog:build()
   for _i, action in ipairs(type(self.actions) == "table" and self.actions or {}) do
     actions[#actions + 1] = { icon = action.icon or "sync", callback = action.callback }
   end
+  if self.local_searchable then
+    actions[#actions + 1] = { icon = "search", callback = function() self:promptLocalSearch() end }
+  end
   local bar = TopBar.new {
     width = sw, title = self:displayTitle(), on_back = function() self:onClose() end, actions = actions,
   }
   self.title_bar = bar
   self.close_button = bar.back_button
   self.sort_button = self.sortable and bar.action_buttons[1] or nil
+  self.search_button = self.local_searchable and bar.action_buttons[#actions] or nil
   -- a search screen shows what was searched for in a search field under the bar: tap it to edit
   -- the words, and the X (when the screen has one) clears them, which leaves the results
   local strip
   self.search_field = nil
-  if self.search then
+  local search = self:searchDetails()
+  if search then
     self.search_field = SearchField.new {
-      width = sw - 2 * SIDE, query = self.search.query, placeholder = self.search.placeholder,
-      on_tap = function(query) self.search.on_edit(query) end,
-      on_clear = self.search.on_clear and function() self.search.on_clear() end or nil }
+      width = sw - 2 * SIDE, query = search.query, placeholder = search.placeholder,
+      on_tap = function(query) search.on_edit(query) end,
+      on_clear = search.on_clear and function() search.on_clear() end or nil }
     strip = VerticalGroup:new { align = "left", Theme.span(px(8)),
       HorizontalGroup:new { Theme.hspan(SIDE), self.search_field },
       Theme.span(px(8)) }
@@ -314,6 +379,11 @@ function ShelfDialog:build()
     table.insert(list, CenterContainer:new { dimen = Geom:new { w = sw, h = body_h },
       Theme.mmdText(self.empty_state, "text", 21, { width = sw - 2 * Theme.margin, secondary = true }) })
   else
+    local has_query = self.local_searchable and self.local_search_query:match("%S") ~= nil
+    if has_query and #(self.visible_entries or {}) == 0 then
+      table.insert(list, CenterContainer:new { dimen = Geom:new { w = sw, h = self.row_h },
+        Theme.mmdText(_("No matches"), "text", 21, { width = sw - 2 * Theme.margin, secondary = true }) })
+    end
     local first = (self.page - 1) * self.per_page + 1
     local last = math.min(#self.items, first + self.per_page - 1)
     for i = first, last do
@@ -335,7 +405,8 @@ function ShelfDialog:build()
       end
     end
     if shown_first > 0 then
-      local total = tostring(#self.entries) .. (self.has_more and "+" or "")
+      local total = has_query and string.format(_("%d matches"), #(self.visible_entries or {}))
+        or tostring(#self.entries) .. (self.has_more and "+" or "")
       local empty_rows = self.pages > 1 and (self.per_page - (last - first + 1)) * self.row_h or 0
       table.insert(list, Theme.span(empty_rows + px(8)))
       table.insert(list, HorizontalGroup:new { Theme.hspan(SIDE),
@@ -520,11 +591,19 @@ function ShelfDialog:loadMore()
     end
 
     local before = #self.entries
+    local visible_before = #(self.visible_entries or self.entries)
     self.offset = page_offset + #entries
     self.entries = Shelf.appendPage(self.entries, entries, has_more and #entries > 0)
     self.has_more = has_more and #entries > 0 or false
     -- on to the first of the new rows
-    self.page = math.floor(before / self.per_page) + 1
+    if self.local_searchable and self.local_search_query:match("%S") then
+      local visible_after = #self:visibleEntries()
+      if visible_after > visible_before then
+        self.page = math.floor(visible_before / self.per_page) + 1
+      end
+    else
+      self.page = math.floor(before / self.per_page) + 1
+    end
     self:rebuild()
   end)
 end

@@ -23,7 +23,10 @@ local _ = require("gettext")
 
 local CoverCells = require("hardcover/lib/ui/cover_cells")
 local Hosted = require("hardcover/lib/ui/hosted")
+local LocalSearch = require("hardcover/lib/local_search")
 local Lists = require("hardcover/lib/lists")
+local SearchBar = require("hardcover/lib/ui/components/search_bar")
+local SearchField = require("hardcover/lib/ui/components/search_field")
 local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
 
@@ -46,11 +49,13 @@ local ListsDialog = InputContainer:extend {
   shell = nil,
   width = nil,
   height = nil,
+  search_query = "",
 }
 
 function ListsDialog:init()
   self.closed = false
   self.title = self.title or _("Lists")
+  self.search_query = type(self.search_query) == "string" and self.search_query or ""
   local w, h = Hosted.size(self)
   self.dimen = Geom:new { x = 0, y = 0, w = w, h = h }
   if not self.shell then self.key_events.CloseLists = { { "Back" } } end
@@ -145,9 +150,37 @@ function ListsDialog:buildContent(width, viewport)
     table.insert(content, text(self.message, "body", { grey = true, width = width }))
     return content
   end
-  section(self.mine_title or _("Your lists"), self.mine)
-  section(self.following_title or _("Following"), self.following)
+  local function matches(rows)
+    local found = {}
+    for _, row in ipairs(rows or {}) do
+      if LocalSearch.matches(self.search_query, { row.name, row.owner }) then
+        found[#found + 1] = row
+      end
+    end
+    return found
+  end
+  local mine, following = matches(self.mine), matches(self.following)
+  if self.search_query:match("%S") and #mine == 0 and #following == 0 then
+    table.insert(content, text(_("No lists found"), "body", { grey = true, width = width }))
+    return content
+  end
+  section(self.mine_title or _("Your lists"), mine)
+  section(self.following_title or _("Following"), following)
   return content
+end
+
+function ListsDialog:promptSearch(initial)
+  local bar = SearchBar:new {
+    input = initial or self.search_query,
+    hint = _("Search lists"),
+    on_submit = function(query)
+      self.search_query = type(query) == "string" and query:gsub("^%s+", ""):gsub("%s+$", "") or ""
+      self:rebuild()
+      return true
+    end,
+  }
+  UIManager:show(bar)
+  bar:onShowKeyboard()
 end
 
 function ListsDialog:build()
@@ -161,7 +194,17 @@ function ListsDialog:build()
     close_callback = function() self:onClose() end,
     show_parent = self,
   } or nil
-  local room = screen_h - (title_bar and title_bar:getSize().h or 0)
+  self.search_field = SearchField.new {
+    width = screen_w - 2 * M, query = self.search_query, placeholder = _("Search lists"),
+    on_tap = function(query) self:promptSearch(query) end,
+    on_clear = function()
+      self.search_query = ""
+      self:rebuild()
+    end,
+  }
+  local search_strip = VerticalGroup:new { align = "left", Theme.span("s"),
+    HorizontalGroup:new { Theme.hspan(M), self.search_field }, Theme.span("s") }
+  local room = screen_h - (title_bar and title_bar:getSize().h or 0) - search_strip:getSize().h
 
   -- first at full width; if that is taller than the screen, again narrower (to
   -- leave the scroll bar its gutter) inside a scrolling container
@@ -184,6 +227,7 @@ function ListsDialog:build()
   else
     body = HorizontalGroup:new { Theme.hspan(M), content }
   end
+  body = VerticalGroup:new { align = "left", search_strip, body }
 
   self.title_bar = title_bar
   self.frame = FrameContainer:new {

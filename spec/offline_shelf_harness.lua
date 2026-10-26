@@ -237,6 +237,7 @@ check("every page is loaded, in the background, until one comes back empty", fun
   m:showShelf(1, "Want to Read")
   local d = fake[1]
   assert(#d.shown == 110, "showed " .. #d.shown .. " of 110")
+  assert(d.local_searchable == true, "the shelf screen did not enable local search")
   assert(d.shown_more == false, "a finished list still offers 'load more'")
   assert(seen_in_coroutine, "a page was requested on the main thread (it would freeze the UI)")
   assert(#api_calls == 4, "requests: " .. table.concat(api_calls, ","))

@@ -1,7 +1,7 @@
 -- The Library tab: Shelves | Lists | Vibes | Journal as tabs of its own under the tab row, one body
--- shown at a time. No chips, no "All books", no filter. Each inner body is built the first time it
--- is opened and kept, like the shell's own tabs, so a list keeps its scroll position and an answer
--- that arrived while another tab was showing is there when you come back.
+-- shown at a time. No chips or "All books"; the Lists tab has a local text search. Each inner body is
+-- built the first time it is opened and kept, like the shell's own tabs, so a list keeps its scroll
+-- position and an answer that arrived while another tab was showing is there when you come back.
 --
 -- The inner bodies are the plugin's own screens built hosted (see hosted.lua), with this body as
 -- their `parent` so the shell knows when they are the ones on screen.

@@ -14,6 +14,12 @@ local Goals = require("hardcover/lib/goals")
 local UIManager = require("ui/uimanager")
 local Device = require("device")
 
+local function search_bar()
+  for widget in UIManager:topdown_widgets_iter() do
+    if widget.name == "hardcover_search_bar" then return widget end
+  end
+end
+
 local function find_tap(widget, label, seen)
   seen = seen or {}
   if type(widget) ~= "table" or seen[widget] then return end
@@ -191,7 +197,26 @@ return {
     end
     sub(2)
     assert(library.sub == "lists" and library.bodies.lists and library.bodies.lists.shell == shell, "Lists did not open inside the Library")
+    local lists_body = library.bodies.lists
+    assert(lists_body.local_searchable and lists_body.search_field, "the Library Lists tab has no local search")
+    emu:expectText("To Read - SciFi")
     emu:shot("shell_library_lists")
+    local calls_before_search = #fixtures.calls
+    lists_body.search_field.field_button:onTapSelectRow()
+    local search_input = search_bar()
+    assert(search_input and search_input.name == "hardcover_search_bar", "the Library list search did not open")
+    search_input:setInputText("Research")
+    search_input:submit()
+    emu:pump()
+    assert(lists_body.search_query == "Research" and lists_body.visible_count == 1,
+      "the Library Lists tab did not filter its rows")
+    assert(#fixtures.calls == calls_before_search, "Library list search made an API request")
+    emu:expectText("Research")
+    assert(not emu:screenText():find("To Read - SciFi", 1, true), "the Library Lists tab kept unmatched rows")
+    emu:shot("shell_library_lists_search")
+    lists_body.search_field.clear_button:onTapSelectRow()
+    emu:pump()
+    emu:expectText("To Read - SciFi")
     sub(3)
     assert(library.sub == "vibes" and library.bodies.vibes, "Vibes did not open inside the Library")
     -- the icon rows of mock 2v: For you first with no heading, then the two groups

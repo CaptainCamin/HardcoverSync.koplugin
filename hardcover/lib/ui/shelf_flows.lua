@@ -185,6 +185,7 @@ function Flows:showShelf(status_id, title)
     title = title,
     status_id = status_id,
     sortable = true,
+    local_searchable = true,
     sort_key = sortKey(self, status_id),
     on_sort_change = function(key)
       local saved = self.settings:readSetting(SETTING.SHELF_SORT)
