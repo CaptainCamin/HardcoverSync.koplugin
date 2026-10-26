@@ -1,6 +1,5 @@
 -- The Edition button on the book details screen: offered only for the book open in the reader,
--- it opens the same list as the reader menu's link actions (change edition, link a different book,
--- unlink), and the details follow a change.
+-- it opens the change-edition / unlink actions, and the details follow a change.
 --
 -- Run with:  lua spec/edition_button_harness.lua [plugin-root]
 

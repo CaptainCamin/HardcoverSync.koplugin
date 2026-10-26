@@ -49,6 +49,9 @@ return {
         journalEntryForm = function() calls.note = true end,
         showBookJournal = function(_, id) calls.journal = id end,
         maybeConfirm = function(_, o) calls.confirm = o.text end,
+        confirm = function(_, options)
+          require("hardcover/lib/ui/status_dialogs").confirm(options)
+        end,
       },
       hardcover = {},
       page_mapper = {
@@ -68,6 +71,15 @@ return {
       emu:tapExpecting(node.x + math.floor(node.w / 2), node.y + math.floor(node.h / 2))
     end
     local function panel_is_top() return emu:top() and emu:top().name == "hardcover_reader_panel" end
+
+    menu:showLinkActions()
+    emu:pump()
+    emu:expectText("Change edition")
+    emu:expectText("Unlink book")
+    assert(not emu:screenText():find("Link a different book", 1, true),
+      "the Edition actions still offer Link a different book")
+    emu:shot("reader_panel_edition_actions")
+    emu:closeAll()
 
     local panel = menu:showReaderPanel()
     emu:pump()
@@ -90,7 +102,7 @@ return {
     tapText("Details")
     assert(calls.details == 328491, "Open book page did not open the book")
 
-    -- the gear at the top right of the sheet opens the menu: linking, the edition, all settings
+    -- the gear at the top right opens Home, unlink, edition and settings
     emu:closeAll()
     panel = menu:showReaderPanel()
     emu:pump()
@@ -98,10 +110,19 @@ return {
     local gear = panel.gear.dimen
     emu:tapExpecting(gear.x + math.floor(gear.w / 2), gear.y + math.floor(gear.h / 2))
     local menu_text = emu:screenText()
-    for _, want in ipairs({ "Link a different book", "Change edition", "All Hardcover settings" }) do
+    for _, want in ipairs({ "Unlink book", "Change edition", "All Hardcover settings" }) do
       assert(menu_text:find(want, 1, true), want .. " is not in the gear menu")
     end
     emu:shot("reader_panel_gear_menu")
+    tapText("Unlink book")
+    emu:expectText("Unlink this book?")
+    emu:expectText("Cancel")
+    emu:shot("reader_panel_unlink_confirm")
+    tapText("Cancel")
+    assert(panel_is_top(), "cancelling unlink did not return to the reader panel")
+    emu:screenNodes()
+    gear = panel.gear.dimen
+    emu:tapExpecting(gear.x + math.floor(gear.w / 2), gear.y + math.floor(gear.h / 2))
     tapText("All Hardcover settings")
     assert(calls.settings, "All Hardcover settings did not open the settings")
     emu:closeAll()

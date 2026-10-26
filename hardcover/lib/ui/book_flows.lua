@@ -421,9 +421,8 @@ function Flows:canChangeEdition(book_id)
   return self.settings:getLinkedBookId() == book_id
 end
 
--- Edition: the same list as the reader menu's link actions (change edition, link a different book,
--- unlink). When the list closes and the link has changed, the details are opened again for what the
--- file is linked to now.
+-- Edition: change edition or unlink this device from the book. When the list closes and the link has
+-- changed, the details are opened again for what the file is linked to now.
 function Flows:chooseEdition(dialog, book_id)
   local before_book, before_edition = self.settings:getLinkedBookId(), self.settings:getLinkedEditionId()
   self.show_link_actions(function()

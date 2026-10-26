@@ -1,6 +1,6 @@
 -- The Edition button on the book details screen opens HardcoverMenu:showLinkActions. It must open
--- its list whether the device is online or not (the list only reads the menu; editions are fetched
--- later, by "Change edition", which reports a missing connection itself).
+-- its two actions, Change edition and Unlink book, whether the device is online or not (editions
+-- are fetched later by "Change edition", which reports a missing connection itself).
 --
 -- The bug this pins: showLinkActions called the file-local findItem before it was defined, so it
 -- was a nil global and tapping Edition raised "attempt to call global 'findItem'" and crashed.
@@ -80,11 +80,11 @@ for _, mode in ipairs({ { "online", true }, { "offline", false } }) do
   local closed = false
   local ok, err = pcall(function() newMenu():showLinkActions(function() closed = true end) end)
   r.check("Edition opens the link actions " .. mode[1], ok, err)
-  r.check("the list has change edition, link a different book and unlink (" .. mode[1] .. ")",
-    ok and dialog ~= nil and #dialog.items == 3 and dialog.items[1].text == "Change edition"
+  r.check("the list has change edition and unlink only (" .. mode[1] .. ")",
+    ok and dialog ~= nil and #dialog.items == 2 and dialog.items[1].text == "Change edition"
       and type(dialog.items[1].callback) == "function"
-      and dialog.items[2].text == "Link a different book", "items missing")
-  local unlink = ok and dialog and dialog.items[3]
+      and dialog.items[2].text == "Unlink book", "items missing")
+  local unlink = ok and dialog and dialog.items[2]
   r.check("Unlink book is in the list and can be tapped (" .. mode[1] .. ")",
     unlink and unlink.text == "Unlink book" and type(unlink.callback) == "function"
       and unlink.enabled_func() == true, "unlink missing or disabled")

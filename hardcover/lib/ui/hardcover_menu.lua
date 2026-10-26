@@ -47,19 +47,16 @@ local function findItem(items, prefix, anywhere)
   end
 end
 
--- What can be done to the file's link, as a list: change the edition, link a different book, unlink.
+-- What can be done to the file's link: change the edition or unlink it from this device.
 -- The book page's Edition button opens it. `on_close` is called when the list is closed.
 function HardcoverMenu:showLinkActions(on_close)
   local view = self:getSubMenuItems(true)
   local edition_item = findItem(view, "Change edition")
-  local link_item = findItem(view, "Linked book") or findItem(view, "Link book")
   require("hardcover/lib/ui/settings_dialog").show {
     title = _("Edition"),
     items = {
       { text = _("Change edition"), enabled_func = edition_item and edition_item.enabled_func,
         callback = edition_item and edition_item.callback, keep_menu_open = true },
-      { text = _("Link a different book"), enabled_func = link_item and link_item.enabled_func,
-        callback = link_item and link_item.callback, keep_menu_open = true },
       self:getUnlinkMenuItem(),
     },
     on_close = on_close,
@@ -116,8 +113,8 @@ local privacy_labels = {
 function HardcoverMenu:mainMenu()
   -- One button for both places. In the file browser (no book open) it opens the home
   -- screen, which holds everything else (Sync, Account, Settings and About are behind
-  -- its cog). In the reader it opens the panel for the open book; the link actions (change
-  -- edition, link another book, unlink) are behind the panel's Edition button.
+  -- its cog). In the reader it opens the panel for the open book; the book details screen's
+  -- Edition actions change the edition or unlink this device.
   return {
     enabled_func = function()
       return self.enabled
@@ -287,10 +284,15 @@ function HardcoverMenu:showReaderPanel()
     -- the mock has nothing else; status, note, reviews and settings are on the book page
     -- and in the Hardcover menu
 
-    -- the gear at the top right: linking, the edition, and all of the plugin's settings
+    -- the gear at the top right: Home, link or unlink, the edition, and all of the plugin's settings
+    local gear_link_item = linked and self:getUnlinkMenuItem() or link_item
     local menu_rows = {
-      { text = linked and _("Link a different book") or _("Link this book"), enabled = enabled(link_item),
-        run = function() run(link_item) end },
+      { text = _("Hardcover Home"), run = function()
+        if panel and UIManager:isWidgetShown(panel) then panel:onClose() end
+        self.dialog_manager:showHome()
+      end },
+      { text = linked and _("Unlink book") or _("Link this book"), enabled = enabled(gear_link_item),
+        run = function() run(gear_link_item) end },
     }
     if linked then
       menu_rows[#menu_rows + 1] = { text = _("Change edition"), enabled = enabled(edition_item),
