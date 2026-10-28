@@ -19,6 +19,7 @@ local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local Api = require("hardcover/lib/hardcover_api")
 local Cache = require("hardcover/lib/cache")
 local SyncQueue = require("hardcover/lib/sync_queue")
+local User = require("hardcover/lib/user")
 
 local r = KB.support.reporter()
 local check = r.test
@@ -163,6 +164,57 @@ check("online status change updates the existing user book by its record id", fu
   end)
 
   Api.updateUserBookStatus, Api.updateUserBook = old_update_status, old_insert
+  assert(ok, err)
+end)
+
+check("online status change finds an existing user book when its id is not cached", function()
+  local old_find, old_update_status = Api.findUserBook, Api.updateUserBookStatus
+  local old_insert, old_user_id = Api.updateUserBook, User.getId
+  local calls = {}
+  Api.findUserBook = function(_, book_id, user_id)
+    calls.find = { book_id, user_id }
+    return { id = 507, book_id = book_id, status_id = HARDCOVER.STATUS.TO_READ, user_book_reads = {} }
+  end
+  Api.updateUserBookStatus = function(_, user_book_id, status_id)
+    calls.update = { user_book_id, status_id }
+    return { id = user_book_id, book_id = 7, status_id = status_id, user_book_reads = {} }
+  end
+  Api.updateUserBook = function() error("insert used for an existing user book") end
+  User.getId = function() return 42 end
+
+  local ok, err = pcall(function()
+    local state = { book_status = { book_id = 7, status_id = HARDCOVER.STATUS.TO_READ } }
+    local result = newCache(KB.newQueue(), state):updateBookStatus("/b/a.epub", HARDCOVER.STATUS.READING)
+    eq(calls.find[1], 7, "looked-up book id")
+    eq(calls.find[2], 42, "looked-up user id")
+    eq(calls.update[1], 507, "updated user book id")
+    eq(calls.update[2], HARDCOVER.STATUS.READING, "new status")
+    eq(result.status_id, HARDCOVER.STATUS.READING, "saved status")
+  end)
+
+  Api.findUserBook, Api.updateUserBookStatus = old_find, old_update_status
+  Api.updateUserBook, User.getId = old_insert, old_user_id
+  assert(ok, err)
+end)
+
+check("online status change queues rather than inserting when shelf lookup fails", function()
+  local old_find, old_update_status = Api.findUserBook, Api.updateUserBookStatus
+  local old_insert, old_user_id = Api.updateUserBook, User.getId
+  Api.findUserBook = function() return {}, { error = "network" } end
+  Api.updateUserBookStatus = function() error("cannot update without a known record id") end
+  Api.updateUserBook = function() error("cannot insert when the lookup is uncertain") end
+  User.getId = function() return 42 end
+
+  local ok, err = pcall(function()
+    local queue = KB.newQueue()
+    local state = { book_status = { book_id = 7, status_id = HARDCOVER.STATUS.TO_READ } }
+    local result = newCache(queue, state):updateBookStatus("/b/a.epub", HARDCOVER.STATUS.READING)
+    eq(result.queued, true, "queued result")
+    eq(queue:get("/b/a.epub").status_id, HARDCOVER.STATUS.READING, "queued status")
+  end)
+
+  Api.findUserBook, Api.updateUserBookStatus = old_find, old_update_status
+  Api.updateUserBook, User.getId = old_insert, old_user_id
   assert(ok, err)
 end)
 

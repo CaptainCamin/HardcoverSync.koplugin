@@ -232,6 +232,25 @@ function Cache:updateBookStatus(filename, status, privacy_setting_id)
     return enqueue()
   end
 
+  -- The reader can offer "Start reading" before its delayed shelf lookup has
+  -- filled in the user-book id. Check Hardcover before using the insert path:
+  -- this book may already be on Want to Read, and inserting it again does not
+  -- move that existing record to Currently Reading.
+  if not user_book_id and book_id then
+    local existing, lookup_err = Api:findUserBook(book_id, User:getId())
+    if lookup_err then
+      return enqueue()
+    end
+    if existing then
+      if not existing.id then
+        return enqueue()
+      end
+      user_book_id = existing.id
+      self.state.book_status = existing
+      self:applyLocalStatus(filename, status, privacy_setting_id)
+    end
+  end
+
   local result
   if user_book_id then
     result = Api:updateUserBookStatus(user_book_id, status)
