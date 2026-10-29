@@ -46,7 +46,7 @@ local function identifierToken(attrs, value)
   value = xmlDecode(value)
   if value == "" then return nil end
   local lower = value:lower()
-  if lower:match("^hardcover[%w_-]*:") or lower:match("^isbn[%w_-]*:") then
+  if lower:match("^hardcover[%w_-]*:") or lower:match("^isbn[%w_-]*:") or lower:match("^urn:isbn:") then
     return value
   end
 

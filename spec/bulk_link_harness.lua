@@ -24,6 +24,10 @@ local ids = BulkLink.identifiersFromOpf(opf)
 r.check("an ISBN scheme becomes an isbn line", ids:find("isbn:978-0-306-40615-7", 1, true) ~= nil, ids)
 r.check("a hardcover scheme becomes a hardcover line", ids:find("hardcover:the-hobbit", 1, true) ~= nil, ids)
 r.check("an identifier with no known scheme is left out", ids:find("urn:uuid", 1, true) == nil, ids)
+local urn = BulkLink.identifiersFromOpf('<dc:identifier>URN:ISBN:9780306406157</dc:identifier>') or ""
+r.check("a urn:isbn identifier without a scheme is kept", urn:lower():find("urn:isbn:9780306406157", 1, true) ~= nil, urn)
+r.check("a urn:isbn identifier parses to an ISBN-13",
+  require("hardcover/lib/book"):parseIdentifiers(urn).isbn_13 == "9780306406157")
 r.check("a prefixed identifier is kept as written", ids:find("isbn13:9780306406157", 1, true) ~= nil, ids)
 r.check("an OPF with no usable identifier gives nil",
   BulkLink.identifiersFromOpf("<package><dc:identifier>urn:uuid:1</dc:identifier></package>") == nil)
