@@ -300,6 +300,8 @@ check("a date that is not in its month is not a date", function()
   assert(Goals.parseDate("2026-04-31") == nil)
   assert(Goals.parseDate("2024-02-29") ~= nil)
   assert(Goals.parseDate("2026-12-31") ~= nil)
+end)
+
 check("split orders goals with a local and a server id that tie", function()
   local function g(id) return { id = id, end_days = 100, progress = 1, target = 5 } end
   local out = Goals.split({ g("local:2"), g(7), g("local:1") }, 50)
