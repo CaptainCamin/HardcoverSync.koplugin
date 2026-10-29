@@ -128,7 +128,8 @@ end
 --   year, books, pages, pages_books (books with a page count), audio_seconds, audio_books,
 --   undated   (books with no finish date, counted in all time only),
 --   by_year   { {year, count}... } oldest first, every year between the first and last,
---   months    { 12 counts } (a year only), month_unknown (finishes known to the year only),
+--   months    { 12 counts } (a year only), pages_months { 12 page totals } (a year only),
+--   month_unknown (finishes known to the year only),
 --   best_month { month, count }, last_month (the latest month with a finish) (a year only),
 --   days_list (days from start to finish, smallest first, for books with both days known),
 --   average_days (rounded),
@@ -143,10 +144,10 @@ function Stats.compute(rows, opts)
   local month = year and opts.month
   local out = {
     year = year, books = 0, pages = 0, pages_books = 0, audio_seconds = 0, audio_books = 0,
-    undated = 0, by_year = {}, months = {}, month_unknown = 0, page_list = {}, days_list = {},
+    undated = 0, by_year = {}, months = {}, pages_months = {}, month_unknown = 0, page_list = {}, days_list = {},
     ratings = { counts = {}, rated = 0, average = nil }, authors = {}, lengths = {},
   }
-  for m = 1, 12 do out.months[m] = 0 end
+  for m = 1, 12 do out.months[m] = 0; out.pages_months[m] = 0 end
   for i = 1, Stats.RATINGS do out.ratings.counts[i] = 0 end
   for i, bucket in ipairs(Stats.LENGTHS) do out.lengths[i] = { label = bucket.label, count = 0 } end
 
@@ -167,7 +168,10 @@ function Stats.compute(rows, opts)
 
       if year and row.date and #row.date >= 7 then
         local m = tonumber(row.date:sub(6, 7))
-        if m and m >= 1 and m <= 12 then out.months[m] = out.months[m] + 1 end
+        if m and m >= 1 and m <= 12 then
+          out.months[m] = out.months[m] + 1
+          out.pages_months[m] = out.pages_months[m] + (row.pages or 0)
+        end
       elseif year and row.date then
         out.month_unknown = out.month_unknown + 1
       end

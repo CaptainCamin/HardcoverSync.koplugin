@@ -251,6 +251,17 @@ function StatsDialog:buildContent(width)
     end
     add(b)
 
+    -- the pages read in each month, from the books that have a page count
+    local pages = block(_("Pages per month"), string.format(_("%s pages"), Charts.number(s.pages)))
+    table.insert(pages, ChartWidgets.columns {
+      width = width, height = Theme.px(190), values = s.pages_months, labels = labels,
+    })
+    if s.pages_books < s.books then
+      self:caption(pages, string.format(_("%s have no page count, so they are not on this chart."),
+        books(s.books - s.pages_books)), width)
+    end
+    add(pages)
+
     -- the pace: the running total, up to where the year has got to
     local through = self:monthsThrough(s)
     if through >= 3 then
