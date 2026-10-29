@@ -350,6 +350,8 @@ check("an edit made while the older one is on its way is not lost when the older
   q:flush(api, { user_id = 7 })
   eq(q:count(), 1, "the newer edit is still waiting")
   eq(q:changeFor(4001).text, "new")
+end)
+
 check("a note cancelled while an earlier one is being sent is not sent", function()
   local q = newQueue()
   q:queue(note { text = "first" })
