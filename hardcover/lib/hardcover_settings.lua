@@ -247,6 +247,13 @@ function HardcoverSettings:saveBookSnapshot(filename, user_book)
   if user_book.edition_id then
     config.edition_id = user_book.edition_id
   end
+  -- a nil value is skipped by updateBookSetting, so name the keys to drop (a read or edition
+  -- that is gone must not live on from the last snapshot)
+  local delete = {}
+  for _, key in ipairs({ "read_id", "started_at", "last_synced_page", "edition_id" }) do
+    if config[key] == nil then delete[#delete + 1] = key end
+  end
+  if #delete > 0 then config._delete = delete end
   self:updateBookSetting(filename, config)
 end
 
