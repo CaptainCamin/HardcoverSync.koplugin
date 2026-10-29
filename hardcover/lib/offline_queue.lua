@@ -42,7 +42,9 @@ function OfflineQueue.transient(err)
   if err.completed == false or err.error == "no_response" then return true end
   local status = tonumber(err.status)
   if status == nil then return err.errors == nil end
-  return status == 429 or status >= 500
+  -- 401: the access token expired (the API invalidates it, the next call refreshes it);
+  -- 408/425/429: timed out, too early, rate limited. A scope refusal is a 403: not this.
+  return status == 401 or status == 408 or status == 425 or status == 429 or status >= 500
 end
 
 -- Count a refusal against `op`: a missing scope holds it at once (reason "scope"), the
