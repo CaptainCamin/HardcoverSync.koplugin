@@ -256,7 +256,7 @@ end
 
 function HardcoverApi:hydrateBookFromEdition(edition_id, user_id)
   local editionSearch = [[
-    query ($id Int!, $userId: Int!) {
+    query ($id: Int!, $userId: Int!) {
       editions(where: { id: { _eq: $id }}) {
         ...EditionParts
       }
