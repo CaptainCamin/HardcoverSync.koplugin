@@ -15,6 +15,15 @@
 - **Pages read offline are dated when you read them in the Journal.** A page sent after a reconnect used to appear in Hardcover's journal on the day it arrived, so a book read over several days offline looked like one day of reading. Each page now goes with the time it was read, and several days read offline are sent as one entry per day (the last page of each day), oldest first. Reading on the same day offline still gives one entry. Hardcover sometimes leaves out a dated entry even though the page is saved, so the journal may show fewer days than you read.
 - **"Start reading this book?" now appears when tracking is off.** It was only asked for a book with "Update Hardcover as I read" on, and tracking is off for every book until you turn it on, so the question almost never came. A linked book that is not on Currently Reading is now counted from the moment it is opened, whether tracking is on or not. Nothing is sent while it is only counted; saying yes turns tracking on for that book.
 - **Smaller buttons on the book details screen.** The round buttons and their captions are back to a size that fits the screen, and the Open / Find on device button is its normal height again.
+- **A newer journal edit is no longer lost.** Replacing an edit while the older one was being sent could make the old answer delete the new edit, so it never reached Hardcover.
+- **Cancelled goals and journal notes are no longer sent.** One cancelled while an earlier change was being sent could still go out.
+- **Book details show the edition you opened.** Online, the saved details of another edition could be shown (wrong publisher, ISBN and page count) without asking Hardcover.
+- **Your review no longer opens blank.** Opening the review editor on a book shown from the device's saved copy now loads your review first, so saving does not replace it and an empty box can remove it.
+- **Progress after changing edition goes to the right read.** After switching a shelved book's edition, later progress updates were sent to the wrong record.
+- **Choosing Private now sticks for a book already in your library.** The change of shelf dropped the privacy setting. (A shelf change made offline still sends the status only.)
+- **"Jump to Hardcover's page" uses the book's page labels.** Books with page labels landed on the wrong page.
+- **Sign-in keeps the server's slow-down.** After Hardcover asks the sign-in to poll less often, it no longer goes back to the faster rate.
+- **A restart no longer resends a refresh that may have been spent.** If a token refresh got no clear answer, the app now asks you to sign in again, even after a restart, instead of risking the session.
 
 ## 2.3.1
 
