@@ -38,8 +38,9 @@ end
 function Charts.number(n)
   n = tonumber(n)
   if not n then return "" end
-  local sign = n < 0 and "-" or ""
-  local digits = tostring(math.floor(math.abs(n) + 0.5))
+  local rounded = math.floor(math.abs(n) + 0.5)
+  local sign = (n < 0 and rounded > 0) and "-" or ""
+  local digits = string.format("%.0f", rounded)
   local out = digits:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
   return sign .. out
 end
