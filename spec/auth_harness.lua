@@ -283,6 +283,20 @@ check("an unknown outcome is not retried", function()
   if a.tokens == nil then error("tokens were discarded on an unknown outcome") end
 end)
 
+check("an unknown outcome survives a restart: the token is not presented again", function()
+  local log = {}
+  local a, settings = newAuth { client = clientDouble({ { "timeout", { error = "timeout" } } }, log) }
+  a.tokens = { access_token = "old", refresh_token = "r", expires_at = os.time() - 10 }
+  settings:saveSetting("refresh_token", "r"); settings:saveSetting("access_token", "old")
+  a:refresh()
+  eq(#log, 1, "presented once before the restart")
+  local b = newAuth { settings = settings, client = clientDouble({}, log) }
+  eq(b:needsReauth(), true, "sign in again after the restart")
+  b.tokens.expires_at = os.time() - 10
+  eq(b:refresh(), nil)
+  eq(#log, 1, "the possibly spent token was not sent again")
+end)
+
 check("a definitively dead token is dropped", function()
   -- invalid_grant means the refresh token is gone for good; keeping it would
   -- make every later call fail the same confusing way instead of prompting.
