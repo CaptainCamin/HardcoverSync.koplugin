@@ -87,6 +87,8 @@ end
 -- however recently it was asked, and the list downloads its membership (one request).
 --
 function ListStore:markStale(user_id, list_id)
+  local mine = self.touched and self.touched[who(user_id)]
+  if mine then mine[tostring(list_id)] = nil end
   local saved = self:contents(user_id, list_id)
   if saved then
     saved.fingerprint = nil
@@ -177,7 +179,46 @@ local function membersOf(entries)
   return members, ids
 end
 
+-- Books put on or taken off a list here, whose change is still waiting to be sent:
+-- touched[user][list_id][book_id] = true (added) or false (removed). A download that began
+-- before the change must not undo it. Cleared by markStale, which runs once it is sent.
+local function touchedOf(self, user_id, list_id)
+  self.touched = self.touched or {}
+  local u = who(user_id)
+  self.touched[u] = self.touched[u] or {}
+  local key = tostring(list_id)
+  self.touched[u][key] = self.touched[u][key] or {}
+  return self.touched[u][key]
+end
+
+local function applyTouched(self, user_id, list_id, members, ids)
+  local touched = touchedOf(self, user_id, list_id)
+  if next(touched) == nil then return members, ids end
+  local out, out_ids, last, has = {}, {}, -1, {}
+  for _, m in ipairs(members) do
+    local id = tonumber(m.book_id)
+    if touched[id] ~= false then
+      out[#out + 1] = m
+      out_ids[#out_ids + 1] = m.book_id
+      has[id] = true
+      last = math.max(last, tonumber(m.position) or -1)
+    end
+  end
+  local added = {}
+  for id, on in pairs(touched) do
+    if on and not has[id] then added[#added + 1] = id end
+  end
+  table.sort(added)
+  for _, id in ipairs(added) do
+    last = last + 1
+    out[#out + 1] = { position = last, book_id = id, date_added = os.date("%Y-%m-%d") }
+    out_ids[#out_ids + 1] = id
+  end
+  return out, out_ids
+end
+
 local function save(self, user_id, row, members, ids, complete)
+  members, ids = applyTouched(self, user_id, row.id, members, ids)
   local text = Codec.encode({
     fingerprint = row.fingerprint or Lists.fingerprint(row),
     complete = complete and true or false,
@@ -264,6 +305,7 @@ function ListStore:addMember(user_id, list_id, book_id)
   end
   members[#members + 1] = { position = last + 1, book_id = book_id, date_added = os.date("%Y-%m-%d") }
   ids[#ids + 1] = book_id
+  touchedOf(self, user_id, list_id)[book_id] = true
 
   local text = Codec.encode({
     fingerprint = saved.fingerprint, complete = saved.complete, saved_at = self.now(), members = members,
@@ -296,6 +338,7 @@ function ListStore:removeMember(user_id, list_id, book_id)
     end
   end
   if not found then return false end
+  touchedOf(self, user_id, list_id)[book_id] = false
 
   local text = Codec.encode({
     fingerprint = saved.fingerprint, complete = saved.complete, saved_at = self.now(), members = members,

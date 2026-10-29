@@ -265,4 +265,22 @@ check("a download that began before an unsent move or removal does not undo it",
   assert(#shelves:members(1, 2) == 1)
 end)
 
+check("a list download that began before an offline add or removal does not undo it", function()
+  local _, books, lists = stores()
+  local row = { id = 7, name = "L", ranked = false }
+  lists:putEntries(1, row, { entry(1), entry(2) }, true)
+  books:saveRows({ entry(3) })
+  assert(lists:addMember(1, 7, 3))
+  assert(lists:removeMember(1, 7, 1))
+  -- the download finishes with what Hardcover said before
+  lists:putMembers(1, row, { { book_id = 1 }, { book_id = 2 } }, true)
+  local ids = {}
+  for _, m in ipairs(lists:contents(1, 7).members) do ids[#ids + 1] = m.book_id end
+  assert(#ids == 2 and ids[1] == 2 and ids[2] == 3, table.concat(ids, ","))
+  -- once the change is sent the list is marked stale and the download is believed
+  lists:markStale(1, 7)
+  lists:putMembers(1, row, { { book_id = 1 }, { book_id = 2 } }, true)
+  assert(#lists:contents(1, 7).members == 2 and lists:contents(1, 7).members[1].book_id == 1)
+end)
+
 r.finish()
