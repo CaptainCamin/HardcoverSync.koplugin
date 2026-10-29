@@ -163,7 +163,9 @@ function Hardcover:moveEdition(filename, book, edition_id, old_pages)
 
     local moved_read
     if read and read.id then
-      moved_read = Api:updatePage(read.id, edition_id, movedPage(read.progress_pages, old_pages, book.pages), read.started_at)
+      -- updatePage answers with the library record, which holds the moved read
+      local moved = Api:updatePage(read.id, edition_id, movedPage(read.progress_pages, old_pages, book.pages), read.started_at)
+      moved_read = moved and moved.user_book_reads and moved.user_book_reads[1]
       if not (moved_read and moved_read.id) then
         return false
       end

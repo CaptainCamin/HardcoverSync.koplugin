@@ -131,7 +131,7 @@ end
 local check = r.test
 
 check("a shelved book moves on Hardcover, its read and its queued page to the new edition", function()
-  resetApi({ updatePage = { id = 77, progress_pages = 160, edition_id = 20 },
+  resetApi({ updatePage = { id = 5, user_book_reads = { { id = 77, progress_pages = 160, edition_id = 20 } } },
     updateUserBook = { id = 5, status_id = 3, edition_id = 20, privacy_setting_id = 1 } })
   local h, store, queue, saved = newLink({ status = shelvedStatus(),
     queue = { [FILE] = { book_id = 7, edition_id = 10, mapped_page = 120, updated_at = 1 } } })
@@ -147,6 +147,7 @@ check("a shelved book moves on Hardcover, its read and its queued page to the ne
   local entry = queue:get(FILE)
   assert(entry.mapped_page == 160 and entry.edition_id == 20, "the queued page was not moved")
   assert(saved.snapshots == 1 and saved.snapshot.edition_id == 20, "the snapshot was not saved with the new edition")
+  assert(h.state.book_status.user_book_reads[1].id == 77, "the stored read is not the moved read")
   assert(h.state.book_status.edition_id == 20 and h.state.book_status.user_book_reads[1].progress_pages == 160,
     "the saved status does not show the new edition and progress")
   assert(#shown == 0, "a successful change showed an error")
@@ -166,14 +167,14 @@ check("a failed read move changes nothing here, and a retry gives the same resul
     "the saved status changed")
   assert(#shown == 1, "the failure was not shown")
 
-  resetApi({ updatePage = { id = 77, progress_pages = 160, edition_id = 20 },
+  resetApi({ updatePage = { id = 5, user_book_reads = { { id = 77, progress_pages = 160, edition_id = 20 } } },
     updateUserBook = { id = 5, status_id = 3, edition_id = 20, privacy_setting_id = 1 } })
   assert(h:linkBook(newBook()) == true, "the retry did not succeed")
   assert(calls[1][4] == 160, "the retry moved the progress from a different starting point")
 end)
 
 check("a failed shelf update changes nothing here", function()
-  resetApi({ updatePage = { id = 77, progress_pages = 160, edition_id = 20 }, updateUserBook = nil })
+  resetApi({ updatePage = { id = 5, user_book_reads = { { id = 77, progress_pages = 160, edition_id = 20 } } }, updateUserBook = nil })
   local h, store, queue = newLink({ status = shelvedStatus(),
     queue = { [FILE] = { book_id = 7, edition_id = 10, mapped_page = 120 } } })
   shown = {}
