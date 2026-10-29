@@ -175,7 +175,7 @@ check("a goal flush whose callback raises does not wedge the queue", function()
   q:ops()[1] = { kind = "save", key = 3, form = { name = "g", metric = "book", target = 5,
     start_date = "2026-01-01", end_date = "2026-12-31" } }
   local api = { saveGoal = function() return { id = 3 } end }
-  local ok = pcall(q.flush, q, api, { on_saved = function() error("screen gone") end })
+  local ok = pcall(q.flush, q, api, { user_id = 1, on_saved = function() error("screen gone") end })
   assert(not ok)
   assert(q.flushing == false, "locked for good after a raising callback")
 end)

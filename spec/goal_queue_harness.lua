@@ -117,7 +117,7 @@ check("ops are sent in order, a new goal as a make, and cleared", function()
   local g = q:queueSave(form({ name = "Fresh" }))
   q:queueArchive(9, saved(9, "To go", 8))
   local sent, archived = {}, {}
-  local r = q:flush(api, { on_saved = function(key, goal) sent[#sent + 1] = { key = key, goal = goal } end,
+  local r = q:flush(api, { user_id = 1, on_saved = function(key, goal) sent[#sent + 1] = { key = key, goal = goal } end,
     on_archived = function(key) archived[#archived + 1] = key end })
   eq(r.sent, 3); eq(r.waiting, 0); eq(r.stopped, false)
   eq(api.writes[1].id, 7, "edit goes to its id"); eq(api.writes[1].input.goal, 20)
@@ -136,11 +136,11 @@ check("no answer stops the flush and keeps everything for next time", function()
   api.fail = { completed = false }
   q:queueSave(form({ id = 7 }), saved(7, "A", 5))
   q:queueSave(form({ id = 8 }), saved(8, "B", 5))
-  local r = q:flush(api, {})
+  local r = q:flush(api, { user_id = 1 })
   eq(r.stopped, true); eq(r.waiting, 2); eq(#api.writes, 1, "stopped at the first")
   eq(q:heldCount(), 0, "an outage is not a refusal")
   api.fail = { status = 503 }
-  eq(q:flush(api, {}).stopped, true, "a 5xx is an outage too")
+  eq(q:flush(api, { user_id = 1 }).stopped, true, "a 5xx is an outage too")
 end)
 
 check("a refusal is counted, the rest go on, and after three it is held", function()
@@ -153,12 +153,12 @@ check("a refusal is counted, the rest go on, and after three it is held", functi
   end
   q:queueSave(form({ id = 7 }), saved(7, "Bad", 5))
   q:queueSave(form({ id = 8 }), saved(8, "Good", 5))
-  local r = q:flush(api, {})
+  local r = q:flush(api, { user_id = 1 })
   eq(r.sent, 1, "the good one went"); eq(r.waiting, 1)
-  q:flush(api, {}); q:flush(api, {})
+  q:flush(api, { user_id = 1 }); q:flush(api, { user_id = 1 })
   eq(q:heldCount(), 1, "held after three refusals")
   local before = #api.writes
-  q:flush(api, {})
+  q:flush(api, { user_id = 1 })
   eq(#api.writes, before, "a held op is not sent again")
   eq(q:apply({ saved(7, "Bad", 5) })[1].held, true, "shown as not sent")
   q:retryHeld()
@@ -170,7 +170,7 @@ check("a refusal for the permission is held at once, to sign in again", function
   local api = fakeApi()
   api.fail = { status = 403 }
   q:queueSave(form({ id = 7 }), saved(7, "A", 5))
-  eq(q:flush(api, {}).held, 1)
+  eq(q:flush(api, { user_id = 1 }).held, 1)
   eq(q:find(7).reason, "scope")
 end)
 
@@ -183,7 +183,7 @@ check("a change made while the flush was in flight is not lost", function()
     return real(self, id, input)
   end
   q:queueSave(form({ id = 7, name = "Older" }), saved(7, "A", 5))
-  q:flush(api, {})
+  q:flush(api, { user_id = 1 })
   eq(q:count(), 1, "the newer edit is still waiting")
   eq(q:find(7).form.target, 99)
 end)
@@ -197,11 +197,27 @@ check("a goal made here, edited while it was being sent, follows its real id", f
     if id == nil then q:queueSave(form({ id = g.id, name = "Edited" }), g) end
     return real(self, id, input)
   end
-  q:flush(api, {})
+  q:flush(api, { user_id = 1 })
   eq(q:count(), 1)
   eq(q:find(100) ~= nil, true, "the waiting edit now targets the real id")
-  local r = q:flush(real and fakeApi() or api, {})
+  local r = q:flush(real and fakeApi() or api, { user_id = 1 })
   eq(r.waiting, 0)
+end)
+
+check("goals queued by one account are not sent or shown for another", function()
+  local q = newQueue()
+  q:queueSave(form({ name = "Mine" }), nil, 1)
+  q:queueSave(form({ name = "Legacy" }))
+  eq(#q:apply({}, 2), 1, "B sees only the unstamped (legacy) goal")
+  eq(#q:apply({}, 1), 2, "A sees both")
+  local calls = {}
+  local api = { saveGoal = function(_, id, input) calls[#calls + 1] = input.description return { id = 50 + #calls } end }
+  eq(q:flush(api, {}).stopped, true, "no user, nothing sent")
+  eq(#calls, 0)
+  local r = q:flush(api, { user_id = 2 })
+  eq(#calls, 1, "only the legacy goal goes to B")
+  eq(calls[1], "Legacy")
+  eq(r.waiting, 0, "A's goal was dropped")
 end)
 
 print("")
