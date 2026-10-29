@@ -461,7 +461,7 @@ function SyncQueue:_clearSent(filepath, sent)
   if type(entry) ~= "table" then
     return
   end
-  if sent.page ~= nil and entry.mapped_page == sent.page and entry.page_updated_at == sent.page_at then
+  if sent.page ~= nil and entry.mapped_page == sent.page and (entry.page_updated_at or 0) == sent.page_at then
     entry.mapped_page = nil
     entry.page_updated_at = nil
     entry.page_days = nil
@@ -469,7 +469,7 @@ function SyncQueue:_clearSent(filepath, sent)
     entry.reread = nil
     entry.read_made = nil
   end
-  if sent.status ~= nil and entry.status_id == sent.status and entry.status_updated_at == sent.status_at then
+  if sent.status ~= nil and entry.status_id == sent.status and (entry.status_updated_at or 0) == sent.status_at then
     entry.status_id = nil
     entry.status_updated_at = nil
     entry.finished_date = nil
