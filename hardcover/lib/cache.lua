@@ -1,6 +1,7 @@
 local Api = require("hardcover/lib/hardcover_api")
 local User = require("hardcover/lib/user")
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
+local SETTING = require("hardcover/lib/constants/settings")
 
 local NetworkManager = require("ui/network/manager")
 
@@ -87,6 +88,8 @@ function Cache:queueMeta(filename)
   local reads = book_status.user_book_reads
   local current_read = reads and reads[#reads]
   return {
+    -- the saved id only: asking Hardcover for it would block an offline queue
+    user_id = User.settings and User.settings:readSetting(SETTING.USER_ID),
     title = self.settings:readBookSetting(filename, "title"),
     book_id = book_status.book_id or self.settings:readBookSetting(filename, "book_id"),
     edition_id = (current_read and current_read.edition_id)

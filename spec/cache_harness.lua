@@ -193,6 +193,16 @@ check("a queued page is layered over the snapshot", function()
   eq(cache.state.book_status.user_book_reads[1].progress_pages, 340, "progress after hydration")
 end)
 
+check("a queued change is stamped with the signed-in user", function()
+  local User = require("hardcover/lib/user")
+  local saved = User.settings
+  User.settings = { readSetting = function() return 7 end }
+  local cache = newCache {}
+  local meta = cache:queueMeta("/books/a.epub")
+  User.settings = saved
+  eq(meta.user_id, 7, "user_id")
+end)
+
 check("hydration works with no queue attached", function()
   -- The queue is optional; a nil queue must not take hydration down with it.
   local cache = newCache { snapshot = { id = 1, book_id = 2, status_id = HARDCOVER.STATUS.READING } }
