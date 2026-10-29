@@ -32,7 +32,8 @@ function PageMapper:getMappedPage(raw_page, document_pages, remote_pages)
   end
 
   if remote_pages and document_pages then
-    return math.floor((raw_page / document_pages) * remote_pages)
+    -- a file longer than the edition would floor early pages to 0, which is not a page
+    return math.max(1, math.floor((raw_page / document_pages) * remote_pages))
   end
 
   return raw_page
