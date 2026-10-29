@@ -224,11 +224,11 @@ function Goals.split(goals, today)
     local da, db = a.progress >= a.target, b.progress >= b.target
     if da ~= db then return not da end
     if a.target ~= b.target then return a.target > b.target end
-    return a.id < b.id
+    return tostring(a.id) < tostring(b.id)
   end)
   table.sort(past, function(a, b)
     if a.end_days ~= b.end_days then return a.end_days > b.end_days end
-    return a.id < b.id
+    return tostring(a.id) < tostring(b.id)
   end)
   return { current = current, past = past }
 end
