@@ -103,6 +103,8 @@ check("the edition id query declares $id with a colon", function()
   Api:hydrateBookFromEdition(30, 1)
   Api.query = saved
   assert(seen and seen:find("$id: Int!", 1, true), tostring(seen))
+end)
+
 print("\n== a file with both ISBNs ==")
 
 check("the ISBN-10 is tried when the ISBN-13 finds nothing", function()
