@@ -108,8 +108,9 @@ function JournalQueue:change(action, entry)
   if action == "update" and type(entry.text) ~= "string" then return nil end
   local ops = self:ops()
   local before = self:changeFor(entry.journal_id)
-  if before then ops[before.id] = nil end
+  -- the id comes first: it must not repeat the replaced change's, which may be on its way
   local id, seq = nextId(ops)
+  if before then ops[before.id] = nil end
   ops[id] = {
     id = id, seq = seq, at = os.time(), action = action,
     user_id = entry.user_id, journal_id = tonumber(entry.journal_id),
@@ -224,7 +225,8 @@ function JournalQueue:flush(api, opts)
           -- edited while it was on its way: the new text goes next, as a change to the entry it made
           local edited = op.action == nil and op.text ~= sent_text and tonumber(entry.id) ~= nil
             and ops[op.id] == op
-          if not edited then ops[op.id] = nil end
+          -- only this very change: a newer one may have taken its place while it was on its way
+          if not edited and ops[op.id] == op then ops[op.id] = nil end
           self:persist()
           if opts.on_sent then opts.on_sent(op, entry) end
           if edited then
