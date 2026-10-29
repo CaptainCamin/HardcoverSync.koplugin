@@ -50,18 +50,23 @@ function Charts.decimal(n, places)
   return (text:gsub("%.?0+$", ""))
 end
 
--- a label cut to `max` characters with an ellipsis, on a UTF-8 boundary
+-- the first `n` UTF-8 characters of `text` (a character is a lead byte and its continuations)
+local function firstChars(text, n)
+  local pos = 1
+  for _ = 1, n do
+    local _, e = text:find("^.[\128-\191]*", pos)
+    if not e then break end
+    pos = e + 1
+  end
+  return text:sub(1, pos - 1)
+end
+
+-- a label cut to `max` characters (not bytes) with an ellipsis, on a UTF-8 boundary
 function Charts.shorten(text, max)
   text = tostring(text or "")
-  if #text <= max then return text end
-  local cut = max - 1
-  -- do not stop in the middle of a multi-byte character
-  while cut > 0 do
-    local byte = text:byte(cut + 1)
-    if not byte or byte < 0x80 or byte >= 0xC0 then break end
-    cut = cut - 1
-  end
-  return text:sub(1, cut):gsub("%s+$", "") .. "\226\128\166"
+  local _, count = text:gsub("[^\128-\191]", "")
+  if count <= max then return text end
+  return firstChars(text, max - 1):gsub("%s+$", "") .. "\226\128\166"
 end
 
 --
