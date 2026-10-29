@@ -133,7 +133,7 @@ end)
 print("\n== the sign-in flow shows something before the network call ==")
 
 check("signIn displays an indicator before beginDeviceFlow", function()
-  local body = bodyFrom(stripComments(main), "function HardcoverApp:signIn()")
+  local body = bodyFrom(stripComments(main), "function HardcoverApp:signIn(")
   if not body then error("could not find HardcoverApp:signIn") end
 
   local show_at = body:find("StatusDialogs.loading", 1, true)
@@ -162,7 +162,7 @@ check("the sign-in dialog is not shown twice", function()
   -- duplicate guard, so one screen ends up with two entries in the window
   -- stack, and the refresh bookkeeping that follows is applied to the wrong
   -- copy.
-  local body = bodyFrom(stripComments(main), "function HardcoverApp:signIn()")
+  local body = bodyFrom(stripComments(main), "function HardcoverApp:signIn(")
   if not body then error("could not find HardcoverApp:signIn") end
   local shows = select(2, body:gsub("UIManager:show%(dialog%)", ""))
   if shows > 0 then
