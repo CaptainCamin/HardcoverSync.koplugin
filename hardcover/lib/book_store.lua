@@ -188,11 +188,13 @@ end
 
 --
 -- The details screen's saved copy of a book, if it can be shown without asking Hardcover
--- for the book again: fetched before (not just a list's row), and either done changing
+-- for the book again: fetched before for this edition (not just a list's row), and either done changing
 -- (isSettled) or fetched within RECHECK_AFTER. Counts as the book being opened again.
 -- Returns { book = ... } (no status or rating) or nil.
 --
 function BookStore:settledDetail(book_id, edition_id)
+  -- another edition's details would show its publisher, ISBN and pages: ask for this one
+  if tonumber(edition_id) and not self:hasDetail(book_id, edition_id) then return nil end
   local detail, source = self:detail(book_id, edition_id)
   if source ~= "details" then return nil end
   local book = detail.book
