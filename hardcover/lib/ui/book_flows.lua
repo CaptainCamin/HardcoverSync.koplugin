@@ -1156,6 +1156,7 @@ function Flows:applyAbout(dialog, book_id, about)
   -- a shelf change made here and not sent yet is what the screen shows, not Hardcover's
   -- older word
   local shelf_waiting = self.shelf_queue and self.shelf_queue:get(book_id, User:getId())
+    or (self.sync_queue and self.sync_queue:statusFor(book_id))
   if not shelf_waiting and (status_id ~= detail.status_id or (status_id and user_book_id ~= detail.user_book_id)) then
     local shelves = self:shelves()
     if shelves then

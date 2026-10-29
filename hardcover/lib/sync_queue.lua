@@ -66,6 +66,18 @@ function SyncQueue:filepaths()
   return paths
 end
 
+-- The status waiting for the book (by Hardcover book id, whichever file it was set from),
+-- or nil.
+function SyncQueue:statusFor(book_id)
+  book_id = tonumber(book_id)
+  if not book_id then return nil end
+  for _, entry in pairs(self:pending()) do
+    if type(entry) == "table" and entry.status_id ~= nil and tonumber(entry.book_id) == book_id then
+      return entry.status_id
+    end
+  end
+end
+
 function SyncQueue:pendingCount()
   return #self:filepaths()
 end
