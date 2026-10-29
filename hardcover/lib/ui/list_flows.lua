@@ -56,7 +56,7 @@ function Flows:downloadList(row, opts)
   local store = self.book_store and self.list_store or nil
   local user_id = User:getId()
   local queue = self:listsQueue()
-  local key = "list:" .. tostring(row.id) .. (opts.force and ":refresh" or "")
+  local key = "list:" .. tostring(user_id) .. ":" .. tostring(row.id) .. (opts.force and ":refresh" or "")
   queue:wait(key, opts.on_done)
   queue:add({
     key = key,
@@ -97,9 +97,10 @@ function Flows:refreshLists(on_done)
   local store = self.list_store
   local user_id = User:getId()
   local queue = self:listsQueue()
-  queue:wait("index", on_done)
+  local key = "index:" .. tostring(user_id)
+  queue:wait(key, on_done)
   queue:add({
-    key = "index",
+    key = key,
     work = function()
       local lists, err = ShelfLoader.patient(function() return Api:getLists() end, Background.sleep)
       if not lists then return { failure = err } end

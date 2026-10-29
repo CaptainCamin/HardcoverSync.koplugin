@@ -475,4 +475,27 @@ check("opening Home runs the check after Home's own requests", function()
   assert(named("getListBooks") == 3)
 end)
 
+check("download jobs are keyed per account, so one account's screen never hears another's job", function()
+  local m = newManager()
+  local keys = {}
+  m._lists_queue = {
+    wait = function(_, key) keys[#keys + 1] = key end,
+    add = function() end,
+    start = function() end,
+  }
+  local row = { id = 5, source = "mine", name = "L", count = 1 }
+  local id = 1
+  User.getId = function() return id end
+  m:downloadList(row)
+  m:downloadShelf(1)
+  m:refreshLists(function() end)
+  id = 2
+  m:downloadList(row)
+  m:downloadShelf(1)
+  m:refreshLists(function() end)
+  User.getId = function() return 1 end
+  assert(#keys == 6, #keys)
+  for i = 1, 3 do assert(keys[i] ~= keys[i + 3], "same key for two accounts: " .. keys[i]) end
+end)
+
 r.finish()
