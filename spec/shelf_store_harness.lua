@@ -263,6 +263,8 @@ check("a download that began before an unsent move or removal does not undo it",
   shelves:moveBook(1, 2, 2, nil, false)
   shelves:putMembers(1, 2, { entry(4, 2) }, true, FP)
   assert(#shelves:members(1, 2) == 1)
+end)
+
 check("a list download that began before an offline add or removal does not undo it", function()
   local _, books, lists = stores()
   local row = { id = 7, name = "L", ranked = false }
