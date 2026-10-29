@@ -732,7 +732,7 @@ end
 function DialogManager:shownGoals(goals)
   local queue = self.goal_queue
   if queue and goals and not queue:isEmpty() then
-    return queue:apply(goals)
+    return queue:apply(goals, User:getId())
   end
   return goals
 end
@@ -1025,7 +1025,7 @@ function DialogManager:saveGoal(dialog, form, on_saved)
   if route == "queue" then
     local base
     for _i, g in ipairs(self:savedGoals()) do if g.id == form.id then base = g end end
-    local goal = queue:queueSave(form, base)
+    local goal = queue:queueSave(form, base, User:getId())
     self:queueGoalChange(dialog, function() end, on_saved, goal)
     if Network.connected() and self.flush_goals then self.flush_goals() end
     return
@@ -1074,7 +1074,7 @@ function DialogManager:archiveGoal(dialog, goal, on_saved)
   end
 
   if route == "queue" then
-    queue:queueArchive(goal.id, goal)
+    queue:queueArchive(goal.id, goal, User:getId())
     self:queueGoalChange(dialog, function() end, nil, nil, GoalActions.archivedNotice(goal.id, true))
     if not on_goal_screen then self:closeGoalScreen(goal.id) end
     if on_saved then on_saved(nil) end

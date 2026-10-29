@@ -39,7 +39,7 @@ function Modules.goalCard(shelf_cache, queue, user_id, finished_offline, today)
   local Goals = require("hardcover/lib/goals")
   local goals = shelf_cache:goals(user_id)
   if not goals then return nil, "no_data" end
-  if queue and not queue:isEmpty() then goals = queue:apply(goals) end
+  if queue and not queue:isEmpty() then goals = queue:apply(goals, user_id) end
   today = today or Goals.today()
   local goal = Goals.split(goals, today).current[1]
   if not goal then return nil, "no_goal" end

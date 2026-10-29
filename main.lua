@@ -1001,6 +1001,7 @@ function HardcoverApp:_flushGoals()
 
   local sent, archived = {}, {}
   local result = queue:flush(Api, {
+    user_id = User:getId(),
     on_saved = function(key, goal) sent[#sent + 1] = { key = key, goal = goal } end,
     on_archived = function(key) archived[#archived + 1] = key end,
   })

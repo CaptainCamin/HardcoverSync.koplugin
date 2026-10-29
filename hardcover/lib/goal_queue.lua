@@ -36,6 +36,12 @@ function GoalQueue:valid(op)
   return valid(op)
 end
 
+-- Is this op for the signed-in account? Ops from older versions carry no user_id and
+-- belong to whoever is signed in (as in ShelfQueue).
+local function ownedBy(op, user_id)
+  return op.user_id == nil or op.user_id == user_id
+end
+
 function GoalQueue:isEmpty()
   return not self:hasPending()
 end
@@ -91,7 +97,7 @@ end
 -- `form.id` is the goal's id, or nil for a new one. `base` is the goal as it was
 -- (its progress is kept). Returns the goal as it now reads, to show at once.
 --
-function GoalQueue:queueSave(form, base)
+function GoalQueue:queueSave(form, base, user_id)
   local key = form.id
   if key == nil then
     local n = (tonumber(self.settings:readSetting("goal_next_local")) or 0) + 1
@@ -102,7 +108,7 @@ function GoalQueue:queueSave(form, base)
   -- an op already waiting for this goal is replaced by the newer one; a goal that
   -- was made here and not sent yet stays a "make" however often it is edited
   drop(self, key)
-  table.insert(self:ops(), { key = key, kind = "save", form = copyForm(form), at = os.time() })
+  table.insert(self:ops(), { key = key, kind = "save", user_id = user_id, form = copyForm(form), at = os.time() })
   self:persist()
 
   return goalFrom(key, form, base and base.progress or 0)
@@ -110,12 +116,12 @@ end
 
 -- Archive a goal. One that was made here and never sent just disappears. `goal` is
 -- the goal as it stands: Hardcover wants all of it sent along with the archive flag.
-function GoalQueue:queueArchive(key, goal)
+function GoalQueue:queueArchive(key, goal, user_id)
   local was_local = GoalQueue.isLocal(key)
   drop(self, key)
   if not was_local then
     local form = goal and Goals.formFrom(goal) or nil
-    table.insert(self:ops(), { key = key, kind = "archive", form = form and copyForm(form), at = os.time() })
+    table.insert(self:ops(), { key = key, kind = "archive", user_id = user_id, form = form and copyForm(form), at = os.time() })
   end
   self:persist()
 end
@@ -125,7 +131,7 @@ end
 -- edits replace the goal (keeping its progress), goals made here are added, archived
 -- goals are left out. Changed goals carry `pending = true`. A copy.
 --
-function GoalQueue:apply(goals)
+function GoalQueue:apply(goals, user_id)
   local ops = self:ops()
   local out = {}
   local by_key = {}
@@ -135,7 +141,7 @@ function GoalQueue:apply(goals)
 
   local archived, edits = {}, {}
   for _, op in ipairs(ops) do
-    if valid(op) then
+    if valid(op) and ownedBy(op, user_id) then
       if op.kind == "archive" then archived[op.key] = true else edits[op.key] = op end
     end
   end
@@ -154,7 +160,7 @@ function GoalQueue:apply(goals)
 
   -- the goals made here, in the order they were made
   for _, op in ipairs(ops) do
-    if valid(op) and op.kind == "save" and GoalQueue.isLocal(op.key) and op.form then
+    if valid(op) and ownedBy(op, user_id) and op.kind == "save" and GoalQueue.isLocal(op.key) and op.form then
       out[#out + 1] = goalFrom(op.key, op.form, 0)
       out[#out].held = op.held or nil
     end
@@ -166,7 +172,8 @@ local transient = OfflineQueue.transient
 
 --
 -- Send what is waiting, in order. `api` needs saveGoal(id, input) and archiveGoal(goal)
--- (each returning a result, or nil and an error). opts.on_saved(key, goal) is told of
+-- (each returning a result, or nil and an error). opts.user_id is required: without a
+-- signed-in user nothing is sent. opts.on_saved(key, goal) is told of
 -- every goal that went through (for a new one `key` is its local key, and the real
 -- id is `goal.id`); opts.on_archived(key) of every archive that did. Stops at the first failure that says the server could not be
 -- asked; one it refused is counted and the rest go on. Returns
@@ -182,8 +189,17 @@ end
 
 function GoalQueue:_flush(api, opts)
   local sent, stopped = 0, false
+  if opts.user_id == nil then
+    return { sent = 0, held = self:heldCount(), waiting = self:count(), stopped = true }
+  end
+
+  -- ops made for an account that is not signed in any more are dropped
+  local ops = self:ops()
+  for i = #ops, 1, -1 do
+    if not valid(ops[i]) or not ownedBy(ops[i], opts.user_id) then table.remove(ops, i) end
+  end
   local snapshot = {}
-  for _, op in ipairs(self:ops()) do snapshot[#snapshot + 1] = op end
+  for _, op in ipairs(ops) do snapshot[#snapshot + 1] = op end
 
   for _, op in ipairs(snapshot) do
     if valid(op) and not op.held then
