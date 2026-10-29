@@ -3,9 +3,10 @@
 -- State rests on the fill, never on grey. 1 to 2 words, no wrapping: the label is cut with an ellipsis
 -- at `width` rather than wrapped.
 --
--- Used for state (a goal's "On track", a book's shelf). The plugin has no filter chips: the owner decided
--- the Library has no filters ("no chips"), so there is no filter, input or suggestion chip here. A chip
--- that acts would be wrapped in a TapRow by its caller, with a visible control beside it (no hold-only).
+-- Used for state (a goal's "On track", a book's shelf) and for the period chips on Stats, which choose
+-- what the page shows. The Library still has no filter chips (the owner's call, "no chips"), and no input or
+-- suggestion chip is here. A chip that acts is wrapped by its caller with Theme.touchable, so it has a
+-- tap area at least TOUCH_MIN tall (no hold-only).
 
 local FrameContainer = require("ui/widget/container/framecontainer")
 

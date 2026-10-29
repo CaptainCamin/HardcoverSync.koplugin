@@ -1,6 +1,6 @@
 -- Your reading, as a page of charts: the numbers that matter up top, then books per month
 -- (or per year), how you rate, your genres, who you read most and how long your books run.
--- Period tabs choose all time or one year. Everything is worked out on the device from
+-- Period chips choose all time or one year, and a month of that year. Everything is worked out on the device from
 -- the saved finished books (see stats.lua), so it reads the same offline; `note` says when
 -- what is shown is a saved copy. A page taller than the screen scrolls, one section a block (see
 -- components/section.lua).
@@ -16,13 +16,13 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
 
+local Chip = require("hardcover/lib/ui/components/chip")
 local ChartWidgets = require("hardcover/lib/ui/chart_widgets")
 local Charts = require("hardcover/lib/charts")
 local Hosted = require("hardcover/lib/ui/hosted")
 local ScrollControl = require("hardcover/lib/ui/components/scroll_control")
 local Section = require("hardcover/lib/ui/components/section")
 local Stats = require("hardcover/lib/stats")
-local Tabs = require("hardcover/lib/ui/components/tabs")
 local Theme = require("hardcover/lib/ui/theme")
 local TopBar = require("hardcover/lib/ui/components/top_bar")
 
@@ -35,6 +35,7 @@ local StatsDialog = InputContainer:extend {
   genres = nil,      -- Stats.genres
   complete = true,   -- false when the library is longer than what was loaded
   year = nil,        -- the period: a year, or nil for all time
+  month = nil,       -- a month (1 to 12) of that year, or nil for the whole year
   note = nil,        -- "Offline. Showing your stats as of ..."
   message = nil,     -- shown instead of the charts
   close_callback = nil,
@@ -81,8 +82,8 @@ local function initial(name)
   return name:match("^[%z\1-\127\194-\244][\128-\191]*") or name
 end
 
--- All time | the two latest years | Earlier (the rest, through the picker). A year chosen from the
--- rest shows in the third tab.
+-- All time | the two latest years | Earlier (the rest, through the picker) | Month (of the chosen
+-- year). A year chosen from the rest shows in the third chip; the month shows once a year is chosen.
 function StatsDialog:buildTabs(width)
   if self.message or not self.rows or #self.rows == 0 then return nil end
   local years = Stats.years(self.rows)
@@ -90,22 +91,43 @@ function StatsDialog:buildTabs(width)
   local function pick(year)
     return function()
       if self.year == year then return end
-      self.year = year
+      self.year, self.month = year, nil
       self:rebuild()
     end
   end
-  local tabs = { { label = _("All time"), active = self.year == nil, callback = pick(nil) } }
+  local chips = { { label = _("All time"), selected = self.year == nil, callback = pick(nil) } }
   for i = 1, math.min(#years, 2) do
-    tabs[#tabs + 1] = { label = tostring(years[i]), active = self.year == years[i], callback = pick(years[i]) }
+    chips[#chips + 1] = { label = tostring(years[i]), selected = self.year == years[i], callback = pick(years[i]) }
   end
   if #years > 2 then
     local older = self.year ~= nil and self.year ~= years[1] and self.year ~= years[2]
-    tabs[#tabs + 1] = {
-      label = older and tostring(self.year) or _("Earlier"), active = older,
+    chips[#chips + 1] = {
+      label = older and tostring(self.year) or _("Earlier"), selected = older,
       callback = function() self:choosePeriod() end,
     }
   end
-  return Tabs.new { width = width, tabs = tabs }
+  if self.year then
+    chips[#chips + 1] = {
+      label = self.month and _(MONTHS[self.month]) or _("Month"), selected = self.month ~= nil,
+      callback = function() self:chooseMonth() end,
+    }
+  end
+  local row = HorizontalGroup:new { align = "center" }
+  local gap = Theme.space.s
+  -- a label is cut at an equal share of the width, so a long one cannot push the row off the screen
+  local cell = math.floor((width - (#chips - 1) * gap) / #chips)
+  self.chips = {}
+  for i, chip in ipairs(chips) do
+    if i > 1 then row[#row + 1] = Theme.hspan(gap) end
+    local face = Chip.new { label = chip.label, selected = chip.selected, width = cell }
+    local tap = Theme.touchable(face, face:getSize().w, chip.callback)
+    self.chips[i] = tap
+    row[#row + 1] = tap
+  end
+  return FrameContainer:new {
+    bordersize = 0, padding = 0, margin = 0, padding_left = Theme.margin, padding_right = Theme.margin,
+    padding_top = Theme.space.s, padding_bottom = Theme.space.s, row,
+  }
 end
 
 -- How many months of the chosen year the pace line runs: all twelve for a year that is over, else up
@@ -124,7 +146,7 @@ function StatsDialog:choosePeriod()
   local function pick(year)
     return function()
       UIManager:close(picker)
-      self.year = year
+      self.year, self.month = year, nil
       self:rebuild()
     end
   end
@@ -133,6 +155,28 @@ function StatsDialog:choosePeriod()
     rows[#rows + 1] = { text = tostring(y), current = self.year == y, callback = pick(y) }
   end
   picker = Picker.new { title = _("Period"), rows = rows }
+  UIManager:show(picker)
+end
+
+-- The months of the chosen year that have a finish, with how many; "All of <year>" clears it.
+function StatsDialog:chooseMonth()
+  local Picker = require("hardcover/lib/ui/picker")
+  local picker
+  local function pick(month)
+    return function()
+      UIManager:close(picker)
+      self.month = month
+      self:rebuild()
+    end
+  end
+  local rows = { { text = string.format(_("All of %s"), tostring(self.year)), current = self.month == nil, callback = pick(nil) } }
+  local months = Stats.compute(self.rows or {}, { year = self.year }).months
+  for m = 1, 12 do
+    if months[m] > 0 then
+      rows[#rows + 1] = { text = string.format("%s · %s", _(MONTHS[m]), books(months[m])), current = self.month == m, callback = pick(m) }
+    end
+  end
+  picker = Picker.new { title = _("Month"), rows = rows }
   UIManager:show(picker)
 end
 
@@ -154,11 +198,12 @@ function StatsDialog:buildContent(width)
     return content
   end
 
-  local s = Stats.compute(self.rows, { year = self.year })
+  local s = Stats.compute(self.rows, { year = self.year, month = self.month })
 
   if s.books == 0 then
+    local period = self.month and (_(MONTHS[self.month]) .. " " .. tostring(self.year)) or tostring(self.year)
     local empty = #self.rows == 0 and _("No finished books yet. Mark a book as read and your stats will grow here.")
-      or string.format(_("No books finished in %s."), tostring(self.year))
+      or string.format(_("No books finished in %s."), period)
     table.insert(content, text(empty, "body", { grey = true, width = width }))
     return content
   end
@@ -188,8 +233,8 @@ function StatsDialog:buildContent(width)
   end
   add(head)
 
-  -- when
-  if self.year then
+  -- when: a year's months, and the pace through it (a single month has neither)
+  if self.year and not self.month then
     local b = block(_("Books per month"), books(s.books))
     local labels = {}
     for i, name in ipairs(MONTHS) do labels[i] = initial(_(name)) end
@@ -214,7 +259,7 @@ function StatsDialog:buildContent(width)
       })
       add(pace)
     end
-  else
+  elseif not self.year then
     local values, labels = {}, {}
     for i, y in ipairs(s.by_year) do values[i] = y.count; labels[i] = tostring(y.year) end
     if #values > 0 then
@@ -363,7 +408,7 @@ function StatsDialog:setStats(stats, note)
   if self.year then
     local found = false
     for _i, y in ipairs(Stats.years(self.rows)) do if y == self.year then found = true end end
-    if not found then self.year = nil end
+    if not found then self.year, self.month = nil, nil end
   end
   self:rebuild()
 end

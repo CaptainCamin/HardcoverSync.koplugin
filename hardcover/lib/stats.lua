@@ -113,8 +113,8 @@ function Stats.genres(cached)
 end
 
 --
--- The numbers for a period. `opts.year` picks one year (nil: all time); `opts.top` is how
--- many authors to list (default 5).
+-- The numbers for a period. `opts.year` picks one year (nil: all time), and `opts.month` (1 to 12)
+-- narrows that year to one month; `opts.top` is how many authors to list (default 5).
 --
 -- Returns {
 --   year, books, pages, pages_books (books with a page count), audio_seconds, audio_books,
@@ -130,6 +130,7 @@ end
 function Stats.compute(rows, opts)
   opts = opts or {}
   local year = opts.year
+  local month = year and opts.month
   local out = {
     year = year, books = 0, pages = 0, pages_books = 0, audio_seconds = 0, audio_books = 0,
     undated = 0, by_year = {}, months = {}, month_unknown = 0, page_list = {},
@@ -149,7 +150,8 @@ function Stats.compute(rows, opts)
       if not last_year or y > last_year then last_year = y end
     end
 
-    if year == nil or y == year then
+    local m = row.date and #row.date >= 7 and tonumber(row.date:sub(6, 7)) or nil
+    if (year == nil or y == year) and (month == nil or m == month) then
       out.books = out.books + 1
       if not y then out.undated = out.undated + 1 end
 
