@@ -107,4 +107,44 @@ KB.check("a refused change is held, the user is told once, and nothing else is b
   KB.eq(#told, 1)
 end)
 
+KB.check("the first connect sends the shelf, review and rating in one flush", function()
+  writes = {}
+  local shelf, list = queues()
+  local app = newApp(shelf, list, {})
+  local RatingQueue = require("hardcover/lib/rating_queue")
+  local ReviewQueue = require("hardcover/lib/review_queue")
+  app.rating_queue = RatingQueue:new { settings = KB.fakeSettings() }
+  app.review_queue = ReviewQueue:new { settings = KB.fakeSettings() }
+  app.state.book_status = { book_id = 100, status_id = 2 }
+  shelf:queueStatus(1, 100, 2, {})
+  app.rating_queue:queue(nil, 4.5, "New book", 100, 1)
+  app.review_queue:queue(nil, "Read offline", true, "New book", 100, 1)
+  local created = false
+  app.dialog_manager.shelfSent = function() created = true end
+  app.dialog_manager.ratingSent = function() end
+  app.dialog_manager.reviewChangeSent = function() end
+  Api.findUserBook = function(_, book_id, user_id)
+    assert(created, "looked up before the shelf was sent")
+    KB.eq(book_id, 100); KB.eq(user_id, 1)
+    return { id = 77, book_id = 100 }
+  end
+  Api.updateReview = function(_, id, text, spoilers)
+    KB.eq(id, 77); KB.eq(text, "Read offline"); KB.eq(spoilers, true)
+    writes[#writes + 1] = { "review" }
+    return { id = id, has_review = true, review_raw = text }
+  end
+  Api.updateRating = function(_, id, rating)
+    KB.eq(id, 77); KB.eq(rating, 4.5)
+    writes[#writes + 1] = { "rating" }
+    return { id = id, book_id = 100, rating = rating }
+  end
+  KB.network.connected = true
+  app:onNetworkConnected()
+  KB.eq(#writes, 3); KB.eq(writes[1][1], "updateUserBook")
+  KB.eq(app.rating_queue:count(), 0); KB.eq(app.review_queue:count(), 0)
+  KB.eq(app.state.book_status.rating, 4.5, "reader rating after first sync")
+  app:onNetworkConnected()
+  KB.eq(#writes, 3, "sent twice")
+end)
+
 KB.finish("shelf and list changes made offline must be sent when the connection is back")

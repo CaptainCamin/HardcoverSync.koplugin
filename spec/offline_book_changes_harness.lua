@@ -374,12 +374,40 @@ check("Hardcover's older word about the book does not overwrite a waiting change
   assert(#d.status_updates == 1, "not applied without a waiting change")
 end)
 
-check("rating a book whose shelf change is unsent says why, and queues nothing", function()
+check("rating a book before its first shelf sync is kept, restored and sent after the shelf", function()
   local m = newManager()
-  local d = detailScreen(m, { book = { book_id = 100, title = "B" }, status_id = 1 })
+  online = false
+  local d = detailScreen(m, NEW())
+  tap(showing(function() m:chooseShelf(d) end), "Currently Reading")
+  assert(d.detail.user_book_id == nil)
+  local stepper = real_require("hardcover/lib/ui/components/stepper_dialog")
+  local show, form = stepper.show
+  stepper.show = function(opts) form = opts end
   m:rateBook(d)
-  assert(lastInfo():find("not been sent"), lastInfo())
-  assert(rating_queue:count() == 0)
+  stepper.show = show
+  assert(form, "rating is still blocked before the shelf sync")
+  form.on_save(4.5)
+  assert(rating_queue:get(nil, 100) == 4.5 and rating_queue:count() == 1)
+  assert(m:withPending(NEW()).user_rating == 4.5, "reopening lost the pending rating")
+  assert(#calls == 0 and #server_calls == 0, "requested while offline")
+
+  local api, record = serverApi(), nil
+  function api:findUserBook(book_id, user_id)
+    assert(book_id == 100 and user_id == 1)
+    return record
+  end
+  function api:updateRating(id, rating)
+    assert(record and id == record.id and rating == 4.5, "rating sent before its record existed")
+    return { id = id, book_id = 100, rating = rating }
+  end
+  assert(rating_queue:flush(api, nil, 1) == 1, "rating must wait for the shelf")
+  online = true
+  local result = shelf_queue:flush(api, { user_id = 1, on_sent = function(op, ub)
+    record = ub
+    m:shelfSent(op, ub)
+  end })
+  assert(result.sent == 1)
+  assert(rating_queue:flush(api, nil, 1) == 0, "rating did not follow the shelf")
 end)
 
 print("\n== a shelf, when the connection is back ==")

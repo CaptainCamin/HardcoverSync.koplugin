@@ -35,6 +35,7 @@ local function fakeApi(answers)
   local api = { sent = {}, calls = 0 }
   function api:updateReview(id, text, spoilers)
     self.calls = self.calls + 1
+    if self.fail then return nil end
     local answer = answers and answers[self.calls] or { { id = id, has_review = text ~= "" } }
     if answer[1] then self.sent[#self.sent + 1] = { id = id, text = text, spoilers = spoilers } end
     return answer[1], answer[2]
@@ -149,6 +150,190 @@ check("cancel removes just that one; junk does not break it", function()
   eq(q:count(), 1)
   settings.store.review_ops = "garbage"
   eq(q:count(), 0)
+end)
+
+-- Catalog 101 and library record 907 deliberately differ: never write to 101.
+local function deferredApi(user_id, library_id)
+  user_id, library_id = user_id or 42, library_id or 907
+  local api = fakeApi()
+  api.lookups, api.found = 0, { id = library_id }
+  function api:findUserBook(book_id, author_id)
+    eq(book_id, 101, "lookup catalog ID"); eq(author_id, user_id, "lookup user")
+    self.lookups = self.lookups + 1
+    if self.on_lookup then self.on_lookup() end
+    self.resolved = type(self.found) == "table" and self.found.id ~= nil
+    return self.found, self.lookup_error
+  end
+  local update = api.updateReview
+  function api:updateReview(id, text, spoilers, json)
+    eq(self.resolved, true, "no write before resolution"); eq(id, library_id, "write library ID")
+    eq(json, self.json, "json forwarded unchanged")
+    if self.on_send then self.on_send() end
+    return update(self, id, text, spoilers)
+  end
+  function api:updateUserBook() error("review queue must not create a shelf record") end
+  return api
+end
+
+check("catalog reviews persist, coalesce with a known ID, and cancel only that book", function()
+  local q, settings = newQueue()
+  q:queue(nil, "first", false, "Dune", 101, 42); q:queue(nil, "other", false, "Other", 202, 42)
+  q = ReviewQueue:new { settings = settings }
+  eq(q:count(), 2); eq(q:get(nil, 101, 42).text, "first"); eq(q:get(nil, 202, 42).text, "other")
+  q:queue(907, "newest", true, "Dune", 101, 42)
+  q = ReviewQueue:new { settings = settings }
+  eq(q:count(), 2, "transition replaces, not duplicates")
+  eq(q:get(907, 101, 42).text, "newest"); eq(q:get(nil, 101, 42).spoilers, true)
+  local dune
+  for _, op in ipairs(q:list(42)) do if op.book_id == 101 then dune = op end end
+  assert(dune, "list exposes catalog ID")
+  eq(dune.user_book_id, 907); eq(dune.title, "Dune"); eq(dune.text, "newest"); eq(dune.spoilers, true)
+  eq(q:cancel(nil, 101, 42), true); eq(q:cancel(907, 101, 42), false)
+  eq(q:count(), 1); eq(q:get(nil, 202, 42).text, "other")
+  eq(q:cancel(nil, 202, 42), true); eq(q:isEmpty(), true)
+end)
+
+check("deferred reviews and clears resolve first, preserving spoilers and flush options", function()
+  for _, edit in ipairs({ { text = "the ending", spoilers = true }, { text = "", spoilers = false } }) do
+    local q, settings = newQueue()
+    q:queue(nil, "old", false, "Dune", 101, 42)
+    q:queue(nil, edit.text, edit.spoilers, "Dune", 101, 42)
+    q = ReviewQueue:new { settings = settings }
+    eq(q:get(nil, 101, 42).text, edit.text); eq(q:list(42)[1].book_id, 101)
+    local api, callbacks = deferredApi(), 0
+    api.json = { util = {} }
+    eq(#api.sent, 0)
+    eq(q:flush(api, { user_id = 42, json = api.json, on_sent = function(id, book)
+      callbacks = callbacks + 1; eq(id, 907); eq(book.id, 907)
+    end }), 0)
+    eq(api.lookups, 1); eq(#api.sent, 1)
+    eq(api.sent[1].text, edit.text); eq(api.sent[1].spoilers, edit.spoilers)
+    eq(callbacks, 1); eq(q:isEmpty(), true)
+  end
+end)
+
+check("missing records and unanswered lookups wait without rejection or writes", function()
+  -- The real API returns nil for no record, but {} plus an error for no answer.
+  for _, answer in ipairs({ {}, { found = {}, err = { error = "no_response", completed = false } } }) do
+    local q = newQueue()
+    q:queue(nil, "waiting", true, "Dune", 101, 42)
+    local api, callbacks = deferredApi(), 0
+    api.found, api.lookup_error = answer.found, answer.err
+    for _ = 1, 4 do
+      eq(q:flush(api, { user_id = 42, on_sent = function() callbacks = callbacks + 1 end }), 1)
+    end
+    eq(api.lookups, 4); eq(#api.sent, 0); eq(callbacks, 0)
+    eq(q:get(nil, 101, 42).text, "waiting"); eq(q:get(nil, 101, 42).spoilers, true); eq(q:heldCount(), 0)
+    for _, op in pairs(q:ops()) do
+      eq(op.failures or 0, 0, "not a rejection"); eq(op.reason, nil)
+    end
+  end
+end)
+
+check("lookup refusals use the existing hold and retry rules", function()
+  for _, refusal in ipairs({
+    { err = refused, tries = 3, reason = "refused" },
+    { err = { status = 403, errors = { { message = "insufficient_scope" } } }, tries = 1, reason = "scope" },
+  }) do
+    local q = newQueue()
+    q:queue(nil, "waiting", false, "Dune", 101, 42)
+    local api = deferredApi()
+    api.found, api.lookup_error = {}, refusal.err
+    for _ = 1, refusal.tries do eq(q:flush(api, { user_id = 42 }), 1) end
+    eq(q:heldCount(), 1); eq(q:list(42)[1].reason, refusal.reason)
+    eq(q:flush(api, { user_id = 42 }), 1); eq(api.lookups, refusal.tries); eq(#api.sent, 0)
+    q:retryHeld()
+    api.found, api.lookup_error = { id = 907 }, nil
+    eq(q:flush(api, { user_id = 42 }), 0); eq(api.lookups, refusal.tries + 1); eq(#api.sent, 1)
+  end
+end)
+
+check("a newer catalog edit during lookup or send survives the old flush", function()
+  for _, phase in ipairs({ "on_lookup", "on_send" }) do
+    local q, settings = newQueue()
+    q:queue(nil, "old", false, "Dune", 101, 42)
+    local api = deferredApi()
+    api[phase] = function() q:queue(907, "newer", true, "Dune", 101, 42) end
+    eq(q:flush(api, { user_id = 42 }), 1)
+    eq(#api.sent, phase == "on_lookup" and 0 or 1, "replacement before send prevents stale mutation")
+    q = ReviewQueue:new { settings = settings }
+    eq(q:count(), 1, phase); eq(q:get(907, 101, 42).text, "newer", phase)
+    eq(q:get(907, 101, 42).spoilers, true, phase)
+    api[phase] = nil
+    eq(q:flush(api, { user_id = 42 }), 0)
+    eq(api.sent[#api.sent].id, 907); eq(api.sent[#api.sent].text, "newer")
+    eq(api.sent[#api.sent].spoilers, true)
+  end
+end)
+
+check("accounts independently edit, cancel, list and flush the same catalog review", function()
+  for _, known in ipairs({ false, true }) do
+    local q, settings = newQueue()
+    local a, b = known and 907 or nil, known and 1907 or nil
+    q:queue(a, "A first", false, "Dune", 101, 42)
+    eq(q:get(a, 101, 84), nil); eq(q:cancel(a, 101, 84), false); eq(#q:list(84), 0)
+    local api = deferredApi(84, 1907)
+    q:flush(api) -- No signed-in account must not send owned changes either.
+    eq(q:flush(api, { user_id = 84 }), 0, "A is not part of B's waiting count")
+    eq(api.lookups, 0); eq(#api.sent, 0); eq(q:count(), 1)
+
+    q:queue(b, "B first", false, "Dune", 101, 84)
+    q:queue(a, "A edit", true, "Dune", 101, 42); q:queue(b, "B edit", false, "Dune", 101, 84)
+    eq(q:count(), 2); eq(q:get(a, 101, 42).text, "A edit"); eq(q:get(b, 101, 84).text, "B edit")
+    eq(#q:list(42), 1); eq(q:list(42)[1].text, "A edit"); eq(q:list(42)[1].spoilers, true)
+    eq(#q:list(84), 1); eq(q:list(84)[1].text, "B edit"); eq(q:list(84)[1].spoilers, false)
+    eq(q:cancel(b, 101, 84), true); eq(q:cancel(a, 101, 84), false)
+    eq(q:get(a, 101, 42).text, "A edit"); eq(q:count(), 1)
+    q:queue(b, "B final", false, "Dune", 101, 84)
+    q = ReviewQueue:new { settings = settings }
+
+    -- Leave B waiting once, to prove both nonzero and zero results exclude A.
+    api.resolved, api.fail, api.found = known, known, nil
+    eq(q:flush(api, { user_id = 84 }), 1); eq(#api.sent, 0)
+    eq(api.lookups, known and 0 or 1); eq(q:get(a, 101, 42).text, "A edit")
+    api.fail, api.found = false, { id = 1907 }
+    eq(q:flush(api, { user_id = 84 }), 0); eq(#api.sent, 1)
+    eq(api.sent[1].id, 1907); eq(api.sent[1].text, "B final"); eq(api.sent[1].spoilers, false)
+    eq(#q:list(84), 0); eq(#q:list(42), 1)
+    q = ReviewQueue:new { settings = settings }
+    eq(q:get(a, 101, 42).text, "A edit", "A survived B's session and reinstantiation")
+    local returning = deferredApi()
+    returning.resolved = known
+    eq(q:flush(returning, { user_id = 42 }), 0)
+    eq(#returning.sent, 1); eq(returning.sent[1].id, 907); eq(returning.sent[1].text, "A edit")
+    eq(returning.sent[1].spoilers, true); eq(q:isEmpty(), true)
+  end
+end)
+
+check("cancel during lookup prevents the old review mutation and preserves another author", function()
+  local q, settings = newQueue()
+  q:queue(nil, "A", true, "Dune", 101, 42); q:queue(nil, "B", false, "Dune", 101, 84)
+  local api, callbacks = deferredApi(), 0
+  api.on_lookup = function() eq(q:cancel(nil, 101, 42), true) end
+  eq(q:flush(api, { user_id = 42, on_sent = function() callbacks = callbacks + 1 end }), 0)
+  eq(api.lookups, 1); eq(#api.sent, 0); eq(callbacks, 0)
+  q = ReviewQueue:new { settings = settings }
+  eq(q:get(nil, 101, 42), nil); eq(q:get(nil, 101, 84).text, "B"); eq(q:count(), 1)
+end)
+
+check("ownerless catalog reviews persist but never bind to the next account", function()
+  local q, settings = newQueue()
+  q:queue(nil, "unknown author's text", true, "Dune", 101) -- Deliberately no author.
+  local api = deferredApi()
+  q:flush(api); q:flush(api, { user_id = 42 }); q:flush(api, { user_id = 84 })
+  eq(api.lookups, 0); eq(#api.sent, 0)
+  q = ReviewQueue:new { settings = settings }
+  eq(q:count(), 1); eq(q:get(nil, 101).text, "unknown author's text"); eq(q:get(nil, 101).spoilers, true)
+  eq(q:list()[1].user_book_id, nil); eq(q:heldCount(), 0)
+end)
+
+check("old persisted library-only reviews still send without a lookup", function()
+  local _, settings = newQueue()
+  settings.store.review_ops = { ["907"] = { user_book_id = 907, text = "saved", spoilers = true } }
+  local q, api = ReviewQueue:new { settings = settings }, fakeApi()
+  eq(q:get(907).text, "saved"); eq(q:flush(api), 0)
+  eq(#api.sent, 1); eq(api.sent[1].id, 907); eq(api.sent[1].text, "saved")
+  eq(api.sent[1].spoilers, true)
 end)
 
 print(string.format("\n%d passed, %d failed", results.passed, results.failed))

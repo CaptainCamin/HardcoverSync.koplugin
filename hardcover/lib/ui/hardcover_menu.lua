@@ -48,6 +48,30 @@ local function findItem(items, prefix, anywhere)
   end
 end
 
+-- One effective shelf for the panel and its actions: Details can change it without updating the
+-- reader snapshot. When both queues have a status, use the same newer-wins rule as settleWith.
+function HardcoverMenu:bookShelfStatus()
+  local status = self.state.book_status or {}
+  local book_id = self.settings:getLinkedBookId()
+  local file = self.ui.document and self.ui.document.file
+  local pending = file and self.sync_queue and self.sync_queue:get(file)
+  local op = self.shelf_queue and self.shelf_queue:get(book_id)
+  if op and (op.user_id == nil or op.user_id == User:getId())
+    and (not (pending and pending.status_id)
+      or (tonumber(op.at) or 0) > (tonumber(pending.status_updated_at) or 0)) then
+    if op.kind == "remove" then return nil, true end
+    return op.status_id, nil
+  end
+  local status_id = (pending and pending.status_id) or status.status_id
+  if status_id or status.not_on_shelf then return status_id, status.not_on_shelf end
+  if self.settings:bookLinked() then
+    local dm = self.dialog_manager
+    local shelves = dm and dm.shelves and dm:shelves()
+    return require("hardcover/lib/reader_panel_facts").fromShelves(
+      shelves, User:getId(), book_id, require("hardcover/lib/home").statusIds())
+  end
+end
+
 -- What can be done to the file's link: change the edition or unlink it from this device.
 -- The book page's Edition button opens it. `on_close` is called when the list is closed.
 function HardcoverMenu:showLinkActions(on_close)
@@ -191,15 +215,7 @@ function HardcoverMenu:showReaderPanel()
     -- the status the book has, with a change still waiting to be sent counted (as the page path counts it)
     local file = self.ui.document and self.ui.document.file
     local pending = file and self.sync_queue:get(file)
-    local status_id = (pending and pending.status_id) or status.status_id
-    local not_on_shelf = status.not_on_shelf
-    if not status_id and not not_on_shelf and linked then
-      -- no saved status for this book (never synced from here, or offline): the saved shelves may know
-      local dm = self.dialog_manager
-      local shelves = dm and dm.shelves and dm:shelves()
-      status_id, not_on_shelf = require("hardcover/lib/reader_panel_facts").fromShelves(
-        shelves, User:getId(), self.settings:getLinkedBookId(), require("hardcover/lib/home").statusIds())
-    end
+    local status_id, not_on_shelf = self:bookShelfStatus()
     local doc_title = self.ui.doc_props and self.ui.doc_props.display_title
     local title = (linked and self.settings:getLinkedTitle()) or doc_title or _("This book")
 
@@ -256,10 +272,10 @@ function HardcoverMenu:showReaderPanel()
       add(_("Status"), status_item, { icon = "shelf" })
       add(_("Rate"), rating_item, { icon = "star" })
       actions[#actions + 1] = {
-        text = _("Journal"), icon = "edit", enabled = self.enabled and status.id ~= nil,
+        text = _("Journal"), icon = "edit", enabled = self.enabled,
         run = function()
           self.dialog_manager:showBookJournal(self.settings:getLinkedBookId(), self.settings:getLinkedTitle(), {
-            user_book_id = status.id,
+            user_book_id = status.id, status_id = status_id,
             -- the note and quote form, as "Add a note" opens it; `on_saved` refreshes the journal
             write = function(event_type, on_saved)
               local reads = self.state.book_status.user_book_reads
@@ -709,6 +725,7 @@ function HardcoverMenu:showPendingChanges(menu_instance)
   -- loaded here, not at the top: the screen pulls in the settings page and its widgets
   require("hardcover/lib/ui/pending_changes_dialog").show {
     queues = {
+      user_id = User:getId(),
       sync_queue = self.sync_queue, goal_queue = self.goal_queue, rating_queue = self.rating_queue,
       shelf_queue = self.shelf_queue, list_queue = self.list_queue, journal_queue = self.journal_queue,
       review_queue = self.review_queue,
@@ -1261,8 +1278,10 @@ function HardcoverMenu:showEndPage()
   local page
   local function model()
     local status = self.state.book_status or {}
+    local rating = self.rating_queue and self.rating_queue:get(status.id, self.settings:getLinkedBookId(), User:getId())
+    if rating ~= nil then status.rating = rating > 0 and rating or nil end
     local pending = self.sync_queue:get(file)
-    local status_id = (pending and pending.status_id) or status.status_id
+    local status_id = self:bookShelfStatus()
     local waiting = pending and pending.status_id ~= nil
     local title = self.settings:getLinkedTitle() or (self.ui.doc_props and self.ui.doc_props.display_title) or _("This book")
     local finished = status_id == HARDCOVER.STATUS.FINISHED
@@ -1278,7 +1297,7 @@ function HardcoverMenu:showEndPage()
       rows = {},
       primary = { text = _("Done") },
     }
-    if status.id then
+    if status.id or (status_id and self.rating_queue) then
       m.rows[#m.rows + 1] = { text = _("Your rating"), rating = true, run = function()
         require("hardcover/lib/ui/components/stepper_dialog").show {
           title = _("Set rating"), text = _("0 clears the rating."),
@@ -1290,7 +1309,7 @@ function HardcoverMenu:showEndPage()
       end }
       m.rows[#m.rows + 1] = { text = _("Write a review"), run = function()
         self.dialog_manager:writeReview { detail = { user_book_id = status.id, status_id = status_id,
-          book = { title = title } } }
+          book = { book_id = self.settings:getLinkedBookId(), title = title } } }
       end }
     end
     if not finished then
@@ -1459,23 +1478,30 @@ end
 -- at once, and sent when there is a connection, as it is from the details screen.
 function HardcoverMenu:saveRating(value, menu_instance, quiet)
   Background.run(function()
-    local result
-    if Network.connected() then
-      result = Api:updateRating(self.state.book_status.id, value)
-    end
-
-    if result then
-      self.state.book_status = result
-      menu_instance:updateItems()
-    elseif self.rating_queue and self.state.book_status.id then
+    -- Always replace an older queued rating before sending, even if the connection or record ID
+    -- arrived since that rating was saved. Otherwise the older one can overwrite the new one later.
+    if self.rating_queue and (self.state.book_status.id or self.settings:bookLinked()) then
       self.rating_queue:queue(self.state.book_status.id, value,
-        self.settings and self.settings.getLinkedTitle and self.settings:getLinkedTitle() or nil)
+        self.settings and self.settings.getLinkedTitle and self.settings:getLinkedTitle() or nil,
+        self.settings:getLinkedBookId(), User:getId())
       self.state.book_status.rating = value > 0 and value or nil
       menu_instance:updateItems()
-      if not quiet then
+      if Network.connected() then
+        if self.dialog_manager.flush_goals then self.dialog_manager.flush_goals() end
+      elseif not quiet then
         require("hardcover/lib/ui/status_dialogs").info(
           _("Rating saved on this device. It will be sent when you are back online."))
       end
+      return
+    end
+
+    local result
+    if Network.connected() and self.state.book_status.id then
+      result = Api:updateRating(self.state.book_status.id, value)
+    end
+    if result then
+      self.state.book_status = result
+      menu_instance:updateItems()
     elseif not quiet then
       self.dialog_manager:showError(_("Rating could not be saved"))
     end
@@ -1483,6 +1509,10 @@ function HardcoverMenu:saveRating(value, menu_instance, quiet)
 end
 
 function HardcoverMenu:getStatusSubMenuItems()
+  -- A queued rating wins over an older snapshot, including after restarting offline.
+  local status = self.state.book_status
+  local waiting = self.rating_queue and self.rating_queue:get(status.id, self.settings:getLinkedBookId(), User:getId())
+  if waiting ~= nil then status.rating = waiting > 0 and waiting or nil end
   return {
     {
       text = _(ICON.BOOKMARK .. " Want To Read"),
@@ -1668,7 +1698,7 @@ function HardcoverMenu:getStatusSubMenuItems()
     {
       text = _("Add a note"),
       enabled_func = function()
-        return self.enabled and self.state.book_status.id ~= nil
+        return self.enabled and self.settings:bookLinked()
       end,
       callback = function()
         local reads = self.state.book_status.user_book_reads
@@ -1705,7 +1735,8 @@ function HardcoverMenu:getStatusSubMenuItems()
         return _(text)
       end,
       enabled_func = function()
-        return self.enabled and self.state.book_status.id ~= nil
+        return self.enabled and (self.state.book_status.id ~= nil
+          or (self.rating_queue ~= nil and self.settings:bookLinked() and self:bookShelfStatus() ~= nil))
       end,
       callback = function(menu_instance)
         local rating = self.state.book_status.rating
@@ -1725,7 +1756,9 @@ function HardcoverMenu:getStatusSubMenuItems()
     {
       text = _("Clear rating"),
       enabled_func = function()
-        return self.enabled and self.state.book_status.id ~= nil and self.state.book_status.rating ~= nil
+        return self.enabled and self.state.book_status.rating ~= nil
+          and (self.state.book_status.id ~= nil
+            or (self.rating_queue ~= nil and self.settings:bookLinked() and self:bookShelfStatus() ~= nil))
       end,
       callback = function(menu_instance)
         self:saveRating(0, menu_instance, true)

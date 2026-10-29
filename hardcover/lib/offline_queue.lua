@@ -86,6 +86,40 @@ function OfflineQueue:persist()
   if self.settings.flush then self.settings:flush() end
 end
 
+-- Ratings and reviews can precede the library record. Keep their identity stable when that
+-- record arrives, including queues saved by older versions with only a user_book_id.
+function OfflineQueue.bookOpForUser(op, user_id)
+  if op.user_id ~= nil then return tostring(op.user_id) == tostring(user_id) end
+  -- Legacy operations are bound to a library record already. Unowned catalog-only text must
+  -- never be rebound to whichever account happens to sign in next.
+  return op.user_book_id ~= nil
+end
+
+function OfflineQueue:bookOpKey(user_book_id, book_id, user_id)
+  for key, op in pairs(self:store()) do
+    if self:valid(op) and (user_id == nil or OfflineQueue.bookOpForUser(op, user_id))
+      and ((book_id ~= nil and tostring(op.book_id) == tostring(book_id))
+      or (user_book_id ~= nil and tostring(op.user_book_id) == tostring(user_book_id))) then
+      return key, op
+    end
+  end
+  local key = book_id ~= nil and ("book:" .. tostring(book_id)) or tostring(user_book_id)
+  return user_id ~= nil and (tostring(user_id) .. ":" .. key) or key
+end
+
+-- Status/shelf queues run first. If their record is not available yet, leave this change waiting;
+-- do not invent a shelf or send an update with the catalog book ID in place of the library ID.
+function OfflineQueue:resolveUserBook(api, op, user_id)
+  if not OfflineQueue.bookOpForUser(op, user_id) then return nil end
+  if op.user_book_id then return op.user_book_id end
+  if not user_id then return nil end
+  local book, err = api:findUserBook(op.book_id, user_id)
+  if not (book and book.id) then return nil, err end
+  op.user_book_id = book.id
+  self:persist()
+  return book.id
+end
+
 function OfflineQueue:isHeld(entry)
   return type(entry) == "table" and entry.held and true or false
 end
@@ -102,10 +136,11 @@ function OfflineQueue:hasPending()
   return self:count() > 0
 end
 
-function OfflineQueue:heldCount()
+function OfflineQueue:heldCount(user_id)
   local n = 0
   for _, entry in self.iterate(self:store()) do
-    if self:valid(entry) and self:isHeld(entry) then n = n + 1 end
+    if self:valid(entry) and self:isHeld(entry)
+      and (user_id == nil or entry.user_id == nil or tostring(entry.user_id) == tostring(user_id)) then n = n + 1 end
   end
   return n
 end

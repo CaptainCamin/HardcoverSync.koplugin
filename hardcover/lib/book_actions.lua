@@ -72,13 +72,13 @@ end
 --   "ok"           yes
 --   "no_book"      nothing is on screen to rate
 --   "needs_shelf"  the book is not in the library yet: put it on a shelf first
---   "unsent"       it is on a shelf, but the change has not reached Hardcover, so
---                  there is no library record to rate yet
+-- A queued shelf change counts: the rating can wait by catalog book ID for its library record.
 --
 function BookActions.ratingGate(detail, has_queue)
   if not (detail and detail.book) then return "no_book" end
-  if detail.status_id ~= nil and not detail.user_book_id and has_queue then return "unsent" end
-  if not (detail.user_book_id and has_queue) then return "needs_shelf" end
+  if not (has_queue and (detail.user_book_id or (detail.status_id ~= nil and detail.book.book_id))) then
+    return "needs_shelf"
+  end
   return "ok"
 end
 

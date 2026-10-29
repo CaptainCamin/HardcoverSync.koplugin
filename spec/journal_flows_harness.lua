@@ -481,6 +481,69 @@ check("deleting your review keeps its removal; the book's entries stay, saying o
   end
 end)
 
+check("reviews before the first sync stay distinct, can be edited and discarded by book", function()
+  local m = newManager()
+  online = false
+  m.review_queue:queue(nil, "First draft", false, "Same title", 101, 1)
+  m.review_queue:queue(nil, "Other book", false, "Same title", 202, 1)
+  m.review_queue:queue(nil, "Another account's draft", false, "Same title", 101, 2)
+  m:showJournal()
+  assert(#tab.entries == 2 and tab.entries[1].key ~= tab.entries[2].key)
+  assert(tab.entries[1].book_id == 101 and tab.entries[2].book_id == 202)
+  tab.select_cb(tab.entries[1])
+  button(last("text"), "Edit").callback()
+  local input = last("input")
+  assert(input.input == "First draft", "the pending review could not be opened for editing")
+  input.typed = "Final draft"
+  button(input, "Next").callback()
+  last("picker").rows[2].callback()
+  assert(m.review_queue:get(nil, 101, 1).text == "Final draft" and tab.entries[1].spoilers)
+  tab.select_cb(tab.entries[1])
+  button(last("text"), "Delete").callback()
+  confirms[#confirms].ok_callback()
+  assert(m.review_queue:get(nil, 101, 1) == nil and m.review_queue:get(nil, 202, 1).text == "Other book")
+  assert(m.review_queue:get(nil, 101, 2).text == "Another account's draft")
+  assert(#tab.entries == 1 and tab.entries[1].book_id == 202)
+end)
+
+check("editing a pending review does not inherit a deleted historical library record", function()
+  for _, known_id in ipairs({ false, 907 }) do
+    local m = newManager()
+    online = false
+    m.journal_store:put(1, {
+      { key = "reviewed:4003", id = 4003, kind = "review", user_book_id = 700,
+        user_id = 1, book_id = 101, title = "Dune", text = "Historical review" },
+    }, false)
+    m.review_queue:queue(known_id or nil, "Offline draft", false, "Dune", 101, 1)
+    m:showJournal()
+    assert(#tab.entries == 1 and tab.entries[1].text == "Offline draft")
+    tab.select_cb(tab.entries[1])
+    button(last("text"), "Edit").callback()
+    local input = last("input")
+    assert(input.input == "Offline draft")
+    input.typed = "Edited offline draft"
+    button(input, "Next").callback()
+    last("picker").rows[2].callback()
+
+    local lookups, writes = 0, 0
+    local waiting = m.review_queue:flush({
+      findUserBook = function(_, book_id, user_id)
+        lookups = lookups + 1
+        assert(book_id == 101 and user_id == 1)
+        return { id = 907 }
+      end,
+      updateReview = function(_, id, text, spoilers)
+        writes = writes + 1
+        assert(id == 907, "edited draft targeted historical library record " .. tostring(id))
+        assert(text == "Edited offline draft" and spoilers)
+        return { id = id }
+      end,
+    }, { user_id = 1 })
+    assert(waiting == 0 and writes == 1 and lookups == (known_id and 0 or 1))
+    assert(m.journal_store:get(1).entries[1].user_book_id == 700, "overlay changed the saved history")
+  end
+end)
+
 check("editing your review goes through the review form and shows on each entry of the book", function()
   local m = savedTab()
   tab.select_cb(find("reviewed:4005"))

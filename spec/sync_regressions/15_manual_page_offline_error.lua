@@ -32,6 +32,8 @@ local Api = real_require("hardcover/lib/hardcover_api")
 local Cache = real_require("hardcover/lib/cache")
 local HardcoverMenu = real_require("hardcover/lib/ui/hardcover_menu")
 local HARDCOVER = real_require("hardcover/lib/constants/hardcover")
+local User = real_require("hardcover/lib/user")
+User.settings = { readSetting = function() return 1 end }
 
 local FILE = "/books/a.epub"
 
@@ -41,10 +43,14 @@ local function setup()
   local q = KB.newQueue()
   local state = { book_status = { id = 500, book_id = 7, status_id = HARDCOVER.STATUS.READING, edition_id = 3,
     user_book_reads = { { id = 900, progress_pages = 10, edition_id = 3, started_at = "2026-01-01" } } } }
-  local settings = { readBookSetting = function(_, _, key) return ({ book_id = 7, edition_id = 3, title = "T" })[key] end }
+  local settings = {
+    readBookSetting = function(_, _, key) return ({ book_id = 7, edition_id = 3, title = "T" })[key] end,
+    bookLinked = function() return true end,
+    getLinkedBookId = function() return 7 end,
+  }
   local errors = {}
   local menu = setmetatable({
-    state = state,
+    state = state, settings = settings,
     ui = { document = { file = FILE } },
     dialog_manager = { showError = function(_, e) errors[#errors + 1] = e end },
     sync_queue = q,
@@ -122,6 +128,7 @@ KB.check("online, Hardcover answers: sent straight away, nothing queued", functi
   local menu, _, state = setup()
   local rq = RatingQueue:new { settings = KB.fakeSettings() }
   menu.rating_queue = rq
+  menu.dialog_manager.flush_goals = function() rq:flush(Api, nil, User:getId()) end
   Api.updateRating = function() return { id = 500, status_id = 2, rating = 3 } end
   menu:saveRating(3, mi)
   KB.eq(rq:count(), 0, "queued")

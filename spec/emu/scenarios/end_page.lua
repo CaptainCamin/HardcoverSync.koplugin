@@ -9,6 +9,7 @@ local function build(emu, queued)
   local state = { book_status = { id = 1, status_id = 2, rating = 4 } }
   local settings = {
     getLinkedTitle = function() return "The Left Hand of Darkness" end,
+    getLinkedBookId = function() return 103 end,
   }
   fixtures.install({ settings = fixtures.real_settings(emu) })
   local HardcoverMenu = require("hardcover/lib/ui/hardcover_menu")

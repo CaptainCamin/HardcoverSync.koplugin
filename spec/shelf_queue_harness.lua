@@ -137,9 +137,11 @@ check("nothing waiting leaves the details alone", function()
   eq(BookActions.withPendingShelf(nil, { kind = "remove" }), nil)
 end)
 
-check("rating a book whose shelf change is unsent says so; one with no shelf asks for one", function()
-  eq(BookActions.ratingGate({ book = {}, status_id = 1 }, true), "unsent")
+check("a queued shelf permits rating by book ID; one with no shelf asks for one", function()
+  eq(BookActions.ratingGate({ book = { book_id = 101 }, status_id = 1 }, true), "ok")
   eq(BookActions.ratingGate({ book = {} }, true), "needs_shelf")
+  eq(BookActions.ratingGate({ book = { book_id = 101 } }, true), "needs_shelf")
+  eq(BookActions.ratingGate({ book = { book_id = 101 }, status_id = 1 }, false), "needs_shelf")
   eq(BookActions.ratingGate({ book = {}, status_id = 1, user_book_id = 5 }, true), "ok")
 end)
 

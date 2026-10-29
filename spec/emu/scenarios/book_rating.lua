@@ -119,7 +119,7 @@ return {
     -- back online, the queue sends it
     local sent = {}
     queue:flush({ updateRating = function(_, id, r) sent[#sent + 1] = { id, r } return { id = id, status_id = 2 } end },
-      function(id, ub) manager:ratingSent(id, ub) end)
+      function(id, ub) manager:ratingSent(id, ub) end, require("hardcover/lib/user"):getId())
     assert(#sent == 1 and sent[1][1] == 9103 and sent[1][2] == 4.5, "the queued rating was not sent")
     assert(queue:isEmpty(), "a sent rating stayed queued")
 

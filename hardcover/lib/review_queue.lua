@@ -11,14 +11,14 @@ local ReviewQueue = OfflineQueue.extend({})
 ReviewQueue.store_key = "review_ops"
 
 local function valid(op)
-  return type(op) == "table" and op.user_book_id ~= nil and type(op.text) == "string"
+  return type(op) == "table" and (op.user_book_id ~= nil or op.book_id ~= nil) and type(op.text) == "string"
 end
 
 function ReviewQueue:valid(op)
   return valid(op)
 end
 
--- waiting reviews by library record, as stored
+-- waiting reviews by book (older entries use the library record), as stored
 function ReviewQueue:ops()
   return self:store()
 end
@@ -28,36 +28,40 @@ function ReviewQueue:isEmpty()
 end
 
 -- the waiting review for this library record as { text ("" = a clear), spoilers }, or nil
-function ReviewQueue:get(user_book_id)
-  local op = self:ops()[tostring(user_book_id)]
+function ReviewQueue:get(user_book_id, book_id, user_id)
+  local _, op = self:bookOpKey(user_book_id, book_id, user_id)
   if valid(op) then return { text = op.text, spoilers = op.spoilers == true } end
 end
 
-function ReviewQueue:queue(user_book_id, text, spoilers, title)
-  self:ops()[tostring(user_book_id)] = {
-    user_book_id = user_book_id, text = text or "", spoilers = spoilers == true, title = title,
+function ReviewQueue:queue(user_book_id, text, spoilers, title, book_id, user_id)
+  local key, before = self:bookOpKey(user_book_id, book_id, user_id)
+  self:ops()[key] = {
+    user_book_id = user_book_id or (before and before.user_book_id), book_id = book_id or (before and before.book_id),
+    user_id = user_id or (before and before.user_id), text = text or "", spoilers = spoilers == true, title = title,
   }
   self:persist()
 end
 
 -- every waiting review as { user_book_id, text, spoilers, title, held, reason }, in a stable order
-function ReviewQueue:list()
+function ReviewQueue:list(user_id)
   local out = {}
   for _, op in pairs(self:ops()) do
-    if valid(op) then
-      out[#out + 1] = { user_book_id = op.user_book_id, text = op.text, spoilers = op.spoilers == true,
+    if valid(op) and (user_id == nil or OfflineQueue.bookOpForUser(op, user_id)) then
+      out[#out + 1] = { user_book_id = op.user_book_id, book_id = op.book_id, user_id = op.user_id,
+        text = op.text, spoilers = op.spoilers == true,
         title = op.title, held = op.held, reason = op.reason }
     end
   end
-  table.sort(out, function(a, b) return tostring(a.user_book_id) < tostring(b.user_book_id) end)
+  table.sort(out, function(a, b) return tostring(a.book_id or a.user_book_id) < tostring(b.book_id or b.user_book_id) end)
   return out
 end
 
 -- Cancel the review waiting for one book.
-function ReviewQueue:cancel(user_book_id)
+function ReviewQueue:cancel(user_book_id, book_id, user_id)
   local ops = self:ops()
-  local had = ops[tostring(user_book_id)] ~= nil
-  ops[tostring(user_book_id)] = nil
+  local key = self:bookOpKey(user_book_id, book_id, user_id)
+  local had = ops[key] ~= nil
+  ops[key] = nil
   self:persist()
   return had
 end
@@ -69,7 +73,7 @@ end
 -- Returns the number still waiting (held ones included).
 function ReviewQueue:flush(api, opts)
   opts = opts or {}
-  return self:withFlushLock(function() return self:count() end, function()
+  return self:withFlushLock(function() return #self:list(opts.user_id) end, function()
     local ops = self:ops()
     local keys = {}
     for key, op in pairs(ops) do
@@ -79,22 +83,23 @@ function ReviewQueue:flush(api, opts)
 
     for _, key in ipairs(keys) do
       local op = ops[key]
-      if not op.held then
-        local user_book, err = api:updateReview(op.user_book_id, op.text, op.spoilers == true, opts.json)
+      if op and not op.held and OfflineQueue.bookOpForUser(op, opts.user_id) then
+        local id, err = self:resolveUserBook(api, op, opts.user_id)
+        local user_book
+        if id and ops[key] == op then user_book, err = api:updateReview(id, op.text, op.spoilers == true, opts.json) end
         if user_book then
           -- a newer review written while this one was in flight stays
           if ops[key] == op then ops[key] = nil end
           self:persist()
           if opts.on_sent then opts.on_sent(op.user_book_id, user_book) end
-        elseif OfflineQueue.transient(err) then
-          break
-        else
+        elseif ops[key] == op and (id or err ~= nil) then
+          if OfflineQueue.transient(err) then break end
           OfflineQueue.reject(op, err)
           self:persist()
         end
       end
     end
-    return self:count()
+    return #self:list(opts.user_id)
   end)
 end
 

@@ -1020,10 +1020,16 @@ function HardcoverApp:_flushRatings()
     return true
   end
   local waiting = queue:flush(Api, function(user_book_id, user_book)
+    local status = self.state.book_status
+    if status and (status.id == user_book_id or (user_book.book_id and status.book_id == user_book.book_id))
+      and queue:get(user_book_id, user_book.book_id, User:getId()) == nil then
+      -- The first status sync may have replaced the reader's local rating with an older server value.
+      status.rating = user_book.rating
+    end
     self.dialog_manager:ratingSent(user_book_id, user_book)
-  end)
+  end, User:getId())
   -- (held ones wait for the user, as shelf and list changes do)
-  return waiting <= queue:heldCount()
+  return waiting <= queue:heldCount(User:getId())
 end
 
 -- Send the shelf changes made offline. Returns false while any is still waiting for another
@@ -1068,21 +1074,20 @@ function HardcoverApp:_flushJournals()
   return not result.stopped and result.waiting == result.held
 end
 
--- Send the reviews written offline (as _flushRatings). A review needs the library record a shelf
--- change makes, so it waits for the next flush behind a new book's shelf change.
+-- Send reviews after shelf changes, resolving the library record for a newly added book.
 function HardcoverApp:_flushReviews()
   local queue = self.review_queue
   if not queue or queue:isEmpty() then
     return true
   end
-  local waiting = queue:flush(Api, { json = json,
+  local waiting = queue:flush(Api, { json = json, user_id = User:getId(),
     on_sent = function(user_book_id, user_book)
       local has = type(user_book) == "table" and user_book.has_review ~= false
       self.dialog_manager:reviewChangeSent(user_book_id, has and user_book.review_raw or nil,
         has and user_book.review_has_spoilers)
     end })
-  self:_noticeHeld("review", queue:heldCount())
-  return waiting <= queue:heldCount()
+  self:_noticeHeld("review", queue:heldCount(User:getId()))
+  return waiting <= queue:heldCount(User:getId())
 end
 
 -- Say once when changes are held that Hardcover refused (or that need signing in again).
@@ -1123,8 +1128,7 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
       -- an empty progress queue flushes to true; a queue with nothing to send for
       -- want of a user id says false, which must not hide the goals
       success = self:_flushGoals() and success
-      -- shelf changes before ratings would be kinder to a book new to the library, but
-      -- a rating needs the record the shelf change makes, so it waits for the next flush
+      -- Create/update library records before reviews and ratings look them up.
       success = self:_flushShelves() and success
       success = self:_flushLists() and success
       success = self:_flushJournals() and success

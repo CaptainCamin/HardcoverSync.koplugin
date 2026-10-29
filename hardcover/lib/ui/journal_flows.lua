@@ -154,10 +154,10 @@ function Flows:deleteJournalEntry(entry, done)
         if not queue then return end
         local detail = reviewDetail(entry)
         if unsent then
-          queue:cancel(detail.user_book_id)
+          queue:cancel(detail.user_book_id, entry.book_id, User:getId())
           StatusDialogs.info(_("Review discarded."))
         else
-          queue:queue(detail.user_book_id, "", false, entry.title)
+          queue:queue(detail.user_book_id, "", false, entry.title, entry.book_id, User:getId())
           kept(self, _("Removing your review."),
             _("You're offline. Removing your review is kept and will be sent when you're connected."))
         end
@@ -213,7 +213,7 @@ end
 -- Hardcover's entries as changed on this device, under what it does not have yet.
 function Flows:pendingJournal(entries, user_id)
   return Journal.withPending(entries, self.journal_queue and self.journal_queue:list() or nil,
-    self.review_queue and self.review_queue:list() or nil, user_id)
+    self.review_queue and self.review_queue:list(user_id) or nil, user_id)
 end
 
 function Flows:showJournal(host)
@@ -332,7 +332,8 @@ function Flows:showBookJournal(book_id, title, opts)
   local function ofBook(entries)
     local out = {}
     for _i, e in ipairs(entries or {}) do
-      if e.book_id == tonumber(book_id) or (e.waiting and e.kind == "review" and title and e.title == title) then
+      if e.book_id == tonumber(book_id)
+        or (not e.book_id and e.waiting and e.kind == "review" and title and e.title == title) then
         out[#out + 1] = e
       end
     end
@@ -347,7 +348,9 @@ function Flows:showBookJournal(book_id, title, opts)
   if missing_journal then
     message = _("The journal needs access to your reading journal. Sign out and sign back in to allow it.")
   elseif #shown == 0 then
-    message = online and _("Loading journal\226\128\166") or _("The journal needs an internet connection the first time.")
+    message = online and _("Loading journal\226\128\166")
+      or (opts and _("No saved entries for this book. You can add an entry offline.")
+        or _("The journal needs an internet connection the first time."))
   end
   local state = { entries = ofBook(saved and saved.entries), offset = 0 }
   local screen
@@ -355,7 +358,7 @@ function Flows:showBookJournal(book_id, title, opts)
   local function refresh()
     if not Live.shown(screen) then return end
     local all = withWaiting(state.entries)
-    if #all > 0 then screen:setEntries(all, screen.body.has_more) end
+    screen:setEntries(all, screen.body.has_more)
   end
   local function add_cb()
     local ActionSheet = require("hardcover/lib/ui/components/action_sheet")
@@ -372,6 +375,7 @@ function Flows:showBookJournal(book_id, title, opts)
       self:writeReview({ detail = {
         book = { book_id = book_id, title = title },
         user_book_id = opts.user_book_id,
+        status_id = opts.status_id,
         user_review = mine and mine.text or nil,
         review_spoilers = mine and mine.spoilers == true or nil,
       } }, refresh)

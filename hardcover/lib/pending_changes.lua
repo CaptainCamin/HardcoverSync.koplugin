@@ -85,14 +85,14 @@ function PendingChanges.list(queues)
 
   local ratings = queues.rating_queue
   if ratings then
-    for _i, r in ipairs(ratings:list()) do
-      local title = (type(r.title) == "string" and r.title ~= "") and r.title or T(_("Book %1"), r.user_book_id)
+    for _i, r in ipairs(ratings:list(queues.user_id)) do
+      local title = (type(r.title) == "string" and r.title ~= "") and r.title or T(_("Book %1"), r.book_id or r.user_book_id)
       rows[#rows + 1] = {
         kind = "rating", title = title,
         text = (r.rating or 0) > 0 and T(_("%1: rating %2"), title, tostring(r.rating))
           or T(_("%1: clear the rating"), title),
         note = heldNote(r),
-        cancel = function() return ratings:cancel(r.user_book_id) end,
+        cancel = function() return ratings:cancel(r.user_book_id, r.book_id, queues.user_id) end,
       }
     end
   end
@@ -128,13 +128,13 @@ function PendingChanges.list(queues)
 
   local reviews = queues.review_queue
   if reviews then
-    for _i, r in ipairs(reviews:list()) do
-      local title = (type(r.title) == "string" and r.title ~= "") and r.title or T(_("Book %1"), r.user_book_id)
+    for _i, r in ipairs(reviews:list(queues.user_id)) do
+      local title = (type(r.title) == "string" and r.title ~= "") and r.title or T(_("Book %1"), r.book_id or r.user_book_id)
       rows[#rows + 1] = {
         kind = "review", title = title,
         text = r.text ~= "" and T(_("%1: review"), title) or T(_("%1: remove the review"), title),
         note = heldNote(r),
-        cancel = function() return reviews:cancel(r.user_book_id) end,
+        cancel = function() return reviews:cancel(r.user_book_id, r.book_id, queues.user_id) end,
       }
     end
   end

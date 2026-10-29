@@ -239,7 +239,6 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
   local edition_format = settings.edition_format
 
   mapped_page = mapped_page or self.page_mapper:getMappedPage(page, document:getPageCount(), remote_pages)
-  local wifi_was_off = false
   local dialog
   dialog = require("hardcover/lib/ui/journal_dialog"):new {
     input = text,
@@ -280,11 +279,6 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
       UIManager:nextTick(function()
         UIManager:close(dialog)
         if on_saved then on_saved() end
-        if wifi_was_off then
-          UIManager:nextTick(function()
-            self.wifi:wifiDisablePrompt()
-          end)
-        end
         if Network.connected() and self.flush_goals then self.flush_goals() end
       end)
 
@@ -329,47 +323,23 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
         true
       )
     end,
-
-    close_callback = function()
-      if wifi_was_off then
-        UIManager:nextTick(function()
-          self.wifi:wifiDisablePrompt()
-        end)
-      end
-    end
   }
-  self.wifi:wifiPrompt(function(wifi_enabled)
-    wifi_was_off = wifi_enabled
+  -- Writing is local: never put a wifi prompt between the reader and their note.
+  UIManager:show(dialog)
+  if (text or "") == "" then dialog:editText() end
 
-    UIManager:show(dialog)
-    -- a new note starts with the text field open; a quote comes with its text
-    if (text or "") == "" then dialog:editText() end
-
-    --[[
-    Resolve the edition only after the dialog is up. This lookup used to run
-    above the dialog's construction, so a book with no linked edition -- which
-    is every book the reader has not linked yet -- blocked for the length of a
-    request before anything appeared. The dialog is fully usable without it:
-    it just does not know which edition the note belongs to yet, and setEdition
-    fills that in when the answer lands.
-
-    A failure here is not worth a dialog of its own. The user can still write
-    the note and save it; the edition is filled in later, or the note is saved
-    against the default by the save path. Reporting it would interrupt a task
-    that is otherwise fine.
-    ]]
-    if not edition_id and settings.book_id then
-      Api:findDefaultEditionAsync(settings.book_id, User:getId(), function(edition)
-        if not edition then return end
-        if not Live.shown(dialog) then return end
-        dialog:setEdition(
-          edition.id,
-          Book:editionFormatName(edition.edition_format, edition.reading_format_id),
-          edition.pages
-        )
-      end)
-    end
-  end)
+  -- The form is usable without an edition. Enrich it only if already online, after it is shown.
+  if not edition_id and settings.book_id and Network.connected() then
+    Api:findDefaultEditionAsync(settings.book_id, User:getId(), function(edition)
+      if not edition then return end
+      if not Live.shown(dialog) then return end
+      dialog:setEdition(
+        edition.id,
+        Book:editionFormatName(edition.edition_format, edition.reading_format_id),
+        edition.pages
+      )
+    end)
+  end
 end
 
 --

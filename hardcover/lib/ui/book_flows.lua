@@ -748,14 +748,14 @@ end
 -- A review written offline and not yet sent shows in place of the one on record.
 function Flows:withPendingReview(detail)
   local queue = self.review_queue
-  local waiting = queue and detail and detail.user_book_id and queue:get(detail.user_book_id)
+  local waiting = queue and detail and queue:get(detail.user_book_id, detail.book and detail.book.book_id, User:getId())
   return BookActions.withPendingReview(detail, waiting)
 end
 
 -- A rating set offline and not yet sent shows in place of the one on record.
 function Flows:withPendingRating(detail)
   local queue = self.rating_queue
-  local waiting = queue and detail and detail.user_book_id and queue:get(detail.user_book_id)
+  local waiting = queue and detail and queue:get(detail.user_book_id, detail.book and detail.book.book_id, User:getId())
   return BookActions.withPendingRating(detail, waiting)
 end
 
@@ -771,10 +771,6 @@ function Flows:rateBook(dialog, stars)
     StatusDialogs.info(_("Put this book on a shelf to rate it."))
     return
   end
-  if gate == "unsent" then
-    StatusDialogs.info(_("This book's shelf change has not been sent yet. You can rate it once it has."), 4)
-    return
-  end
 
   local rating = tonumber(detail.user_rating)
   require("hardcover/lib/ui/components/stepper_dialog").show {
@@ -782,7 +778,7 @@ function Flows:rateBook(dialog, stars)
     text = _("0 clears the rating."),
     value = stars or rating or 2.5, min = 0, max = 5, step = 0.5,
     on_save = function(value)
-      queue:queue(detail.user_book_id, value, detail.book.title)
+      queue:queue(detail.user_book_id, value, detail.book.title, detail.book.book_id, User:getId())
       if Live.shown(dialog) then dialog:setRating(value) end
       if Network.connected() then
         if self.flush_goals then self.flush_goals() end
@@ -803,17 +799,14 @@ function Flows:writeReview(dialog, on_kept)
   local queue = self.review_queue
   local gate = BookActions.ratingGate(detail, queue ~= nil)
   if gate == "no_book" then return end
-  if gate == "needs_shelf" then
+  -- A pending review can be edited from the journal before its library record is known.
+  if gate == "needs_shelf" and not (queue and queue:get(detail.user_book_id, detail.book.book_id, User:getId())) then
     StatusDialogs.info(_("Put this book on a shelf to review it."))
-    return
-  end
-  if gate == "unsent" then
-    StatusDialogs.info(_("This book's shelf change has not been sent yet. You can review it once it has."), 4)
     return
   end
 
   local function keep(text, spoilers)
-    queue:queue(detail.user_book_id, text, spoilers, detail.book.title)
+    queue:queue(detail.user_book_id, text, spoilers, detail.book.title, detail.book.book_id, User:getId())
     BookActions.withPendingReview(detail, { text = text, spoilers = spoilers })
     if Network.connected() then
       StatusDialogs.info(text == "" and _("Removing your review.") or _("Review saved."))
@@ -1152,7 +1145,7 @@ function Flows:applyAbout(dialog, book_id, about)
   end
 
   -- a rating set here and not sent yet stays on screen
-  local waiting = self.rating_queue and user_book_id and self.rating_queue:get(user_book_id)
+  local waiting = self.rating_queue and self.rating_queue:get(user_book_id, book_id, user_id)
   local rating = mine and tonumber(mine.rating) or nil
   if status_id and waiting == nil and rating ~= dialog.detail.user_rating then
     local shelves = self:shelves()

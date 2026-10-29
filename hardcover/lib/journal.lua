@@ -336,7 +336,9 @@ end
 -- What a change waiting to send is filed under: a note or quote by its entry, a review by the
 -- library record it belongs to (every "reviewed" entry of the book shows the one review).
 local function changeKey(entry)
-  if entry.kind == "review" then return "review:" .. tostring(entry.user_book_id) end
+  if entry.kind == "review" then
+    return entry.book_id and ("review:book:" .. tostring(entry.book_id)) or ("review:" .. tostring(entry.user_book_id))
+  end
   return entry.key
 end
 
@@ -368,7 +370,8 @@ function Journal.waiting(journal_ops, review_ops, user_id)
     if body then
       local excerpt, truncated = Reviews.excerpt(body)
       out[#out + 1] = {
-        key = "waiting:review:" .. tostring(op.user_book_id), kind = "review", waiting = true,
+        key = "waiting:" .. changeKey { kind = "review", book_id = op.book_id, user_book_id = op.user_book_id },
+        kind = "review", waiting = true, book_id = tonumber(op.book_id), user_id = op.user_id,
         user_book_id = tonumber(op.user_book_id) or op.user_book_id,
         title = op.title or "A book",
         text = body, excerpt = excerpt, truncated = truncated, spoilers = op.spoilers == true,
@@ -401,12 +404,15 @@ function Journal.withPending(entries, journal_ops, review_ops, user_id)
   end
   for _, op in ipairs(review_ops or {}) do
     local body = nonBlank(op.text)
-    changes["review:" .. tostring(op.user_book_id)] = body and { text = body, spoilers = op.spoilers == true } or false
+    local key = changeKey { kind = "review", book_id = op.book_id, user_book_id = op.user_book_id }
+    changes[key] = body and { text = body, spoilers = op.spoilers == true, user_book_id = op.user_book_id } or false
   end
 
   local held, used, books = {}, {}, {}
   for _, e in ipairs(entries or {}) do
     local key = changeKey(e)
+    -- Older queued reviews have only the library-record ID, while fetched entries also have book_id.
+    if changes[key] == nil and e.kind == "review" then key = "review:" .. tostring(e.user_book_id) end
     local change = changes[key]
     if change ~= nil then used[key] = true end
     if e.book_id and not books[e.book_id] then books[e.book_id] = e end
@@ -415,7 +421,11 @@ function Journal.withPending(entries, journal_ops, review_ops, user_id)
       copy.text = change.text
       copy.excerpt, copy.truncated = Reviews.excerpt(change.text)
       copy.waiting = true
-      if e.kind == "review" then copy.spoilers = change.spoilers end
+      if e.kind == "review" then
+        copy.spoilers = change.spoilers
+        -- A draft belongs to its queued record, not a historical review's possibly deleted one.
+        copy.user_book_id = change.user_book_id
+      end
       held[#held + 1] = copy
     elseif change == false and e.kind == "review" then
       local copy = copyOf(e)
@@ -429,7 +439,8 @@ function Journal.withPending(entries, journal_ops, review_ops, user_id)
 
   local new_reviews = {}
   for _, op in ipairs(review_ops or {}) do
-    if not used["review:" .. tostring(op.user_book_id)] then new_reviews[#new_reviews + 1] = op end
+    local key = changeKey { kind = "review", book_id = op.book_id, user_book_id = op.user_book_id }
+    if not used[key] then new_reviews[#new_reviews + 1] = op end
   end
   local out = Journal.waiting(journal_ops, new_reviews, user_id)
   for _, e in ipairs(out) do

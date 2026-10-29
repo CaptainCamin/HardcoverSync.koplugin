@@ -337,16 +337,6 @@ local function build_manager()
 
   manager.settings = settings
   manager.ui = {}
-  -- journalEntryForm shows its dialog from inside wifiPrompt(callback), which
-  -- takes the callback alone and receives the wifi state. The plugin awaits
-  -- connectivity before showing here, so this harness must invoke the callback
-  -- synchronously -- a stub that never calls it would prove nothing about the
-  -- show ordering, which is the whole assertion.
-  manager.wifi = {
-    wifiPrompt = function(_, cb)
-      if type(cb) == "function" then cb(false) end
-    end,
-  }
   manager.page_mapper = { getMappedPage = function() return 1 end }
   manager.hardcover = { changeBookVisibility = function() end }
   return manager, settings, fake_api

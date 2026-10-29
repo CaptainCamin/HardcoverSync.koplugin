@@ -68,9 +68,15 @@ check("a book with no title is named by its file; a rating with none by its id",
   local q = queues()
   q.sync_queue:enqueuePage("/books/Some Book.epub", { mapped_page = 3, book_id = 1 })
   q.rating_queue:queue(9, 3)
+  q.rating_queue:queue(nil, 4.5, nil, 101)
   local all = texts(PendingChanges.list(q))
   assert(all:find("Some Book: page 3", 1, true), all)
   assert(all:find("Book 9: rating 3", 1, true), all)
+  assert(all:find("Book 101: rating 4.5", 1, true), all)
+  for _, row in ipairs(PendingChanges.list(q)) do
+    if row.title == "Book 101" then assert(row.cancel()) end
+  end
+  assert(q.rating_queue:count() == 1 and q.rating_queue:get(9) == 3)
 end)
 
 check("a change that is stuck says why", function()
@@ -230,12 +236,30 @@ check("a waiting review, and one waiting to be removed, each get a line that can
   local q = queues()
   q.review_queue = ReviewQueue:new { settings = fakeSettings() }
   q.review_queue:queue(5, "loved it", false, "Dune")
-  q.review_queue:queue(6, "", false)
+  q.review_queue:queue(nil, "", false, nil, 6)
   local rows = PendingChanges.list(q)
   assert(#rows == 2 and rows[1].kind == "review", texts(rows))
   assert(rows[1].text == "Dune: review", rows[1].text)
   assert(rows[2].text == "Book 6: remove the review", rows[2].text)
-  assert(rows[1].cancel() == true and q.review_queue:count() == 1)
+  assert(rows[2].cancel() == true and q.review_queue:get(5).text == "loved it")
+  assert(rows[1].cancel() == true and q.review_queue:count() == 0)
+end)
+
+check("pending ratings and reviews show and cancel only the signed-in account's changes", function()
+  local q = queues()
+  q.user_id = 42
+  q.review_queue = ReviewQueue:new { settings = fakeSettings() }
+  for _, user_id in ipairs({ 42, 84 }) do
+    q.rating_queue:queue(nil, 4.5, "Dune", 101, user_id)
+    q.review_queue:queue(nil, "Draft", false, "Dune", 101, user_id)
+  end
+  local rows = PendingChanges.list(q)
+  assert(#rows == 2 and rows[1].kind == "rating" and rows[2].kind == "review")
+  for _, row in ipairs(rows) do assert(row.cancel()) end
+  assert(#PendingChanges.list(q) == 0)
+  q.user_id = 84
+  assert(#PendingChanges.list(q) == 2)
+  assert(q.rating_queue:get(nil, 101, 84) == 4.5 and q.review_queue:get(nil, 101, 84).text == "Draft")
 end)
 
 r.finish()
