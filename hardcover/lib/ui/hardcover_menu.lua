@@ -55,7 +55,7 @@ function HardcoverMenu:bookShelfStatus()
   local book_id = self.settings:getLinkedBookId()
   local file = self.ui.document and self.ui.document.file
   local pending = file and self.sync_queue and self.sync_queue:get(file)
-  local op = self.shelf_queue and self.shelf_queue:get(book_id)
+  local op = self.shelf_queue and self.shelf_queue:get(book_id, User:getId())
   if op and (op.user_id == nil or op.user_id == User:getId())
     and (not (pending and pending.status_id)
       or (tonumber(op.at) or 0) > (tonumber(pending.status_updated_at) or 0)) then

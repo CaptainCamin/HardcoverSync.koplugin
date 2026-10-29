@@ -44,10 +44,11 @@ end
 
 local function keyOf(book_id) return tostring(tonumber(book_id) or book_id) end
 
--- the op waiting for this book, or nil
-function ShelfQueue:get(book_id)
+-- the op waiting for this book, or nil. With a user_id, an op made by another
+-- account is not returned (an op with no user_id, from an older version, is).
+function ShelfQueue:get(book_id, user_id)
   local op = self:ops()[keyOf(book_id)]
-  if valid(op) then return op end
+  if valid(op) and not (user_id ~= nil and op.user_id ~= nil and op.user_id ~= user_id) then return op end
 end
 
 --
@@ -56,7 +57,7 @@ end
 --
 function ShelfQueue:queueStatus(user_id, book_id, status_id, info)
   info = info or {}
-  local before = self:get(book_id)
+  local before = self:get(book_id, user_id)
   local user_book_id, edition_id = tonumber(info.user_book_id), tonumber(info.edition_id)
   if before then
     -- a change on top of a change keeps what the first one knew about the book
@@ -87,7 +88,7 @@ end
 --
 function ShelfQueue:queueRemove(user_id, book_id, user_book_id, title, from_status_id)
   local ops = self:ops()
-  local before = self:get(book_id)
+  local before = self:get(book_id, user_id)
   user_book_id = tonumber(user_book_id) or (before and tonumber(before.user_book_id)) or nil
   if not user_book_id then
     ops[keyOf(book_id)] = nil

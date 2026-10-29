@@ -389,7 +389,7 @@ function Flows:chooseShelf(dialog)
   end
 
   -- a book put on a shelf offline has no library record yet, but is still removable
-  local waiting = self.shelf_queue and self.shelf_queue:get(detail.book.book_id)
+  local waiting = self.shelf_queue and self.shelf_queue:get(detail.book.book_id, User:getId())
   if detail.user_book_id or (waiting and waiting.kind == "status") then
     rows[#rows + 1] = {
       text = _("Remove from library"),
@@ -739,7 +739,7 @@ end
 function Flows:withPending(detail)
   local shelf = self.shelf_queue
   if shelf and detail and detail.book then
-    BookActions.withPendingShelf(detail, shelf:get(detail.book.book_id))
+    BookActions.withPendingShelf(detail, shelf:get(detail.book.book_id, User:getId()))
   end
   self:withPendingReview(detail)
   return self:withPendingRating(detail)
@@ -953,7 +953,7 @@ function Flows:removeFromShelf(dialog)
   local user_book_id = detail.user_book_id
   local book_id = detail.book and detail.book.book_id
 
-  local waiting = self.shelf_queue and book_id and self.shelf_queue:get(book_id)
+  local waiting = self.shelf_queue and book_id and self.shelf_queue:get(book_id, User:getId())
   -- offline, or a book that only went on a shelf offline (the connection may be back, but
   -- Hardcover has no record of it yet): kept, not sent
   if self.shelf_queue and book_id and (not Network.connected() or (not user_book_id and waiting)) then
@@ -1155,7 +1155,7 @@ function Flows:applyAbout(dialog, book_id, about)
   local user_book_id = mine and tonumber(mine.id) or nil
   -- a shelf change made here and not sent yet is what the screen shows, not Hardcover's
   -- older word
-  local shelf_waiting = self.shelf_queue and self.shelf_queue:get(book_id)
+  local shelf_waiting = self.shelf_queue and self.shelf_queue:get(book_id, User:getId())
   if not shelf_waiting and (status_id ~= detail.status_id or (status_id and user_book_id ~= detail.user_book_id)) then
     local shelves = self:shelves()
     if shelves then
