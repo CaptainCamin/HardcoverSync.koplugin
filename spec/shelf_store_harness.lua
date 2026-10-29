@@ -246,4 +246,23 @@ check("a page of a shelf can be read without reading the rest", function()
   assert(shelves:members(1, 5) == nil, "a shelf never saved has no members")
 end)
 
+check("a download that began before an unsent move or removal does not undo it", function()
+  local shelves = stores()
+  shelves:putEntries(1, 1, { entry(1, 1), entry(2, 1), entry(3, 1) }, true, FP)
+  shelves:putEntries(1, 2, { entry(4, 2) }, true, FP)
+  shelves:moveBook(1, 2, 2, nil, true)
+  shelves:removeBook(1, 3, true)
+  -- the downloads finish with what Hardcover said before
+  shelves:putMembers(1, 1, { entry(1, 1), entry(2, 1), entry(3, 1) }, true, FP)
+  shelves:putMembers(1, 2, { entry(4, 2) }, true, FP)
+  local one, two = shelves:members(1, 1), shelves:members(1, 2)
+  assert(#one == 1 and one[1].book_id == 1, "shelf 1 keeps only book 1")
+  assert(#two == 2 and two[1].book_id == 2 and two[2].book_id == 4, "book 2 stays on shelf 2")
+  assert(not shelves:member(1, 3), "the removed book does not come back")
+  -- once the change is sent the download is believed again
+  shelves:moveBook(1, 2, 2, nil, false)
+  shelves:putMembers(1, 2, { entry(4, 2) }, true, FP)
+  assert(#shelves:members(1, 2) == 1)
+end)
+
 r.finish()
