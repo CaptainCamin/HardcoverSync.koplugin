@@ -338,6 +338,20 @@ check("an entry edited while it was being sent sends the new text next, as a cha
   eq(q:count(), 0)
 end)
 
+check("an edit made while the older one is on its way is not lost when the older one is answered", function()
+  local q = newQueue()
+  q:change("update", sent { text = "old" })
+  local api = changeApi()
+  function api:updateJournalEntry(id, text)
+    self.log[#self.log + 1] = { "update", id, text }
+    if text == "old" then q:change("update", sent { text = "new" }) end
+    return { id = id }
+  end
+  q:flush(api, { user_id = 7 })
+  eq(q:count(), 1, "the newer edit is still waiting")
+  eq(q:changeFor(4001).text, "new")
+end)
+
 check("stored changes that are broken are dropped", function()
   local q, settings = newQueue()
   settings.store.journal_ops = {
