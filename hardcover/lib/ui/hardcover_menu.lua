@@ -1668,6 +1668,7 @@ function HardcoverMenu:getStatusSubMenuItems()
           left_text = left_text .. ": was " .. last_hardcover_page
         end
 
+        local was_tracking = self.settings:syncEnabled()
         require("hardcover/lib/ui/components/stepper_dialog").show {
           title = _("Set current page"),
           fields = {
@@ -1684,11 +1685,12 @@ function HardcoverMenu:getStatusSubMenuItems()
           toggle = self.settings:bookLinked() and {
             label = _("Track automatically"),
             support = _("Send this book's pages to Hardcover as you read."),
-            on = self.settings:syncEnabled(),
+            on = was_tracking,
           } or nil,
           save_label = _("Set page"),
           on_save = function(edition_page, _local_page, track)
-            if track ~= nil then self.settings:setSync(track) end
+            -- only a real change: saving the untouched toggle would pin the global default to this book
+            if track ~= nil and track ~= was_tracking then self.settings:setSync(track) end
             self:savePage(current_read, edition_page, menu_instance)
           end,
         }
