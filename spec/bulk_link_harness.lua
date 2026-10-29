@@ -28,6 +28,9 @@ r.check("a prefixed identifier is kept as written", ids:find("isbn13:97803064061
 r.check("an OPF with no usable identifier gives nil",
   BulkLink.identifiersFromOpf("<package><dc:identifier>urn:uuid:1</dc:identifier></package>") == nil)
 r.check("no OPF gives nil", BulkLink.identifiersFromOpf(nil) == nil)
+r.check("an empty identifier element does not hide the next one",
+  BulkLink.identifiersFromOpf('<dc:identifier id="x"/><dc:identifier>isbn:9780441172719</dc:identifier>')
+    == "isbn:9780441172719")
 r.check("a meta tag's Hardcover reference is found",
   (BulkLink.identifiersFromOpf("<meta name='x' content='hardcover : dune'/>") or ""):find("hardcover:dune", 1, true) ~= nil)
 r.check("the words Hardcover: Penguin in a description are not an identifier",
