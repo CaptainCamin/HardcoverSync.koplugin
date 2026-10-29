@@ -236,9 +236,10 @@ function Journal.epoch(at)
   local h, mi, s = rest:match("^[T ](%d%d):(%d%d):?(%d*)")
   local seconds = daysFromCivil(tonumber(y), tonumber(mo), tonumber(d)) * 86400
     + (tonumber(h) or 0) * 3600 + (tonumber(mi) or 0) * 60 + (tonumber(s) or 0)
-  local sign, zh, zm = rest:match("([%+%-])(%d%d):?(%d%d)$")
+  -- the zone follows the time (and any fractional seconds): +HH, +HH:MM or +HHMM
+  local sign, zh, zm = rest:match("^[T ]%d%d:%d%d:?%d*%.?%d*([%+%-])(%d%d):?(%d?%d?)$")
   if sign and h then
-    local shift = tonumber(zh) * 3600 + tonumber(zm) * 60
+    local shift = tonumber(zh) * 3600 + (tonumber(zm) or 0) * 60
     seconds = sign == "+" and seconds - shift or seconds + shift
   end
   return seconds
