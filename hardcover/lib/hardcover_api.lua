@@ -1375,7 +1375,8 @@ end
 
 -- Change the status on an existing library record. The caller has its user_book id; use
 -- update_user_book rather than the insert action used when adding a book to the library.
-function HardcoverApi:updateUserBookStatus(user_book_id, status_id)
+-- `privacy_setting_id` (optional) is set on the record too; left out, privacy is not touched.
+function HardcoverApi:updateUserBookStatus(user_book_id, status_id, privacy_setting_id)
   local query = [[
     mutation ($id: Int!, $object: UserBookUpdateInput!) {
       update_user_book(id: $id, object: $object) {
@@ -1387,7 +1388,9 @@ function HardcoverApi:updateUserBookStatus(user_book_id, status_id)
     }
   ]] .. user_book_fragment
 
-  local result, err = self:query(query, { id = user_book_id, object = { status_id = status_id } })
+  local result, err = self:query(query, {
+    id = user_book_id, object = { status_id = status_id, privacy_setting_id = privacy_setting_id },
+  })
   if result and result.update_user_book then
     local updated = result.update_user_book
     if updated.user_book then return updated.user_book end

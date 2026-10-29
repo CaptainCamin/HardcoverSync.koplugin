@@ -253,7 +253,7 @@ function Cache:updateBookStatus(filename, status, privacy_setting_id)
 
   local result
   if user_book_id then
-    result = Api:updateUserBookStatus(user_book_id, status)
+    result = Api:updateUserBookStatus(user_book_id, status, privacy_setting_id)
   else
     result = Api:updateUserBook(book_id, status, privacy_setting_id, edition_id)
   end
