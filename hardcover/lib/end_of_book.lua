@@ -66,4 +66,9 @@ function EndOfBook.once(seen, key)
   return true
 end
 
+-- Forget that `key` was handled, so a book started again can end (and ask) once more.
+function EndOfBook.forget(seen, key)
+  seen[key] = nil
+end
+
 return EndOfBook
