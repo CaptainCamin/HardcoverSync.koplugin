@@ -34,6 +34,9 @@
 - **Offline shelf and list changes survive a download.** A book moved, removed or added to a list while offline no longer jumps back when an earlier download finishes, and a book opened during a download no longer drops books from it.
 - **A status set from the reader offline is no longer undone** when you open the book's details online.
 - **Changes wait instead of being held** after an expired sign-in or a timeout, and a second Sync tap while one is running no longer reports "Sync failed".
+- **Finishing a book now sends the page you are on.** The last page was dropped once the book was marked Finished. A page left waiting offline no longer raises a false "Read again?" question after you finish online, a refused status after a re-read no longer creates extra reads, and waiting changes from older versions now clear after they are sent.
+- **Offline reading stays with the account that made it.** After signing out and into another account, the first sync no longer sends the first account's reading to the new one.
+- **Gestures and settings:** the Link, Track and Stop tracking gestures no longer fail from the file browser, "Track every N minutes" applies at once, "Set current page" no longer fixes the tracking default for that book, the Settings screen shows you as signed in right after sign-in, and a sign-in that cannot be completed says so instead of "Signed in".
 
 ## 2.3.1
 
