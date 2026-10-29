@@ -219,6 +219,12 @@ check("updateUserBookStatus updates the existing record by id", function()
   assert(fields == 1, "a status change must not overwrite other user book fields")
 end)
 
+check("updateUserBookStatus sets privacy too when it is given one", function()
+  answer({ update_user_book = { user_book = { id = 7, status_id = 2, privacy_setting_id = 3 } } })
+  Api:updateUserBookStatus(7, 2, 3)
+  assert(sent.vars.object.status_id == 2 and sent.vars.object.privacy_setting_id == 3, "privacy was dropped")
+end)
+
 check("an insert refused by Hardcover returns its error text", function()
   answer({ insert_user_book = { error = "Book not found" } })
   local out, err = Api:updateUserBook(100, 3, 1, nil)
