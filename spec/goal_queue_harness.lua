@@ -198,7 +198,7 @@ check("a goal cancelled while an earlier one is being sent is not sent", functio
   end
   q:queueSave(form({ id = 7, name = "First" }), saved(7, "A", 5))
   q:queueSave(form({ id = 8, name = "Second" }), saved(8, "B", 5))
-  q:flush(api, {})
+  q:flush(api, { user_id = 1 })
   eq(#api.writes, 1, "only the first went out")
   eq(q:count(), 0)
 end)
