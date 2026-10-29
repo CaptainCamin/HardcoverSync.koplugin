@@ -404,4 +404,20 @@ check("a page of a saved list is read without reading the rest", function()
   assert(lists:members(1, listRow(99)) == nil, "a list never saved has no members")
 end)
 
+check("opening a book while a list downloads does not evict the books already fetched for it", function()
+  local books, lists = stores()
+  lists:putEntries(1, listRow(7), {}, true)
+  local ids = {}
+  for i = 1, 150 do ids[i] = i end
+  local api = fakeApi { member_pages = { { members(ids), false } } }
+  local byids = api.getBooksByIds
+  api.getBooksByIds = function(self, chunk)
+    -- the user opens a book between two chunks
+    books:saveDetail(999, nil, { book = book(999) })
+    return byids(self, chunk)
+  end
+  local result = download(api, lists, books, listRow(7, T2, 150))
+  assert(result.complete and #result.entries == 150, "the list was saved short: " .. #result.entries)
+end)
+
 r.finish()
