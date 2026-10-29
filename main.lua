@@ -1126,33 +1126,53 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
   end
 
   local run = function()
+    -- A flush yields while a request is out, so a second trigger (Sync tap, reconnect,
+    -- resume) can arrive meanwhile. The queues answer such a flush "busy", which would
+    -- read as a failure; do not start one, and tell the caller what the running one finds.
+    if self.flush_running then
+      if callback then
+        self.flush_waiters = self.flush_waiters or {}
+        table.insert(self.flush_waiters, callback)
+      end
+      return
+    end
+    self.flush_running = true
     Trapper:wrap(function()
-      -- a status changed on both the reader and the details screen: only the newer is sent
-      if self.shelf_queue then self.shelf_queue:settleWith(self.sync_queue) end
-      local success = self.sync_queue:flush(Api, {
-        user_id = User:getId(),
-        settings = self.settings,
-        current_file = self.ui.document and self.ui.document.file,
-        state = self.state,
-      })
-      -- an empty progress queue flushes to true; a queue with nothing to send for
-      -- want of a user id says false, which must not hide the goals
-      success = self:_flushGoals() and success
-      -- Create/update library records before reviews and ratings look them up.
-      success = self:_flushShelves() and success
-      success = self:_flushLists() and success
-      success = self:_flushJournals() and success
-      success = self:_flushReviews() and success
-      success = self:_flushRatings() and success
+      local flushed, success = pcall(function()
+        -- a status changed on both the reader and the details screen: only the newer is sent
+        if self.shelf_queue then self.shelf_queue:settleWith(self.sync_queue) end
+        local success = self.sync_queue:flush(Api, {
+          user_id = User:getId(),
+          settings = self.settings,
+          current_file = self.ui.document and self.ui.document.file,
+          state = self.state,
+        })
+        -- an empty progress queue flushes to true; a queue with nothing to send for
+        -- want of a user id says false, which must not hide the goals
+        success = self:_flushGoals() and success
+        -- Create/update library records before reviews and ratings look them up.
+        success = self:_flushShelves() and success
+        success = self:_flushLists() and success
+        success = self:_flushJournals() and success
+        success = self:_flushReviews() and success
+        success = self:_flushRatings() and success
+
+        return success
+      end)
+      self.flush_running = false -- also after a raise: it must not block every later flush
+      if not flushed then error(success, 0) end
 
       self:_scheduleFlushRetry(success)
       self:_noticeSyncConflicts()
       -- Home's sync box shows what is waiting
       if self.dialog_manager and self.dialog_manager.queueChanged then self.dialog_manager:queueChanged() end
 
+      local waiters = self.flush_waiters
+      self.flush_waiters = nil
       if callback then
         callback(success)
       end
+      for _, waiting in ipairs(waiters or {}) do waiting(success) end
     end)
   end
 
