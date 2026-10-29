@@ -149,6 +149,16 @@ end
 -- download result saying why not.
 --
 function ListsSync.fetchMissing(opts, ids)
+  -- the books saved here are held by nothing until the caller saves the list: while this
+  -- runs (it waits on the network), opening a book must not evict them
+  opts.books:hold()
+  local ok, result = pcall(ListsSync.fetchChunks, opts, ids)
+  opts.books:release()
+  if not ok then error(result, 0) end
+  return result
+end
+
+function ListsSync.fetchChunks(opts, ids)
   local missing = opts.books:missing(ids)
   for start = 1, #missing, ListsSync.BOOKS_PER_REQUEST do
     if not opts.alive() then return nil end

@@ -150,7 +150,7 @@ function BookStore:saveDetail(book_id, edition_id, detail, keep_all)
     row.user_book_id, row.status_id, row.user_rating, row.date_added = nil, nil, nil, nil
     self:saveRows({ row })
   end
-  if not keep_all then self.db:evict(BookStore.OPENED_CAP) end
+  if not keep_all then self:evict() end
   return ok
 end
 
@@ -260,9 +260,22 @@ function BookStore:libraryCovers(user_id)
   return urls
 end
 
--- Drop what no list holds and was not opened recently (see OPENED_CAP).
+-- Drop what no list holds and was not opened recently (see OPENED_CAP). Nothing is
+-- dropped while a download holds the store (see hold): the books it has saved are not
+-- on their list or shelf yet.
 function BookStore:evict()
+  if (self.holds or 0) > 0 then return false end
   return self.db:evict(BookStore.OPENED_CAP)
+end
+
+-- A download saving books before the list or shelf that holds them is saved: `hold`
+-- until it is done, then `release`.
+function BookStore:hold()
+  self.holds = (self.holds or 0) + 1
+end
+
+function BookStore:release()
+  self.holds = math.max(0, (self.holds or 0) - 1)
 end
 
 -- Everything, for sign out: what is saved shows what was on your lists.
