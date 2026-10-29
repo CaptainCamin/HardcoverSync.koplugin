@@ -87,24 +87,21 @@ function Reviews.excerpt(text, max_chars)
   max_chars = max_chars or Reviews.EXCERPT_CHARS
   text = trim((tostring(text or ""):gsub("%s*[\r\n]+%s*", "  ")))
 
+  -- count characters, not bytes: a non-continuation byte starts each one
+  local function chars(str) return select(2, str:gsub("[^\128-\191]", "")) end
   local cut = false
-  if #text > max_chars then
-    local piece = text:sub(1, max_chars)
-    -- back up off the middle of a multi-byte character
-    while #piece > 0 do
-      local b = piece:byte(#piece)
-      if b >= 128 and b < 192 then
-        piece = piece:sub(1, #piece - 1)
-      elseif b >= 192 then
-        piece = piece:sub(1, #piece - 1)
-        break
-      else
-        break
-      end
+  if chars(text) > max_chars then
+    -- the first max_chars characters, so never the middle of a multi-byte one
+    local pos = 1
+    for _ = 1, max_chars do
+      local _, e = text:find("^.[\128-\191]*", pos)
+      if not e then break end
+      pos = e + 1
     end
+    local piece = text:sub(1, pos - 1)
     -- and back to a word boundary when there is one near the end
     local boundary = piece:match("^(.*)%s%S*$")
-    if boundary and #boundary > max_chars * 0.6 then piece = boundary end
+    if boundary and chars(boundary) > max_chars * 0.6 then piece = boundary end
     text = piece
     cut = true
   end

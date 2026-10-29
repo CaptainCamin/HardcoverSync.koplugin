@@ -46,6 +46,9 @@ check("a label is cut on a character boundary with an ellipsis", function()
     assert(not (b >= 0x80 and b < 0xC0 and i == 1), "starts mid-character")
   end
   assert(Charts.shorten(nil, 5) == "")
+  assert(Charts.shorten("\230\151\165\230\156\172\232\170\158\230\151\165\230\156\172\232\170\158", 10) == "\230\151\165\230\156\172\232\170\158\230\151\165\230\156\172\232\170\158", "six characters fit in 10")
+  assert(Charts.shorten("\195\169\195\169\195\169\195\169\195\169\195\169", 6) == "\195\169\195\169\195\169\195\169\195\169\195\169")
+  assert(Charts.shorten("\195\169\195\169\195\169\195\169\195\169\195\169", 4) == "\195\169\195\169\195\169\226\128\166")
 end)
 
 print("\n== shares ==")
