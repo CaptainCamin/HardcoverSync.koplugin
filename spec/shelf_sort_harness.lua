@@ -118,6 +118,18 @@ check("each book's sort key is worked out once, not once per comparison", functi
   end
 end)
 
+check("accented initials sort with their base letter", function()
+  local list = {
+    book(1, { title = "Zola" }), book(2, { title = "\195\145and\195\186" }), book(3, { title = "\195\137mile" }),
+    book(4, { title = "Brave" }), book(5, { title = "Anna" }),
+  }
+  assert(ids(ShelfSort.sort(list, "title")) == "5,4,3,2,1", ids(ShelfSort.sort(list, "title")))
+  local authors = {
+    book(1, { authors = "Emile Zola" }), book(2, { authors = "Ana \195\129lvarez" }), book(3, { authors = "Bo Brave" }),
+  }
+  assert(ids(ShelfSort.sort(authors, "author")) == "2,3,1", ids(ShelfSort.sort(authors, "author")))
+end)
+
 check("an empty or missing list is fine", function()
   assert(#ShelfSort.sort({}, "title") == 0 and #ShelfSort.sort(nil, "title") == 0)
 end)
