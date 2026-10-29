@@ -467,6 +467,7 @@ function SyncQueue:_clearSent(filepath, sent)
     entry.page_days = nil
     entry.force_page = nil
     entry.reread = nil
+    entry.read_made = nil
   end
   if sent.status ~= nil and entry.status_id == sent.status and entry.status_updated_at == sent.status_at then
     entry.status_id = nil
@@ -644,24 +645,30 @@ function SyncQueue:_flushEntry(api, filepath, opts)
       end
 
       if entry.reread and finished then
-        -- a new read first, then the book is being read again
-        local made = api:createRead(
-          user_book.id,
-          edition_id or user_book.edition_id,
-          op.value,
-          entry.first_page_date or os.date("%Y-%m-%d")
-        )
-        if not hasUserBook(made) then
-          countRejection(self, filepath)
-          return false
+        -- a new read first, then the book is being read again. Once the read is made it is
+        -- remembered, so a retry after a refused status change does not make another.
+        if not entry.read_made then
+          local made = api:createRead(
+            user_book.id,
+            edition_id or user_book.edition_id,
+            op.value,
+            entry.first_page_date or os.date("%Y-%m-%d")
+          )
+          if not hasUserBook(made) then
+            countRejection(self, filepath)
+            return false
+          end
+          entry.read_made = true
+          self:persist()
         end
-        local reading = api:updateUserBookStatus(made.id, HARDCOVER.STATUS.READING)
+        local reading = api:updateUserBookStatus(user_book.id, HARDCOVER.STATUS.READING)
         if not hasUserBook(reading) then
           countRejection(self, filepath)
           return false
         end
         user_book = reading
         entry.reread = nil
+        entry.read_made = nil
         skip = true
       end
 
