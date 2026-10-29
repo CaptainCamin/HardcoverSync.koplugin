@@ -188,6 +188,21 @@ check("a change made while the flush was in flight is not lost", function()
   eq(q:find(7).form.target, 99)
 end)
 
+check("a goal cancelled while an earlier one is being sent is not sent", function()
+  local q = newQueue()
+  local api = fakeApi()
+  local real = api.saveGoal
+  api.saveGoal = function(self, id, input)
+    if id == 7 then q:cancel(8) end
+    return real(self, id, input)
+  end
+  q:queueSave(form({ id = 7, name = "First" }), saved(7, "A", 5))
+  q:queueSave(form({ id = 8, name = "Second" }), saved(8, "B", 5))
+  q:flush(api, { user_id = 1 })
+  eq(#api.writes, 1, "only the first went out")
+  eq(q:count(), 0)
+end)
+
 check("a goal made here, edited while it was being sent, follows its real id", function()
   local q = newQueue()
   local api = fakeApi()
