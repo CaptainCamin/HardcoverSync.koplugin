@@ -16,7 +16,7 @@ local Charts = dofile(PLUGIN .. "/hardcover/lib/charts.lua")
 print("\n== scales and numbers ==")
 
 check("a scale rounds up to a clean top with 3-5 steps", function()
-  local cases = { { 37, 40, 10 }, { 7, 8, 2 }, { 0, 4, 1 }, { 1, 3, 1 }, { 100, 100, 25 }, { 999, 1000, 250 }, { 4.2, 6, 2 } }
+  local cases = { { 37, 40, 10 }, { 7, 8, 2 }, { 0, 4, 1 }, { 1, 3, 1 }, { 100, 100, 25 }, { 999, 1000, 250 }, { 4.2, 6, 2 }, { 10, 10, 2 }, { 11, 15, 5 } }
   for _, c in ipairs(cases) do
     local top, step = Charts.niceScale(c[1])
     assert(top == c[2] and step == c[3], string.format("niceScale(%s) = %s, %s (wanted %s, %s)", c[1], top, step, c[2], c[3]))
