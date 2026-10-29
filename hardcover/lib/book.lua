@@ -47,7 +47,9 @@ function Book:parseIdentifiers(identifiers)
       local str = string.gsub(line, "^[^%s]+%s*:%s*", "")
       str = string.gsub(str, "-", "")
 
-      if str and string.find(str, "^%d+$") then
+      -- an ISBN-10 may end in the check digit X
+      if str and (string.find(str, "^%d+$") or string.find(str, "^%d%d%d%d%d%d%d%d%d[xX]$")) then
+        str = string.upper(str)
         local len = #str
 
         if len == 13 then
