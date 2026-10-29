@@ -805,6 +805,30 @@ function Flows:writeReview(dialog, on_kept)
     return
   end
 
+  -- A book opened from the device's saved copy has your status and rating but not your review:
+  -- ask Hardcover for it, or the editor would open empty and saving would replace the review.
+  local waiting = queue and queue:get(detail.user_book_id, detail.book.book_id, User:getId())
+  if detail.user_book_id and not detail.review_known and not waiting and Network.connected() then
+    local loading = StatusDialogs.loading(_("Loading your review…"))
+    Api:getBookDetailAsync(detail.book.book_id, User:getId(), nil, function(fresh)
+      StatusDialogs.close(loading)
+      if not fresh then
+        StatusDialogs.info(_("Couldn't load your review. Try again."))
+        return
+      end
+      detail.user_review, detail.review_spoilers = fresh.user_review, fresh.review_spoilers
+      detail.review_known = true
+      self:editReview(dialog, on_kept)
+    end)
+    return
+  end
+  self:editReview(dialog, on_kept)
+end
+
+function Flows:editReview(dialog, on_kept)
+  local detail = dialog.detail
+  local queue = self.review_queue
+
   local function keep(text, spoilers)
     queue:queue(detail.user_book_id, text, spoilers, detail.book.title, detail.book.book_id, User:getId())
     BookActions.withPendingReview(detail, { text = text, spoilers = spoilers })
