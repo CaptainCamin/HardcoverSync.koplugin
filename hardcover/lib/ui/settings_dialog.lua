@@ -82,7 +82,7 @@ function SettingsScreen:buildRow(row, width, viewport)
   local hold = row.hold
   if not hold and row.support and not row.tile then
     hold = function()
-      require("hardcover/lib/ui/status_dialogs").confirm { title = label, text = row.support, ok_text = _("OK") }
+      require("hardcover/lib/ui/status_dialogs").confirm { title = label, text = row.support, ok_text = _("Close"), cancel_text = false }
     end
   end
   local item = ListItem.new {
