@@ -29,6 +29,8 @@ check("numbers read with thousands commas; decimals lose a trailing .0", functio
   assert(Charts.number(0) == "0" and Charts.number(999) == "999" and Charts.number(1000) == "1,000")
   assert(Charts.number(1234567) == "1,234,567" and Charts.number(-4200) == "-4,200" and Charts.number(nil) == "")
   assert(Charts.number(12.6) == "13", "rounds")
+  assert(Charts.number(-0.4) == "0", "no negative zero")
+  assert(Charts.number(1e15) == "1,000,000,000,000,000", "no exponent")
   assert(Charts.decimal(4) == "4" and Charts.decimal(4.5) == "4.5" and Charts.decimal(4.25) == "4.3" or Charts.decimal(4.25) == "4.2")
   assert(Charts.decimal(3.0, 2) == "3" and Charts.decimal(nil) == "")
 end)
