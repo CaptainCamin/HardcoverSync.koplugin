@@ -31,6 +31,7 @@ check("numbers read with thousands commas; decimals lose a trailing .0", functio
   assert(Charts.number(12.6) == "13", "rounds")
   assert(Charts.decimal(4) == "4" and Charts.decimal(4.5) == "4.5" and Charts.decimal(4.25) == "4.3" or Charts.decimal(4.25) == "4.2")
   assert(Charts.decimal(3.0, 2) == "3" and Charts.decimal(nil) == "")
+  assert(Charts.decimal(10, 0) == "10" and Charts.decimal(100, 0) == "100" and Charts.decimal(4.0, 1) == "4" and Charts.decimal(2.5, 1) == "2.5")
 end)
 
 check("a label is cut on a character boundary with an ellipsis", function()

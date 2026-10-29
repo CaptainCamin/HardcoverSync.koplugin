@@ -47,7 +47,9 @@ function Charts.decimal(n, places)
   n = tonumber(n)
   if not n then return "" end
   local text = string.format("%." .. (places or 1) .. "f", n)
-  return (text:gsub("%.?0+$", ""))
+  -- only a fractional part has zeros to drop: "10" must stay "10"
+  if text:find(".", 1, true) then text = text:gsub("0+$", ""):gsub("%.$", "") end
+  return text
 end
 
 -- a label cut to `max` characters with an ellipsis, on a UTF-8 boundary
