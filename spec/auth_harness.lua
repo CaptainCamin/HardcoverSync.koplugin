@@ -505,6 +505,7 @@ end)
 
 check("a slow_down lengthens the wait rather than hammering", function()
   local a = newAuth()
+  a.device = { device_code = "d", interval = 5 }
   local base = a:pollDelay("authorization_pending")
   local slow = a:pollDelay("slow_down")
   if type(base) ~= "number" or type(slow) ~= "number" then
@@ -512,6 +513,12 @@ check("a slow_down lengthens the wait rather than hammering", function()
   end
   if slow <= base then
     error("slow_down did not increase the delay: " .. tostring(base) .. " -> " .. tostring(slow))
+  end
+  if a:pollDelay("authorization_pending") ~= slow then
+    error("the slowed-down interval was forgotten by the next poll")
+  end
+  if a:pollDelay("slow_down") ~= slow + 5 then
+    error("a second slow_down did not add to the first")
   end
 end)
 

@@ -321,7 +321,10 @@ end
 -- How long to wait before the next poll.
 --
 function Auth:pollDelay(outcome)
-  return OAuth.nextPollDelay(self.device and self.device.interval or 5, outcome)
+  local delay = OAuth.nextPollDelay(self.device and self.device.interval or 5, outcome)
+  -- slow_down raises the interval for every later poll too (RFC 8628 section 3.5)
+  if outcome == "slow_down" and self.device then self.device.interval = delay end
+  return delay
 end
 
 --
