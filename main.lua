@@ -1206,9 +1206,18 @@ function HardcoverApp:markFinished(file_path, event)
     return false
   end
   Background.run(function()
-    self.cache:updateBookStatus(file_path, HARDCOVER.STATUS.FINISHED)
+    self:finishBook(file_path)
   end)
   return true
+end
+
+-- Once the book is Finished page writes are blocked, so the page the reader ended on goes
+-- first (offline the queue also sends the page before the status).
+function HardcoverApp:finishBook(file_path)
+  if self.ui.document and self.ui.document.file == file_path and self:pageWriteDecision(file_path) == "allow" then
+    self:updatePageNowForced(file_path)
+  end
+  self.cache:updateBookStatus(file_path, HARDCOVER.STATUS.FINISHED)
 end
 
 function HardcoverApp:markFinishedAndSay(file_path, event)
@@ -1312,7 +1321,7 @@ function HardcoverApp:askDidNotFinish(file_path)
     ok_text = _("Mark as Read"),
     ok_callback = function()
       Background.run(function()
-        self.cache:updateBookStatus(file_path, HARDCOVER.STATUS.FINISHED)
+        self:finishBook(file_path)
       end)
       StatusDialogs.info(_("Hardcover status saved"), 2)
     end,
