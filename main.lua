@@ -915,6 +915,15 @@ function HardcoverApp:_noticeSyncConflicts()
   self.noticed_conflicts = count
 end
 
+-- The page of this file for a page of the edition Hardcover has, by the book's page labels when
+-- it has them. nil when the edition's length is not known.
+function HardcoverApp:jumpTarget(edition_page)
+  return SyncConflicts.documentPage(edition_page, self.settings:pages(), self.ui.document:getPageCount(),
+    function(page, document_pages, edition_pages)
+      return self.page_mapper:getUnmappedPage(page, document_pages, edition_pages)
+    end)
+end
+
 -- Opening a book that has a question waiting: ask it there, where the reader is
 -- thinking about the book. And if the user earlier chose Hardcover's page for it,
 -- offer to jump there.
@@ -924,7 +933,7 @@ function HardcoverApp:askAboutOpenBook()
 
   local resume = self.sync_queue:takeResumePage(file)
   local function offer_jump()
-    local target = SyncConflicts.documentPage(resume, self.settings:pages(), self.ui.document:getPageCount())
+    local target = self:jumpTarget(resume)
     if not target then return end
     StatusDialogs.confirm {
       title = T(_("Jump to page %1?"), resume),
@@ -974,7 +983,7 @@ function HardcoverApp:offerJumpToCloudPage()
   local declined = self.settings:readBookSetting(file, "jump_declined_page")
   if not SyncConflicts.shouldOfferJump(cloud_page, local_page, declined, SyncQueue.CONFLICT_PAGES) then return end
 
-  local target = SyncConflicts.documentPage(cloud_page, pages, document_pages)
+  local target = self:jumpTarget(cloud_page)
   if not target then return end
   self.state.jump_offered = true
   StatusDialogs.confirm {

@@ -77,6 +77,11 @@ check("an edition page becomes a position in the file", function()
   eq(SyncConflicts.documentPage(999, 300, 600), 600, "never past the end")
   eq(SyncConflicts.documentPage(1, 300, 10), 1, "never before the start")
   eq(SyncConflicts.documentPage(10, nil, 600), nil, "unknown edition length")
+  local labelled = function(page) return page * 4 + 1 end
+  eq(SyncConflicts.documentPage(100, 300, 600, labelled), 401, "page labels decide, not the proportion")
+  eq(SyncConflicts.documentPage(300, 300, 600, labelled), 600, "never past the end")
+  eq(SyncConflicts.documentPage(100, 300, 600, function() return 0 end), 1, "never before the start")
+  eq(SyncConflicts.documentPage(100, 300, 600, function() return nil end), 200, "no label: the proportion")
 end)
 
 check("a jump is offered only when Hardcover is far enough ahead", function()

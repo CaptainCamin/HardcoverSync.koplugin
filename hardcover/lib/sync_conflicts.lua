@@ -79,12 +79,15 @@ function SyncConflicts.notice(count)
   return T(_("%1 books need your decision: Settings > Sync > Resolve sync conflicts."), count)
 end
 
--- A page a conversion from an edition page to a position in this file.
-function SyncConflicts.documentPage(edition_page, edition_pages, document_pages)
+-- A page a conversion from an edition page to a position in this file. `unmap` (optional) is
+-- the page mapper's way from an edition page to this file's: it knows the book's page labels,
+-- which a plain proportion does not.
+function SyncConflicts.documentPage(edition_page, edition_pages, document_pages, unmap)
   if not (edition_page and edition_pages and edition_pages > 0 and document_pages) then
     return nil
   end
-  local page = math.floor(edition_page / edition_pages * document_pages + 0.5)
+  local page = unmap and unmap(edition_page, document_pages, edition_pages)
+    or math.floor(edition_page / edition_pages * document_pages + 0.5)
   return math.max(1, math.min(document_pages, page))
 end
 
