@@ -246,5 +246,17 @@ check("a raising request is a failed try, not a crash, and releases the lock", f
   eq(q.flushing, false)
 end)
 
+check("another account's waiting change is not seen, and not inherited", function()
+  local q = newQueue()
+  q:queueStatus(1, 100, 3, { user_book_id = 555, title = "A's book" })
+  eq(q:get(100, 1) ~= nil, true, "the owner sees it")
+  eq(q:get(100, 2), nil, "another account does not")
+  local op = q:queueStatus(2, 100, 2, {})
+  eq(op.user_book_id, nil, "B does not inherit A's library record")
+  eq(op.title, nil)
+  q:queueStatus(1, 101, 3, { user_book_id = 556 })
+  eq(q:queueRemove(2, 101, nil, "x"), "dropped", "B's remove has no record of its own")
+end)
+
 print(string.format("\n  %d passed, %d failed", results.passed, results.failed))
 os.exit(results.failed == 0 and 0 or 1)
