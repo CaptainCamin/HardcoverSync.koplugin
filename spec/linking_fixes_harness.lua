@@ -103,6 +103,32 @@ check("the edition id query declares $id with a colon", function()
   Api:hydrateBookFromEdition(30, 1)
   Api.query = saved
   assert(seen and seen:find("$id: Int!", 1, true), tostring(seen))
+print("\n== a file with both ISBNs ==")
+
+check("the ISBN-10 is tried when the ISBN-13 finds nothing", function()
+  local asked = {}
+  local saved = Api.query
+  Api.query = function(_, text)
+    local key = text:match("where: { (isbn_%d+)")
+    asked[#asked + 1] = key
+    if key == "isbn_10" then return { editions = { { id = 5, book = { id = 9 } } } } end
+    return { editions = {} }
+  end
+  local book = Api:findBookByIdentifiers({ isbn_13 = "9780441172719", isbn_10 = "0441172717" }, 1)
+  Api.query = saved
+  assert(#asked == 2 and asked[1] == "isbn_13" and asked[2] == "isbn_10", table.concat(asked, ","))
+  assert(book ~= nil)
+end)
+
+check("an ISBN-10 answer wins over an ISBN-13 failure", function()
+  local saved = Api.query
+  Api.query = function(_, text)
+    if text:find("isbn_10:", 1, true) then return { editions = { { id = 5, book = { id = 9 } } } } end
+    return nil, { completed = false }
+  end
+  local book, err = Api:findBookByIdentifiers({ isbn_13 = "9780441172719", isbn_10 = "0441172717" }, 1)
+  Api.query = saved
+  assert(book ~= nil and err == nil)
 end)
 
 print("\n== a silent save still reaches the open book ==")

@@ -376,7 +376,6 @@ end
 -- (offline, rate limit, expired token), so "Hardcover has no such book" can be told apart from "could
 -- not ask". A later identifier that answers still wins over an earlier failure.
 function HardcoverApi:findBookByIdentifiers(identifiers, user_id)
-  local isbnKey
   local failure
 
   if identifiers.edition_id then
@@ -395,25 +394,21 @@ function HardcoverApi:findBookByIdentifiers(identifiers, user_id)
     failure = failure or err
   end
 
-  if identifiers.isbn_13 then
-    isbnKey = 'isbn_13'
-  elseif identifiers.isbn_10 then
-    isbnKey = 'isbn_10'
-  end
+  for _, isbnKey in ipairs({ 'isbn_13', 'isbn_10' }) do
+    if identifiers[isbnKey] then
+      local editionSearch = [[
+        query ($isbn: String!, $userId: Int!) {
+          editions(where: { ]] .. isbnKey .. [[: { _eq: $isbn }}) {
+            ...EditionParts
+          }
+        }]] .. edition_fragment
 
-  if isbnKey then
-    local editionSearch = [[
-      query ($isbn: String!, $userId: Int!) {
-        editions(where: { ]] .. isbnKey .. [[: { _eq: $isbn }}) {
-          ...EditionParts
-        }
-      }]] .. edition_fragment
-
-    local editions, err = self:query(editionSearch, { isbn = tostring(identifiers[isbnKey]), userId = user_id })
-    if editions and editions.editions and #editions.editions > 0 then
-      return self:normalizedEdition(editions.editions[1])
+      local editions, err = self:query(editionSearch, { isbn = tostring(identifiers[isbnKey]), userId = user_id })
+      if editions and editions.editions and #editions.editions > 0 then
+        return self:normalizedEdition(editions.editions[1])
+      end
+      if not editions then failure = failure or err or { completed = false } end
     end
-    if not editions then failure = failure or err or { completed = false } end
   end
 
   return nil, failure
