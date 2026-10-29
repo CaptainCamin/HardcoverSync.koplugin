@@ -235,6 +235,24 @@ check("goals queued by one account are not sent or shown for another", function(
   eq(r.waiting, 0, "A's goal was dropped")
 end)
 
+check("a goal made here and archived while it was being sent is archived under its real id", function()
+  local q = newQueue()
+  local api = fakeApi()
+  local real = api.saveGoal
+  local g = q:queueSave(form({ name = "Fresh" }), nil, 1)
+  api.saveGoal = function(self, id, input)
+    if id == nil then q:queueArchive(g.id, g, 1) end
+    return real(self, id, input)
+  end
+  q:flush(api, { user_id = 1 })
+  eq(q:count(), 1, "the archive is waiting")
+  eq(q:find(100).kind, "archive")
+  q:flush(api, { user_id = 1 })
+  eq(api.writes[#api.writes].op, "archive")
+  eq(api.writes[#api.writes].id, 100)
+  eq(q:count(), 0)
+end)
+
 print("")
 print(string.format("  %d passed, %d failed", results.passed, results.failed))
 os.exit(results.failed == 0 and 0 or 1)
