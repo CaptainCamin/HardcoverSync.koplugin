@@ -75,6 +75,25 @@ eq(Stats.compute(rows, { month = 3 }).books, 6, "a month needs a year")
 eq(Stats.years(rows)[1], 2025, "years newest first")
 eq(#Stats.years(rows), 2, "years")
 
+-- days from start to finish, for books with both days known: 15 (Feb 27 to Mar 14), 1, 30 (Jan 10 to
+-- Feb 9) and 0 (same day). A book with no start, a month-only finish, or a finish before its start is left out.
+local days_rows = Stats.normalizeAll({
+  ub(20, { read = { finished_at = "2025-03-14", finished_at_precision = 1, started_at = "2025-02-27T10:00:00Z" } }),
+  ub(21, { read = { finished_at = "2025-03-02", finished_at_precision = 1, started_at = "2025-03-01" } }),
+  ub(22, { read = { finished_at = "2025-02-09", finished_at_precision = 1, started_at = "2025-01-10T00:00:00Z" } }),
+  ub(23, { read = { finished_at = "2025-04-05", finished_at_precision = 1, started_at = "2025-04-05T08:00:00Z" } }),
+  ub(24, { read = { finished_at = "2025-05-01", finished_at_precision = 1 } }),
+  ub(25, { read = { finished_at = "2025-06", finished_at_precision = 2, started_at = "2025-05-20" } }),
+  ub(26, { read = { finished_at = "2025-04-01", finished_at_precision = 1, started_at = "2025-04-10" } }),
+})
+local dd = Stats.compute(days_rows)
+eq(#dd.days_list, 4, "books with both days")
+eq(dd.days_list[1], 0, "same day is 0")
+eq(dd.days_list[2], 1, "one day")
+eq(dd.days_list[3], 15, "Feb 27 to Mar 14 is 15 days across a short month")
+eq(dd.days_list[4], 30, "Jan 10 to Feb 9")
+eq(dd.average_days, 12, "46 days over 4 books, rounded")
+
 -- tiny and empty and junk
 local none = Stats.compute({})
 eq(none.books, 0, "empty") eq(none.ratings.average, nil, "no average") eq(#none.by_year, 0, "no years")

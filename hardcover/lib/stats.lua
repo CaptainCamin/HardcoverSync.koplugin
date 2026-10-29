@@ -49,10 +49,11 @@ function Stats.normalize(raw)
   if type(raw) ~= "table" then return nil end
   local book = type(raw.book) == "table" and raw.book or {}
 
-  local date
+  local date, started
   local read = type(raw.user_book_reads) == "table" and raw.user_book_reads[1] or nil
   if type(read) == "table" then
     date = datePart(read.finished_at, read.finished_at_precision)
+    started = datePart(read.started_at)
   end
   date = date or datePart(raw.last_read_date)
 
@@ -70,6 +71,7 @@ function Stats.normalize(raw)
     title = text(book.title),
     rating = rating,
     date = date,
+    started = started,
     pages = pages and pages > 0 and math.floor(pages) or nil,
     audio = audio and audio > 0 and math.floor(audio) or nil,
     author = author,
@@ -86,6 +88,12 @@ function Stats.normalizeAll(list)
 end
 
 local function yearOf(row) return row.date and tonumber(row.date:sub(1, 4)) or nil end
+
+-- Noon of a "YYYY-MM-DD" day, in seconds. Noon keeps a day change clear of a daylight-saving shift.
+local function dayTime(date)
+  local y, m, d = date:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)")
+  return os.time { year = tonumber(y), month = tonumber(m), day = tonumber(d), hour = 12 }
+end
 
 -- The years with finished books, newest first.
 function Stats.years(rows)
@@ -122,6 +130,8 @@ end
 --   by_year   { {year, count}... } oldest first, every year between the first and last,
 --   months    { 12 counts } (a year only), month_unknown (finishes known to the year only),
 --   best_month { month, count }, last_month (the latest month with a finish) (a year only),
+--   days_list (days from start to finish, smallest first, for books with both days known),
+--   average_days (rounded),
 --   page_list (the page counts, smallest first),
 --   ratings   { counts = {10}, rated, average }, authors { {name, count}... },
 --   lengths   { {label, count}... }, average_pages, longest, shortest { title, pages },
@@ -133,7 +143,7 @@ function Stats.compute(rows, opts)
   local month = year and opts.month
   local out = {
     year = year, books = 0, pages = 0, pages_books = 0, audio_seconds = 0, audio_books = 0,
-    undated = 0, by_year = {}, months = {}, month_unknown = 0, page_list = {},
+    undated = 0, by_year = {}, months = {}, month_unknown = 0, page_list = {}, days_list = {},
     ratings = { counts = {}, rated = 0, average = nil }, authors = {}, lengths = {},
   }
   for m = 1, 12 do out.months[m] = 0 end
@@ -172,6 +182,10 @@ function Stats.compute(rows, opts)
         if not out.longest or row.pages > out.longest.pages then out.longest = { title = row.title, pages = row.pages } end
         if not out.shortest or row.pages < out.shortest.pages then out.shortest = { title = row.title, pages = row.pages } end
       end
+      if row.started and row.date and #row.date == 10 then
+        local days = math.floor((dayTime(row.date) - dayTime(row.started)) / 86400 + 0.5)
+        if days >= 0 then out.days_list[#out.days_list + 1] = days end
+      end
       if row.audio then
         out.audio_seconds = out.audio_seconds + row.audio
         out.audio_books = out.audio_books + 1
@@ -193,6 +207,12 @@ function Stats.compute(rows, opts)
     end
   end
   table.sort(out.page_list)
+  table.sort(out.days_list)
+  if #out.days_list > 0 then
+    local sum = 0
+    for _i, days in ipairs(out.days_list) do sum = sum + days end
+    out.average_days = math.floor(sum / #out.days_list + 0.5)
+  end
   if out.ratings.rated > 0 then out.ratings.average = rating_sum / out.ratings.rated end
   if out.pages_books > 0 then out.average_pages = math.floor(out.pages / out.pages_books + 0.5) end
 

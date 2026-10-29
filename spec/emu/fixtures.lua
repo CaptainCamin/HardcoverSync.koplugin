@@ -164,7 +164,8 @@ function M.default_stats_raw()
     local year = 2023 + (i % 3)
     local month = ((i * 5) % 12) + 1
     local date = string.format("%d-%02d-%02d", year, month, (i % 27) + 1)
-    local read = { finished_at = date, finished_at_precision = 1 }
+    local started = os.date("%Y-%m-%d", os.time { year = year, month = month, day = (i % 27) + 1, hour = 12 } - (i % 23 + 3) * 86400)
+    local read = { finished_at = date, finished_at_precision = 1, started_at = started }
     if i == 7 then read.finished_at_precision = 3 end
     local audio = (i % 17 == 0) and (9 + i % 8) * 3600 or nil
     rows[#rows + 1] = {
