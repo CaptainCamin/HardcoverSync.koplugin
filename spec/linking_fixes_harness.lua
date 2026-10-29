@@ -123,4 +123,17 @@ check("a silent save with no book open tells nobody", function()
   assert(#seen == 0)
 end)
 
+check("a snapshot with no read or edition drops the old ones", function()
+  local s = settings(nil)
+  local f = "/books/snap.epub"
+  s:saveBookSnapshot(f, { id = 5, status_id = 2, edition_id = 7,
+    user_book_reads = { { id = 11, progress_pages = 50, started_at = "2026-01-01" } } })
+  assert(s:readBookSetting(f, "read_id") == 11 and s:readBookSetting(f, "edition_id") == 7)
+  s:saveBookSnapshot(f, { id = 5, status_id = 2, user_book_reads = {} })
+  for _, k in ipairs({ "read_id", "started_at", "last_synced_page", "edition_id" }) do
+    assert(s:readBookSetting(f, k) == nil, k .. " should be gone")
+  end
+  assert(s:readBookSetting(f, "user_book_id") == 5)
+end)
+
 r.finish()
