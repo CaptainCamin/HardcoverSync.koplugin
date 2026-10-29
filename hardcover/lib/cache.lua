@@ -100,6 +100,23 @@ function Cache:queueMeta(filename)
   }
 end
 
+-- Drop the queued page and what only makes sense with it, unless a newer page was queued
+-- since `seen` ({ page, at }) was taken. A pending status stays.
+local function dropQueuedPage(self, filename, seen)
+  local entry = self.sync_queue and self.sync_queue:get(filename)
+  if not entry then return end
+  if entry.mapped_page == seen.page and entry.page_updated_at == seen.at then
+    entry.mapped_page, entry.page_updated_at, entry.page_days = nil, nil, nil
+    entry.force_page, entry.first_page_date, entry.reread, entry.conflict = nil, nil, nil, nil
+    self.sync_queue:save(filename, entry)
+  end
+end
+
+local function queuedPage(self, filename)
+  local entry = self.sync_queue and self.sync_queue:get(filename)
+  return { page = entry and entry.mapped_page, at = entry and entry.page_updated_at }
+end
+
 function Cache:syncPage(filename, mapped_page)
   local book_status = self.state.book_status or {}
   local reads = book_status.user_book_reads
@@ -139,6 +156,7 @@ function Cache:syncPage(filename, mapped_page)
     end
   end
 
+  local seen = queuedPage(self, filename)
   local result
   if current_read and current_read.id then
     result = Api:updatePage(current_read.id, edition_id, mapped_page, started_at)
@@ -150,13 +168,7 @@ function Cache:syncPage(filename, mapped_page)
     self.state.book_status = result
     self.state.book_status_fetched = true
     self:saveSnapshot(filename, result)
-    if self.sync_queue then
-      local entry = self.sync_queue:get(filename)
-      if entry then
-        entry.mapped_page = nil
-        self.sync_queue:save(filename, entry)
-      end
-    end
+    dropQueuedPage(self, filename, seen)
     return result
   end
 
@@ -251,6 +263,7 @@ function Cache:updateBookStatus(filename, status, privacy_setting_id)
     end
   end
 
+  local seen = queuedPage(self, filename)
   local result
   if user_book_id then
     result = Api:updateUserBookStatus(user_book_id, status, privacy_setting_id)
@@ -268,6 +281,10 @@ function Cache:updateBookStatus(filename, status, privacy_setting_id)
         entry.status_id = nil
         self.sync_queue:save(filename, entry)
       end
+    end
+    -- Finished: an older queued page would only raise a re-read question next flush
+    if status == HARDCOVER.STATUS.FINISHED then
+      dropQueuedPage(self, filename, seen)
     end
     return result
   end
