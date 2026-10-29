@@ -60,6 +60,10 @@ local function books(n)
   return n == 1 and _("1 book") or string.format(_("%s books"), Charts.number(n))
 end
 
+local function days(n)
+  return n == 1 and _("1 day") or string.format(_("%s days"), Charts.number(n))
+end
+
 local function hours(seconds)
   return Charts.decimal(seconds / 3600, seconds >= 36000 and 0 or 1)
 end
@@ -334,6 +338,16 @@ function StatsDialog:buildContent(width)
     if s.longest and s.longest.title then
       table.insert(b, text(string.format(_("Longest: %s"), s.longest.title), "small", { grey = true, width = width }))
     end
+    add(b)
+  end
+
+  -- how long a book takes from its start to its finish (only books with both days known)
+  if #s.days_list > 0 then
+    local b = block(_("Days to finish"))
+    table.insert(b, fact(_("Average"), days(s.average_days), width))
+    table.insert(b, Theme.span("s"))
+    table.insert(b, fact(_("Median"), days(math.floor(Charts.quartiles(s.days_list)[2] + 0.5)), width))
+    self:caption(b, string.format(_("Across %s with a start and finish date."), books(#s.days_list)), width)
     add(b)
   end
 

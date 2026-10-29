@@ -1563,6 +1563,7 @@ function HardcoverApi:getStats(user_id)
           rating
           last_read_date
           user_book_reads(order_by: [{ finished_at: desc_nulls_last }], limit: 1) {
+            started_at
             finished_at
             finished_at_precision
           }
