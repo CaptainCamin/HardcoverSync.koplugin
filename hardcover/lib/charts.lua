@@ -24,6 +24,8 @@ function Charts.niceScale(max)
   local power = 10 ^ math.floor(math.log(rough) / math.log(10))
   local frac = rough / power
   local nice = frac <= 1 and 1 or frac <= 2 and 2 or frac <= 2.5 and 2.5 or frac <= 5 and 5 or 10
+  -- 2.5 is only a clean step when it divides cleanly (25, 250...); at 2.5 itself use 2
+  if nice == 2.5 and (nice * power) % 1 ~= 0 then nice = 2 end
   -- these are counts (books, pages): whole steps, never a tick at 0.5
   local step = math.max(1, math.ceil(nice * power - 1e-9))
   local top = math.ceil(max / step) * step
