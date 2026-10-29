@@ -627,13 +627,14 @@ function HardcoverApi:findDefaultEdition(book_id, user_id)
     }
   ]] .. user_edition_fragment
   local default_edition_results = self:query(default_edition_query, { bookId = book_id })
-  if default_edition_results then
-    if default_edition_results.books_by_pk.default_ebook_edition then
-      return default_edition_results.books_by_pk.default_ebook_edition
+  local default_book = default_edition_results and default_edition_results.books_by_pk
+  if type(default_book) == "table" then
+    if default_book.default_ebook_edition then
+      return default_book.default_ebook_edition
     end
 
-    if default_edition_results.books_by_pk.default_physical_edition then
-      return default_edition_results.books_by_pk.default_physical_edition
+    if default_book.default_physical_edition then
+      return default_book.default_physical_edition
     end
   end
 
