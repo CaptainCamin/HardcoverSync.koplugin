@@ -374,6 +374,23 @@ check("Hardcover's older word about the book does not overwrite a waiting change
   assert(#d.status_updates == 1, "not applied without a waiting change")
 end)
 
+check("a status set from the reader and still queued is not overwritten by Hardcover's older word", function()
+  local m = newManager()
+  local store = {}
+  m.sync_queue = real_require("hardcover/lib/sync_queue"):new { settings = {
+    readSetting = function(_, k) return store[k] end,
+    saveSetting = function(_, k, v) store[k] = v end,
+    flush = function() end,
+  } }
+  m.sync_queue:enqueueStatus("/books/a.epub", { status_id = 3, book_id = 1, title = "A" })
+  local d = detailScreen(m, { book = { book_id = 1 }, status_id = 3, user_book_id = 51 })
+  m:applyAbout(d, 1, { user_book = { id = 51, status_id = 1 } })
+  assert(#d.status_updates == 0 and d.detail.status_id == 3, "overwritten")
+  m.sync_queue:cancelStatus("/books/a.epub")
+  m:applyAbout(d, 1, { user_book = { id = 51, status_id = 1 } })
+  assert(#d.status_updates == 1, "not applied without a waiting change")
+end)
+
 check("rating a book before its first shelf sync is kept, restored and sent after the shelf", function()
   local m = newManager()
   online = false
