@@ -115,6 +115,10 @@ end
 function SyncQueue:_ensure(filepath, meta)
   local pending = self:pending()
   local entry = pending[filepath] or {}
+  -- what another account left for this file is not carried over to this one
+  if type(entry) ~= "table" or (meta and meta.user_id ~= nil and not SyncQueue.ownedBy(entry, meta.user_id)) then
+    entry = {}
+  end
   if meta then
     for key, value in pairs(meta) do
       if value ~= nil then
@@ -726,10 +730,28 @@ end
 -- would just wait out its own timeout.
 local MAX_CONSECUTIVE_FAILURES = 2
 
+-- Is this entry for the signed-in account? Entries from older versions carry no user_id and
+-- belong to whoever is signed in (as in ShelfQueue).
+function SyncQueue.ownedBy(entry, user_id)
+  return type(entry) ~= "table" or entry.user_id == nil or tostring(entry.user_id) == tostring(user_id)
+end
+
 function SyncQueue:flush(api, opts)
   opts = opts or {}
   if self.flushing then
     return false
+  end
+
+  -- what was queued under an account that is not signed in any more is dropped, not sent to this one
+  if opts.user_id ~= nil then
+    local pending, dropped = self:pending(), false
+    for filepath, entry in pairs(pending) do
+      if not SyncQueue.ownedBy(entry, opts.user_id) then
+        pending[filepath] = nil
+        dropped = true
+      end
+    end
+    if dropped then self:persist() end
   end
 
   local paths = {}
