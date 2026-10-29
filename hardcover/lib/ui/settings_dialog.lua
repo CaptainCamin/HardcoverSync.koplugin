@@ -77,6 +77,14 @@ function SettingsScreen:buildRow(row, width, viewport)
   elseif row.submenu or row.tile then
     trailing = Draw.chevron("right")
   end
+  -- the help line is cut to one line, so holding the row shows all of it (a shortcut: the owner
+  -- chose this over taller rows)
+  local hold = row.hold
+  if not hold and row.support and not row.tile then
+    hold = function()
+      require("hardcover/lib/ui/status_dialogs").confirm { title = label, text = row.support, ok_text = _("OK") }
+    end
+  end
   local item = ListItem.new {
     width = width,
     label = label,
@@ -85,7 +93,7 @@ function SettingsScreen:buildRow(row, width, viewport)
     divider = "dotted",
     dim = row.dim,
     callback = row.choose,
-    hold_callback = row.hold,
+    hold_callback = hold,
     viewport = viewport,
   }
   item.text = row.text
