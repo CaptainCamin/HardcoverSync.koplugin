@@ -37,6 +37,9 @@ function Goals.parseDate(s)
   local y, m, d = s:match("^(%d%d%d%d)-(%d%d)-(%d%d)")
   y, m, d = tonumber(y), tonumber(m), tonumber(d)
   if not y or m < 1 or m > 12 or d < 1 or d > 31 then return nil end
+  local leap = (y % 4 == 0 and y % 100 ~= 0) or y % 400 == 0
+  local last = ({ 31, leap and 29 or 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 })[m]
+  if d > last then return nil end
   return Goals.days(y, m, d)
 end
 

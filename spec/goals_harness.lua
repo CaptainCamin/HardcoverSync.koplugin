@@ -294,4 +294,12 @@ check("page goals and goals with filters get no list", function()
   assert(Goals.books(Goals.normalize({ row({ conditions = { junk = 1 } }) })[1], {}) ~= nil)
 end)
 
+check("a date that is not in its month is not a date", function()
+  assert(Goals.parseDate("2026-02-31") == nil)
+  assert(Goals.parseDate("2026-02-29") == nil)
+  assert(Goals.parseDate("2026-04-31") == nil)
+  assert(Goals.parseDate("2024-02-29") ~= nil)
+  assert(Goals.parseDate("2026-12-31") ~= nil)
+end)
+
 r.finish()
