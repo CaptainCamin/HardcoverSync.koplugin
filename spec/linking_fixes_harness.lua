@@ -103,6 +103,19 @@ check("the edition id query declares $id with a colon", function()
   Api:hydrateBookFromEdition(30, 1)
   Api.query = saved
   assert(seen and seen:find("$id: Int!", 1, true), tostring(seen))
+print("\n== the default edition of a book Hardcover no longer has ==")
+
+check("a null books_by_pk falls through to the next query", function()
+  local saved = Api.query
+  Api.query = function(_, text)
+    if text:find("books_by_pk", 1, true) then return { books_by_pk = nil } end
+    if text:find("user_books", 1, true) then return { user_books = {} } end
+    return { editions = { { id = 7 } } }
+  end
+  local ok, edition = pcall(Api.findDefaultEdition, Api, 3, 1)
+  Api.query = saved
+  assert(ok, edition)
+  assert(edition and edition.id == 7)
 end)
 
 print("\n== a file with both ISBNs ==")
