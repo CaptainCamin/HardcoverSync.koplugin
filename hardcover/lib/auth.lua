@@ -326,6 +326,10 @@ function Auth:pollOnce()
       self.device = nil
       return "success", tokens
     end
+    -- approved, but the answer holds no usable tokens: nothing was stored, so it is not a sign-in
+    logger.warn("hardcover oauth: token response held no usable tokens")
+    self.device = nil
+    return "error", nil
   end
 
   if outcome == "denied" or outcome == "expired" or outcome == "error" then
