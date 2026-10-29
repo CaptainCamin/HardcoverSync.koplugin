@@ -94,6 +94,17 @@ check("a title search that fails is an error", function()
   assert(results == nil and err ~= nil)
 end)
 
+print("\n== lookups by edition id ==")
+
+check("the edition id query declares $id with a colon", function()
+  local seen
+  local saved = Api.query
+  Api.query = function(_, text) seen = text; return { editions = {} } end
+  Api:hydrateBookFromEdition(30, 1)
+  Api.query = saved
+  assert(seen and seen:find("$id: Int!", 1, true), tostring(seen))
+end)
+
 print("\n== a silent save still reaches the open book ==")
 
 local HardcoverSettings = require("hardcover/lib/hardcover_settings")
