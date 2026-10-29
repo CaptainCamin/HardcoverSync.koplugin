@@ -419,6 +419,7 @@ function HardcoverApp:disable()
 end
 
 function HardcoverApp:onHardcoverLink()
+  if not self.ui.document then return end
   self.hardcover:showLinkBookDialog(false, function(book)
     StatusDialogs.info(_("Linked to: " .. book.title))
   end)
@@ -440,6 +441,7 @@ function HardcoverApp:onHardcoverBook()
 end
 
 function HardcoverApp:onHardcoverTrack()
+  if not self.ui.document then return end
   self.settings:setSync(true)
   UIManager:nextTick(function()
     StatusDialogs.info(_("Progress tracking enabled"))
@@ -447,6 +449,7 @@ function HardcoverApp:onHardcoverTrack()
 end
 
 function HardcoverApp:onHardcoverStopTrack()
+  if not self.ui.document then return end
   self.settings:setSync(false)
   StatusDialogs.info(_("Progress tracking disabled"))
 end
