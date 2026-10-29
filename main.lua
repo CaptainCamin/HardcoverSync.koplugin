@@ -28,6 +28,7 @@ local BookStore = require("hardcover/lib/book_store")
 local Cache = require("hardcover/lib/cache")
 local Config = require("hardcover/lib/config")
 local debounce = require("hardcover/lib/debounce")
+local EndOfBook = require("hardcover/lib/end_of_book")
 local Hardcover = require("hardcover/lib/hardcover")
 local HardcoverSettings = require("hardcover/lib/hardcover_settings")
 local ListStore = require("hardcover/lib/list_store")
@@ -134,7 +135,8 @@ function HardcoverApp:init()
     pos = nil,
     search_results = {},
     book_status = {},
-    page_update_pending = false
+    page_update_pending = false,
+    end_asked = {},
   }
   --logger.warn("HARDCOVER app init")
   self.settings = HardcoverSettings:new(
@@ -148,6 +150,9 @@ function HardcoverApp:init()
   UIManager:nextTick(function()
     pcall(function() require("hardcover/lib/font_install").run() end)
   end)
+
+  -- Hooks into KOReader's book-status screen and its end-of-document menu (see koreader_hooks.lua)
+  pcall(function() require("hardcover/lib/koreader_hooks").install() end)
 
   -- OAuth when hardcover_config.lua supplies a client_id; otherwise the
   -- static token in that same file is used, as before.
@@ -616,6 +621,7 @@ end
 function HardcoverApp:pageUpdateEvent(page)
   self.state.last_page = self.state.page
   self.state.page = page
+  self:checkLastPage(page)
 
   if not (self.state.book_status.id or self.settings:bookLinked()) then
     return
@@ -1151,6 +1157,45 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
   end
 end
 
+-- Write Read for a book that has ended, if the book's status allows it (see BookActions.statusWrite).
+-- Decided when the write would happen, not when the book was opened: the status can change in the
+-- time between. Every trigger comes through here, so a second one finds the first one's write
+-- already counted (the effective status includes a change still waiting in the queue) and does nothing.
+-- Returns true when Read was written or queued.
+function HardcoverApp:markFinished(file_path, event)
+  local decision = BookActions.statusWrite(self:effectiveStatusId(file_path), event)
+  if decision == "ask" then
+    self:askDidNotFinish(file_path)
+    return false
+  end
+  if decision == "block" then
+    return false
+  end
+  Background.run(function()
+    self.cache:updateBookStatus(file_path, HARDCOVER.STATUS.FINISHED)
+  end)
+  return true
+end
+
+function HardcoverApp:markFinishedAndSay(file_path, event)
+  if self:markFinished(file_path, event) then
+    StatusDialogs.info(_("Hardcover status saved"), 2)
+    return true
+  end
+  return false
+end
+
+-- The reader marked this book Finished in KOReader (its pop-up, or the book-status screen): write it.
+-- Read from the open book's settings, which hold the answer as soon as it is given.
+function HardcoverApp:markIfMarkedFinished(file_path)
+  local doc_settings = self.ui and self.ui.doc_settings
+  local summary = doc_settings and doc_settings:readSetting("summary")
+  if summary and summary.status == "complete" and self:syncFileUpdates(file_path) then
+    return self:markFinishedAndSay(file_path, "end_chosen")
+  end
+  return false
+end
+
 function HardcoverApp:onEndOfBook()
   local file_path = self.ui.document.file
 
@@ -1158,59 +1203,64 @@ function HardcoverApp:onEndOfBook()
     return
   end
 
-  local mark_read = false
-  if G_reader_settings:isTrue("end_document_auto_mark") then
-    mark_read = true
+  local action = G_reader_settings:readSetting("end_document_action")
+  local auto_mark = G_reader_settings:isTrue("end_document_auto_mark") or self.settings:endAutoMark()
+  local plan = EndOfBook.onEnd(action, auto_mark)
+
+  if plan == "mark" then
+    self:markFinishedAndSay(file_path, "end_auto")
+  elseif plan == "check_later" then
+    -- KOReader's pop-up is up and the reader has not answered yet; look again in 30 seconds
+    UIManager:scheduleIn(30, function() self:markIfMarkedFinished(file_path) end)
   end
 
-  if not mark_read then
-    local action = G_reader_settings:readSetting("end_document_action") or "pop-up"
-    mark_read = action == "mark_read"
-
-    if action == "pop-up" then
-      mark_read = 'later'
-    end
+  -- this plugin's end page, when the reader chose it in KOReader's list of end actions
+  if EndOfBook.kind(action) == "hardcover" then
+    EndOfBook.once(self.state.end_asked, file_path)
+    self.menu:showEndPage()
   end
+end
 
-  if not mark_read then
+-- The book-status screen closed (see koreader_hooks.lua): if the reader switched the book to
+-- Finished there, send it. Whatever they did to the switch is in the book's settings by now.
+function HardcoverApp:onHardcoverStatusScreenClosed()
+  local file_path = self.ui and self.ui.document and self.ui.document.file
+  if file_path then self:markIfMarkedFinished(file_path) end
+end
+
+-- Landing on the last page: ask "Mark as Read?" once the reader has stayed on it for a while (a page
+-- turn away from it cancels the ask), or write it at once when the reader chose to mark finished books
+-- automatically. This is the way a book ends when its last page is read and the book is just closed,
+-- which never sends KOReader's end event.
+local LAST_PAGE_ASK_DELAY = 20
+
+function HardcoverApp:checkLastPage(page)
+  UIManager:unschedule(self.askAtLastPage)
+  local file_path = self.ui.document.file
+  if not EndOfBook.atLastPage(page, self.ui.document:getPageCount()) then return end
+  if not self:syncFileUpdates(file_path) then return end
+  if self:effectiveStatusId(file_path) == HARDCOVER.STATUS.FINISHED then return end
+  if self.settings:endAutoMark() then
+    if EndOfBook.once(self.state.end_asked, file_path) then self:markFinishedAndSay(file_path, "end_auto") end
     return
   end
-
-  -- Decided when the write would happen, not when the book was opened: the 'later' wait is 30
-  -- seconds, and the status can change in that time.
-  local marker = function(event)
-    local decision = BookActions.statusWrite(self:effectiveStatusId(file_path), event)
-    if decision == "ask" then
-      self:askDidNotFinish(file_path)
-      return false
-    end
-    if decision == "block" then
-      return false
-    end
-    Background.run(function()
-      self.cache:updateBookStatus(file_path, HARDCOVER.STATUS.FINISHED)
-    end)
-    return true
+  if EndOfBook.promptOnLastPage(self.settings:endPrompt(), G_reader_settings:readSetting("end_document_action")) then
+    UIManager:scheduleIn(LAST_PAGE_ASK_DELAY, self.askAtLastPage, self)
   end
+end
 
-  if mark_read == 'later' then
-    UIManager:scheduleIn(30, function()
-      local status = "reading"
-      if DocSettings:hasSidecarFile(file_path) then
-        local summary = DocSettings:open(file_path):readSetting("summary")
-        if summary and summary.status and summary.status ~= "" then
-          status = summary.status
-        end
-      end
-      if status == "complete" and marker("end_chosen") then
-        StatusDialogs.info(_("Hardcover status saved"), 2)
-      end
-    end)
-  else
-    if marker("end_auto") then
-      StatusDialogs.info(_("Hardcover status saved"), 2)
-    end
-  end
+function HardcoverApp:askAtLastPage()
+  local file_path = self.ui and self.ui.document and self.ui.document.file
+  if not file_path or not self:syncFileUpdates(file_path) then return end
+  if self:effectiveStatusId(file_path) == HARDCOVER.STATUS.FINISHED then return end
+  if not EndOfBook.once(self.state.end_asked, file_path) then return end
+  StatusDialogs.confirm {
+    title = _("You've reached the end"),
+    text = _("Mark this book as Read on Hardcover?"),
+    ok_text = _("Mark as Read"),
+    cancel_text = _("Not yet"),
+    ok_callback = function() self:markFinishedAndSay(file_path, "end_chosen") end,
+  }
 end
 
 -- A book marked Did not finish that ends on its own: ask once per book for the session. Either

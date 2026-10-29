@@ -294,6 +294,19 @@ function HardcoverSettings:pureBlackText()
   return self.settings:readSetting(SETTING.PURE_BLACK_TEXT) == true
 end
 
+-- Mark a book Read as soon as its last page is reached, without asking.
+function HardcoverSettings:endAutoMark()
+  return self.settings:readSetting(SETTING.END_AUTO_MARK) == true
+end
+
+-- Ask "Mark as Read?" on the last page: true or false once the reader has chosen, nil until then
+-- (EndOfBook.promptOnLastPage supplies the default).
+function HardcoverSettings:endPrompt()
+  local value = self.settings:readSetting(SETTING.END_PROMPT)
+  if value == nil then return nil end
+  return value == true
+end
+
 function HardcoverSettings:compatibilityMode()
   return self.settings:readSetting(SETTING.COMPATIBILITY_MODE) == true
 end

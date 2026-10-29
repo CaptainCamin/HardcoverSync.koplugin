@@ -26,6 +26,7 @@ local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local ICON = require("hardcover/lib/constants/icons")
 local SETTING = require("hardcover/lib/constants/settings")
 local VERSION = require("hardcover_version")
+local EndOfBook = require("hardcover/lib/end_of_book")
 local Shelf = require("hardcover/lib/shelf")
 local SyncConflicts = require("hardcover/lib/sync_conflicts")
 
@@ -1253,6 +1254,61 @@ function HardcoverMenu:setStatus(status)
   end)
 end
 
+-- The page for a book that has ended (see ui/end_page.lua). Nothing is written until a button
+-- is tapped; "Mark as Read" goes through setStatus, so offline it is queued like any status.
+function HardcoverMenu:showEndPage()
+  local file = self.ui.document.file
+  local page
+  local function model()
+    local status = self.state.book_status or {}
+    local pending = self.sync_queue:get(file)
+    local status_id = (pending and pending.status_id) or status.status_id
+    local waiting = pending and pending.status_id ~= nil
+    local title = self.settings:getLinkedTitle() or (self.ui.doc_props and self.ui.doc_props.display_title) or _("This book")
+    local finished = status_id == HARDCOVER.STATUS.FINISHED
+    local label = status_id and Shelf.statusLabel(status_id) or _("Not on a shelf")
+    local m = {
+      heading = status_id == HARDCOVER.STATUS.DNF and _("Hardcover has this as Did not finish")
+        or (finished and _("Finished") or _("You've reached the end")),
+      title = title,
+      status = (finished and "\226\156\147 " or "") .. label .. (waiting and (" \194\183 " .. _("waiting to send")) or ""),
+      note = waiting and not NetworkMgr:isConnected()
+        and _("Offline. This will be sent when you're connected. See it under Pending changes.") or nil,
+      rating = status.rating,
+      rows = {},
+      primary = { text = _("Done") },
+    }
+    if status.id then
+      m.rows[#m.rows + 1] = { text = _("Your rating"), rating = true, run = function()
+        require("hardcover/lib/ui/components/stepper_dialog").show {
+          title = _("Set rating"), text = _("0 clears the rating."),
+          value = status.rating or 2.5, min = 0, max = 5, step = 0.5,
+          on_save = function(value)
+            self:saveRating(value, { updateItems = function() if page then page:render() end end })
+          end,
+        }
+      end }
+      m.rows[#m.rows + 1] = { text = _("Write a review"), run = function()
+        self.dialog_manager:writeReview { detail = { user_book_id = status.id, status_id = status_id,
+          book = { title = title } } }
+      end }
+    end
+    if not finished then
+      -- stays open: the page then shows Read (or "waiting to send" offline) and a Done button
+      m.primary = { text = _("Mark as Read"), stay = true, run = function()
+        Background.run(function()
+          self.cache:updateBookStatus(file, HARDCOVER.STATUS.FINISHED)
+          if page and UIManager:isWidgetShown(page) then page:render() end
+        end)
+      end }
+      m.secondary = { text = status_id and T(_("Keep as %1"), label) or _("Not now") }
+    end
+    return m
+  end
+  page = require("hardcover/lib/ui/end_page").show { model = model }
+  return page
+end
+
 function HardcoverMenu:removeCurrentRead(menu_instance)
   Background.run(function()
     local result = Api:removeRead(self.state.book_status.id)
@@ -1927,6 +1983,29 @@ function HardcoverMenu:getSettingsSubMenuItems()
       end,
       help = _("Which plugin the book screen's search button hands the book to. The plugin has to be installed and enabled."),
       separator = true,
+    },
+    {
+      section = SECTION.TRACKING,
+      text = _("Ask to mark as Read on the last page"),
+      checked_func = function()
+        return EndOfBook.promptOnLastPage(self.settings:endPrompt(), G_reader_settings:readSetting("end_document_action"))
+      end,
+      callback = function()
+        local on = EndOfBook.promptOnLastPage(self.settings:endPrompt(), G_reader_settings:readSetting("end_document_action"))
+        self.settings:updateSetting(SETTING.END_PROMPT, not on)
+      end,
+      help = _("When you stay on a book's last page, ask whether to mark it Read. Off by default when an end page (Hardcover's or another plugin's) is chosen in KOReader's End of document action."),
+    },
+    {
+      section = SECTION.TRACKING,
+      text = _("Mark as Read automatically on the last page"),
+      checked_func = function()
+        return self.settings:endAutoMark()
+      end,
+      callback = function()
+        self.settings:updateSetting(SETTING.END_AUTO_MARK, not self.settings:endAutoMark())
+      end,
+      help = _("Skip the question: reaching the last page marks the book Read. A book already Read is left alone, and Did not finish still asks."),
     },
     {
       section = SECTION.DISPLAY,
