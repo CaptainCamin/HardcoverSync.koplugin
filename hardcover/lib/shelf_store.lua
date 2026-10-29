@@ -117,7 +117,36 @@ local function membersOf(entries, status_id)
   return members
 end
 
+-- Books moved or removed here whose change is still waiting to be sent, per user:
+-- book_id -> the status_id it went to, or false when it left the library. A download that
+-- began before the change must not put the book back where it was.
+local function touchedBy(self, user_id)
+  self.touched = self.touched or {}
+  local key = who(user_id)
+  self.touched[key] = self.touched[key] or {}
+  return self.touched[key]
+end
+
+local function applyTouched(self, user_id, status_id, members)
+  local touched = touchedBy(self, user_id)
+  if next(touched) == nil then return members end
+  local out, mine = {}, {}
+  for _, m in ipairs(members) do
+    if touched[m.book_id] == nil then out[#out + 1] = m end
+  end
+  for book_id, to in pairs(touched) do
+    if to == status_id then
+      local now = self:member(user_id, book_id)
+      if now and now.status_id == status_id then mine[#mine + 1] = now end
+    end
+  end
+  table.sort(mine, function(a, b) return a.book_id < b.book_id end)
+  for i = #mine, 1, -1 do table.insert(out, 1, mine[i]) end
+  return out
+end
+
 local function save(self, user_id, status_id, members, complete, fingerprint)
+  members = applyTouched(self, user_id, status_id, members)
   local now = self.now()
   local meta = {
     fingerprint = fingerprint,
@@ -186,6 +215,7 @@ function ShelfStore:moveBook(user_id, book_id, status_id, user_book_id, unsent)
     rating = old and old.rating,
     date_added = (old and old.date_added) or os.date("%Y-%m-%d"),
   })
+  touchedBy(self, user_id)[book_id] = unsent and status_id or nil
   if unsent then return true end
   if old and old.status_id ~= status_id then self:markStale(user_id, old.status_id) end
   self:markStale(user_id, status_id)
@@ -208,6 +238,8 @@ function ShelfStore:removeBook(user_id, book_id, unsent)
   local old = self:member(user_id, book_id)
   if not old then return false end
   self.db:deleteMember(who(user_id), old.book_id)
+  local touched = touchedBy(self, user_id)
+  if unsent then touched[old.book_id] = false else touched[old.book_id] = nil end
   if not unsent then self:markStale(user_id, old.status_id) end
   return true
 end
