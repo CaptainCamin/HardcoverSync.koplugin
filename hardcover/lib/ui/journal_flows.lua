@@ -54,6 +54,7 @@ local function reviewDetail(entry)
     user_book_id = entry.user_book_id,
     user_review = entry.text,
     review_spoilers = entry.spoilers == true,
+    review_known = true,
   }
 end
 
@@ -378,6 +379,7 @@ function Flows:showBookJournal(book_id, title, opts)
         status_id = opts.status_id,
         user_review = mine and mine.text or nil,
         review_spoilers = mine and mine.spoilers == true or nil,
+        review_known = true,
       } }, refresh)
     end }
     ActionSheet.show { title = _("Add to the journal"), actions = actions }

@@ -764,6 +764,7 @@ local function detailOf(row)
     user_rating = user_book and user_book.rating,
     user_review = user_book and user_book.review_raw,
     review_spoilers = user_book and user_book.review_has_spoilers,
+    review_known = true, -- the review above is Hardcover's own answer, not a saved copy that left it out
   }
 end
 
