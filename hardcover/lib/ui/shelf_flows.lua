@@ -81,7 +81,7 @@ function Flows:downloadShelf(status_id, opts)
   local store = self:shelves()
   local user_id = User:getId()
   local queue = self:listsQueue()
-  local key = "shelf:" .. tostring(status_id) .. (opts.force and ":refresh" or "")
+  local key = "shelf:" .. tostring(user_id) .. ":" .. tostring(status_id) .. (opts.force and ":refresh" or "")
   local alive = function() return not self.closed end
   queue:wait(key, opts.on_done)
   queue:add({
