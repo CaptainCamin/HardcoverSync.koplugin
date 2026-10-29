@@ -200,6 +200,10 @@ check("a settled book's details are shown again without asking; one still changi
   -- a book only a list knows has no details to show yet
   books:saveRows({ entry(3) })
   assert(books:settledDetail(3) == nil)
+  -- another edition's details are not this edition's: it is asked for
+  books:saveDetail(4, 101, { book = settledBook({ book_id = 4 }) })
+  assert(books:settledDetail(4, 101), "the edition that was saved was not trusted")
+  assert(books:settledDetail(4, 202) == nil, "another edition's details were trusted")
 end)
 
 check("a series is kept with when it was saved, per account", function()
