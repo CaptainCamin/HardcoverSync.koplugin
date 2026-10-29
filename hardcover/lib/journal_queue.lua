@@ -211,7 +211,8 @@ function JournalQueue:flush(api, opts)
     end
     local stopped = false
     for _, op in ipairs(self:list()) do
-      if mine(op) and not op.held then
+      -- an entry cancelled while an earlier request was out is no longer in the queue
+      if mine(op) and not op.held and ops[op.id] == op then
         local entry, err
         local sent_text = op.text
         if op.action == "update" then

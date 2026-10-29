@@ -350,6 +350,19 @@ check("an edit made while the older one is on its way is not lost when the older
   q:flush(api, { user_id = 7 })
   eq(q:count(), 1, "the newer edit is still waiting")
   eq(q:changeFor(4001).text, "new")
+check("a note cancelled while an earlier one is being sent is not sent", function()
+  local q = newQueue()
+  q:queue(note { text = "first" })
+  local second = q:queue(note { text = "second" })
+  local api = fakeApi()
+  local real = api.createJournalEntry
+  function api:createJournalEntry(object)
+    if self.calls == 0 then q:cancel(second) end
+    return real(self, object)
+  end
+  q:flush(api, { user_id = 7 })
+  eq(api.calls, 1, "only the first went out")
+  eq(q:count(), 0)
 end)
 
 check("stored changes that are broken are dropped", function()

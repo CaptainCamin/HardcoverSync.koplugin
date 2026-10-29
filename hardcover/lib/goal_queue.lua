@@ -202,7 +202,8 @@ function GoalQueue:_flush(api, opts)
   for _, op in ipairs(ops) do snapshot[#snapshot + 1] = op end
 
   for _, op in ipairs(snapshot) do
-    if valid(op) and not op.held then
+    -- a change cancelled or replaced while an earlier request was out is no longer in the queue
+    if valid(op) and not op.held and self:find(op.key) == op then
       local ok, result, err = pcall(function()
         if op.kind == "archive" then
           local goal = {}
