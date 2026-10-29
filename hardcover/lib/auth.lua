@@ -60,6 +60,12 @@ function Auth:new(o)
   -- settings on the class and fail
   o.tokens = o:_load()
 
+  -- A refresh that was sent and never answered definitively before the last restart: its
+  -- token may be spent, so it is not presented again (sign in again instead).
+  if o.tokens and o.tokens.refresh_token and o.settings:readSetting("refresh_suspect") == o.tokens.refresh_token then
+    o.guard.last_error = "unknown"
+  end
+
   return o
 end
 
@@ -102,6 +108,12 @@ function Auth:_persist(tokens)
   return true
 end
 
+-- The refresh got a definitive answer: its token is not in doubt any more.
+function Auth:_clearSuspect()
+  self.settings:saveSetting("refresh_suspect", nil)
+  self.settings:flush()
+end
+
 --
 -- Forget the stored tokens, on disk as well as in memory. Leaving them in
 -- LuaSettings would mean signing out did not actually sign out.
@@ -113,6 +125,7 @@ function Auth:clear()
   self.settings:saveSetting("expires_at", nil)
   self.settings:saveSetting("obtained_at", nil)
   self.settings:saveSetting("scope", nil)
+  self.settings:saveSetting("refresh_suspect", nil)
   self.settings:flush()
 
   self.tokens = nil
@@ -184,6 +197,9 @@ function Auth:refresh()
   end
 
   OAuth.beginRefresh(self.guard)
+  -- written before the request, so a restart while it is out (or after a timeout) remembers it
+  self.settings:saveSetting("refresh_suspect", self.tokens.refresh_token)
+  self.settings:flush()
 
   -- If the request throws we cannot know whether it reached the server, which
   -- is the same position as a timeout: treat the refresh token as possibly
@@ -199,6 +215,7 @@ function Auth:refresh()
   if outcome == "ok" then
     local fresh = OAuth.applyRefresh(self.tokens, body, os.time())
     self:_persist(fresh)
+    self:_clearSuspect()
     OAuth.endRefresh(self.guard, "ok")
     return fresh.access_token
   end
@@ -217,6 +234,7 @@ function Auth:refresh()
   end
 
   OAuth.endRefresh(self.guard, "error")
+  self:_clearSuspect()
 
   if error_code == "invalid_grant" then
     -- the refresh token is definitively dead: drop it so the next call
