@@ -500,7 +500,7 @@ function HardcoverApp:onSettingsChanged(field, change, original_value)
     if self:_bookSettingChanged(book_settings, "book_id") then
       self:registerHighlight()
     end
-  elseif field == SETTING.TRACK_METHOD then
+  elseif field == SETTING.TRACK_METHOD or field == SETTING.TRACK_FREQUENCY then
     self:cancelPendingUpdates()
     self:initializePageUpdate()
   elseif field == SETTING.LINK_BY_HARDCOVER or field == SETTING.LINK_BY_ISBN or field == SETTING.LINK_BY_TITLE then
