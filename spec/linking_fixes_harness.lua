@@ -103,6 +103,8 @@ check("the edition id query declares $id with a colon", function()
   Api:hydrateBookFromEdition(30, 1)
   Api.query = saved
   assert(seen and seen:find("$id: Int!", 1, true), tostring(seen))
+end)
+
 print("\n== the default edition of a book Hardcover no longer has ==")
 
 check("a null books_by_pk falls through to the next query", function()
