@@ -67,6 +67,23 @@ check("a re-read is sent as a new read, and the finished read is never written",
   eq(q:hasPending(PATH), false, "still queued after a successful send")
 end)
 
+check("a refused status change after the read was made does not make another read on retry", function()
+  local q = KB.newQueue()
+  q:startReread(PATH, payload(5))
+  local api = KB.fakeApi(finishedBook())
+  local real, refused = api.updateUserBookStatus, false
+  api.updateUserBookStatus = function(self, id, status)
+    if not refused then refused = true; self.calls[#self.calls + 1] = { op = "updateUserBookStatus" }; return nil end
+    return real(self, id, status)
+  end
+  q:flush(api, { user_id = 1 })
+  q:flush(api, { user_id = 1 })
+  eq(api:count("createRead"), 1, "createRead calls")
+  eq(#api.shelf[7].user_book_reads, 2, "reads on the server")
+  eq(api.shelf[7].status_id, HARDCOVER.STATUS.READING, "book status")
+  eq(q:hasPending(PATH), false, "still queued")
+end)
+
 check("a re-read that the server refuses stays queued, flagged to try again", function()
   local q = KB.newQueue()
   q:startReread(PATH, payload(12))
