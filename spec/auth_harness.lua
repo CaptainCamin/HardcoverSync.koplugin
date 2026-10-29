@@ -517,6 +517,18 @@ check("polling before approval reports pending, not failure", function()
   end
 end)
 
+check("an approved poll with no usable tokens is an error", function()
+  local client = clientDouble({})
+  client.pollToken = function() return "success", { token_type = "bearer" } end
+  local a = newAuth { client = client }
+  a:beginDeviceFlow()
+  local outcome, tokens = a:pollOnce()
+  eq(outcome, "error", "outcome")
+  eq(tokens, nil, "tokens")
+  eq(a.device, nil, "the device is cleared")
+  eq(a:pollOnce(), "error", "a later poll")
+end)
+
 check("a slow_down lengthens the wait rather than hammering", function()
   local a = newAuth()
   a.device = { device_code = "d", interval = 5 }
