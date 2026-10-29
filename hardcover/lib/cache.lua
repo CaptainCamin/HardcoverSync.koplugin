@@ -264,6 +264,11 @@ function Cache:updateBookStatus(filename, status, privacy_setting_id)
   end
 
   local seen = queuedPage(self, filename)
+  -- a page queued after a status that is still waiting was made after it: leave it
+  local waiting = self.sync_queue and self.sync_queue:get(filename)
+  if waiting and waiting.status_updated_at and (waiting.page_updated_at or 0) >= waiting.status_updated_at then
+    seen = {}
+  end
   local result
   if user_book_id then
     result = Api:updateUserBookStatus(user_book_id, status, privacy_setting_id)
