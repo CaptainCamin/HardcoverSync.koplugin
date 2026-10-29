@@ -46,7 +46,7 @@ return {
     local screen = manager:showSettings()
     emu:pump()
     emu:screenNodes()
-    for _, name in ipairs({ "Books", "Home & display" }) do
+    for _, name in ipairs({ "Tracking", "Books", "Home & display" }) do
       local head
       for _, t in ipairs(screen.taps) do
         if t.shows:find("section|" .. name .. "|", 1, true) then head = t.tap.dimen end
