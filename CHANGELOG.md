@@ -24,6 +24,16 @@
 - **"Jump to Hardcover's page" uses the book's page labels.** Books with page labels landed on the wrong page.
 - **Sign-in keeps the server's slow-down.** After Hardcover asks the sign-in to poll less often, it no longer goes back to the faster rate.
 - **A restart no longer resends a refresh that may have been spent.** If a token refresh got no clear answer, the app now asks you to sign in again, even after a restart, instead of risking the session.
+- **Finding a book by its edition now works.** The request Hardcover rejected is fixed, and a file with both ISBNs now tries the ISBN-10 after the ISBN-13. ISBN-10s ending in X, `urn:isbn:` identifiers in an EPUB, and a book Hardcover no longer has are handled too.
+- **Early pages are no longer sent as page 0** when the file has more pages than the edition.
+- **A book's saved read and edition no longer outlive the read.** An old read could stay in the book's saved settings after Hardcover had none.
+- **Goals:** a date like 2026-02-31 is no longer accepted, and an offline goal can no longer crash the Goals screen.
+- **Journal times with a zone offset such as +02** are read correctly.
+- **Reading stats and charts:** listening time of 10 hours or more shows the right number, chart axes use clean steps, and long reviews or chart labels in accented, Cyrillic or CJK text are cut by characters instead of bytes. Titles and authors starting with an accented letter sort in place instead of after Z.
+- **Offline changes stay with the account that made them.** Goal changes, and the waiting status of a book on the details screen, are no longer sent for or shown to another account that signs in. Downloads of a shelf or list are kept apart per account.
+- **Offline shelf and list changes survive a download.** A book moved, removed or added to a list while offline no longer jumps back when an earlier download finishes, and a book opened during a download no longer drops books from it.
+- **A status set from the reader offline is no longer undone** when you open the book's details online.
+- **Changes wait instead of being held** after an expired sign-in or a timeout, and a second Sync tap while one is running no longer reports "Sync failed".
 
 ## 2.3.1
 
