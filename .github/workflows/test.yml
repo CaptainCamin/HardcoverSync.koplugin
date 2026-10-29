@@ -64,15 +64,15 @@ jobs:
           - { size: 1072x1448, w: 1072, h: 1448, dpi: 300 } # Kindle 6", Kobo Clara
           - { size: 758x1024, w: 758, h: 1024, dpi: 212 }   # older 6" Kindle and Kobo
     env:
-      KOREADER_VERSION: v2025.10
-      KOREADER_SHA256: 712f94c014a4e24420b7da1935759861cb286d3207a094e5a849be9077c620b9
+      KOREADER_VERSION: v2026.07.1
+      KOREADER_SHA256: e60ed106cf4e824d50394a259b3aa6c46fb1daee189df73a1734e5732b5dc245
     steps:
       - uses: actions/checkout@v4
 
       - name: Download KOReader
         run: |
           curl -fsSL -o koreader.AppImage \
-            "https://github.com/koreader/koreader/releases/download/${KOREADER_VERSION}/koreader-appimage-x86_64-${KOREADER_VERSION}.AppImage"
+            "https://github.com/koreader/koreader/releases/download/${KOREADER_VERSION}/koreader-${KOREADER_VERSION}-x86_64.AppImage"
           echo "${KOREADER_SHA256}  koreader.AppImage" | sha256sum -c -
           chmod +x koreader.AppImage
           ./koreader.AppImage --appimage-extract > /dev/null
@@ -80,7 +80,7 @@ jobs:
       # The plugin copies its Lato fonts into KOReader's fonts folder the first time it runs, after
       # KOReader has already tried to load them; put them there first so no run starts without.
       - name: Install the plugin's fonts
-        run: cp fonts/Lato-Medium.ttf fonts/Lato-Black.ttf squashfs-root/fonts/
+        run: cp fonts/Lato-Medium.ttf fonts/Lato-Black.ttf squashfs-root/usr/lib/koreader/fonts/
 
       - name: Run the emulator scenarios
         env:

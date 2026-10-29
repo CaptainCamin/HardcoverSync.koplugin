@@ -42,18 +42,18 @@ install_rock busted 2.2.0
 
 # Keep the CI-pinned KOReader build in the snapshot so UI work can run the
 # emulator without downloading and extracting it in every fresh orb.
-koreader_version="v2025.10"
-koreader_sha256="712f94c014a4e24420b7da1935759861cb286d3207a094e5a849be9077c620b9"
+koreader_version="v2026.07.1"
+koreader_sha256="e60ed106cf4e824d50394a259b3aa6c46fb1daee189df73a1734e5732b5dc245"
 koreader_cache="$HOME/.cache/hardcoversync/koreader-$koreader_version"
 koreader_appimage="$koreader_cache/koreader.AppImage"
 koreader_dir="$koreader_cache/squashfs-root"
 
-if [[ ! -f "$koreader_dir/setupkoenv.lua" ]]; then
+if [[ ! -f "$koreader_dir/usr/lib/koreader/setupkoenv.lua" ]]; then
   log_step "Caching KOReader $koreader_version"
   mkdir -p "$koreader_cache"
   if [[ ! -f "$koreader_appimage" ]] || ! echo "$koreader_sha256  $koreader_appimage" | sha256sum -c - >/dev/null; then
     curl --fail --location --retry 3 --output "$koreader_appimage.tmp" \
-      "https://github.com/koreader/koreader/releases/download/$koreader_version/koreader-appimage-x86_64-$koreader_version.AppImage"
+      "https://github.com/koreader/koreader/releases/download/$koreader_version/koreader-$koreader_version-x86_64.AppImage"
     echo "$koreader_sha256  $koreader_appimage.tmp" | sha256sum -c -
     mv "$koreader_appimage.tmp" "$koreader_appimage"
   fi
@@ -63,7 +63,7 @@ if [[ ! -f "$koreader_dir/setupkoenv.lua" ]]; then
     cd "$koreader_cache"
     "$koreader_appimage" --appimage-extract >/dev/null
   )
-  cp -- fonts/Lato-Medium.ttf fonts/Lato-Black.ttf "$koreader_dir/fonts/"
+  cp -- fonts/Lato-Medium.ttf fonts/Lato-Black.ttf "$koreader_dir/usr/lib/koreader/fonts/"
 else
   log_step "KOReader emulator already cached"
 fi

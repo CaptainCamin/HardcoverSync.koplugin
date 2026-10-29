@@ -56,6 +56,7 @@ local function probe_install(app)
   local candidates = {
     app .. "/Contents/koreader",
     app .. "/koreader",
+    app .. "/usr/lib/koreader", -- an extracted AppImage (2026.xx)
     app,
   }
   for _, dir in ipairs(candidates) do

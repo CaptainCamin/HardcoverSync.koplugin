@@ -23,7 +23,7 @@ PLUGIN_ROOT="$(cd "$EMU_DIR/../.." && pwd)"
 
 KO_EMU_APP="${KO_EMU_APP:-/Applications/KOReader.app}"
 KOREADER_DIR=""
-for c in "$KO_EMU_APP/Contents/koreader" "$KO_EMU_APP"; do
+for c in "$KO_EMU_APP/Contents/koreader" "$KO_EMU_APP/usr/lib/koreader" "$KO_EMU_APP"; do
   if [ -f "$c/setupkoenv.lua" ] && [ -d "$c/frontend" ]; then
     KOREADER_DIR="$c"
     break
