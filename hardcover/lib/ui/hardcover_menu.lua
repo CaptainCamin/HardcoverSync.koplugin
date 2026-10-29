@@ -1123,10 +1123,12 @@ function HardcoverMenu:getAccountMenuItem()
             return self.enabled
           end,
           callback = function(menu_instance)
-            self.on_sign_in()
-            if menu_instance then
-              menu_instance:updateItems()
-            end
+            -- redrawn when the sign-in finishes: the dialog is only opening now
+            self.on_sign_in(function()
+              if menu_instance then
+                menu_instance:updateItems()
+              end
+            end)
           end,
           keep_menu_open = true,
         })

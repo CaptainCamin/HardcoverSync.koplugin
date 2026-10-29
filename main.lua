@@ -300,7 +300,7 @@ function HardcoverApp:init()
     ui = self.ui,
     wifi = self.wifi,
     on_flush_sync_queue = function() self:on_flush_sync_queue() end,
-    on_sign_in = function() self:signIn() end,
+    on_sign_in = function(on_done) self:signIn(on_done) end,
     on_sign_out = function()
       -- the cache holds this account's library, so it goes with the sign in
       self.review_store:invalidate()
@@ -354,7 +354,8 @@ end
 --
 -- Start the OAuth device flow: fetch a code, then show it and poll.
 --
-function HardcoverApp:signIn()
+-- `on_done` is called once the user has signed in (not when the dialog only opens).
+function HardcoverApp:signIn(on_done)
   if not self.auth or not self.auth:usingOAuth() then
     return
   end
@@ -402,6 +403,7 @@ function HardcoverApp:signIn()
   dialog.success_callback = function()
     User:forget()
     BookshelfSources.changed(self)
+    if on_done then on_done() end
   end
 
   -- onShowSignIn shows the dialog and starts polling, so do not show it here as
