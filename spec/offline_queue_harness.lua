@@ -187,4 +187,13 @@ check("a goal flush that is already running reports itself as stopped", function
   assert(result.stopped == true and result.sent == 0)
 end)
 
+check("an expired token, a timeout and a rate limit are retried; a refusal is not", function()
+  for _, status in ipairs({ 401, 408, 425, 429, 500, 503 }) do
+    assert(OfflineQueue.transient({ status = status, errors = { "x" } }), status .. " should be transient")
+  end
+  for _, status in ipairs({ 400, 403, 404, 422 }) do
+    assert(not OfflineQueue.transient({ status = status, errors = { "x" } }), status .. " should be a refusal")
+  end
+end)
+
 r.finish()
