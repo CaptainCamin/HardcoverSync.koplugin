@@ -61,6 +61,17 @@ eq(y25.months[1], 0, "year precision not January")
 eq(y25.month_unknown, 1, "year-only finish noted")
 eq(y25.best_month.month, 3, "best month")
 eq(y25.last_month, 7, "the latest month with a finish")
+
+-- one month of a year: March 2025 is books 1 and 2 (350 + 180 pages, ratings 4.5 and 3)
+local m25 = Stats.compute(rows, { year = 2025, month = 3 })
+eq(m25.books, 2, "March 2025 books")
+eq(m25.pages, 530, "March 2025 pages")
+eq(m25.ratings.rated, 2, "March 2025 rated")
+eq(m25.ratings.average, 3.75, "March 2025 average")
+eq(m25.months[7], 0, "July is not in March")
+-- a year-only finish is not in any month, and a month is ignored without a year
+eq(Stats.compute(rows, { year = 2025, month = 1 }).books, 0, "year-only finish is not January")
+eq(Stats.compute(rows, { month = 3 }).books, 6, "a month needs a year")
 eq(Stats.years(rows)[1], 2025, "years newest first")
 eq(#Stats.years(rows), 2, "years")
 
