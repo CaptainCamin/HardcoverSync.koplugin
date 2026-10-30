@@ -620,10 +620,41 @@ function HardcoverApp:initializePageUpdate()
     HardcoverApp._handlePageUpdate
   )
 
-  HardcoverApp.onPageUpdate, HardcoverApp._cancelPageUpdateEvent = debounce(2, HardcoverApp.pageUpdateEvent)
+  HardcoverApp._debouncedPageUpdate, HardcoverApp._cancelPageUpdateEvent = debounce(2, HardcoverApp.pageUpdateEvent)
+end
+
+-- Observe every turn before debouncing: a rapid run of turns must not look like
+-- one large jump, and a glance back must cancel any pending automatic write.
+function HardcoverApp:observePage(page)
+  local previous = self.state.observed_page or self.state.page
+  if previous and page and page ~= previous then
+    local step = page - previous
+    if step < -StartReading.MAX_STEP then
+      self.state.rereading_pages = 0
+      if self._cancelPageUpdate then self:_cancelPageUpdate() end
+      if self._cancelPageUpdateEvent then self:_cancelPageUpdateEvent() end
+      self.page_update_pending = false
+    elseif self.state.rereading_pages then
+      if step > 0 and step <= StartReading.MAX_STEP then
+        self.state.rereading_pages = self.state.rereading_pages + step
+        if self.state.rereading_pages >= 5 then self.state.rereading_pages = nil end
+      elseif step < 0 or step > StartReading.MAX_STEP then
+        self.state.rereading_pages = 0
+      end
+    end
+  end
+  self.state.observed_page = page
+  return not self.state.rereading_pages
+end
+
+function HardcoverApp:onPageUpdate(page)
+  local may_sync = self:observePage(page)
+  if may_sync and self.settings:syncEnabled() then self.page_update_pending = true end
+  self:_debouncedPageUpdate(page)
 end
 
 function HardcoverApp:pageUpdateEvent(page)
+  if not self.ui.document then return end
   self.state.last_page = self.state.page
   self.state.page = page
   self:checkLastPage(page)
@@ -637,7 +668,7 @@ function HardcoverApp:pageUpdateEvent(page)
   if self:pageWriteDecision(self.ui.document.file) == "ask" then
     self:countPageForStart(self.ui.document.file, self.state.last_page, page)
   end
-  if not self.settings:syncEnabled() then
+  if not self.settings:syncEnabled() or self.state.rereading_pages then
     return
   end
   local document_pages = self.ui.document:getPageCount()
@@ -674,6 +705,8 @@ end
 
 function HardcoverApp:onPosUpdate(_, page)
   if self.state.process_page_turns then
+    local may_sync = self:observePage(page)
+    if may_sync and self.settings:syncEnabled() then self.page_update_pending = true end
     self:pageUpdateEvent(page)
   end
 end
@@ -688,6 +721,8 @@ function HardcoverApp:onReaderReady()
   self.page_mapper:cachePageMap()
   self:registerHighlight()
   self.state.page = self.ui:getCurrentPage()
+  self.state.observed_page = self.state.page
+  self.state.rereading_pages = nil
 
   if self.ui.document and (self.settings:syncEnabled() or (not self.settings:bookLinked() and self.settings:autolinkEnabled())) then
     UIManager:scheduleIn(2, self.startReadCache, self)
@@ -712,15 +747,35 @@ function HardcoverApp:cancelPendingUpdates()
   self.page_update_pending = false
 end
 
-function HardcoverApp:onDocumentClose()
+function HardcoverApp:onCloseDocument()
   UIManager:unschedule(self.startReadCache)
   UIManager:unschedule(self.askAboutOpenBook)
+  UIManager:unschedule(self.askAtLastPage)
+  UIManager:unschedule(self.checkEndMenu)
 
-  local had_pending = self.page_update_pending
+  local document = self.ui.document
+  local file_path = document and document.file
+  if file_path then
+    local page = self.ui.getCurrentPage and self.ui:getCurrentPage() or self.state.page
+    self:observePage(page)
+    if EndOfBook.atLastPage(page, document:getPageCount()) then self:checkLastPage(page) end
+    local marked = self:markIfMarkedFinished(file_path)
+    if not marked and EndOfBook.atLastPage(page, document:getPageCount())
+      and self:syncFileUpdates(file_path)
+      and self:effectiveStatusId(file_path) ~= HARDCOVER.STATUS.FINISHED
+      and not (self.state.end_asked and self.state.end_asked[file_path])
+      and EndOfBook.promptOnLastPage(self.settings:endPrompt(), G_reader_settings:readSetting("end_document_action")) then
+      UIManager:nextTick(function() self:askAtLastPage(file_path) end)
+    end
+  end
+
+  local had_pending = self.page_update_pending and not self.state.rereading_pages
   self:cancelPendingUpdates()
   self.state.read_cache_started = false
   self.state.start_reading = nil
   self.state.jump_offered = nil
+  self.state.observed_page = nil
+  self.state.rereading_pages = nil
 
   if not self.state.book_status.id and not self.settings:syncEnabled() and not self.sync_queue:hasPending() then
     self.state.process_page_turns = false
@@ -760,7 +815,8 @@ end
 function HardcoverApp:onSuspend()
   -- a cover download for offline stops; running it again carries on
   if self.dialog_manager and self.dialog_manager.stopCoverDownload then self.dialog_manager:stopCoverDownload() end
-  local had_pending = self.page_update_pending
+  if self.ui.document and self.ui.getCurrentPage then self:observePage(self.ui:getCurrentPage()) end
+  local had_pending = self.page_update_pending and not self.state.rereading_pages
   self:cancelPendingUpdates()
 
   if had_pending and self.ui.document then
@@ -1258,8 +1314,9 @@ function HardcoverApp:onEndOfBook()
   if plan == "mark" then
     self:markFinishedAndSay(file_path, "end_auto")
   elseif plan == "check_later" then
-    -- KOReader's pop-up is up and the reader has not answered yet; look again in 30 seconds
-    UIManager:scheduleIn(30, function() self:markIfMarkedFinished(file_path) end)
+    -- Wait until KOReader's dialog is gone before reading its answer or asking ours.
+    UIManager:unschedule(self.checkEndMenu)
+    UIManager:scheduleIn(1, self.checkEndMenu, self)
   end
 
   -- this plugin's end page, when the reader chose it in KOReader's list of end actions
@@ -1276,30 +1333,45 @@ function HardcoverApp:onHardcoverStatusScreenClosed()
   if file_path then self:markIfMarkedFinished(file_path) end
 end
 
--- Landing on the last page: ask "Mark as Read?" once the reader has stayed on it for a while (a page
--- turn away from it cancels the ask), or write it at once when the reader chose to mark finished books
--- automatically. This is the way a book ends when its last page is read and the book is just closed,
--- which never sends KOReader's end event.
-local LAST_PAGE_ASK_DELAY = 20
-
 function HardcoverApp:checkLastPage(page)
-  UIManager:unschedule(self.askAtLastPage)
-  local file_path = self.ui.document.file
+  local document = self.ui and self.ui.document
+  if not document then return end
+  local file_path = document.file
   if not EndOfBook.atLastPage(page, self.ui.document:getPageCount()) then return end
   if not self:syncFileUpdates(file_path) then return end
   if self:effectiveStatusId(file_path) == HARDCOVER.STATUS.FINISHED then return end
   if self.settings:endAutoMark() then
     if EndOfBook.once(self.state.end_asked, file_path) then self:markFinishedAndSay(file_path, "end_auto") end
-    return
-  end
-  if EndOfBook.promptOnLastPage(self.settings:endPrompt(), G_reader_settings:readSetting("end_document_action")) then
-    UIManager:scheduleIn(LAST_PAGE_ASK_DELAY, self.askAtLastPage, self)
   end
 end
 
-function HardcoverApp:askAtLastPage()
-  local file_path = self.ui and self.ui.document and self.ui.document.file
+function HardcoverApp:checkEndMenu()
+  local document = self.ui and self.ui.document
+  if not document then return end
+  for _, window in ipairs(UIManager._window_stack or {}) do
+    if window.widget.name == "end_document" then
+      UIManager:scheduleIn(1, self.checkEndMenu, self)
+      return
+    end
+  end
+  if self:markIfMarkedFinished(document.file) then return end
+  local page = self.ui:getCurrentPage()
+  if EndOfBook.atLastPage(page, document:getPageCount())
+    and EndOfBook.promptOnLastPage(self.settings:endPrompt(), G_reader_settings:readSetting("end_document_action")) then
+    self:askAtLastPage(document.file)
+  end
+end
+
+function HardcoverApp:askAtLastPage(file_path)
+  file_path = file_path or (self.ui and self.ui.document and self.ui.document.file)
   if not file_path or not self:syncFileUpdates(file_path) then return end
+  for _, window in ipairs(UIManager._window_stack or {}) do
+    if window.widget.name == "end_document" then
+      UIManager:scheduleIn(1, self.askAtLastPage, self, file_path)
+      return
+    end
+  end
+  if self:markIfMarkedFinished(file_path) then return end
   if self:effectiveStatusId(file_path) == HARDCOVER.STATUS.FINISHED then return end
   if not EndOfBook.once(self.state.end_asked, file_path) then return end
   StatusDialogs.confirm {

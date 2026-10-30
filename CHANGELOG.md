@@ -4,7 +4,7 @@
 
 ### Added
 
-- **Finishing a book now reaches Hardcover.** Switching a book to Finished on KOReader's book-status screen is sent to Hardcover (it used to be missed). Staying on the last page for a while asks "Mark as Read?", with an option to mark automatically instead; the question is off by default when another end page is chosen. A new "Hardcover end page" choice in KOReader's End of document action list shows the book, your rating, a review link and Mark as Read. Offline, the change waits in Pending changes.
+- **Finishing a book now reaches Hardcover.** Switching a book to Finished on KOReader's book-status screen is sent to Hardcover (it used to be missed). After the last page, "Mark as Read?" is asked when you close the book or once KOReader's own end-of-document menu has closed (it no longer appears on top of that menu; choosing Mark as finished there is enough), with an option to mark automatically instead; the question is off by default when another end page is chosen. A new "Hardcover end page" choice in KOReader's End of document action list shows the book, your rating, a review link and Mark as Read. Offline, the change waits in Pending changes.
 
 - **Add to the book's journal.** The Journal screen opened from the reader panel has a plus button at the bottom right. It offers Note, Quote and Review (Edit your review when you already have one), using the same forms as before, offline included. What you add shows in the list at once. The highlight shortcut and the book page's review button are unchanged.
 
@@ -12,6 +12,9 @@
 
 ### Fixed
 
+- **Closing a book right after turning a page no longer crashes,** and the page you were on is sent as the book closes.
+- **Editions with no page count no longer send page 1.** They are treated like editions whose page count is unknown.
+- **Flipping back no longer resets your progress.** A jump of more than a few pages back (to check the contents, say) is not sent until you have read 5 pages forward from there.
 - **Pages read offline are dated when you read them in the Journal.** A page sent after a reconnect used to appear in Hardcover's journal on the day it arrived, so a book read over several days offline looked like one day of reading. Each page now goes with the time it was read, and several days read offline are sent as one entry per day (the last page of each day), oldest first. Reading on the same day offline still gives one entry. Hardcover sometimes leaves out a dated entry even though the page is saved, so the journal may show fewer days than you read.
 - **"Start reading this book?" now appears when tracking is off.** It was only asked for a book with "Update Hardcover as I read" on, and tracking is off for every book until you turn it on, so the question almost never came. A linked book that is not on Currently Reading is now counted from the moment it is opened, whether tracking is on or not. Nothing is sent while it is only counted; saying yes turns tracking on for that book.
 - **Smaller buttons on the book details screen.** The round buttons and their captions are back to a size that fits the screen, and the Open / Find on device button is its normal height again.
