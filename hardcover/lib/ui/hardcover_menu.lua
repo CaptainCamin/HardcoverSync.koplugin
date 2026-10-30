@@ -278,11 +278,9 @@ function HardcoverMenu:showReaderPanel()
             user_book_id = status.id, status_id = status_id,
             -- the note and quote form, as "Add a note" opens it; `on_saved` refreshes the journal
             write = function(event_type, on_saved)
-              local reads = self.state.book_status.user_book_reads
-              local current_read = reads and reads[#reads]
-              local current_page = current_read and current_read.progress_pages or 0
+              local current_page = self.ui:getCurrentPage()
               self.dialog_manager:journalEntryForm("", self.ui.document, current_page, self.settings:pages(),
-                current_page, event_type, on_saved)
+                nil, event_type, on_saved)
             end,
           })
         end,
@@ -1707,17 +1705,13 @@ function HardcoverMenu:getStatusSubMenuItems()
         return self.enabled and self.settings:bookLinked()
       end,
       callback = function()
-        local reads = self.state.book_status.user_book_reads
-        local current_read = reads and reads[#reads]
-        local current_page = current_read and current_read.progress_pages or 0
-
-        -- allow premapped page
+        local current_page = self.ui:getCurrentPage()
         self.dialog_manager:journalEntryForm(
           "",
           self.ui.document,
           current_page,
           self.settings:pages(),
-          current_page,
+          nil,
           "note"
         )
       end,

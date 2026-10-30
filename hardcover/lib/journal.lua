@@ -113,7 +113,10 @@ local STATUS_TEXT = {
 -- The line that says what happened, for an entry with no text of its own; nil for a kind the tab
 -- does not show (a referral is about another reader, not a book you read).
 local function actionText(event, meta)
-  if event == "progress_updated" then return progressText(meta) end
+  if event == "progress_updated" then
+    if percent(meta.progress) and percent(meta.progress) == percent(meta.progress_was) then return nil end
+    return progressText(meta)
+  end
   if event == "user_book_read_started" then return "Started reading" end
   if event == "user_book_read_finished" then return "Finished reading" end
   if event == "rated" then return ratingText(meta) end
@@ -450,7 +453,14 @@ function Journal.withPending(entries, journal_ops, review_ops, user_id)
       e.authors, e.cover_url = known.authors, known.cover_url
     end
   end
-  for _, e in ipairs(held) do out[#out + 1] = e end
+  for _, e in ipairs(held) do
+    -- Older snapshots may contain these rows from before parse filtered them.
+    local was, now
+    if e.event == "progress_updated" and type(e.action) == "string" then
+      was, now = e.action:match("^Updated progress from (%d+%%) to (%d+%%)$")
+    end
+    if not (was and was == now) then out[#out + 1] = e end
+  end
   return out
 end
 

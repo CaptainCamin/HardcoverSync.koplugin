@@ -69,7 +69,7 @@ end
 -- Send what is waiting, one request each. A review Hardcover did not answer for stays queued for
 -- the next try and stops the flush. One it refused is counted and the rest go on; the third
 -- refusal in a row holds it until the user presses Sync (retryHeld).
--- `opts`: { json (KOReader's), on_sent(user_book_id, user_book) for each one that went through }.
+-- `opts`: { json (KOReader's), on_sent(user_book_id, user_book, book_id) for each one that went through }.
 -- Returns the number still waiting (held ones included).
 function ReviewQueue:flush(api, opts)
   opts = opts or {}
@@ -91,7 +91,7 @@ function ReviewQueue:flush(api, opts)
           -- a newer review written while this one was in flight stays
           if ops[key] == op then ops[key] = nil end
           self:persist()
-          if opts.on_sent then opts.on_sent(op.user_book_id, user_book) end
+          if opts.on_sent then opts.on_sent(op.user_book_id, user_book, op.book_id) end
         elseif ops[key] == op and (id or err ~= nil) then
           if OfflineQueue.transient(err) then break end
           OfflineQueue.reject(op, err)

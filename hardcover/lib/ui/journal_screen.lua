@@ -48,7 +48,7 @@ function JournalScreen:init()
   self.body = JournalBody:new {
     shell = self, width = screen_w,
     height = screen_h - bar:getSize().h - (footer and footer:getSize().h or 0),
-    message = self.message, entries = self.entries, select_cb = self.select_cb, more_cb = self.more_cb,
+    message = self.message, entries = self.entries, select_cb = self.select_cb, more_cb = self.more_cb, single_book = true,
   }
   self[1] = FrameContainer:new {
     width = screen_w, height = screen_h, background = Theme.WHITE,

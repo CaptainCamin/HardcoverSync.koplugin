@@ -91,17 +91,24 @@ end
 function JournalBody:buildRow(entry, width, row_h)
   local row = Journal.row(entry, self.now and self.now() or nil)
   local inner_h = row_h - Theme.line.hair
-  local line = HorizontalGroup:new { align = "center", Theme.hspan(SIDE),
-    self.covers:cell(row.cover_url, COVER_W, COVER_H), Theme.hspan(SIDE) }
+  local line = HorizontalGroup:new { align = "center", Theme.hspan(SIDE) }
+  if not self.single_book then
+    table.insert(line, self.covers:cell(row.cover_url, COVER_W, COVER_H))
+    table.insert(line, Theme.hspan(SIDE))
+  end
 
   local chevron = row.open and Draw.chevron("right") or nil
   local trailing_w = chevron and chevron:getSize().w or 0
-  local text_w = math.max(px(60), width - SIDE - COVER_W - SIDE - SIDE - trailing_w - SIDE)
-  local column = VerticalGroup:new { align = "left",
-    Theme.mmdText(row.title, "strong", 21, { width = text_w }),
-    Theme.span(px(3)),
-    Theme.mmdText(row.what, "text", 18, { width = text_w }),
-  }
+  local text_w = math.max(px(60), width - 3 * SIDE - trailing_w - (self.single_book and 0 or COVER_W + SIDE))
+  local column = VerticalGroup:new { align = "left" }
+  if not self.single_book then
+    table.insert(column, Theme.mmdText(row.title, "strong", 21, { width = text_w }))
+    table.insert(column, Theme.span(px(3)))
+  else
+    local day = entry.waiting and Journal.WAITING or Journal.dayText(entry.at, self.now and self.now() or nil)
+    row.detail = table.concat({ entry.page and ("p. " .. entry.page) or "", day or "" }, " · "):gsub("^ · ", ""):gsub(" · $", "")
+  end
+  table.insert(column, Theme.mmdText(row.what, "text", 18, { width = text_w }))
   if row.detail ~= "" then
     table.insert(column, Theme.span(px(3)))
     table.insert(column, Theme.mmdText(row.detail, "text", 15, { width = text_w, secondary = true }))

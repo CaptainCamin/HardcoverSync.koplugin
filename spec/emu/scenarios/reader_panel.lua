@@ -33,7 +33,8 @@ local function build(emu, linked)
   local menu = HardcoverMenu:new({
     settings = settings,
     enabled = true,
-    ui = { document = { file = "/books/x.epub" }, doc_props = { display_title = "x" } },
+    ui = { document = { file = "/books/x.epub" }, doc_props = { display_title = "x" },
+      getCurrentPage = function() return 120 end },
     state = { book_status = linked and {
       id = 1, status_id = 2, rating = 4.5,
       user_book_reads = { { progress_pages = 142 } },
@@ -125,6 +126,10 @@ return {
     menu.rating_queue = require("hardcover/lib/rating_queue"):new { settings = queue_settings }
     local dm = menu.dialog_manager
     dm.settings, dm.rating_queue = menu.settings, menu.rating_queue
+    dm.page_mapper = { getMappedPage = function(_, page, pages, remote_pages)
+      assert(page == 120 and pages == 387 and remote_pages == 387)
+      return 200
+    end }
     dm.journal_queue = require("hardcover/lib/journal_queue"):new { settings = queue_settings }
     dm.review_queue = require("hardcover/lib/review_queue"):new { settings = queue_settings }
     dm.shelf_queue = require("hardcover/lib/shelf_queue"):new { settings = queue_settings }
@@ -215,9 +220,11 @@ return {
     editor:onCloseKeyboard()
     emu:pump()
     tapText("Done")
+    emu:expectText("Page 200 of 387")
     tapText("Save")
     dismissNotes()
-    assert(dm.journal_queue:count() == 1 and dm.journal_queue:list()[1].book_id == 328491)
+    assert(dm.journal_queue:count() == 1 and dm.journal_queue:list()[1].book_id == 328491
+      and dm.journal_queue:list()[1].page == 200)
     emu:expectText("Written before my first sync.")
     addEntry("Review")
     editor = emu:top()

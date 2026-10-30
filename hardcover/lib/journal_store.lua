@@ -20,11 +20,12 @@ end
 
 -- (the Activity tab kept its entries, of another shape, under "activity:<user>": they are not read)
 local function storeKey(user_id) return "journal:" .. tostring(user_id or 0) end
+local function bookKey(user_id, book_id) return storeKey(user_id) .. ":book:" .. tostring(book_id) end
 
 -- { entries, more, saved_at } as last saved, or nil.
-function JournalStore:get(user_id)
+function JournalStore:get(user_id, book_id)
   if not self.db then return nil end
-  local saved = Codec.decode(self.db:getBlob(storeKey(user_id)))
+  local saved = Codec.decode(self.db:getBlob(book_id and bookKey(user_id, book_id) or storeKey(user_id)))
   if saved and type(saved.entries) == "table" then
     return saved
   end
@@ -32,16 +33,16 @@ end
 
 -- Save what the tab shows. `more`: Hardcover has entries older than these (a list cut to KEEP
 -- has more too). Returns whether it was saved.
-function JournalStore:put(user_id, entries, more)
+function JournalStore:put(user_id, entries, more, book_id, saved_at)
   if not self.db or type(entries) ~= "table" then return false end
   local kept = {}
   for i = 1, math.min(#entries, JournalStore.KEEP) do kept[i] = entries[i] end
   local text = Codec.encode({
     entries = kept,
     more = more == true or #entries > JournalStore.KEEP,
-    saved_at = self.now(),
+    saved_at = saved_at or self.now(),
   })
-  return text and self.db:putBlob(storeKey(user_id), text) or false
+  return text and self.db:putBlob(book_id and bookKey(user_id, book_id) or storeKey(user_id), text) or false
 end
 
 --
@@ -51,8 +52,8 @@ end
 -- `false` clears one); nil deletes them. When the copy is from stays as it was. Returns whether the
 -- copy changed.
 --
-function JournalStore:change(user_id, match, fields)
-  local saved = self:get(user_id)
+function JournalStore:change(user_id, match, fields, book_id)
+  local saved = self:get(user_id, book_id)
   if not saved then return false end
   local test = type(match) == "function" and match or function(e) return e.key == match end
   local kept, changed = {}, false
@@ -72,7 +73,7 @@ function JournalStore:change(user_id, match, fields)
   if not changed then return false end
   saved.entries = kept
   local text = Codec.encode(saved)
-  return text and self.db:putBlob(storeKey(user_id), text) or false
+  return text and self.db:putBlob(book_id and bookKey(user_id, book_id) or storeKey(user_id), text) or false
 end
 
 return JournalStore
