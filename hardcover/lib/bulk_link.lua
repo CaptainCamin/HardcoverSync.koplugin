@@ -75,6 +75,8 @@ function BulkLink.identifiersFromOpf(opf)
       tokens[#tokens + 1] = token
     end
   end
+  -- an empty <dc:identifier/> has no closing tag: left in, it would swallow the next identifier
+  opf = opf:gsub("<%s*[%w_%-:]*identifier[^>]*/>", "")
   for attrs, value in opf:gmatch("<%s*[%w_%-:]*identifier([^>]*)>(.-)</%s*[%w_%-:]*identifier%s*>") do
     add(identifierToken(attrs, value))
   end
