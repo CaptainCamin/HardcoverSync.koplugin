@@ -80,6 +80,16 @@ eq(Stats.compute(rows, { month = 3 }).books, 6, "a month needs a year")
 eq(Stats.years(rows)[1], 2025, "years newest first")
 eq(#Stats.years(rows), 2, "years")
 
+-- the rated books with a page count, for the length against rating chart (rows 1, 2 and 3 of the
+-- first set; row 4 has no pages, row 5 no rating, row 6 no rating), and the average rating of each year:
+-- 2025 has 4.5, 3, 5 and 4, so 4.125; 2023 has no rating
+eq(#all.rated_lengths, 3, "rated books with pages")
+eq(all.rated_lengths[1].pages, 350, "first rated book's pages")
+eq(all.rated_lengths[1].rating, 4.5, "first rated book's rating")
+eq(all.by_year[1].avg_rating, nil, "2023 has no rated book")
+eq(all.by_year[3].avg_rating, 4.125, "2025 average rating")
+eq(Stats.compute(rows, { year = 2025 }).rated_lengths[3].pages, 620, "the year keeps its rated books")
+
 -- days from start to finish, for books with both days known: 15 (Feb 27 to Mar 14), 1, 30 (Jan 10 to
 -- Feb 9) and 0 (same day). A book with no start, a month-only finish, or a finish before its start is left out.
 local days_rows = Stats.normalizeAll({

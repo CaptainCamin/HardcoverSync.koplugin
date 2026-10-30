@@ -45,6 +45,7 @@ return {
     dialog.scroll:scrollToRatio(0, 1)
     emu:pump()
     emu:shot("stats_all_3")
+    emu:expectText("Rating and length")
 
     -- one year, from its tab: All time, the two latest years, Earlier
     assert(dialog.chips and #dialog.chips == 4, "expected four period chips, got " .. tostring(dialog.chips and #dialog.chips))

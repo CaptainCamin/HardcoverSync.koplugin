@@ -89,6 +89,7 @@ end
 --   values            one number per column
 --   labels            { [index] = "Jan" } along the bottom (the ones that fit are drawn)
 --   highlight         the column to stand out (it, and the tallest, get their value drawn)
+--   all_values       true: every column gets its value drawn, not only the tallest and the highlight
 --   emphasis          true: every other column is a mid grey so the highlight is the story
 --   marker            { at = 4.28, text = "avg 4.3" }: a pointer above the columns at a position
 --                     in column units (1 = the first column's centre)
@@ -180,7 +181,7 @@ function ChartWidgets.columns(opts)
         local level = 0x00
         if opts.emphasis and opts.highlight and i ~= opts.highlight then level = 0x77 end
         if c.h > 0 then column(bb, plot_x + c.x, base_y, c.w, c.h, level) end
-        if c.value > 0 and (i == peak or i == opts.highlight) then
+        if c.value > 0 and (opts.all_values or i == peak or i == opts.highlight) then
           local label = (i == opts.highlight and opts.emphasis) and strong(show(c.value)) or tw(show(c.value))
           local cx = plot_x + c.x + math.floor(c.w / 2)
           local clash = marker and marker.label
@@ -514,6 +515,52 @@ end
 -- split by dotted rules. No boxes; the next section's own rule closes the row. `tiles` are { value, label }; up to
 -- three across, more wrap.
 --
+-- A dot per book: its pages along the bottom, its rating (0 to 5) up the side.
+function ChartWidgets.scatter(opts)
+  local points = opts.points or {}
+  local width, height = opts.width, opts.height
+  local small = "label"
+  local text_h = text("0", small):getSize().h
+  local top_pad = math.floor(text_h / 2) + px(6)
+  local bottom = text_h + px(10)
+  local plot_h = math.max(px(40), height - top_pad - bottom)
+
+  local biggest = 0
+  for _, p in ipairs(points) do if p.pages > biggest then biggest = p.pages end end
+  local x_top, x_step = Charts.niceScale(biggest)
+  local y_top = 5
+  local axis_w = text(tostring(y_top), small):getSize().w + px(8)
+  local plot_w = width - axis_w
+  local function px_x(v) return math.floor(v / x_top * plot_w + 0.5) end
+  local function px_y(r) return math.floor(r / y_top * plot_h + 0.5) end
+  local dim = {}
+  local function quiet(str)
+    dim[str] = dim[str] or text(str, small, { grey = true })
+    return dim[str]
+  end
+  local dot = px(4)
+
+  return Canvas:new {
+    width = width, height = height,
+    draw = function(bb, x, y)
+      local base_y = y + top_pad + plot_h
+      local plot_x = x + axis_w
+      for r = 0, y_top do
+        if r > 0 then bb:paintRect(plot_x, base_y - px_y(r), plot_w, math.max(1, Theme.line.hair), grey(GRIDLINE)) end
+        local label = quiet(tostring(r))
+        put(bb, label, x + axis_w - px(6), base_y - px_y(r) - math.floor(label:getSize().h / 2), "right")
+      end
+      bb:paintRect(plot_x, base_y, plot_w, Theme.line.firm, BLACK)
+      for v = x_step, x_top, x_step do
+        put(bb, quiet(Charts.number(v)), plot_x + px_x(v), base_y + px(6), "center")
+      end
+      for _, p in ipairs(points) do
+        bb:paintCircle(plot_x + px_x(p.pages), base_y - px_y(p.rating), dot, BLACK)
+      end
+    end,
+  }
+end
+
 function ChartWidgets.kpis(opts)
   local tiles = opts.tiles or {}
   local per_row = math.min(opts.per_row or 3, math.max(1, #tiles))
