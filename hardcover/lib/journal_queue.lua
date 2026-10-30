@@ -172,6 +172,8 @@ end
 function JournalQueue:cancel(id)
   local ops = self:ops()
   local had = ops[id] ~= nil
+  -- an entry already on its way will exist on Hardcover: the flush deletes it when it arrives
+  if had and ops[id] == self.sending_op and ops[id].action == nil then ops[id].discarded = true end
   ops[id] = nil
   self:persist()
   return had
@@ -215,6 +217,7 @@ function JournalQueue:flush(api, opts)
       if mine(op) and not op.held and ops[op.id] == op then
         local entry, err
         local sent_text = op.text
+        self.sending_op = op
         if op.action == "update" then
           entry, err = api:updateJournalEntry(op.journal_id, op.text)
         elseif op.action == "delete" then
@@ -222,7 +225,13 @@ function JournalQueue:flush(api, opts)
         else
           entry, err = api:createJournalEntry(JournalQueue.object(op, opts.json))
         end
-        if entry then
+        self.sending_op = nil
+        if entry and op.discarded then
+          if tonumber(entry.id) then
+            self:change("delete", { user_id = op.user_id, journal_id = entry.id, book_id = op.book_id,
+              event = op.event, title = op.title })
+          end
+        elseif entry then
           -- edited while it was on its way: the new text goes next, as a change to the entry it made
           local edited = op.action == nil and op.text ~= sent_text and tonumber(entry.id) ~= nil
             and ops[op.id] == op

@@ -378,5 +378,30 @@ check("stored changes that are broken are dropped", function()
   eq(q:list()[1].id, "1-3")
 end)
 
+check("a note discarded while it is being sent is deleted once Hardcover has it", function()
+  local q = newQueue()
+  local id = q:queue(note { text = "oops" })
+  local api = changeApi()
+  local plain = api.createJournalEntry
+  function api:createJournalEntry(object)
+    eq(q:cancel(id), true)
+    return plain(self, object)
+  end
+  q:flush(api, { user_id = 7 })
+  eq(q:count(), 1, "the delete is waiting")
+  local op = q:list()[1]
+  eq(op.action, "delete"); eq(op.journal_id, 5001)
+  q:flush(api, { user_id = 7 })
+  eq(api.log[#api.log][1], "delete")
+  eq(q:count(), 0)
+end)
+
+check("a note discarded when nothing is on its way just goes", function()
+  local q = newQueue()
+  local id = q:queue(note { text = "oops" })
+  eq(q:cancel(id), true)
+  eq(q:count(), 0)
+end)
+
 print(string.format("\n%d passed, %d failed", results.passed, results.failed))
 os.exit(results.failed == 0 and 0 or 1)
