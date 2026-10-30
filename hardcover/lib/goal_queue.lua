@@ -222,6 +222,12 @@ function GoalQueue:_flush(api, opts)
         -- request was out (then the newer is what is left to send)
         local current = self:find(op.key)
         if current == op then drop(self, op.key) end
+        -- a goal archived (or cancelled) while its creation was out now exists on Hardcover:
+        -- archive it under its real id
+        if current == nil and op.kind == "save" and GoalQueue.isLocal(op.key)
+          and type(result) == "table" and result.id ~= nil then
+          table.insert(self:ops(), { key = result.id, kind = "archive", user_id = op.user_id, form = op.form, at = os.time() })
+        end
         if op.kind == "save" and GoalQueue.isLocal(op.key) and type(result) == "table" then
           -- the goal has its real id now: anything still waiting for the local key
           -- follows it

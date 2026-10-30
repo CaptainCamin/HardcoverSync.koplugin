@@ -87,4 +87,12 @@ check("the second trigger for the same book finds it already handled", function(
   assert(EndOfBook.once(seen, "/b/b.epub") == true)
 end)
 
+check("a book started again is asked about again", function()
+  local seen = {}
+  assert(EndOfBook.once(seen, "/b/a.epub") == true)
+  EndOfBook.forget(seen, "/b/a.epub")
+  assert(EndOfBook.once(seen, "/b/a.epub") == true)
+  assert(EndOfBook.once(seen, "/b/b.epub") == true)
+end)
+
 r.finish()

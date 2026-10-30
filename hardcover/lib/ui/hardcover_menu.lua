@@ -1384,6 +1384,8 @@ function HardcoverMenu:startReread(restart)
   payload.mapped_page = page
   payload.from_status_id = self.state.book_status and self.state.book_status.status_id
   self.sync_queue:startReread(file, payload)
+  -- the new read can end too: let the end-of-book prompt ask again
+  require("hardcover/lib/end_of_book").forget(self.state.end_asked, file)
 
   Background.run(function()
     if not Network.connected() then
