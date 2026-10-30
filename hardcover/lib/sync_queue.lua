@@ -193,8 +193,14 @@ end
 -- When a change is already waiting, the shelf it started from is kept.
 function SyncQueue:enqueueStatus(filepath, payload)
   local held = self:shelfChangeWaiting(filepath)
-  local origin = held and self:get(filepath).from_status_id
+  local before = held and self:get(filepath)
+  local origin = before and before.from_status_id
+  -- A status replaces the one waiting, but Hardcover logs each step of reading a book: a book that
+  -- went through Currently Reading on its way to Read must still be sent as started.
+  local passed_reading = payload.status_id ~= HARDCOVER.STATUS.READING and before
+    and (before.status_id == HARDCOVER.STATUS.READING or before.passed_reading) or nil
   local entry = self:_ensure(filepath, payload)
+  entry.passed_reading = passed_reading
   entry.from_status_id = origin or payload.from_status_id or 0
   entry.status_id = payload.status_id
   entry.status_updated_at = os.time()
@@ -237,7 +243,7 @@ function SyncQueue:cancelStatus(filepath)
   local entry = self:get(filepath)
   if type(entry) ~= "table" then return false end
   entry.status_id, entry.status_updated_at, entry.finished_date = nil, nil, nil
-  entry.privacy_setting_id, entry.failures = nil, nil
+  entry.privacy_setting_id, entry.failures, entry.passed_reading = nil, nil, nil
   if not entry.reread then entry.from_status_id = nil end
   self:save(filepath, entry)
   return true
@@ -477,6 +483,7 @@ function SyncQueue:_clearSent(filepath, sent)
     entry.status_id = nil
     entry.status_updated_at = nil
     entry.finished_date = nil
+    entry.passed_reading = nil
   end
   if self:isEmpty(entry) then
     self:pending()[filepath] = nil
@@ -538,7 +545,13 @@ local function orderedOps(entry)
   end
   local status_first = entry.status_id == HARDCOVER.STATUS.READING
       or entry.status_id == HARDCOVER.STATUS.TO_READ
+  -- Finished and then started over before anything was sent: the finish belongs to the old read,
+  -- so it goes first whatever the clock says, and the page opens the new one.
+  local finish_first = entry.reread and entry.status_id == HARDCOVER.STATUS.FINISHED
   table.sort(ops, function(a, b)
+    if finish_first and a.kind ~= b.kind then
+      return a.kind == "status"
+    end
     if a.at ~= b.at then
       return a.at < b.at
     end
@@ -578,11 +591,15 @@ function SyncQueue:_flushEntry(api, filepath, opts)
 
   local ops = orderedOps(entry)
   local sent = {}
+  local READING = HARDCOVER.STATUS.READING
+  local owes_reading = entry.passed_reading and entry.status_id ~= nil
 
   if not hasUserBook(user_book) then
     local first = ops[1]
-    local status_to_set = HARDCOVER.STATUS.READING
-    if first.kind == "status" then
+    local status_to_set = READING
+    -- the status that follows Currently Reading is sent on its own below
+    local first_is_status = first.kind == "status" and not owes_reading
+    if first_is_status then
       status_to_set = first.value
     end
     user_book = api:updateUserBook(book_id, status_to_set, privacy_setting_id, edition_id)
@@ -590,13 +607,24 @@ function SyncQueue:_flushEntry(api, filepath, opts)
       countRejection(self, filepath)
       return false
     end
-    if first.kind == "status" then
+    if first_is_status then
       if first.finished_date then user_book = api:setFinishedDate(user_book, first.finished_date) or user_book end
       sent.status, sent.status_at = first.value, first.at
       table.remove(ops, 1)
       self:_clearSent(filepath, sent)
       sent = {}
     end
+  elseif owes_reading and user_book.status_id ~= READING then
+    local started = api:updateUserBookStatus(user_book.id, READING)
+    if not hasUserBook(started) then
+      countRejection(self, filepath)
+      return false
+    end
+    user_book = started
+  end
+  if owes_reading then
+    local now = self:get(filepath)
+    if type(now) == "table" then now.passed_reading = nil end
   end
 
   for _, op in ipairs(ops) do
