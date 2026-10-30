@@ -18,7 +18,8 @@ local function build(emu, queued)
     ui = { document = { file = "/books/x.epub" }, doc_props = { display_title = "x" } },
     state = state,
     cache = { updateBookStatus = function() end },
-    sync_queue = { get = function() return queued and { status_id = 3 } or nil end },
+    sync_queue = { get = function() return queued and { status_id = 3 } or nil end,
+      statusOf = function() return queued and 3 or nil end },
     dialog_manager = {},
   })
 end

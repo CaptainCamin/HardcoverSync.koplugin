@@ -41,7 +41,7 @@ local function build(emu, linked)
     cache = { cacheUserBook = function() end },
     sync_queue = { pendingCount = function() return 0 end, changeCount = function() return 0 end,
       hasPending = function() return false end,
-      get = function() return nil end },
+      get = function() return nil end, statusOf = function() return nil end },
     auth = { usingOAuth = function() return true end, needsReauth = function() return false end,
              statusText = function() return "Signed in" end },
     dialog_manager = dialog_manager, hardcover = {},

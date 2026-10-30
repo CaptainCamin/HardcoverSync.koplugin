@@ -47,7 +47,7 @@ return {
           getCurrentPage = function() return 100 end,
         },
         page_mapper = { getMappedPage = function(_, page) return page end },
-        state = { book_status = { id = 503, status_id = restart and 5 or FINISHED,
+        state = { end_asked = {}, book_status = { id = 503, status_id = restart and 5 or FINISHED,
           user_book_reads = { { id = 900, progress_pages = 387, edition_id = 3 } } } },
         cache = {
           queueMeta = function() return { book_id = 328491, edition_id = 3, user_book_id = 503 } end,
@@ -61,7 +61,7 @@ return {
           pendingCount = function() return 0 end,
           changeCount = function() return 0 end,
           hasPending = function() return false end,
-          get = function() return nil end,
+          get = function() return nil end, statusOf = function() return nil end,
           startReread = function(_, _, payload) calls.reread_page = payload.mapped_page end,
           flush = function() calls.flushed = true return true end,
         },
