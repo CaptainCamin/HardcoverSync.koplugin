@@ -581,7 +581,8 @@ function ShelfDialog:loadMore()
   self.loading = true
 
   local page_offset = self.offset
-  self.fetch_page(page_offset, self.page_size, function(entries, err, has_more)
+  -- An ID-backed list may consume more IDs than it can return books for.
+  self.fetch_page(page_offset, self.page_size, function(entries, err, has_more, next_offset)
     self.loading = false
     if self.closed then return end
 
@@ -592,7 +593,7 @@ function ShelfDialog:loadMore()
 
     local before = #self.entries
     local visible_before = #(self.visible_entries or self.entries)
-    self.offset = page_offset + #entries
+    self.offset = next_offset or page_offset + #entries
     self.entries = Shelf.appendPage(self.entries, entries, has_more and #entries > 0)
     self.has_more = has_more and #entries > 0 or false
     -- on to the first of the new rows

@@ -318,7 +318,7 @@ function HardcoverApi:findEditions(book_id, user_id)
       return nil
     end
     local read_index = {}
-    for _, read in ipairs(read_editions) do
+    for _, read in ipairs(read_editions.user_books) do
       read_index[read.edition_id] = true
     end
 
