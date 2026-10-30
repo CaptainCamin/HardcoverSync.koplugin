@@ -57,7 +57,8 @@ function ListQueue:queueAdd(user_id, book_id, list_id, count, info)
   local ops = self:ops()
   local key = keyOf(list_id, book_id)
   local before = self:get(list_id, book_id)
-  if before and before.kind == "remove" then
+  -- (a remove already on its way is not cancelled: it will happen, so the add must follow it)
+  if before and before.kind == "remove" and before ~= self.sending_op then
     ops[key] = nil
     self:persist()
     return "cancelled"
@@ -79,7 +80,8 @@ function ListQueue:queueRemove(user_id, book_id, list_id, list_book_id, info)
   local ops = self:ops()
   local key = keyOf(list_id, book_id)
   local before = self:get(list_id, book_id)
-  if before and before.kind == "add" then
+  -- (likewise an add already on its way: the remove must follow it, looking its row up)
+  if before and before.kind == "add" and before ~= self.sending_op then
     ops[key] = nil
     self:persist()
     return "cancelled"
@@ -184,7 +186,9 @@ function ListQueue:_flush(api, opts)
   for _, key in ipairs(keys) do
     local op = ops[key]
     if op and not op.held then
+      self.sending_op = op
       local ok, result, err = pcall(send, api, op)
+      self.sending_op = nil
       if not ok then result, err = nil, nil end
 
       if result then
