@@ -185,6 +185,22 @@ check("the other kinds Hardcover writes", function()
   eq(action("something_else"), nil)
 end)
 
+check("progress that displays no change is hidden but still counted for paging", function()
+  local function row(id, was, now)
+    return { id = id, event = "progress_updated", action_at = "2026-10-01T00:00:00Z",
+      metadata = { progress_was = was, progress = now } }
+  end
+  local page = Journal.parse({ reading_journals = { row(1, 13, 13), row(2, 13.1, 13.4),
+    row(3, 13.4, 13.6), row(4, nil, 13) } }, 4)
+  eq(page.count, 4); eq(page.more, true); eq(#page.entries, 2)
+  eq(page.entries[1].action, "Updated progress from 13% to 14%")
+  eq(page.entries[2].action, "Updated progress to 13%")
+  local saved = { { key = "progress_updated:9", kind = "event", event = "progress_updated",
+    action = "Updated progress from 13% to 13%" }, page.entries[1] }
+  local shown = Journal.withPending(saved, {}, {}, 1)
+  eq(#shown, 1); eq(shown[1].key, "progress_updated:3")
+end)
+
 check("a note or quote keeps its whole text, an excerpt, and the page", function()
   local e = byKey(Journal.parse({ reading_journals = rows() }, 20).entries)
   local quote, note = e["quote:10"], e["note:9"]

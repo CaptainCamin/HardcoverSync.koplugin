@@ -235,14 +235,16 @@ function JournalQueue:flush(api, opts)
           -- edited while it was on its way: the new text goes next, as a change to the entry it made
           local edited = op.action == nil and op.text ~= sent_text and tonumber(entry.id) ~= nil
             and ops[op.id] == op
+          local sent = {}
+          for k, v in pairs(op) do sent[k] = v end
+          sent.text = sent_text
           -- only this very change: a newer one may have taken its place while it was on its way
           if not edited and ops[op.id] == op then ops[op.id] = nil end
-          self:persist()
-          if opts.on_sent then opts.on_sent(op, entry) end
           if edited then
             op.action, op.journal_id = "update", tonumber(entry.id)
-            self:persist()
           end
+          self:persist()
+          if opts.on_sent then opts.on_sent(sent, entry) end
         elseif OfflineQueue.transient(err) then
           stopped = true
           break

@@ -1132,15 +1132,14 @@ function HardcoverApp:_flushLists()
   return not result.stopped and result.waiting == result.held
 end
 
--- Send the notes and quotes written offline (as _flushShelves). The dialog manager has nothing
--- to refresh for one: an entry sent is simply gone from the queue.
+-- Send the notes and quotes written offline (as _flushShelves).
 function HardcoverApp:_flushJournals()
   local queue = self.journal_queue
   if not queue or queue:isEmpty() then
     return true
   end
   local result = queue:flush(Api, { user_id = User:getId(), json = json,
-    on_sent = function(op) self.dialog_manager:journalChangeSent(op) end })
+    on_sent = function(op, entry) self.dialog_manager:journalChangeSent(op, entry) end })
   self:_noticeHeld("journal", result.held)
   return not result.stopped and result.waiting == result.held
 end
@@ -1152,10 +1151,10 @@ function HardcoverApp:_flushReviews()
     return true
   end
   local waiting = queue:flush(Api, { json = json, user_id = User:getId(),
-    on_sent = function(user_book_id, user_book)
+    on_sent = function(user_book_id, user_book, book_id)
       local has = type(user_book) == "table" and user_book.has_review ~= false
       self.dialog_manager:reviewChangeSent(user_book_id, has and user_book.review_raw or nil,
-        has and user_book.review_has_spoilers)
+        has and user_book.review_has_spoilers, book_id)
     end })
   self:_noticeHeld("review", queue:heldCount(User:getId()))
   return waiting <= queue:heldCount(User:getId())

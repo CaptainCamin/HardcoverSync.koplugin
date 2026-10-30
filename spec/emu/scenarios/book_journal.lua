@@ -40,6 +40,8 @@ return {
       "the journal should ask for this book's own entries only")
     emu:expectText("Journal")
     emu:expectText("Fear is the mind-killer")
+    emu:expectText("p. 12")
+    assert(not emu:screenText():find("Dune", 1, true), "book title is repeated in the book journal")
     emu:shot("book_journal")
     screen:onClose()
     emu:pump()

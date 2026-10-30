@@ -330,7 +330,9 @@ check("an entry edited while it was being sent sends the new text next, as a cha
     q:editWaiting(id, "second words")
     return plain(self, object)
   end
-  q:flush(api, { user_id = 7 })
+  local sent
+  q:flush(api, { user_id = 7, on_sent = function(op) sent = op end })
+  eq(sent.action, nil); eq(sent.text, "first words", "the saved copy reflects what was sent")
   eq(q:count(), 1, "the edit is still to go")
   local op = q:list()[1]
   eq(op.action, "update"); eq(op.journal_id, 5001); eq(op.text, "second words")

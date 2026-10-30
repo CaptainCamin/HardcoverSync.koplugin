@@ -37,6 +37,32 @@ local function trim(text)
   return (text:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
+-- A response to the initial fetch may arrive after a send or a delete on this screen.
+local function journalChanged(state, key, fields)
+  state.changed[key] = fields or false
+  for _, entries in ipairs({ state.entries, state.sent }) do
+    for i = #entries, 1, -1 do
+      local entry = entries[i]
+      if entry.key == key then
+        if fields then for k, v in pairs(fields) do entry[k] = v end else table.remove(entries, i) end
+      end
+    end
+  end
+end
+
+local function freshJournal(state, page)
+  local entries = Journal.append(state.sent, page)
+  for i = #entries, 1, -1 do
+    local fields = state.changed[entries[i].key]
+    if fields == false then
+      table.remove(entries, i)
+    elseif fields then
+      for k, v in pairs(fields) do entries[i][k] = v end
+    end
+  end
+  return entries
+end
+
 -- After a change is kept: say so, and send it now if there is a connection.
 local function kept(self, online_text, offline_text)
   if Network.connected() then
@@ -182,33 +208,68 @@ function Flows:deleteJournalEntry(entry, done)
   }
 end
 
--- Hardcover took a change to a note or quote: the saved copy shows it, offline too.
-function Flows:journalChangeSent(op)
+-- Hardcover took a note or quote: keep it in both snapshots and update an open screen.
+function Flows:journalChangeSent(op, answer)
   local store = self.journal_store
-  if not (store and type(op) == "table" and op.action) then return end
+  if not (store and type(op) == "table") then return end
+  if not op.action then
+    if not (answer and tonumber(answer.id)) then return end
+    local excerpt, truncated = Reviews.excerpt(op.text)
+    local entry = { key = op.event .. ":" .. tostring(answer.id), id = tonumber(answer.id),
+      event = op.event, kind = op.event, user_id = tonumber(op.user_id) or User:getId(),
+      book_id = tonumber(op.book_id), title = op.title or "A book", text = op.text,
+      excerpt = excerpt, truncated = truncated, page = op.page,
+      at = os.date("!%Y-%m-%dT%H:%M:%SZ", op.at or os.time()) }
+    local all_saved = store:get(User:getId())
+    for _, book in ipairs({ false, op.book_id }) do
+      local saved = store:get(User:getId(), book or nil)
+      local prior = saved and saved.entries or {}
+      if book and not saved and all_saved then
+        for _, old in ipairs(all_saved.entries) do
+          if tonumber(old.book_id) == tonumber(book) then prior[#prior + 1] = old end
+        end
+      end
+      local entries = Journal.append({ entry }, prior)
+      store:put(User:getId(), entries, saved and saved.more, book or nil,
+        (saved or (book and all_saved)) and (saved or all_saved).saved_at)
+    end
+    for _, kind in ipairs({ "journal", "book_journal" }) do
+      local screen = self:screens():open(kind)
+      if screen and screen.journalSent then screen:journalSent(op, entry) end
+    end
+    return
+  end
   local key = tostring(op.event) .. ":" .. tostring(op.journal_id)
+  local fields
   if op.action == "delete" then
-    store:change(User:getId(), key, nil)
+    fields = nil
   elseif type(op.text) == "string" then
     local excerpt, truncated = Reviews.excerpt(op.text)
-    store:change(User:getId(), key, { text = op.text, excerpt = excerpt, truncated = truncated })
+    fields = { text = op.text, excerpt = excerpt, truncated = truncated }
+  end
+  store:change(User:getId(), key, fields)
+  if op.book_id then store:change(User:getId(), key, fields, op.book_id) end
+  for _, kind in ipairs({ "journal", "book_journal" }) do
+    local screen = self:screens():open(kind)
+    if screen and screen.journalChanged then screen:journalChanged(key, fields) end
   end
 end
 
 -- Hardcover took a review: the saved copy shows the new text on every entry of the book, or, for a
 -- removed review, says only that you reviewed it.
-function Flows:reviewChangeSent(user_book_id, text, spoilers)
+function Flows:reviewChangeSent(user_book_id, text, spoilers, book_id)
   local store = self.journal_store
   if not store or user_book_id == nil then return end
   local function ofBook(e)
     return e.kind == "review" and e.user_book_id ~= nil and tostring(e.user_book_id) == tostring(user_book_id)
   end
-  if type(text) ~= "string" or not text:match("%S") then
-    store:change(User:getId(), ofBook, { text = false, excerpt = false, truncated = false, spoilers = false })
-  else
+  local fields = { text = false, excerpt = false, truncated = false, spoilers = false }
+  if type(text) == "string" and text:match("%S") then
     local excerpt, truncated = Reviews.excerpt(text)
-    store:change(User:getId(), ofBook, { text = text, excerpt = excerpt, truncated = truncated, spoilers = spoilers == true })
+    fields = { text = text, excerpt = excerpt, truncated = truncated, spoilers = spoilers == true }
   end
+  store:change(User:getId(), ofBook, fields)
+  if book_id then store:change(User:getId(), ofBook, fields, book_id) end
 end
 
 -- Hardcover's entries as changed on this device, under what it does not have yet.
@@ -228,8 +289,9 @@ function Flows:showJournal(host)
   local saved = store and store:get(me_id)
   -- what Hardcover has, as far as the tab knows: the saved copy, then the pages it brings, and how
   -- many of Hardcover's rows have been asked for (where the next page starts)
-  local state = { entries = saved and saved.entries or {}, offset = 0 }
+  local state = { entries = saved and saved.entries or {}, offset = 0, sent = {}, changed = {} }
   local shown = self:pendingJournal(state.entries, me_id)
+  local manager = self
 
   local message
   if missing_journal then
@@ -252,6 +314,21 @@ function Flows:showJournal(host)
     end,
   }
   self:openScreen("journal", dialog, host)
+  function dialog:journalSent(op, entry)
+    for _, shown_entry in ipairs(self.entries or {}) do
+      if shown_entry.queue_id == op.id then
+        for k in pairs(shown_entry) do shown_entry[k] = nil end
+        for k, v in pairs(entry) do shown_entry[k] = v end
+      end
+    end
+    state.sent = Journal.append({ entry }, state.sent)
+    state.entries = Journal.append({ entry }, state.entries)
+    self:setEntries(manager:pendingJournal(state.entries, me_id), self.has_more)
+  end
+  function dialog:journalChanged(key, fields)
+    journalChanged(state, key, fields)
+    self:setEntries(manager:pendingJournal(state.entries, me_id), self.has_more)
+  end
   -- saved, and there was nothing in it: say so, as an empty answer does
   if not message and #shown == 0 then dialog:setEntries({}, false) end
   if missing_journal then return dialog end
@@ -309,7 +386,7 @@ function Flows:showJournal(host)
         self:loadFailed(dialog, host, _("Couldn't load your journal.")))
       return
     end
-    state.entries = page.entries
+    state.entries = freshJournal(state, page.entries)
     state.offset = page.count or #page.entries
     show(page.more)
   end)
@@ -317,7 +394,7 @@ function Flows:showJournal(host)
 end
 
 -- The journal of one book, opened from the reader panel: the same entries as the Journal tab, for
--- this book only, on a screen of its own. Offline it shows what the tab has saved for the book and
+-- this book only, on a screen of its own. Offline it shows the book's saved copy or the tab's and
 -- what is waiting to send for it (a waiting review is known by the book's title, `title`).
 -- `opts` (from the reader panel) turns on the Add entry button: { user_book_id, write(event_type,
 -- on_saved) which opens the note and quote form }. A review is written here, for `user_book_id`.
@@ -328,7 +405,7 @@ function Flows:showBookJournal(book_id, title, opts)
   local missing_journal = online and AuthScope.missing("read:journal")
   local me_id = User:getId()
   local store = self.journal_store
-  local saved = store and store:get(me_id)
+  local saved = store and (store:get(me_id, book_id) or store:get(me_id))
 
   local function ofBook(entries)
     local out = {}
@@ -353,7 +430,7 @@ function Flows:showBookJournal(book_id, title, opts)
       or (opts and _("No saved entries for this book. You can add an entry offline.")
         or _("The journal needs an internet connection the first time."))
   end
-  local state = { entries = ofBook(saved and saved.entries), offset = 0 }
+  local state = { entries = ofBook(saved and saved.entries), offset = 0, sent = {}, changed = {} }
   local screen
   -- the list as it is now, with what is waiting; a change made from here shows at once
   local function refresh()
@@ -389,6 +466,22 @@ function Flows:showBookJournal(book_id, title, opts)
     add_cb = opts and add_cb or nil,
     select_cb = function(entry) self:openJournalEntry(entry, refresh) end,
   }
+  function screen:journalSent(op, entry)
+    if tonumber(entry.book_id) ~= tonumber(book_id) then return end
+    for _, shown_entry in ipairs(self.body.entries or {}) do
+      if shown_entry.queue_id == op.id then
+        for k in pairs(shown_entry) do shown_entry[k] = nil end
+        for k, v in pairs(entry) do shown_entry[k] = v end
+      end
+    end
+    state.sent = Journal.append({ entry }, state.sent)
+    state.entries = Journal.append({ entry }, state.entries)
+    refresh()
+  end
+  function screen:journalChanged(key, fields)
+    journalChanged(state, key, fields)
+    refresh()
+  end
   self:screens():track("book_journal", screen)
   require("ui/uimanager"):show(screen, "full")
   if missing_journal then return screen end
@@ -411,6 +504,7 @@ function Flows:showBookJournal(book_id, title, opts)
   end
 
   local function show(more)
+    if store then store:put(me_id, state.entries, more, book_id) end
     local all = withWaiting(state.entries)
     if #all == 0 then
       screen:setMessage(_("Nothing in the journal for this book yet. Your progress, ratings, notes, quotes and reviews of it will appear here."))
@@ -440,7 +534,7 @@ function Flows:showBookJournal(book_id, title, opts)
       if #shown == 0 then screen:setMessage(_("Couldn't load the journal.")) end
       return
     end
-    state.entries = page.entries
+    state.entries = freshJournal(state, page.entries)
     state.offset = page.count or #page.entries
     show(page.more)
   end)

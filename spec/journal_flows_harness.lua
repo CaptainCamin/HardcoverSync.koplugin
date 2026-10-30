@@ -131,6 +131,16 @@ Body.new = function(_, o)
   return o
 end
 
+local Screen = real_require("hardcover/lib/ui/journal_screen")
+Screen.new = function(_, o)
+  o.body = Body:new { entries = o.entries, message = o.message }
+  o.setEntries = function(self, entries, more) self.body:setEntries(entries, more) end
+  o.setMessage = function(self, message) self.body:setMessage(message) end
+  o.setLoading = function(self, loading) self.body:setLoading(loading) end
+  o.free = function() end
+  return o
+end
+
 local clock = 1000000
 local function entry(n)
   return { key = "note:" .. n, id = n, kind = "note", at = string.format("2026-10-%02dT10:00:00+00:00", n),
@@ -578,6 +588,85 @@ check("once Hardcover has a change, the saved copy shows it", function()
   assert(#entries == 4, "a removed review keeps its entries")
   assert(entries[2].key == "reviewed:4003" and entries[2].text == nil and entries[2].spoilers == nil and entries[4].text == nil)
   assert(m:reviewChangeSent(901, "not listed") == nil and #m.journal_store:get(1).entries == 4)
+end)
+
+check("book journal caches its own pages offline without replacing the library journal", function()
+  local m = newManager()
+  m.journal_store:put(1, { entry(2) }, false)
+  answer = function() return page(5, 4, false) end
+  local screen = m:showBookJournal(5, "Dune", {})
+  assert(#screen.body.entries == 2 and screen.body.entries[1].key == "note:5")
+  assert(m.journal_store:get(1).entries[1].key == "note:2")
+  assert(m.journal_store:get(1, 5).entries[1].key == "note:5")
+  online = false
+  screen = m:showBookJournal(5, "Dune", {})
+  assert(#screen.body.entries == 2 and screen.body.entries[1].key == "note:5")
+  assert(m.journal_store:get(2, 5) == nil)
+end)
+
+check("an offline journal tab updates when a waiting note is sent", function()
+  local m = newManager()
+  online = false
+  m.journal_queue:queue({ user_id = 1, book_id = 5, event = "note", text = "Offline words", title = "Dune" })
+  m:showJournal()
+  assert(tab.entries[1].waiting)
+  m.journal_queue:flush({ createJournalEntry = function() return { id = 601 } end }, {
+    user_id = 1, on_sent = function(op, result) m:journalChangeSent(op, result) end })
+  assert(tab.entries[1].key == "note:601" and not tab.entries[1].waiting)
+  assert(m.journal_store:get(1).entries[1].text == "Offline words")
+end)
+
+check("a sent note becomes editable and deletable on the open book journal and in both caches", function()
+  local m = newManager()
+  answer = function() return page(2, 2, false) end
+  local screen = m:showBookJournal(5, "Dune", {})
+  local id = m.journal_queue:queue({ user_id = 1, book_id = 5, event = "note", text = "Draft", title = "Dune", page = 73 })
+  screen:setEntries(m:pendingJournal(screen.body.entries, 1), false)
+  local displayed = screen.body.entries[1]
+  screen.select_cb(displayed)
+  local view = last("text")
+  m.journal_queue:flush({ createJournalEntry = function() return { id = 600 } end }, {
+    user_id = 1, on_sent = function(op, result) m:journalChangeSent(op, result) end })
+  assert(displayed.id == 600 and not displayed.queue_id and not displayed.waiting)
+  assert(screen.body.entries[1].key == "note:600" and screen.body.entries[1].page == 73)
+  assert(m.journal_store:get(1).entries[1].key == "note:600")
+  assert(m.journal_store:get(1, 5).entries[1].key == "note:600")
+  button(view, "Edit").callback()
+  last("input").typed = "Revised"
+  button(last("input"), "Save").callback()
+  assert(m.journal_queue:changeFor(600).text == "Revised")
+  m.journal_queue:flush({ updateJournalEntry = function() return { id = 600 } end }, {
+    user_id = 1, on_sent = function(op, result) m:journalChangeSent(op, result) end })
+  assert(screen.body.entries[1].text == "Revised" and not screen.body.entries[1].waiting)
+  assert(m.journal_store:get(1, 5).entries[1].text == "Revised")
+  screen.select_cb(screen.body.entries[1])
+  button(last("text"), "Delete").callback()
+  assert(confirms[#confirms].title == "Delete this note?")
+  confirms[#confirms].ok_callback()
+  assert(m.journal_queue:changeFor(600).action == "delete")
+  m.journal_queue:flush({ deleteJournalEntry = function() return { id = 600 } end }, {
+    user_id = 1, on_sent = function(op, result) m:journalChangeSent(op, result) end })
+  assert(screen.body.entries[1].key == "note:2")
+  assert(#m.journal_store:get(1).entries == 0 and m.journal_store:get(1, 5).entries[1].key == "note:2")
+  assert(id ~= nil)
+end)
+
+check("a late book-journal response cannot resurrect a note deleted after it was sent", function()
+  local m = newManager()
+  local callback, original = nil, Api.getJournalAsync
+  Api.getJournalAsync = function(_, _, cb) callback = cb end
+  local screen = m:showBookJournal(5, "Dune", {})
+  local id = m.journal_queue:queue({ user_id = 1, book_id = 5, event = "note", text = "Draft", title = "Dune" })
+  screen:setEntries(m:pendingJournal({}, 1), false)
+  m.journal_queue:flush({ createJournalEntry = function() return { id = 600 } end }, {
+    user_id = 1, on_sent = function(op, result) m:journalChangeSent(op, result) end })
+  m.journal_queue:change("delete", { user_id = 1, journal_id = 600, book_id = 5, event = "note" })
+  m.journal_queue:flush({ deleteJournalEntry = function() return { id = 600 } end }, {
+    user_id = 1, on_sent = function(op, result) m:journalChangeSent(op, result) end })
+  callback({ entries = { entry(600), entry(2) }, count = 2, more = false })
+  Api.getJournalAsync = original
+  assert(id and #screen.body.entries == 1 and screen.body.entries[1].key == "note:2")
+  assert(#m.journal_store:get(1, 5).entries == 1 and m.journal_store:get(1, 5).entries[1].key == "note:2")
 end)
 
 r.finish()
