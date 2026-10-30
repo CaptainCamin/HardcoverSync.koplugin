@@ -1267,11 +1267,22 @@ end
 -- One vibe's books in its ranking, in the shelf screen, a page at a time as you page on.
 function DialogManager:showVibe(vibe)
   local PAGE = 20
-  local dialog
+  local dialog, loading
   local function fetch_page(offset, limit, callback)
     Api:getBooksByIdsAsync(Vibes.page(vibe, offset, limit), function(entries, err)
-      if not Live.shown(dialog) then return end
-      callback(entries, err, offset + (limit or PAGE) < #vibe.ids)
+      if not Live.shown(dialog) then
+        StatusDialogs.close(loading)
+        return
+      end
+      -- Hardcover can omit deleted books. Advance over requested IDs, not returned rows,
+      -- and skip unavailable pages rather than hiding the rest of the vibe.
+      local next_offset = math.min(offset + (limit or PAGE), #vibe.ids)
+      local has_more = next_offset < #vibe.ids
+      if entries and not err and #entries == 0 and has_more then
+        fetch_page(next_offset, limit, callback)
+        return
+      end
+      callback(entries, err, has_more, next_offset)
     end)
   end
   dialog = require("hardcover/lib/ui/shelf_dialog"):new {
@@ -1295,9 +1306,10 @@ function DialogManager:showVibe(vibe)
     return
   end
 
-  local loading = StatusDialogs.loading(_("Loading the books\226\128\166"))
-  Api:getBooksByIdsAsync(Vibes.page(vibe, 0, PAGE), function(entries, err)
+  loading = StatusDialogs.loading(_("Loading the books\226\128\166"))
+  fetch_page(0, PAGE, function(entries, err, has_more, next_offset)
     StatusDialogs.close(loading)
+    loading = nil
     if not Live.shown(dialog) then return end
     if not entries then
       StatusDialogs.retry(err, _("Loading the vibe"),
@@ -1312,8 +1324,8 @@ function DialogManager:showVibe(vibe)
       dialog:setEmptyState(_("No books in this vibe yet"))
       return
     end
-    dialog.offset = PAGE
-    dialog:setEntries(entries, #vibe.ids > PAGE, true)
+    dialog.offset = next_offset
+    dialog:setEntries(entries, has_more, true)
   end)
 end
 

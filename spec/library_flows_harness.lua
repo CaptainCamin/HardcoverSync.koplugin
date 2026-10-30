@@ -602,4 +602,55 @@ check("a new rating makes new picks", function()
   assert(named("getForYou") == 1)
 end)
 
+print("\n== vibe paging past unavailable books ==")
+
+-- Keep the real API normalizer and shelf paging; replace only network and widget construction.
+local ShelfDialog = real_require("hardcover/lib/ui/shelf_dialog")
+local fake_shelf_new = ShelfDialog.new
+ShelfDialog.new = function(self, opts)
+  local dialog = fake_shelf_new(self, opts)
+  dialog.setEntries = ShelfDialog.setEntries
+  dialog.per_page = 10
+  return dialog
+end
+Api.getBooksByIds = dofile(PLUGIN .. "/hardcover/lib/hardcover_api.lua").getBooksByIds
+
+for _, case in ipairs({
+  { name = "a missing book does not duplicate the next page", first = 21, last = 21 },
+  { name = "an unavailable middle page does not hide later books", first = 21, last = 40 },
+  { name = "an unavailable first page does not hide later books", first = 1, last = 40 },
+  { name = "an unavailable final page ends the list", first = 41, last = 65 },
+  { name = "a vibe with no available books shows its empty state", first = 1, last = 65 },
+}) do
+  check(case.name, function()
+    local manager = newManager()
+    local ids, expected = {}, {}
+    for id = 1, 65 do
+      ids[#ids + 1] = id
+      if id < case.first or id > case.last then expected[#expected + 1] = id end
+    end
+    Api.query = function(_, _, vars)
+      local books = {}
+      for _, id in ipairs(vars.ids) do
+        if id < case.first or id > case.last then
+          books[#books + 1] = { book_id = id, title = "Book " .. id }
+        end
+      end
+      return { books = books }
+    end
+    manager:showVibe({ title = "Vibe", ids = ids })
+    local dialog = shown.shelf
+    for _ = 1, 10 do
+      if not dialog.has_more then break end
+      ShelfDialog.loadMore(dialog)
+    end
+    assert(not dialog.has_more, "paging did not finish")
+    assert(#dialog.entries == #expected, "expected " .. #expected .. " books, got " .. #dialog.entries)
+    for i, id in ipairs(expected) do
+      assert(dialog.entries[i].book_id == id, "wrong book at rank " .. i)
+    end
+    if #expected == 0 then assert(dialog.empty, "no empty state") end
+  end)
+end
+
 r.finish()
