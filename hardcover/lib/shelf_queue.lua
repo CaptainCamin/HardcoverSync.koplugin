@@ -71,6 +71,9 @@ function ShelfQueue:queueStatus(user_id, book_id, status_id, info)
     user_book_id = user_book_id, edition_id = edition_id, title = info.title or (before and before.title),
     -- the shelf the book was on before the first waiting change: what it leaves
     from_status_id = before and before.from_status_id or info.from_status_id,
+    -- a book that went through Currently Reading on its way here is still sent as started
+    passed_reading = status_id ~= HARDCOVER.STATUS.READING and before and before.kind == "status"
+      and (before.status_id == HARDCOVER.STATUS.READING or before.passed_reading) or nil,
     at = os.time(),
     -- the day it was finished, so a sync on a later day does not become the finish date
     finished_date = status_id == HARDCOVER.STATUS.FINISHED and os.date("%Y-%m-%d") or nil,
@@ -200,6 +203,11 @@ function ShelfQueue:_flush(api, opts)
     if op and not op.held then
       local ok, result, err = pcall(function()
         if op.kind == "remove" then return api:removeUserBook(op.user_book_id) end
+        if op.passed_reading then
+          local started, started_err = api:updateUserBook(op.book_id, HARDCOVER.STATUS.READING, nil, op.edition_id)
+          if not started then return nil, started_err end
+          op.passed_reading = nil
+        end
         local result, err = api:updateUserBook(op.book_id, op.status_id, nil, op.edition_id)
         if result and op.finished_date then result = api:setFinishedDate(result, op.finished_date) or result end
         return result, err

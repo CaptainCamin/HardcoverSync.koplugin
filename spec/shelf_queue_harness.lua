@@ -258,5 +258,15 @@ check("another account's waiting change is not seen, and not inherited", functio
   eq(q:queueRemove(2, 101, nil, "x"), "dropped", "B's remove has no record of its own")
 end)
 
+check("a book moved to Reading and then to Read is sent as Reading first", function()
+  local q, api = newQueue(), fakeApi()
+  q:queueStatus(1, 100, 2, { user_book_id = 55, from_status_id = 4 })
+  q:queueStatus(1, 100, 3, {})
+  q:flush(api, { user_id = 1 })
+  local seen = {}
+  for _, c in ipairs(api.calls) do if c.name == "updateUserBook" then seen[#seen + 1] = c.args[2] end end
+  eq(table.concat(seen, ","), "2,3", "statuses sent")
+end)
+
 print(string.format("\n  %d passed, %d failed", results.passed, results.failed))
 os.exit(results.failed == 0 and 0 or 1)

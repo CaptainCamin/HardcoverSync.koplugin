@@ -62,7 +62,7 @@ function HardcoverMenu:bookShelfStatus()
     if op.kind == "remove" then return nil, true end
     return op.status_id, nil
   end
-  local status_id = (pending and pending.status_id) or status.status_id
+  local status_id = (file and self.sync_queue and self.sync_queue:statusOf(file)) or status.status_id
   if status_id or status.not_on_shelf then return status_id, status.not_on_shelf end
   if self.settings:bookLinked() then
     local dm = self.dialog_manager
@@ -1417,8 +1417,8 @@ end
 -- and opened again before the state is rebuilt).
 function HardcoverMenu:currentStatusId()
   local file = self.ui and self.ui.document and self.ui.document.file
-  local pending = file and self.sync_queue and self.sync_queue:get(file)
-  return (type(pending) == "table" and pending.status_id) or (self.state.book_status or {}).status_id
+  local queued = file and self.sync_queue and self.sync_queue:statusOf(file)
+  return queued or (self.state.book_status or {}).status_id
 end
 
 function HardcoverMenu:refreshReaderPanel()
