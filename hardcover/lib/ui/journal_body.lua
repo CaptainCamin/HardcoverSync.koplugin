@@ -254,7 +254,7 @@ function JournalBody:setEntries(entries, has_more)
   self.has_more = has_more == true
   self.loading = false
   self.more_from = nil
-  if #self.entries == 0 then
+  if #self.entries == 0 and not self.has_more then
     self:setMessage(_("Nothing in your journal yet. What you do with your books on Hardcover (progress, ratings, notes, quotes and reviews) appears here."))
     return
   end

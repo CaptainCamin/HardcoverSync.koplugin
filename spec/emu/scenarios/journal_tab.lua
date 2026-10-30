@@ -299,5 +299,26 @@ return {
     emu:shot("journal_tab_changed")
     emu:closeAll()
     os.remove(queue_path)
+
+    -- A page of excluded events is not the end of the journal. The visible Load more
+    -- control must still reach the older book entry using the raw-row offset.
+    rows, calls = {}, {}
+    for i = 1, Journal.PAGE_SIZE do
+      add { id = 1000 + i, event = "referral_to", action_at = "2026-10-26T12:00:00Z" }
+    end
+    add { id = 900, event = "note", entry = "Older journal entry", book = DUNE,
+      action_at = "2026-10-01T12:00:00Z" }
+    manager:showJournal()
+    emu:pump()
+    tab = top()
+    assert(#tab.entries == 0 and tab.has_more, "a filtered page hid the older history")
+    emu:expectText("Load more")
+    emu:shot("journal_filtered_page")
+    tap_button(emu, "Load more")
+    assert(#calls == 2 and calls[2].offset == Journal.PAGE_SIZE, "did not continue after the filtered page")
+    emu:expectText("Older journal entry")
+    assert(#tab.entries == 1 and not tab.has_more)
+    emu:shot("journal_filtered_more")
+    emu:closeAll()
   end,
 }
