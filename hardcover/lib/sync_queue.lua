@@ -1,5 +1,6 @@
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 
+local Book = require("hardcover/lib/book")
 local OfflineQueue = require("hardcover/lib/offline_queue")
 
 local SyncQueue = OfflineQueue.extend({})
@@ -167,9 +168,7 @@ function SyncQueue:enqueuePage(filepath, payload)
   return entry
 end
 
--- A page that starts the book again. The flush opens a new read for it (see _flushEntry), so the
--- finished read is never written. Only the page is queued, not a status: a READING status queued
--- ahead of the page would make the page land on the finished read.
+-- A page that starts the book again. The flush changes status and writes the read Hardcover creates.
 function SyncQueue:startReread(filepath, payload)
   local held = self:shelfChangeWaiting(filepath)
   local origin = held and self:get(filepath).from_status_id
@@ -177,6 +176,7 @@ function SyncQueue:startReread(filepath, payload)
   -- pages queued before the restart belong to the read that finished
   entry.page_days = { entry.page_days[#entry.page_days] }
   entry.reread = true
+  entry.read_id, entry.started_at = nil, nil
   entry.from_status_id = origin or payload.from_status_id or 0
   self:persist()
   return entry
@@ -289,16 +289,17 @@ function SyncQueue:applyPending(filepath, book_status)
   end
   if entry.mapped_page ~= nil then
     local reads = book_status.user_book_reads
-    if reads and reads[#reads] then
+    local read = not entry.reread and Book:currentRead(reads)
+    if read then
       -- The server may already be ahead (read on another device): never show
       -- the book as further back than the cloud says.
-      local shown = tonumber(reads[#reads].progress_pages)
+      local shown = tonumber(read.progress_pages)
       -- (unless the reader set this page by hand: that is theirs to move backwards)
       if not shown or shown < entry.mapped_page or entry.force_page then
-        reads[#reads].progress_pages = entry.mapped_page
+        read.progress_pages = entry.mapped_page
       end
       if entry.edition_id then
-        reads[#reads].edition_id = entry.edition_id
+        read.edition_id = entry.edition_id
       end
     else
       book_status.user_book_reads = { {
@@ -661,7 +662,7 @@ function SyncQueue:_flushEntry(api, filepath, opts)
       end
 
       local reads = user_book.user_book_reads
-      local current_read = reads and reads[#reads]
+      local current_read = Book:currentRead(reads)
       local server_page = current_read and tonumber(current_read.progress_pages)
       -- A Paused book is still being read: a page on it is progress, not the start of a re-read
       local finished = current == HARDCOVER.STATUS.FINISHED or current == HARDCOVER.STATUS.DNF
@@ -678,7 +679,7 @@ function SyncQueue:_flushEntry(api, filepath, opts)
       -- Slightly ahead: it wins quietly. Never take the server backwards
       -- unless the user said to.
       local skip = false
-      if not finished and server_page and server_page > op.value and not entry.force_page then
+      if not entry.reread and not finished and server_page and server_page > op.value and not entry.force_page then
         if server_page - op.value >= SyncQueue.CONFLICT_PAGES then
           entry.conflict = { kind = "page", local_page = op.value, cloud_page = server_page }
           self:persist()
@@ -688,31 +689,13 @@ function SyncQueue:_flushEntry(api, filepath, opts)
       end
 
       if entry.reread and finished then
-        -- a new read first, then the book is being read again. Once the read is made it is
-        -- remembered, so a retry after a refused status change does not make another.
-        if not entry.read_made then
-          local made = api:createRead(
-            user_book.id,
-            edition_id or user_book.edition_id,
-            op.value,
-            entry.first_page_date or os.date("%Y-%m-%d")
-          )
-          if not hasUserBook(made) then
-            countRejection(self, filepath)
-            return false
-          end
-          entry.read_made = true
-          self:persist()
-        end
+        -- Hardcover creates the new read as part of this transition.
         local reading = api:updateUserBookStatus(user_book.id, HARDCOVER.STATUS.READING)
         if not hasUserBook(reading) then
           countRejection(self, filepath)
           return false
         end
         user_book = reading
-        entry.reread = nil
-        entry.read_made = nil
-        skip = true
       end
 
       if not skip then
@@ -721,7 +704,17 @@ function SyncQueue:_flushEntry(api, filepath, opts)
         local steps = self:_pageSteps(entry, op, server_page)
         for _, step in ipairs(steps) do
           local reads_now = user_book.user_book_reads
-          current_read = reads_now and reads_now[#reads_now] or current_read
+          -- During a restart the newest read is the one created by the status change,
+          -- even when an older DNF read has progress. Keep that choice on retry.
+          if entry.reread then
+            current_read = reads_now and reads_now[#reads_now]
+          else
+            current_read = Book:currentRead(reads_now) or current_read
+          end
+          if entry.reread and not (current_read and current_read.id and not current_read.finished_at) then
+            countRejection(self, filepath)
+            return false
+          end
           local result
           if current_read and current_read.id then
             result = api:updatePage(

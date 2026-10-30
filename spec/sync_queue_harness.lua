@@ -585,19 +585,26 @@ check("offline progress on a Finished book asks whether it is a re-read, and sen
   eq(#api.calls, calls, "a held conflict is not tried again")
 end)
 
-check("re-reading: yes makes a NEW read first, then sets Currently Reading", function()
+check("re-reading: yes sets Currently Reading, then writes its new read", function()
   local q = newQueue()
   q:enqueuePage("/books/a.epub", { mapped_page = 120, book_id = 1, edition_id = 3 })
   local api = existingBookApi(HARDCOVER.STATUS.FINISHED)
   local order = {}
-  local create, update = api.createRead, api.updateUserBookStatus
-  api.createRead = function(self, ...) order[#order + 1] = "createRead" return create(self, ...) end
-  api.updateUserBookStatus = function(self, ...) order[#order + 1] = "updateUserBookStatus" return update(self, ...) end
+  api.updateUserBookStatus = function(self, id, status)
+    order[#order + 1] = "updateUserBookStatus"
+    self.new_status = status
+    return { id = id, status_id = status, user_book_reads = { { id = 99 } } }
+  end
+  api.updatePage = function(_, id, _, page)
+    order[#order + 1] = "updatePage"
+    eq(id, 99, "new read")
+    return { id = 500, status_id = HARDCOVER.STATUS.READING, user_book_reads = { { id = id, progress_pages = page } } }
+  end
   q:flush(api, { user_id = 1 })
   eq(q:resolve("/books/a.epub", "yes"), true, "resolved")
   eq(q:flush(api, { user_id = 1 }), true, "flush result")
-  eq(order[1], "createRead", "the new read comes first")
-  eq(order[2], "updateUserBookStatus", "then the status")
+  eq(order[1], "updateUserBookStatus", "the status comes first")
+  eq(order[2], "updatePage", "then the new read")
   eq(api.new_status, HARDCOVER.STATUS.READING, "now Currently Reading")
   eq(q:hasPending("/books/a.epub"), false, "cleared")
 end)

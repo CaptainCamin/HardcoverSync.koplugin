@@ -259,14 +259,14 @@ end)
 
 print("\n== the reading query ==")
 
-check("it asks for the reading shelf, newest first, five, with the latest read", function()
+check("it asks for the reading shelf, newest first, five, with all reads", function()
   answer({ user_books = {} })
   Api:getCurrentlyReading(7)
   assert(captured.vars.userId == 7 and captured.vars.statusId == 2 and captured.vars.limit == 5)
   local q = captured.q
   assert(q:find("order_by: { updated_at: desc }", 1, true), "not newest first")
-  assert(q:find("user_book_reads(order_by: { id: desc }, limit: 1)", 1, true), "not the latest read")
-  for _, field in ipairs({ "progress_pages", "cached_image", "contributions", "edition", "pages" }) do
+  assert(q:find("user_book_reads(order_by: { id: asc })", 1, true), "reads not oldest first")
+  for _, field in ipairs({ "progress_pages", "finished_at", "cached_image", "contributions", "edition", "pages" }) do
     assert(q:find(field, 1, true), "query lacks " .. field)
   end
   Api:getCurrentlyReading(7, 3)
@@ -278,7 +278,8 @@ check("rows come back as entries with progress and the edition's pages", functio
     id = 1, status_id = 2,
     book = { book_id = 9, title = "Nine", pages = 300, cached_image = { url = "u" },
              contributions = { { author = { name = "A. Writer" } } } },
-    user_book_reads = { { progress_pages = 120, edition = { pages = 250 } } },
+    user_book_reads = { { progress_pages = 120, edition = { pages = 250 } },
+      { edition = { pages = 300 } } },
   }, {
     id = 2, status_id = 2, book = { book_id = 10, title = "Ten" }, user_book_reads = {},
   } } })

@@ -232,6 +232,32 @@ check("updateReview sends the text as a Slate document with the spoiler flag, an
   assert(none == nil and err.status == 503)
 end)
 
+check("rating uses the library record's current server status, including on a clear", function()
+  local original = Api.query
+  local json = require("json")
+  local original_util = json.util
+  json.util = { null = {} }
+  local status, writes = 2, {}
+  Api.query = function(_, query, vars)
+    if query:find("user_books(where", 1, true) then
+      assert(vars.id == 91)
+      return { user_books = { { id = 91, status_id = status } } }
+    end
+    assert(query:find("status_id: $statusId", 1, true))
+    writes[#writes + 1] = vars
+    return { update_user_book = { user_book = { id = 91, status_id = vars.statusId } } }
+  end
+  assert(Api:updateRating(91, 4).status_id == 2)
+  status = 1
+  assert(Api:updateRating(91, 0).status_id == 1)
+  assert(writes[1].rating == 4 and writes[1].statusId == 2 and writes[2].statusId == 1)
+  Api.query = function() return nil, { status = 503 } end
+  local result, err = Api:updateRating(91, 3)
+  Api.query = original
+  json.util = original_util
+  assert(result == nil and err.status == 503, "failed lookup must not send a rating")
+end)
+
 check("a page is sent with the time it was read only when there is one", function()
   local original = Api.query
   local seen

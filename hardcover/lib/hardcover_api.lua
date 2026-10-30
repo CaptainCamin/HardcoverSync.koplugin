@@ -593,7 +593,9 @@ function HardcoverApi:findDefaultEdition(book_id, user_id)
         edition {
           ...UserEditionParts
         }
-        user_book_reads(limit: 1, order_by: {id: asc}) {
+        user_book_reads(order_by: {id: asc}) {
+          finished_at
+          progress_pages
           edition {
             ...UserEditionParts
           }
@@ -606,7 +608,8 @@ function HardcoverApi:findDefaultEdition(book_id, user_id)
   if user_book_results then
     local user_book = _t.dig(user_book_results, "user_books", 1)
     if user_book then
-      local read_edition = _t.dig(user_book, "user_book_reads", 1, "edition")
+      local read = Book:currentRead(user_book.user_book_reads)
+      local read_edition = read and read.edition
       if read_edition then
         return read_edition
       end
@@ -1144,7 +1147,7 @@ end
 
 --
 -- What you are reading now, for the home screen: the most recently updated
--- books on the Currently Reading shelf, each with the progress of its latest
+-- books on the Currently Reading shelf, each with the progress of its current
 -- read. Entries are the shelf's own shape (Shelf.normalizeEntry) plus
 -- `progress_pages` and `edition_pages`.
 --
@@ -1171,8 +1174,9 @@ function HardcoverApi:getCurrentlyReading(user_id, limit)
             }
           }
         }
-        user_book_reads(order_by: { id: desc }, limit: 1) {
+        user_book_reads(order_by: { id: asc }) {
           progress_pages
+          finished_at
           edition {
             pages
           }
@@ -1192,7 +1196,7 @@ function HardcoverApi:getCurrentlyReading(user_id, limit)
 
   return _t.map(results.user_books, function(user_book)
     local entry = Shelf.normalizeEntry(user_book)
-    local read = _t.dig(user_book, "user_book_reads", 1)
+    local read = Book:currentRead(user_book.user_book_reads)
     if read then
       entry.progress_pages = read.progress_pages
       entry.edition_pages = _t.dig(read, "edition", "pages")
@@ -1415,9 +1419,19 @@ function HardcoverApi:removeUserBook(user_book_id)
 end
 
 function HardcoverApi:updateRating(user_book_id, rating)
+  -- The API marks a book Read when rating is sent without its current status.
+  -- Fetch by library record, including for old queued ratings without a book ID.
+  local found, lookup_err = self:query([[
+    query ($id: Int!) {
+      user_books(where: { id: { _eq: $id } }) { id status_id }
+    }
+  ]], { id = user_book_id })
+  local book = found and found.user_books and found.user_books[1]
+  if not (book and book.status_id) then return nil, lookup_err or { error = "no_response" } end
+
   local query = [[
-    mutation ($id: Int!, $rating: numeric) {
-      update_user_book(id: $id, object: { rating: $rating }) {
+    mutation ($id: Int!, $rating: numeric, $statusId: Int!) {
+      update_user_book(id: $id, object: { rating: $rating, status_id: $statusId }) {
         error
         user_book {
           ...UserBookParts
@@ -1430,7 +1444,7 @@ function HardcoverApi:updateRating(user_book_id, rating)
     rating = json.util.null
   end
 
-  local result, err = self:query(query, { id = user_book_id, rating = rating })
+  local result, err = self:query(query, { id = user_book_id, rating = rating, statusId = book.status_id })
   if result and result.update_user_book then
     local updated = result.update_user_book
     if updated.user_book then return updated.user_book end

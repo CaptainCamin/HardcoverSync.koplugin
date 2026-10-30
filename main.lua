@@ -23,6 +23,7 @@ local Api = require("hardcover/lib/hardcover_api")
 local Auth = require("hardcover/lib/auth")
 local AutoWifi = require("hardcover/lib/auto_wifi")
 local Background = require("hardcover/lib/background")
+local Book = require("hardcover/lib/book")
 local BookActions = require("hardcover/lib/book_actions")
 local BookStore = require("hardcover/lib/book_store")
 local Cache = require("hardcover/lib/cache")
@@ -553,11 +554,15 @@ end
 -- status to Currently Reading, then send its current page. Keep the prompt from overwriting a
 -- different status if the book changed while it was open.
 function HardcoverApp:startReading(filename)
+  self:cancelPendingUpdates()
+  self.page_update_generation = (self.page_update_generation or 0) + 1
+  self.start_reading_in_progress = true
   Trapper:wrap(function()
     local status_id = self:effectiveStatusId(filename)
     if status_id ~= nil
       and status_id ~= HARDCOVER.STATUS.TO_READ
       and status_id ~= HARDCOVER.STATUS.READING then
+      self.start_reading_in_progress = false
       return
     end
     if not self.settings:syncEnabled() then
@@ -568,7 +573,14 @@ function HardcoverApp:startReading(filename)
       self.cache:updateBookStatus(filename, HARDCOVER.STATUS.READING)
       StatusDialogs.info(_("Now on your 'Currently Reading' shelf"), 2)
     end
+    self:cancelPendingUpdates()
+    self.page_update_generation = self.page_update_generation + 1
+    self.start_reading_page = nil
     self:updatePageNowForced(filename)
+    self.start_reading_in_progress = false
+    local pending = self.start_reading_page
+    self.start_reading_page = nil
+    if pending then self:_handlePageUpdate(pending.filename, pending.page, false) end
   end)
 end
 
@@ -590,7 +602,15 @@ function HardcoverApp:_handlePageUpdate(filename, mapped_page, immediate, callba
     return
   end
 
+  local generation = self.page_update_generation or 0
   local immediate_update = function()
+    if not immediate then
+      if generation ~= (self.page_update_generation or 0) then return end
+      if self.start_reading_in_progress then
+        self.start_reading_page = { filename = filename, page = mapped_page }
+        return
+      end
+    end
     -- decided again here, not above: the update can wait a second, and the status can change in it
     if self:pageWriteDecision(filename) ~= "allow" then
       return
@@ -775,6 +795,9 @@ function HardcoverApp:onCloseDocument()
   self.state.start_reading = nil
   self.state.jump_offered = nil
   self.state.observed_page = nil
+  -- a Start reading write that failed must not hold this reader's page turns any longer
+  self.start_reading_in_progress = false
+  self.start_reading_page = nil
   self.state.rereading_pages = nil
 
   if not self.state.book_status.id and not self.settings:syncEnabled() and not self.sync_queue:hasPending() then
@@ -1034,7 +1057,8 @@ function HardcoverApp:offerJumpToCloudPage()
   local status = self.state.book_status
   if not (status and status.id and status.status_id == HARDCOVER.STATUS.READING) then return end
   local reads = status.user_book_reads
-  local cloud_page = reads and reads[#reads] and tonumber(reads[#reads].progress_pages)
+  local read = Book:currentRead(reads)
+  local cloud_page = read and tonumber(read.progress_pages)
   local pages = self.settings:pages()
   local document_pages = self.ui.document:getPageCount()
   local current = self.ui.getCurrentPage and self.ui:getCurrentPage()

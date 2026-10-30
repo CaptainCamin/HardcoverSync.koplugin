@@ -1,4 +1,5 @@
 local Api = require("hardcover/lib/hardcover_api")
+local Book = require("hardcover/lib/book")
 local User = require("hardcover/lib/user")
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local SETTING = require("hardcover/lib/constants/settings")
@@ -49,10 +50,11 @@ end
 function Cache:applyLocalPage(mapped_page, edition_id, started_at, read_id)
   local book_status = self.state.book_status or {}
   local reads = book_status.user_book_reads
-  if reads and reads[#reads] then
-    reads[#reads].progress_pages = mapped_page
+  local read = Book:currentRead(reads)
+  if read then
+    read.progress_pages = mapped_page
     if edition_id then
-      reads[#reads].edition_id = edition_id
+      read.edition_id = edition_id
     end
   else
     book_status.user_book_reads = { {
@@ -86,7 +88,7 @@ end
 function Cache:queueMeta(filename)
   local book_status = self.state.book_status or {}
   local reads = book_status.user_book_reads
-  local current_read = reads and reads[#reads]
+  local current_read = Book:currentRead(reads)
   return {
     -- the saved id only: asking Hardcover for it would block an offline queue
     user_id = User.settings and User.settings:readSetting(SETTING.USER_ID),
@@ -123,7 +125,7 @@ end
 function Cache:syncPage(filename, mapped_page)
   local book_status = self.state.book_status or {}
   local reads = book_status.user_book_reads
-  local current_read = reads and reads[#reads]
+  local current_read = Book:currentRead(reads)
   local edition_id = (current_read and current_read.edition_id) or book_status.edition_id
     or self.settings:readBookSetting(filename, "edition_id")
   local started_at = current_read and current_read.started_at
@@ -151,7 +153,7 @@ function Cache:syncPage(filename, mapped_page)
       return enqueue()
     end
     local server_reads = found and found.user_book_reads
-    local latest = server_reads and server_reads[#server_reads]
+    local latest = Book:currentRead(server_reads)
     if latest and latest.id and latest.finished_at == nil then
       current_read = latest
       edition_id = latest.edition_id or edition_id
@@ -184,7 +186,7 @@ end
 function Cache:queuePage(filename, edition_page)
   local book_status = self.state.book_status or {}
   local reads = book_status.user_book_reads
-  local current_read = reads and reads[#reads]
+  local current_read = Book:currentRead(reads)
   local edition_id = (current_read and current_read.edition_id) or book_status.edition_id
     or self.settings:readBookSetting(filename, "edition_id")
 

@@ -6,6 +6,21 @@ local reading_format_labels = {
   "E-Book"
 }
 
+-- Reads arrive oldest first. An explicitly recorded page 0 is progress too: it
+-- distinguishes a restarted read from Hardcover's newly created empty read.
+function Book:currentRead(reads)
+  if type(reads) ~= "table" then return nil end
+  local unfinished
+  for i = #reads, 1, -1 do
+    local read = reads[i]
+    if not read.finished_at then
+      unfinished = unfinished or read
+      if tonumber(read.progress_pages) ~= nil then return read end
+    end
+  end
+  return unfinished or reads[#reads]
+end
+
 function Book:readingFormat(format_id)
   if not format_id then
     return

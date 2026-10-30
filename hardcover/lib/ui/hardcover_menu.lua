@@ -16,6 +16,7 @@ local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 
 local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
+local Book = require("hardcover/lib/book")
 local Network = require("hardcover/lib/network")
 local Github = require("hardcover/lib/github")
 local Updater = require("hardcover/lib/updater")
@@ -236,7 +237,7 @@ function HardcoverMenu:showReaderPanel()
     }
 
     local reads = status.user_book_reads
-    local read = reads and reads[#reads]
+    local read = Book:currentRead(reads)
     local facts = require("hardcover/lib/reader_panel_facts").describe {
       linked = linked,
       status_id = status_id,
@@ -364,7 +365,7 @@ function HardcoverMenu:showReaderPanel()
     local function signature()
       local status = self.state.book_status or {}
       local reads = status.user_book_reads
-      local read = reads and reads[#reads]
+      local read = Book:currentRead(reads)
       return table.concat({ tostring(status.status_id), tostring(status.rating),
         tostring(read and read.progress_pages) }, "|")
     end
@@ -1367,8 +1368,7 @@ end
 
 -- The new read starts at the page the reader is on, or at the start when they are on the last
 -- page. It goes through the sync queue as a re-read (SyncQueue:startReread), so the finished read
--- is never written. Online it is sent at once, and the book's status changes only once Hardcover
--- has the new read; offline the change shows now and is sent with the rest of the queue.
+-- is never written. Online it is sent at once; offline the change shows now and is queued.
 function HardcoverMenu:startReread(restart)
   local file = self.ui.document.file
   local document_page = self.ui:getCurrentPage()
@@ -1390,6 +1390,7 @@ function HardcoverMenu:startReread(restart)
       local old_status_id = self.state.book_status and self.state.book_status.status_id
       self.cache:applyLocalStatus(file, HARDCOVER.STATUS.READING)
       self.cache:shelfChanged(file, old_status_id, HARDCOVER.STATUS.READING, true)
+      self.state.book_status.user_book_reads = nil
       self.cache:applyLocalPage(page, payload.edition_id, os.date("%Y-%m-%d"), nil)
       self:refreshReaderPanel()
       StatusDialogs.info(_("Reading again. It will be sent when you are back online."), 3)
@@ -1640,7 +1641,8 @@ function HardcoverMenu:getStatusSubMenuItems()
     {
       text_func = function()
         local reads = self.state.book_status.user_book_reads
-        local current_page = reads and reads[#reads] and reads[#reads].progress_pages or 0
+        local read = Book:currentRead(reads)
+        local current_page = read and read.progress_pages or 0
         local max_pages = self.settings:pages()
 
         if not max_pages then
@@ -1654,7 +1656,7 @@ function HardcoverMenu:getStatusSubMenuItems()
       end,
       callback = function(menu_instance)
         local reads = self.state.book_status.user_book_reads
-        local current_read = reads and reads[#reads]
+        local current_read = Book:currentRead(reads)
         local last_hardcover_page = current_read and current_read.progress_pages or 0
 
         local document_page = self.ui:getCurrentPage()
