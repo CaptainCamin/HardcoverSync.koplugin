@@ -268,5 +268,43 @@ check("a book moved to Reading and then to Read is sent as Reading first", funct
   eq(table.concat(seen, ","), "2,3", "statuses sent")
 end)
 
+check("a book removed while its shelf change is being sent is still removed", function()
+  local q, api = newQueue(), fakeApi()
+  q:queueStatus(1, 100, 1, {})
+  local real = api.updateUserBook
+  api.updateUserBook = function(self, ...)
+    eq(q:queueRemove(1, 100, nil, "Obelisk"), "queued", "not dropped, the book is being added")
+    return real(self, ...)
+  end
+  q:flush(api, { user_id = 1 })
+  eq(q:count(), 1, "the remove is waiting")
+  api.findUserBook = function() return { id = 77 } end
+  q:flush(api, { user_id = 1 })
+  eq(api.calls[#api.calls].name, "removeUserBook")
+  eq(api.calls[#api.calls].args[1], 77, "the record it found")
+  eq(q:count(), 0)
+end)
+
+check("a remove that finds the book already gone sends nothing", function()
+  local q, api = newQueue(), fakeApi()
+  q:queueStatus(1, 100, 1, {})
+  local real = api.updateUserBook
+  api.updateUserBook = function(self, ...)
+    q:queueRemove(1, 100, nil, "Obelisk")
+    return nil, { completed = false }
+  end
+  q:flush(api, { user_id = 1 })
+  api.findUserBook = function() return nil end
+  q:flush(api, { user_id = 1 })
+  eq(q:count(), 0)
+  eq(api.calls[#api.calls] == nil or api.calls[#api.calls].name ~= "removeUserBook", true)
+end)
+
+check("a book that was only queued is still dropped when nothing is on its way", function()
+  local q = newQueue()
+  q:queueStatus(1, 100, 1, {})
+  eq(q:queueRemove(1, 100, nil, "Obelisk"), "dropped")
+end)
+
 print(string.format("\n  %d passed, %d failed", results.passed, results.failed))
 os.exit(results.failed == 0 and 0 or 1)

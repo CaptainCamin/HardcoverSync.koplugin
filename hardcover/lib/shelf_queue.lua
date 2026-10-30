@@ -93,7 +93,9 @@ function ShelfQueue:queueRemove(user_id, book_id, user_book_id, title, from_stat
   local ops = self:ops()
   local before = self:get(book_id, user_id)
   user_book_id = tonumber(user_book_id) or (before and tonumber(before.user_book_id)) or nil
-  if not user_book_id then
+  -- (a change already on its way is not dropped: the book will exist, so the remove follows it
+  -- and looks the record up)
+  if not user_book_id and not (before and before == self.sending_op) then
     ops[keyOf(book_id)] = nil
     self:persist()
     return "dropped"
@@ -201,8 +203,18 @@ function ShelfQueue:_flush(api, opts)
   for _, key in ipairs(keys) do
     local op = ops[key]
     if op and not op.held then
+      self.sending_op = op
       local ok, result, err = pcall(function()
-        if op.kind == "remove" then return api:removeUserBook(op.user_book_id) end
+        if op.kind == "remove" then
+          local id = op.user_book_id
+          if not id then
+            local found, lookup_err = api:findUserBook(op.book_id, opts.user_id)
+            if lookup_err ~= nil then return nil, lookup_err end
+            if not (found and found.id) then return true end -- not in the library: nothing to remove
+            id = found.id
+          end
+          return api:removeUserBook(id)
+        end
         if op.passed_reading then
           local started, started_err = api:updateUserBook(op.book_id, HARDCOVER.STATUS.READING, nil, op.edition_id)
           if not started then return nil, started_err end
@@ -212,6 +224,7 @@ function ShelfQueue:_flush(api, opts)
         if result and op.finished_date then result = api:setFinishedDate(result, op.finished_date) or result end
         return result, err
       end)
+      self.sending_op = nil
       if not ok then result, err = nil, nil end
 
       if result then

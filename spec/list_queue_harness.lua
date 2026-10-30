@@ -184,5 +184,42 @@ check("a raising request is a failed try and releases the lock", function()
   eq(res.stopped, true); eq(q:count(), 1); eq(q.flushing, false)
 end)
 
+check("a remove made while its add is being sent still happens, looking the row up", function()
+  local q, api = newQueue(), fakeApi()
+  q:queueAdd(1, 5, 6, 3)
+  local real = api.addToList
+  api.addToList = function(self, ...)
+    eq(q:queueRemove(1, 5, 6, nil), "queued", "not cancelled, the add is already out")
+    return real(self, ...)
+  end
+  q:flush(api, { user_id = 1 })
+  eq(q:count(), 1, "the remove is waiting")
+  api.book_lists = { { id = 6, on = true, list_book_id = 91 } }
+  q:flush(api, { user_id = 1 })
+  eq(api.calls[#api.calls].name, "removeFromList")
+  eq(api.calls[#api.calls].args[1], 91)
+  eq(q:count(), 0)
+end)
+
+check("an add made while its remove is being sent still happens", function()
+  local q, api = newQueue(), fakeApi()
+  q:queueRemove(1, 5, 6, 91)
+  local real = api.removeFromList
+  api.removeFromList = function(self, ...)
+    eq(q:queueAdd(1, 5, 6, 3), "queued", "not cancelled, the remove is already out")
+    return real(self, ...)
+  end
+  q:flush(api, { user_id = 1 })
+  q:flush(api, { user_id = 1 })
+  eq(api.calls[#api.calls].name, "addToList")
+  eq(q:count(), 0)
+end)
+
+check("opposite ops still cancel when nothing is on its way", function()
+  local q = newQueue()
+  q:queueAdd(1, 5, 6, 3)
+  eq(q:queueRemove(1, 5, 6, nil), "cancelled")
+end)
+
 print(string.format("\n  %d passed, %d failed", results.passed, results.failed))
 os.exit(results.failed == 0 and 0 or 1)
