@@ -127,6 +127,7 @@ return {
           changeCount = function() return 0 end,
           hasPending = function() return false end,
           get = function() return case.pending end,
+          statusOf = function() return case.pending and case.pending.status_id or nil end,
         },
         auth = { usingOAuth = function() return true end, needsReauth = function() return false end,
                  statusText = function() return "Signed in" end },

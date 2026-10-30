@@ -61,7 +61,7 @@ return {
           pendingCount = function() return 0 end,
           changeCount = function() return 0 end,
           hasPending = function() return false end,
-          get = function() return nil end,
+          get = function() return nil end, statusOf = function() return nil end,
           startReread = function(_, _, payload) calls.reread_page = payload.mapped_page end,
           flush = function() calls.flushed = true return true end,
         },
