@@ -61,6 +61,11 @@ eq(y25.months[1], 0, "year precision not January")
 eq(y25.month_unknown, 1, "year-only finish noted")
 eq(y25.best_month.month, 3, "best month")
 eq(y25.last_month, 7, "the latest month with a finish")
+-- pages in each month of 2025: March is 350 + 180 (books 1 and 2), July 620 (book 3), the year-only
+-- finish (book 4) has no month; a month with no page counts is 0
+eq(y25.pages_months[3], 530, "March pages")
+eq(y25.pages_months[7], 620, "July pages")
+eq(y25.pages_months[1], 0, "year-only finish adds no pages to a month")
 
 -- one month of a year: March 2025 is books 1 and 2 (350 + 180 pages, ratings 4.5 and 3)
 local m25 = Stats.compute(rows, { year = 2025, month = 3 })
