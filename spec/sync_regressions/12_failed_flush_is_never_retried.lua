@@ -53,7 +53,7 @@ end)
 KB.check("closing the book while connected (Auto-wifi off) flushes what is queued", function()
   local flushes = {}
   KB.network.connected = true
-  newApp(flushes):onDocumentClose()
+  newApp(flushes):onCloseDocument()
   KB.eq(#flushes, 1, "flush attempts at close")
 end)
 

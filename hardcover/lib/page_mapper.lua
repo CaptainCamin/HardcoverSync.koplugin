@@ -13,7 +13,8 @@ function PageMapper:getUnmappedPage(remote_page, document_pages, remote_pages)
   local document_page = self.state.page_map and _t.binSearch(self.state.page_map, remote_page)
 
   if not document_page then
-    document_page = math.floor((remote_page / remote_pages) * document_pages)
+    document_page = remote_pages and remote_pages > 0 and document_pages
+      and math.floor((remote_page / remote_pages) * document_pages) or remote_page
   end
 
   return document_page
@@ -27,11 +28,11 @@ function PageMapper:getMappedPage(raw_page, document_pages, remote_pages)
     if mapped_page then
       return mapped_page
     elseif raw_page > self.state.page_map_range.last_page then
-      return remote_pages or self.state.page_map_range.real_page
+      return remote_pages and remote_pages > 0 and remote_pages or self.state.page_map_range.real_page
     end
   end
 
-  if remote_pages and document_pages then
+  if remote_pages and remote_pages > 0 and document_pages and document_pages > 0 then
     -- a file longer than the edition would floor early pages to 0, which is not a page
     return math.max(1, math.floor((raw_page / document_pages) * remote_pages))
   end
@@ -102,6 +103,7 @@ end
 function PageMapper:getRemotePagePercent(raw_page, document_pages, remote_pages)
   self:checkIgnorePagemap()
 
+  if remote_pages and remote_pages <= 0 then remote_pages = nil end
   local local_percent = nil
   local mapped_page = nil
 
@@ -124,7 +126,7 @@ function PageMapper:getRemotePagePercent(raw_page, document_pages, remote_pages)
     end
   end
 
-  if not local_percent and document_pages then
+  if not local_percent and document_pages and document_pages > 0 then
     local_percent = raw_page / document_pages
   end
 

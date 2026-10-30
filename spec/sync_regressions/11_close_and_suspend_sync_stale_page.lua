@@ -2,7 +2,7 @@
 -- event, not the page the reader is on.
 --
 -- HardcoverApp:pageUpdateEvent (main.lua) is debounced by 2 seconds and is the
--- only place `self.state.page` is written. onSuspend / onDocumentClose first
+-- only place `self.state.page` is written. onSuspend / onCloseDocument first
 -- call cancelPendingUpdates() (which throws the pending debounced page away) and
 -- then updatePageNow(), which maps `self.state.page` -- the page from the last
 -- event that managed to fire, so up to 2 seconds of page turns (or, while the
@@ -21,7 +21,8 @@ print("\n== final page at suspend / close ==")
 local function newApp(synced)
   local ui = {
     document = { file = FILE, getPageCount = function() return 300 end },
-    getCurrentPage = function() return 200 end, -- what is on screen now
+    current_page = 200,
+    getCurrentPage = function(self) return self.current_page end,
   }
   return KB.new_app {
     state = { page = 120, book_status = { id = 500, status_id = 2 } }, -- 120: last debounced event; a book being read
@@ -46,10 +47,44 @@ KB.check("onSuspend records the page on screen (200), not the stale 120", functi
   KB.eq(synced[1], 200, "page sent at suspend")
 end)
 
-KB.check("onDocumentClose records the page on screen (200), not the stale 120", function()
+KB.check("CloseDocument records the page on screen (200), not the stale 120", function()
   local synced = {}
-  newApp(synced):onDocumentClose()
+  newApp(synced):onCloseDocument()
   KB.eq(synced[1], 200, "page sent at close")
+end)
+
+KB.check("a first turn closed before debounce is saved", function()
+  local synced = {}
+  local app = newApp(synced)
+  app.page_update_pending = false
+  app._debouncedPageUpdate = function() end
+  app:onPageUpdate(200)
+  app:onCloseDocument()
+  KB.eq(synced[1], 200, "first pending turn")
+end)
+
+KB.check("a backward glance is not saved on close or suspend", function()
+  for _, event in ipairs({ "onCloseDocument", "onSuspend" }) do
+    local synced = {}
+    local app = newApp(synced)
+    app.state.page, app.ui.current_page = 59, 1
+    app._debouncedPageUpdate = function() end
+    app:onPageUpdate(1)
+    app[event](app)
+    KB.eq(#synced, 0, event .. " after a glance")
+  end
+end)
+
+KB.check("five pages read forward after a backward jump can be saved", function()
+  local synced = {}
+  local app = newApp(synced)
+  app.state.page = 59
+  app._debouncedPageUpdate = function() end
+  app:onPageUpdate(1)
+  for page = 2, 6 do app:onPageUpdate(page) end
+  app.ui.current_page = 6
+  app:onCloseDocument()
+  KB.eq(synced[1], 6, "page after rereading")
 end)
 
 KB.finish("suspend/close must sync the current page, not the last debounced one")
