@@ -35,7 +35,7 @@ local function newApp(synced)
       pages = function() return nil end,
       readSetting = function() return false end,
     },
-    sync_queue = { hasPending = function() return false end, get = function() end },
+    sync_queue = { hasPending = function() return false end, get = function() end, statusOf = function() end },
     cache = { syncPage = function(_, _, page) synced[#synced + 1] = page return { queued = true } end },
   }
 end

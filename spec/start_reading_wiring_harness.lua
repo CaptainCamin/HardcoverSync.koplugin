@@ -51,7 +51,7 @@ local function newApp(o)
       updateBookStatus = function() end,
       syncPage = function() end,
     },
-    sync_queue = { get = function() end },
+    sync_queue = { get = function() end, statusOf = function() end },
     page_mapper = { cachePageMap = function() end },
     sync_calls = {},
   }

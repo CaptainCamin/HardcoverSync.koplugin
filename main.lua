@@ -516,9 +516,9 @@ function HardcoverApp:onSettingsChanged(field, change, original_value)
 end
 
 function HardcoverApp:effectiveStatusId(filename)
-  local pending = self.sync_queue:get(filename)
-  if pending and pending.status_id then
-    return pending.status_id
+  local pending = self.sync_queue:statusOf(filename)
+  if pending then
+    return pending
   end
   return self.state.book_status and self.state.book_status.status_id
 end

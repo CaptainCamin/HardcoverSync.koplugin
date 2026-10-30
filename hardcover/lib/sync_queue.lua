@@ -182,6 +182,16 @@ function SyncQueue:startReread(filepath, payload)
   return entry
 end
 
+-- The status the book has as far as this device knows, a change waiting counted: nil when none is.
+-- A book started over is on Currently Reading, though a Finished waiting ahead of the new read keeps
+-- its status_id until it is sent.
+function SyncQueue:statusOf(filepath)
+  local entry = self:get(filepath)
+  if type(entry) ~= "table" then return nil end
+  if entry.reread then return HARDCOVER.STATUS.READING end
+  return entry.status_id
+end
+
 -- Is a change of the book's shelf (a status, or a re-read) waiting for this file?
 function SyncQueue:shelfChangeWaiting(filepath)
   local entry = self:get(filepath)
@@ -271,8 +281,8 @@ function SyncQueue:applyPending(filepath, book_status)
     return book_status
   end
 
-  if entry.status_id then
-    book_status.status_id = entry.status_id
+  if self:statusOf(filepath) then
+    book_status.status_id = self:statusOf(filepath)
   end
   if entry.privacy_setting_id then
     book_status.privacy_setting_id = entry.privacy_setting_id
@@ -327,7 +337,8 @@ function SyncQueue:applyToReading(entries, lookup)
     local id = tonumber(entry.book_id)
     local q = id and queued[id]
     if id then have[id] = true end
-    if not (q and q.status_id and q.status_id ~= HARDCOVER.STATUS.READING) then
+    local queued_status = q and (q.reread and HARDCOVER.STATUS.READING or q.status_id)
+    if not (queued_status and queued_status ~= HARDCOVER.STATUS.READING) then
       local card = {}
       for k, v in pairs(entry) do card[k] = v end
       if q and q.mapped_page ~= nil then

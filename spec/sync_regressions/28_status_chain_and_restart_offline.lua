@@ -82,4 +82,15 @@ KB.check("the finish is sent, then the new read opens, without a page question",
   KB.eq(q:pendingCount(), 0, "left in queue")
 end)
 
+KB.check("while it waits, the book started over is on Currently Reading, not Finished", function()
+  local q = KB.newQueue()
+  q:enqueueStatus(FILE, { book_id = 1, status_id = S.FINISHED, from_status_id = S.READING })
+  q:startReread(FILE, { book_id = 1, mapped_page = 0 })
+  KB.eq(q:statusOf(FILE), S.READING, "status")
+  KB.eq(q:applyPending(FILE, { status_id = S.READING }).status_id, S.READING, "shown")
+  local lone = KB.newQueue()
+  lone:enqueueStatus(FILE, { book_id = 1, status_id = S.FINISHED })
+  KB.eq(lone:statusOf(FILE), S.FINISHED, "a finish alone stays finished")
+end)
+
 KB.finish("a status chain must keep Reading, and a finish must precede a restart")
