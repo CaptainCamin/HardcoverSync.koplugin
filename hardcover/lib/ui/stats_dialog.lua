@@ -288,6 +288,19 @@ function StatsDialog:buildContent(width)
       end
       add(b)
     end
+    -- the average rating of each year that has rated books
+    local avgs, avg_labels = {}, {}
+    for _i, y in ipairs(s.by_year) do
+      if y.avg_rating then avgs[#avgs + 1] = y.avg_rating; avg_labels[#avg_labels + 1] = tostring(y.year) end
+    end
+    if #avgs > 0 then
+      local b = block(_("Average rating by year"))
+      table.insert(b, ChartWidgets.columns {
+        width = width, height = Theme.px(190), values = avgs, labels = avg_labels, max = 5, all_values = true,
+        value_text = function(v) return string.format("%.1f", v) end,
+      })
+      add(b)
+    end
   end
 
   -- how you rate
@@ -349,6 +362,14 @@ function StatsDialog:buildContent(width)
     if s.longest and s.longest.title then
       table.insert(b, text(string.format(_("Longest: %s"), s.longest.title), "small", { grey = true, width = width }))
     end
+    add(b)
+  end
+
+  -- whether longer books are rated higher: a dot per book
+  if #s.rated_lengths >= 2 then
+    local b = block(_("Rating and length"))
+    table.insert(b, ChartWidgets.scatter { width = width, height = Theme.px(210), points = s.rated_lengths })
+    self:caption(b, _("Each dot is a book: its length against your rating."), width)
     add(b)
   end
 

@@ -127,7 +127,7 @@ end
 -- Returns {
 --   year, books, pages, pages_books (books with a page count), audio_seconds, audio_books,
 --   undated   (books with no finish date, counted in all time only),
---   by_year   { {year, count}... } oldest first, every year between the first and last,
+--   by_year   { {year, count, avg_rating (nil when none rated)}... } oldest first, every year between the first and last,
 --   months    { 12 counts } (a year only), pages_months { 12 page totals } (a year only),
 --   month_unknown (finishes known to the year only),
 --   best_month { month, count }, last_month (the latest month with a finish) (a year only),
@@ -135,6 +135,7 @@ end
 --   average_days (rounded),
 --   page_list (the page counts, smallest first),
 --   ratings   { counts = {10}, rated, average }, authors { {name, count}... },
+--   rated_lengths { {pages, rating}... } (books with both, for the length against rating chart),
 --   lengths   { {label, count}... }, average_pages, longest, shortest { title, pages },
 -- }
 --
@@ -145,18 +146,23 @@ function Stats.compute(rows, opts)
   local out = {
     year = year, books = 0, pages = 0, pages_books = 0, audio_seconds = 0, audio_books = 0,
     undated = 0, by_year = {}, months = {}, pages_months = {}, month_unknown = 0, page_list = {}, days_list = {},
-    ratings = { counts = {}, rated = 0, average = nil }, authors = {}, lengths = {},
+    ratings = { counts = {}, rated = 0, average = nil }, authors = {}, lengths = {}, rated_lengths = {},
   }
   for m = 1, 12 do out.months[m] = 0; out.pages_months[m] = 0 end
   for i = 1, Stats.RATINGS do out.ratings.counts[i] = 0 end
   for i, bucket in ipairs(Stats.LENGTHS) do out.lengths[i] = { label = bucket.label, count = 0 } end
 
   local per_year, first_year, last_year = {}, nil, nil
+  local rated_by_year, rating_by_year = {}, {}
   local authors, rating_sum = {}, 0
   for _, row in ipairs(rows or {}) do
     local y = yearOf(row)
     if y then
       per_year[y] = (per_year[y] or 0) + 1
+      if row.rating then
+        rated_by_year[y] = (rated_by_year[y] or 0) + 1
+        rating_by_year[y] = (rating_by_year[y] or 0) + row.rating
+      end
       if not first_year or y < first_year then first_year = y end
       if not last_year or y > last_year then last_year = y end
     end
@@ -199,6 +205,7 @@ function Stats.compute(rows, opts)
         out.ratings.counts[i] = out.ratings.counts[i] + 1
         out.ratings.rated = out.ratings.rated + 1
         rating_sum = rating_sum + row.rating
+        if row.pages then out.rated_lengths[#out.rated_lengths + 1] = { pages = row.pages, rating = row.rating } end
       end
       if row.author then authors[row.author] = (authors[row.author] or 0) + 1 end
     end
@@ -207,7 +214,8 @@ function Stats.compute(rows, opts)
   if first_year then
     -- a long history is shown as its latest 30 years
     for y = math.max(first_year, last_year - 29), last_year do
-      out.by_year[#out.by_year + 1] = { year = y, count = per_year[y] or 0 }
+      local avg = rated_by_year[y] and rating_by_year[y] / rated_by_year[y] or nil
+      out.by_year[#out.by_year + 1] = { year = y, count = per_year[y] or 0, avg_rating = avg }
     end
   end
   table.sort(out.page_list)
