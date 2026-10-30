@@ -18,7 +18,14 @@ local function server(user_book)
   local api = {}
   function api:findUserBook() return cur end
   function api:updateUserBook(_, status) calls[#calls + 1] = "create " .. status; cur = { id = 9, status_id = status, user_book_reads = {} }; return cur end
-  function api:updateUserBookStatus(_, status) calls[#calls + 1] = "status " .. status; cur.status_id = status; return cur end
+  function api:updateUserBookStatus(_, status)
+    calls[#calls + 1] = "status " .. status
+    if status == S.READING and cur.status_id == S.FINISHED then
+      cur.user_book_reads[#cur.user_book_reads + 1] = { id = 6 }
+    end
+    cur.status_id = status
+    return cur
+  end
   function api:updatePage(_, _, page) calls[#calls + 1] = "page " .. page; return cur end
   function api:createRead(_, _, page) calls[#calls + 1] = "read " .. page; return cur end
   function api:setFinishedDate() return cur end
@@ -77,7 +84,7 @@ KB.check("the finish is sent, then the new read opens, without a page question",
   local ub = { id = 9, status_id = S.READING, user_book_reads = { { id = 5, progress_pages = 300 } } }
   local api, calls = server(ub)
   q:flush(api, { user_id = 1 })
-  KB.eq(table.concat(calls, ","), "status 3,read 0,status 2", "calls")
+  KB.eq(table.concat(calls, ","), "status 3,status 2,page 0", "calls")
   KB.eq(q:conflictCount(), 0, "questions")
   KB.eq(q:pendingCount(), 0, "left in queue")
 end)

@@ -2,6 +2,7 @@ local KoreaderVersion = require("version")
 local LuaSettings = require("luasettings")
 
 local _t = require("hardcover/lib/table_util")
+local Book = require("hardcover/lib/book")
 local SETTING = require("hardcover/lib/constants/settings")
 local UiPrefs = require("hardcover/lib/ui_prefs")
 
@@ -235,7 +236,7 @@ function HardcoverSettings:saveBookSnapshot(filename, user_book)
   end
 
   local reads = user_book.user_book_reads
-  local current_read = reads and reads[#reads]
+  local current_read = Book:currentRead(reads)
   local config = {
     user_book_id = user_book.id,
     status_id = user_book.status_id,

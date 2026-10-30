@@ -140,4 +140,57 @@ check("saying yes sets Currently Reading when the saved shelf status is unknown"
   assert(actions[2] and actions[2][1] == "page", "the current page was not sent after the status")
 end)
 
+check("a delayed pre-start page cannot overwrite the page sent by Start reading", function()
+  local app = newApp { process = true, sync = true, shelf_known = true, status = HARDCOVER.STATUS.TO_READ }
+  local sent, pending = {}, nil
+  app.syncFileUpdates = function() return true end
+  app.pageWriteDecision = function() return "allow" end
+  app.ui.getCurrentPage = function() return 13 end
+  app.page_mapper.getMappedPage = function(_, page) return page end
+  app.cache.syncPage = function(_, _, page)
+    sent[#sent + 1] = page
+    if page == 13 then coroutine.yield() end
+  end
+  app.cache.updateBookStatus = function() coroutine.yield() end
+  local original_wrap = Trapper.wrap
+  Trapper.wrap = function(_, fn)
+    local co = coroutine.create(fn)
+    local ok, err = coroutine.resume(co)
+    assert(ok, err)
+    if coroutine.status(co) ~= "dead" then pending = co end
+  end
+  app:_handlePageUpdate("/book.epub", 7, false)
+  local old = KB.sched.scheduled[#KB.sched.scheduled].fn
+  app:startReading("/book.epub")
+  assert(pending, "status call did not yield")
+  app:_handlePageUpdate("/book.epub", 9, false)
+  local during = KB.sched.scheduled[#KB.sched.scheduled].fn
+  local ok, err = coroutine.resume(pending)
+  assert(ok, err)
+  old(); during()
+  app:_handlePageUpdate("/book.epub", 21, false)
+  KB.sched.scheduled[#KB.sched.scheduled].fn()
+  ok, err = coroutine.resume(pending)
+  assert(ok, err)
+  KB.sched.scheduled[#KB.sched.scheduled].fn()
+  Trapper.wrap = original_wrap
+  assert(table.concat(sent, ",") == "13,21", "sent " .. table.concat(sent, ","))
+end)
+
+check("the jump offer uses the unfinished read with progress, not a newer empty read", function()
+  local app = newApp { process = true, sync = true, shelf_known = true, status = HARDCOVER.STATUS.READING }
+  app.state.book_status.user_book_reads = { { id = 1, progress_pages = 250 }, { id = 2 } }
+  app.ui.getCurrentPage = function() return 10 end
+  app.page_mapper.getMappedPage = function(_, page) return page end
+  app.jumpTarget = function(_, page) return page end
+  app.sync_queue.hasPending = function() return false end
+  app.settings.readBookSetting = function() return nil end
+  local network = require("ui/network/manager")
+  local before = network.isConnected
+  network.isConnected = function() return true end
+  app:offerJumpToCloudPage()
+  network.isConnected = before
+  assert(asked_options and asked_options.title:find("250", 1, true), "wrong jump prompt")
+end)
+
 r.finish()

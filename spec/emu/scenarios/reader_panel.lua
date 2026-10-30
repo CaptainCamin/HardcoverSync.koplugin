@@ -63,6 +63,14 @@ return {
     assert(not emu:screenText():find("Update Hardcover as I read", 1, true))
     emu:expectNoButtonOverlap()
     emu:shot("reader_panel")
+    menu.state.book_status.user_book_reads = {
+      { id = 1, progress_pages = 250 }, { id = 2 },
+    }
+    menu.reader_panel:render()
+    emu:pump()
+    emu:expectText("Page 250 of 387")
+    emu:shot("reader_panel_older_progress")
+    menu.state.book_status.user_book_reads = { { progress_pages = 142 } }
     menu.settings.getLinkedTitle = function() return "The Dispossessed: A Very Long Book Title That Must Leave Room for Both Top Controls" end
     menu.reader_panel:render()
     emu:pump()

@@ -159,7 +159,7 @@ function Hardcover:moveEdition(filename, book, edition_id, old_pages)
   local status = self.state.book_status
   if status.id then
     local reads = status.user_book_reads
-    local read = reads and reads[#reads]
+    local read = Book:currentRead(reads)
 
     local moved_read
     if read and read.id then
@@ -179,8 +179,10 @@ function Hardcover:moveEdition(filename, book, edition_id, old_pages)
     for key, value in pairs(user_book) do
       status[key] = value
     end
-    if moved_read and status.user_book_reads and #status.user_book_reads > 0 then
-      status.user_book_reads[#status.user_book_reads] = moved_read
+    if moved_read and status.user_book_reads then
+      for i, item in ipairs(status.user_book_reads) do
+        if item.id == moved_read.id then status.user_book_reads[i] = moved_read; break end
+      end
     end
     self.cache:saveSnapshot(filename, status)
   end
