@@ -555,6 +555,22 @@ check("offline, it opens with the saved counts and makes no request", function()
   assert(count_calls == 0, "made a request while offline")
 end)
 
+check("Home says it needs a connection before the first reading-list load", function()
+  online = false
+  local m = newManager()
+  m:showHomeBody(homeHost())
+  assert(fake[1].empty_message == "Home needs an internet connection the first time.",
+    tostring(fake[1].empty_message))
+end)
+
+check("a saved empty reading list is not mistaken for a first load", function()
+  online = false
+  local m = newManager()
+  m.shelf_cache:putReading(1, {})
+  m:showHomeBody(homeHost())
+  assert(fake[1].empty_message == nil, "showed the first-load message for a saved empty list")
+end)
+
 check("offline with nothing saved, it still opens, with no counts", function()
   online = false
   local m = newManager()

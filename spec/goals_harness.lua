@@ -188,9 +188,15 @@ check("validation names the first thing to fix", function()
   assert(Goals.validate(with({ name = "   " })) == "Give the goal a name.")
   assert(Goals.validate(with({ name = string.rep("x", 121) })) == "The name is too long.")
   assert(Goals.validate(with({ metric = "audio" })) == "Choose books or pages.")
-  for _, bad in ipairs({ 0, -3, 2.5, "abc", false }) do
+  for _, bad in ipairs({ 0, -3, 2.5, "abc", "12.5", "0x10", "1e2", "inf", "nan", "1,00", false }) do
     assert(Goals.validate(with({ target = bad })) == "The target must be a whole number, at least 1.", tostring(bad))
   end
+  for _, target in ipairs({ "1,000", "1 000" }) do
+    assert(Goals.validate(with({ target = target })) == nil, target)
+  end
+  assert(Goals.parseTarget("1,000") == 1000 and Goals.parseTarget("1 000") == 1000)
+  assert(Goals.parseTarget("0x10") == nil and Goals.parseTarget("1e2") == nil)
+  assert(Goals.parseTarget("99999999999999999999") > Goals.MAX_TARGET.book)
   assert(Goals.validate(with({ target = 10001 })) == "The target can be at most 10000.")
   assert(Goals.validate(with({ metric = "page", target = 10001 })) == nil, "pages allow far bigger targets")
   assert(Goals.validate(with({ metric = "page", target = 1000001 })) == "The target can be at most 1000000.")
@@ -203,12 +209,24 @@ check("validation names the first thing to fix", function()
   assert(Goals.validate(nil) == "Nothing to save.")
 end)
 
+check("goal names use character count rather than UTF-8 byte count", function()
+  local function with(name)
+    local f = Goals.newForm(TODAY)
+    f.name = name
+    return Goals.validate(f)
+  end
+  assert(with(string.rep("א", 61)) == nil, "61 Hebrew characters should fit")
+  assert(with(string.rep("😀", 31)) == nil, "31 emoji should fit")
+  assert(with(string.rep("א", 121)) == "The name is too long.")
+  assert(with(string.rep("a", 120)) == nil)
+end)
+
 check("the request carries what the API's GoalInput takes, trimmed and whole", function()
   local f = Goals.newForm(TODAY)
   f.name = "  My goal  "
-  f.target = "30"
+  f.target = "1,000"
   local input = Goals.input(f)
-  assert(input.description == "My goal" and input.goal == 30 and input.metric == "book")
+  assert(input.description == "My goal" and input.goal == 1000 and input.metric == "book")
   assert(input.start_date == "2026-01-01" and input.end_date == "2027-01-01")
   assert(input.privacy_setting_id == nil, "a form with no visibility leaves it out")
   f.privacy_setting_id = 2

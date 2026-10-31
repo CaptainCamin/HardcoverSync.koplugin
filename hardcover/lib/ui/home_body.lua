@@ -46,6 +46,7 @@ local HomeBody = InputContainer:extend {
   pending_fn = nil, -- returns how many changes are waiting to sync
   sync_cb = nil,    -- Sync now
   pending_cb = nil, -- a tap on the sync box: what is waiting
+  empty_message = nil, -- why Currently Reading is empty before its first successful load
 }
 
 function HomeBody:init()
@@ -117,7 +118,7 @@ function HomeBody:emptyCard(width)
     VerticalGroup:new { align = "left",
       Theme.mmdText(_("Nothing to show yet"), "strong", 21, { width = width - 2 * pad - 2 * border }),
       Theme.span(px(4)),
-      Theme.mmdText(_("Books you are reading will appear here."), "text", 18,
+      Theme.mmdText(self.empty_message or _("Books you are reading will appear here."), "text", 18,
         { secondary = true, width = width - 2 * pad - 2 * border }) } }
 end
 

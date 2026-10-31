@@ -108,14 +108,19 @@ return {
     end
     emu:shot("goal_form_new")
 
-    -- the target: a text box; a number sets it
+    -- the target: the text keyboard accepts readable grouping and the form pluralizes one
     tap_row(emu, form, "target")
     local input = top()
     assert(input and input.getInputText, "the target row did not open a text box: " .. tostring(input and input.name))
-    input:setInputText("20")
+    input:setInputText("1")
     tap_button(emu, "Set")
-    assert(form.form.target == 20, "target is " .. tostring(form.form.target))
-    emu:expectText("20 books")
+    assert(form.form.target == "1", "target is " .. tostring(form.form.target))
+    emu:expectText("1 book")
+
+    tap_row(emu, form, "target")
+    top():setInputText("1,000")
+    tap_button(emu, "Set")
+    emu:expectText("1000 books")
 
     -- what is counted: a list of two
     tap_row(emu, form, "metric")
@@ -123,7 +128,7 @@ return {
     emu:expectText("Pages")
     tap_button(emu, "Pages")
     assert(form.form.metric == "page")
-    emu:expectText("20 pages")
+    emu:expectText("1000 pages")
 
     -- the period: presets, and the name follows while it is still a preset's name
     local presets = Goals.presets(today)
@@ -135,12 +140,13 @@ return {
     assert(form.form.start_date == presets[3].start_date and form.form.end_date == presets[3].end_date, "the period did not change")
     assert(form.form.name == presets[3].name, "the name did not follow the period")
 
-    -- a target that is not a whole number cannot be saved: Save says why, sends nothing
+    -- a decimal stays visible as typed, and Save refuses it
     tap_row(emu, form, "target")
-    top():setInputText("0")
+    top():setInputText("12.5")
     tap_button(emu, "Set")
     tap_button(emu, "Save")
     emu:expectText("The target must be a whole number, at least 1.")
+    emu:expectText("12.5")
     assert(#writes("saveGoal") == 0, "an invalid goal was sent")
     emu:shot("goal_form_error")
 

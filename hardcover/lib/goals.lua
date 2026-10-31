@@ -394,6 +394,46 @@ local function trim(s)
   return (tostring(s or ""):gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
+-- The target field accepts decimal whole numbers, with optional comma or space
+-- thousands grouping. Keep parsing stricter than tonumber (hex and exponents are not form input).
+function Goals.parseTarget(value)
+  if type(value) == "number" then
+    if value == value and value ~= math.huge and value ~= -math.huge and value == math.floor(value) then
+      return value
+    end
+    return nil
+  end
+  if type(value) ~= "string" then return nil end
+
+  local target = trim(value)
+  if target:match("^%d+$") then return tonumber(target) end
+  local separator = target:find(",", 1, true) and "," or (target:find(" ", 1, true) and " " or nil)
+  if not separator then return nil end
+  local other = separator == "," and " " or ","
+  if target:find(other, 1, true) then return nil end
+
+  local groups, from = {}, 1
+  while true do
+    local at = target:find(separator, from, true)
+    local group = target:sub(from, at and at - 1 or #target)
+    if group == "" or not group:match("^%d+$") then return nil end
+    groups[#groups + 1] = group
+    if not at then break end
+    from = at + 1
+  end
+  if #groups < 2 or #groups[1] > 3 then return nil end
+  for i = 2, #groups do
+    if #groups[i] ~= 3 then return nil end
+  end
+  return tonumber(table.concat(groups))
+end
+
+local function characterCount(value)
+  -- UTF-8 continuation bytes are not character starts.
+  local _, count = value:gsub("[^\128-\191]", "")
+  return count
+end
+
 --
 -- Is the form fit to send? Returns nil when it is, else one sentence saying what to
 -- fix (the first problem; the form shows it).
@@ -403,12 +443,12 @@ function Goals.validate(form)
 
   local name = trim(form.name)
   if name == "" then return "Give the goal a name." end
-  if #name > 120 then return "The name is too long." end
+  if characterCount(name) > 120 then return "The name is too long." end
 
   if form.metric ~= "book" and form.metric ~= "page" then return "Choose books or pages." end
 
-  local target = tonumber(form.target)
-  if not target or target ~= math.floor(target) or target < 1 then
+  local target = Goals.parseTarget(form.target)
+  if not target or target < 1 then
     return "The target must be a whole number, at least 1."
   end
   if target > Goals.MAX_TARGET[form.metric] then
@@ -440,7 +480,7 @@ function Goals.input(form)
   local input = {
     description = trim(form.name),
     metric = form.metric,
-    goal = math.floor(tonumber(form.target)),
+    goal = Goals.parseTarget(form.target),
     start_date = form.start_date,
     end_date = form.end_date,
     conditions = Goals.conditions(form.conditions),

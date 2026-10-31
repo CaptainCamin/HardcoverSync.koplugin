@@ -314,7 +314,7 @@ function Shelf.detailSummary(detail)
   if type(book.release_date) == "string" then
     published = book.release_date:match("^(%d%d%d%d)")
   end
-  if not published and book.release_year then
+  if not published and book.release_year and tonumber(book.release_year) ~= 0 then
     published = tostring(book.release_year)
   end
 
@@ -580,7 +580,7 @@ function Shelf.detailRows(book)
   if type(book.release_date) == "string" then
     published = book.release_date:match("^(%d%d%d%d)")
   end
-  if not published and book.release_year then
+  if not published and book.release_year and tonumber(book.release_year) ~= 0 then
     published = tostring(book.release_year)
   end
   addRow(rows, "Published", published)

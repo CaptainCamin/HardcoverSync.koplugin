@@ -44,6 +44,11 @@ return {
   name = "shell",
 
   run = function(emu)
+    local NetworkManager = require("ui/network/manager")
+    local was_connected, was_state = NetworkManager.isConnected, NetworkManager.getConnectionState
+    NetworkManager.isConnected = function() return false end
+    NetworkManager.getConnectionState = function() return false end
+
     local function iso(d)
       local t = os.date("*t", os.time() + d * 86400)
       return string.format("%04d-%02d-%02d", t.year, t.month, t.day)
@@ -86,8 +91,11 @@ return {
     emu:screenNodes()
     emu:shot("shell_home")
     emu:expectText("CURRENTLY READING")
+    emu:expectText("Home needs an internet connection the first time.")
     emu:expectText("All synced")
     emu:expectText("Sync now")
+    NetworkManager.isConnected = was_connected
+    NetworkManager.getConnectionState = was_state
     local home = shell.bodies.home
     assert(home and home.shell == shell and not home.scroll, "Home must be a body that never scrolls")
     pending = 2

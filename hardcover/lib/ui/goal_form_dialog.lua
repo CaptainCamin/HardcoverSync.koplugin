@@ -74,13 +74,21 @@ end
 -- what each row shows
 function GoalFormDialog:rows()
   local f = self.form
-  local target = tonumber(f.target)
-  local unit = f.metric == "page" and _("pages") or _("books")
+  local target = Goals.parseTarget(f.target)
+  local unit = f.metric == "page" and { singular = _("page"), plural = _("pages") }
+    or { singular = _("book"), plural = _("books") }
+  local target_text
+  if target and target >= 1 and target <= Goals.MAX_TARGET[f.metric] then
+    target_text = target == 1 and string.format(_("%d %s"), target, unit.singular)
+      or string.format(_("%d %s"), target, unit.plural)
+  else
+    target_text = tostring(f.target or "")
+  end
   return {
     { key = "name", label = _("Name"), value = f.name ~= "" and f.name or _("Not set"), edit = function() self:editName() end },
     { key = "metric", label = _("Counting"), value = _(Goals.metricLabel(f.metric)), edit = function() self:pickMetric() end },
     { key = "target", label = _("Target"),
-      value = target and string.format("%d %s", target, unit) or tostring(f.target or ""),
+      value = target_text,
       edit = function() self:editTarget() end },
     { key = "period", label = _("Period"), value = Goals.periodText(f.start_date, f.end_date), edit = function() self:pickPeriod() end },
     { key = "privacy", label = _("Visible to"),
@@ -217,14 +225,13 @@ function GoalFormDialog:editTarget()
   input = InputDialog:new {
     title = self.form.metric == "page" and _("Pages to read") or _("Books to read"),
     input = tostring(self.form.target or ""),
-    input_type = "number",
     buttons = {
       { label = _("Cancel"), callback = function() UIManager:close(input) end },
       { label = _("Set"), primary = true, callback = function()
           local raw = input:getInputText()
           UIManager:close(input)
-          -- kept as typed when it is not a number, so Save can say what is wrong
-          self:change("target", tonumber(raw) or raw)
+          -- Keep the raw input so invalid syntax remains visible on the form.
+          self:change("target", raw)
         end },
     },
   }

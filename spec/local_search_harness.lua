@@ -18,6 +18,12 @@ r.test("query words match case-insensitively across title and author fields", fu
   assert(LocalSearch.matches("EARTHSEA le guin", { "A Wizard of Earthsea", "Ursula K. Le Guin" }))
 end)
 
+r.test("Latin accents fold in both query and local fields", function()
+  assert(LocalSearch.matches("émile", { "Émile Zola" }))
+  assert(LocalSearch.matches("bronte", { "Charlotte Brontë" }))
+  assert(LocalSearch.matches("ÉMILE", { "emile Zola" }))
+end)
+
 r.test("a missing query word rejects the entry", function()
   assert(not LocalSearch.matches("earthsea dune", { "A Wizard of Earthsea", "Ursula K. Le Guin" }))
 end)
