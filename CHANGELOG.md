@@ -12,6 +12,7 @@
 
 ### Fixed
 
+- **Changes waiting from offline reading are sent when you open a book online,** and a conflict with Hardcover's page is asked about there and then. "Use Hardcover" jumps to Hardcover's page at once, and "Jump to page N?" is no longer asked twice.
 - **Closing a book right after turning a page no longer crashes,** and the page you were on is sent as the book closes.
 - **Editions with no page count no longer send page 1.** They are treated like editions whose page count is unknown.
 - **Flipping back no longer resets your progress.** A jump of more than a few pages back (to check the contents, say) is not sent until you have read 5 pages forward from there.
