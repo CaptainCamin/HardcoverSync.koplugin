@@ -1012,37 +1012,49 @@ end
 -- thinking about the book. And if the user earlier chose Hardcover's page for it,
 -- offer to jump there.
 function HardcoverApp:askAboutOpenBook()
-  local file = self.ui.document and self.ui.document.file
+  local document = self.ui.document
+  local file = document and document.file
   if not file or not self.sync_queue.conflicts then return end
 
-  local resume = self.sync_queue:takeResumePage(file)
-  local function offer_jump()
-    local target = self:jumpTarget(resume)
-    if not target then return end
-    StatusDialogs.confirm {
-      title = T(_("Jump to page %1?"), resume),
-      text = _("Hardcover is further along than this device."),
-      ok_text = _("Jump"),
-      cancel_text = _("Stay here"),
-      ok_callback = function()
-        self.ui:handleEvent(Event:new("GotoPage", target))
-      end,
-    }
-  end
+  -- Wait for the online flush: it may discover a conflict for this very book.
+  self:flushSyncQueue(false, function()
+    if self.ui.document ~= document then return end
 
-  local entry = self.sync_queue:get(file)
-  if type(entry) == "table" and entry.conflict then
-    require("hardcover/lib/ui/sync_conflict_dialog").show {
-      queue = self.sync_queue,
-      only = file,
-      on_done = function(resolved)
-        if resume then offer_jump() end
-        if resolved > 0 then self:flushSyncQueue(false) end
-      end,
-    }
-  elseif resume then
-    offer_jump()
-  end
+    local resume = self.sync_queue:takeResumePage(file)
+    local function offer_jump(page)
+      if not page or self.state.jump_offered then return end
+      local target = self:jumpTarget(page)
+      if not target then return end
+      self.state.jump_offered = true
+      StatusDialogs.confirm {
+        title = T(_("Jump to page %1?"), page),
+        text = _("Hardcover is further along than this device."),
+        ok_text = _("Jump"),
+        cancel_text = _("Stay here"),
+        ok_callback = function()
+          self.ui:handleEvent(Event:new("GotoPage", target))
+        end,
+      }
+    end
+
+    local entry = self.sync_queue:get(file)
+    if type(entry) == "table" and entry.conflict then
+      require("hardcover/lib/ui/sync_conflict_dialog").show {
+        queue = self.sync_queue,
+        only = file,
+        on_done = function(resolved)
+          local page = resolved > 0 and self.sync_queue:takeResumePage(file)
+          -- A different answer also settles the question for this opening;
+          -- a late cache response must not offer the rejected cloud page.
+          if resolved > 0 and not page then self.state.jump_offered = true end
+          offer_jump(page)
+          if resolved > 0 then self:flushSyncQueue(false) end
+        end,
+      }
+    else
+      offer_jump(resume)
+    end
+  end)
 end
 
 -- Online with the book open, Hardcover has you further along than this device
