@@ -995,8 +995,13 @@ end
 -- Hardcover disagree about where they are in a book). Say so once per new
 -- question; the answers are in the Sync menu.
 function HardcoverApp:_noticeSyncConflicts()
-  if not self.sync_queue.conflictCount then return end
-  local count = self.sync_queue:conflictCount()
+  if not self.sync_queue.conflicts then return end
+  -- the book being opened asks its own question at once (askAboutOpenBook): not a reason to send
+  -- the reader to the Sync menu, and the notice would cover that question's last choice
+  local count = 0
+  for _, conflict in ipairs(self.sync_queue:conflicts()) do
+    if conflict.filepath ~= self.asking_about_book then count = count + 1 end
+  end
   if count > 0 and count ~= self.noticed_conflicts then
     StatusDialogs.info(SyncConflicts.notice(count), 5)
   end
@@ -1021,7 +1026,9 @@ function HardcoverApp:askAboutOpenBook()
   if not file or not self.sync_queue.conflicts then return end
 
   -- Wait for the online flush: it may discover a conflict for this very book.
+  self.asking_about_book = file
   self:flushSyncQueue(false, function()
+    self.asking_about_book = nil
     if self.ui.document ~= document then return end
 
     local resume = self.sync_queue:takeResumePage(file)

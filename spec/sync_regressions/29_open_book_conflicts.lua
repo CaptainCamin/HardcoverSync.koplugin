@@ -124,4 +124,24 @@ KB.check("a flush finishing after the reader closes does not open a dialog", fun
   assert(not question and #prompts == 0, "dialog outlived the book")
 end)
 
+KB.check("the open book's own conflict is asked, not announced as a trip to the Sync menu", function()
+  local notices = {}
+  local info = StatusDialogs.info
+  StatusDialogs.info = function(text) notices[#notices + 1] = text end
+  local app, queue = newApp()
+  queuePage(queue)
+  -- the flush finds the conflict and, as flushSyncQueue does, announces conflicts before answering
+  app.flushSyncQueue = function(self, _, done) conflict(queue); self:_noticeSyncConflicts(); done(false) end
+  app:askAboutOpenBook()
+  assert(question, "conflict not shown")
+  KB.eq(#notices, 0, "notices over the open book's question")
+
+  -- another book's conflict still gets the notice
+  queue:enqueuePage("/other.epub", { mapped_page = 10, book_id = 2, user_id = 1 })
+  queue:get("/other.epub").conflict = { kind = "page", local_page = 10, cloud_page = 90 }
+  app:askAboutOpenBook()
+  KB.eq(#notices, 1, "notice for the other book")
+  StatusDialogs.info = info
+end)
+
 KB.finish("opening a book must resolve queued conflicts and offer one jump")
