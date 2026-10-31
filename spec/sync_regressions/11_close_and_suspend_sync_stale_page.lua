@@ -87,4 +87,20 @@ KB.check("five pages read forward after a backward jump can be saved", function(
   KB.eq(synced[1], 6, "page after rereading")
 end)
 
+KB.check("opening a book and closing or sleeping without turning a page sends nothing", function()
+  -- Hardcover can be further along (read on another device); the page this device opened at
+  -- must not overwrite it when the reader only looked at the book.
+  for _, event in ipairs({ "onCloseDocument", "onSuspend" }) do
+    local synced = {}
+    local app = newApp(synced)
+    app.page_update_pending = false
+    app.state.page, app.ui.current_page = 7, 7
+    app.state.observed_page = 7 -- as onReaderReady leaves it
+    app._debouncedPageUpdate = function() end
+    app:onPageUpdate(7) -- KOReader's page event as the book opens
+    app[event](app)
+    KB.eq(#synced, 0, event .. " right after opening")
+  end
+end)
+
 KB.finish("suspend/close must sync the current page, not the last debounced one")

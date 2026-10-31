@@ -645,9 +645,12 @@ end
 
 -- Observe every turn before debouncing: a rapid run of turns must not look like
 -- one large jump, and a glance back must cancel any pending automatic write.
+-- Returns whether the page may be sent, and whether it moved: the page event KOReader sends
+-- as a book opens is not reading, and must not send the local page over Hardcover's on close.
 function HardcoverApp:observePage(page)
   local previous = self.state.observed_page or self.state.page
-  if previous and page and page ~= previous then
+  local moved = page ~= nil and previous ~= nil and page ~= previous
+  if moved then
     local step = page - previous
     if step < -StartReading.MAX_STEP then
       self.state.rereading_pages = 0
@@ -664,12 +667,12 @@ function HardcoverApp:observePage(page)
     end
   end
   self.state.observed_page = page
-  return not self.state.rereading_pages
+  return not self.state.rereading_pages, moved
 end
 
 function HardcoverApp:onPageUpdate(page)
-  local may_sync = self:observePage(page)
-  if may_sync and self.settings:syncEnabled() then self.page_update_pending = true end
+  local may_sync, moved = self:observePage(page)
+  if may_sync and moved and self.settings:syncEnabled() then self.page_update_pending = true end
   self:_debouncedPageUpdate(page)
 end
 
@@ -688,7 +691,8 @@ function HardcoverApp:pageUpdateEvent(page)
   if self:pageWriteDecision(self.ui.document.file) == "ask" then
     self:countPageForStart(self.ui.document.file, self.state.last_page, page)
   end
-  if not self.settings:syncEnabled() or self.state.rereading_pages then
+  -- the same page again (the event as a book opens) is not reading: nothing to send
+  if not self.settings:syncEnabled() or self.state.rereading_pages or page == self.state.last_page then
     return
   end
   local document_pages = self.ui.document:getPageCount()
@@ -725,8 +729,8 @@ end
 
 function HardcoverApp:onPosUpdate(_, page)
   if self.state.process_page_turns then
-    local may_sync = self:observePage(page)
-    if may_sync and self.settings:syncEnabled() then self.page_update_pending = true end
+    local may_sync, moved = self:observePage(page)
+    if may_sync and moved and self.settings:syncEnabled() then self.page_update_pending = true end
     self:pageUpdateEvent(page)
   end
 end
@@ -991,8 +995,13 @@ end
 -- Hardcover disagree about where they are in a book). Say so once per new
 -- question; the answers are in the Sync menu.
 function HardcoverApp:_noticeSyncConflicts()
-  if not self.sync_queue.conflictCount then return end
-  local count = self.sync_queue:conflictCount()
+  if not self.sync_queue.conflicts then return end
+  -- the book being opened asks its own question at once (askAboutOpenBook): not a reason to send
+  -- the reader to the Sync menu, and the notice would cover that question's last choice
+  local count = 0
+  for _, conflict in ipairs(self.sync_queue:conflicts()) do
+    if conflict.filepath ~= self.asking_about_book then count = count + 1 end
+  end
   if count > 0 and count ~= self.noticed_conflicts then
     StatusDialogs.info(SyncConflicts.notice(count), 5)
   end
@@ -1017,7 +1026,9 @@ function HardcoverApp:askAboutOpenBook()
   if not file or not self.sync_queue.conflicts then return end
 
   -- Wait for the online flush: it may discover a conflict for this very book.
+  self.asking_about_book = file
   self:flushSyncQueue(false, function()
+    self.asking_about_book = nil
     if self.ui.document ~= document then return end
 
     local resume = self.sync_queue:takeResumePage(file)
