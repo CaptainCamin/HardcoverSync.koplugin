@@ -125,6 +125,7 @@ end
 package.preload["util"] = function()
   return { htmlEntitiesToUtf8 = function(s) return s end }
 end
+package.preload["ffi/utf8proc"] = function() return { lowercase = string.lower } end
 local real_require = require
 _G.require = function(name)
   if widgets[name] then return widgets[name] end

@@ -279,6 +279,21 @@ check("offline it says it needs a connection and downloads nothing", function()
   assert(#fetched == 0 and infos[#infos]:find("needs an internet connection"))
 end)
 
+check("cached covers can be kept offline without asking for Wi-Fi", function()
+  local m = manager()
+  m.shelf_store:putEntries(1, 3, { book(1), book(2) }, true, "x")
+  for i = 1, 2 do seen["small:https://assets.hardcover.app/" .. i .. ".jpg"] = "img" end
+  online = false
+  m.wifi.withWifi = function() error("a copy-only plan must not request Wi-Fi") end
+  m:downloadCoversForOffline()
+  assert(dialogs[1].text:find("nothing needs downloading", 1, true))
+  confirm()
+  assert(pinned["small:https://assets.hardcover.app/1.jpg"] == "img")
+  assert(pinned["small:https://assets.hardcover.app/2.jpg"] == "img")
+  assert(#fetched == 0 and standby == 0)
+  assert(infos[#infos] == "Every cover is kept for offline (2).", tostring(infos[#infos]))
+end)
+
 check("with every cover kept, it says so instead of asking", function()
   local m = manager()
   m.shelf_store:putEntries(1, 3, { book(1) }, true, "x")

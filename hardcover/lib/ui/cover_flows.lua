@@ -86,7 +86,8 @@ end
 -- Run the plan; `turned_on`: the plugin switched Wi-Fi on for this, so it switches it off
 -- again after.
 local function run(self, plan, turned_on)
-  if not Network.connected() then
+  local needs_network = #plan.fetch > 0
+  if needs_network and not Network.connected() then
     StatusDialogs.info(_("Downloading covers needs an internet connection."))
     return
   end
@@ -98,7 +99,7 @@ local function run(self, plan, turned_on)
   -- a long run must not be cut short by the device dozing off between covers
   local awake = UIManager.preventStandby and pcall(UIManager.preventStandby, UIManager)
   local stopped = function()
-    return self._cover_stop or self.closed or not Network.connected()
+    return self._cover_stop or self.closed or (needs_network and not Network.connected())
   end
 
   Background.run(function()
@@ -169,7 +170,7 @@ function Flows:downloadCoversForOffline()
         self._covers_missing, CoverDownload.size(CoverDownload.estimate(plan))),
     ok_text = _("Download"),
     ok_callback = function()
-      if self.wifi and self.wifi.withWifi then
+      if #plan.fetch > 0 and self.wifi and self.wifi.withWifi then
         self.wifi:withWifi(function(turned_on) run(self, plan, turned_on) end)
       else
         run(self, plan, false)

@@ -259,6 +259,21 @@ check("an empty journal says there is nothing yet", function()
   assert(body.message and body.message:find("Nothing in your journal yet", 1, true), tostring(body.message))
 end)
 
+check("a fully filtered page still offers older entries", function()
+  local rows = {}
+  for i = 1, Journal.PAGE_SIZE do
+    rows[i] = { id = i, event = "referral_to", action_at = "2026-10-22T12:00:00Z" }
+  end
+  local page = Journal.parse({ reading_journals = rows }, Journal.PAGE_SIZE)
+  local body
+  body = build { more_cb = function() body:setEntries({ entry(50) }, false) end }
+  body:setEntries(page.entries, page.more)
+  local buttons = all(body[1], "Button")
+  assert(#buttons == 1 and buttons[1].text == "Load more", "older history is unreachable")
+  buttons[1].callback()
+  assert(hasText(body, "Book 50") and not body.has_more)
+end)
+
 check("without a touch screen there is no swipe to listen for", function()
   touch = false
   local body = build { entries = many(2) }
