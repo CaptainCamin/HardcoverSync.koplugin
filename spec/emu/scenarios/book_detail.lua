@@ -182,6 +182,20 @@ return {
     end
     emu:shot("book_detail_typical")
 
+    -- A zero release year is a placeholder from the API, not a year to show.
+    local zero_year_book = fixtures.books_by_id[103]
+    local saved_year = zero_year_book.release_year
+    zero_year_book.release_year = 0
+    local _, zero_year = build_detail(emu, { book_id = 103 })
+    emu:pump()
+    for _, node in ipairs(emu:screenNodes()) do
+      assert(node.text ~= "0", "the detail page displayed a bare zero year")
+    end
+    emu:shot("book_detail_zero_year")
+    emu.UIManager:close(zero_year)
+    emu:pump()
+    zero_year_book.release_year = saved_year
+
     -- the action bar sits inside the page margins (the buttons used to run a few
     -- pixels past the right one) and its buttons are comfortably tall
     local Theme = require("hardcover/lib/ui/theme")

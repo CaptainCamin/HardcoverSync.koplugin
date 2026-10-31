@@ -612,10 +612,12 @@ function DialogManager:showHomeBody(host)
 
   local saved_counts = cache and cache:counts(user_id, ids) or {}
   local saved_reading = cache and cache:reading(user_id)
+  local reading_never_loaded = saved_reading == nil
   if not saved_reading or #saved_reading == 0 then
     -- nothing saved for Home itself (or an empty list): the saved Currently reading shelf
     saved_reading = self:readingFromShelf(user_id, 5)
   end
+  local online = Network.connected()
   -- what Currently Reading shows: the saved or fetched cards with the reading done
   -- offline (pages turned, books finished or started) laid over them
   local function shownReading(entries)
@@ -643,6 +645,8 @@ function DialogManager:showHomeBody(host)
     pending_cb = function() self:showPendingChanges() end,
     rows = Home.rows(saved_counts),
     entries = shownReading(saved_reading),
+    empty_message = reading_never_loaded and not online
+      and _("Home needs an internet connection the first time.") or nil,
     select_cb = function(row)
       self:showShelf(row.status_id, row.title)
     end,
@@ -654,7 +658,7 @@ function DialogManager:showHomeBody(host)
 
   self:checkForUpdate()
 
-  if not Network.connected() then
+  if not online then
     return dialog
   end
 

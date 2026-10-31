@@ -411,6 +411,14 @@ check("an edition's release date beats the book's year", function()
   assert(sum.facts == "2005", tostring(sum.facts))
 end)
 
+check("a zero release year is not shown in the header or Published row", function()
+  local detail = Shelf.detailSummary({ book = { release_year = 0 } })
+  assert(detail.facts == nil, tostring(detail.facts))
+  for _, row in ipairs(Shelf.detailRows({ release_year = 0 })) do
+    assert(row.label ~= "Published", "published as " .. tostring(row.value))
+  end
+end)
+
 check("the detail rows leave out what the header already says", function()
   local labels = {}
   for _, row in ipairs(Shelf.extraRows(FULL)) do labels[#labels + 1] = row.label end

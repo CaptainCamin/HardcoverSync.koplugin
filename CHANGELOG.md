@@ -13,6 +13,9 @@
 ### Fixed
 
 - **Changes waiting from offline reading are sent when you open a book online,** and a conflict with Hardcover's page is asked about there and then. "Use Hardcover" jumps to Hardcover's page at once, and "Jump to page N?" is no longer asked twice.
+- **Goal targets accept only whole numbers.** `1,000` and `1 000` work; anything else (12.5, for example) stays in the box with a note instead of being rounded or shown as a huge negative number. Goal names are limited by characters, not bytes, so accented names are not cut short.
+- **Search ignores accents.** "Bronte" finds "Brontë", the same way shelves are sorted.
+- **Smaller fixes.** A release year of 0 is no longer shown on book details; changing a book's status offline says it will be sent when you are connected rather than "Hardcover status saved"; Home opened offline before it has ever loaded says it needs a connection the first time.
 - **Closing a book right after turning a page no longer crashes,** and the page you were on is sent as the book closes.
 - **Editions with no page count no longer send page 1.** They are treated like editions whose page count is unknown.
 - **Flipping back no longer resets your progress.** A jump of more than a few pages back (to check the contents, say) is not sent until you have read 5 pages forward from there.

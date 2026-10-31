@@ -3,6 +3,7 @@
 -- can match a title and author together without depending on their order.
 
 local LocalSearch = {}
+local TextFold = require("hardcover/lib/text_fold")
 
 function LocalSearch.matches(query, fields)
   if type(query) ~= "string" or not query:match("%S") then return true end
@@ -10,12 +11,12 @@ function LocalSearch.matches(query, fields)
   local haystack = {}
   for _, field in pairs(fields or {}) do
     if type(field) == "string" and field ~= "" then
-      haystack[#haystack + 1] = field:lower()
+      haystack[#haystack + 1] = TextFold.fold(field)
     end
   end
   local text = table.concat(haystack, " ")
 
-  for word in query:lower():gmatch("%S+") do
+  for word in TextFold.fold(query):gmatch("%S+") do
     if not text:find(word, 1, true) then return false end
   end
   return true

@@ -1316,9 +1316,14 @@ function HardcoverApp:finishBook(file_path)
   self.cache:updateBookStatus(file_path, HARDCOVER.STATUS.FINISHED)
 end
 
+local function statusSavedMessage()
+  if NetworkManager:isConnected() then return _("Hardcover status saved") end
+  return _("You're offline. Your status is kept and will be sent when you're connected.")
+end
+
 function HardcoverApp:markFinishedAndSay(file_path, event)
   if self:markFinished(file_path, event) then
-    StatusDialogs.info(_("Hardcover status saved"), 2)
+    StatusDialogs.info(statusSavedMessage(), 2)
     return true
   end
   return false
@@ -1435,7 +1440,7 @@ function HardcoverApp:askDidNotFinish(file_path)
       Background.run(function()
         self:finishBook(file_path)
       end)
-      StatusDialogs.info(_("Hardcover status saved"), 2)
+      StatusDialogs.info(statusSavedMessage(), 2)
     end,
   }
 end
@@ -1460,7 +1465,7 @@ function HardcoverApp:onDocSettingsItemsChanged(file, doc_settings)
     Background.run(function()
       self.cache:updateBookStatus(file, status)
     end)
-    StatusDialogs.info(_("Hardcover status saved"), 2)
+    StatusDialogs.info(statusSavedMessage(), 2)
   end
 end
 
