@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- **A shelf change made offline from a book's details no longer overtakes your reading.** For a book that is on this device, it now waits in the same queue as your page and is sent in the order you made them, so a page cannot reach Hardcover before an earlier status change and start a false "read it again?" question.
+
 - **Opening a book and closing it, or putting the device to sleep, without reading no longer sends your page.** It used to send the page this device opened at, so a book read further on another device went back to the earlier page on Hardcover.
 - **Changes waiting from offline reading are sent when you open a book online,** and a conflict with Hardcover's page is asked about there and then. "Use Hardcover" jumps to Hardcover's page at once, and "Jump to page N?" is no longer asked twice. The "needs your decision" notice no longer covers that question's Decide later choice.
 - **Goal targets accept only whole numbers.** `1,000` and `1 000` work; anything else (12.5, for example) stays in the box with a note instead of being rounded or shown as a huge negative number. Goal names are limited by characters, not bytes, so accented names are not cut short.

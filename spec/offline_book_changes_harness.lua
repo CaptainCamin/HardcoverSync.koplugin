@@ -374,6 +374,30 @@ check("Hardcover's older word about the book does not overwrite a waiting change
   assert(#d.status_updates == 1, "not applied without a waiting change")
 end)
 
+check("a book with a file here keeps its offline shelf change in the progress queue, after an earlier page", function()
+  local m = newManager()
+  online = false
+  local store = {}
+  m.sync_queue = real_require("hardcover/lib/sync_queue"):new { settings = {
+    readSetting = function(_, k) return store[k] end,
+    saveSetting = function(_, k, v) store[k] = v end,
+    flush = function() end,
+  } }
+  m.deviceFile = function(_, book_id) return book_id == 1 and "/books/a.epub" or nil end
+  m.sync_queue:enqueuePage("/books/a.epub", { mapped_page = 10, book_id = 1, title = "Book 1" })
+  local d = detailScreen(m, SHELVED())
+  tap(showing(function() m:chooseShelf(d) end), "Read")
+  assert(shelf_queue:get(1) == nil, "also queued in the shelf queue")
+  local entry = m.sync_queue:get("/books/a.epub")
+  assert(entry.status_id == 3 and entry.mapped_page == 10 and entry.from_status_id == 1, "not with its page")
+  assert(entry.book_id == 1 and entry.user_book_id == 51, "lost the book's identity")
+  assert(#d.status_updates == 1 and d.status_updates[1][1] == 3, "the screen did not change")
+  -- a book with no file still takes the shelf queue
+  local d2 = detailScreen(m, NEW())
+  tap(showing(function() m:chooseShelf(d2) end), "Read")
+  assert(shelf_queue:get(100) and not m.sync_queue:get("/books/100"), "a book without a file left the shelf queue")
+end)
+
 check("a status set from the reader and still queued is not overwritten by Hardcover's older word", function()
   local m = newManager()
   local store = {}
