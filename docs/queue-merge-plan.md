@@ -46,8 +46,8 @@ Callers that pass a file path into `SyncQueue` (grep `sync_queue:` outside `sync
 - `pending_changes.lua`, `pending_status.lua`, `sync_conflicts.lua`, `ui/sync_conflict_dialog.lua`,
   `ui/pending_changes_dialog.lua`: `filepaths`, `get`, `cancelPage`, `cancelStatus`, `resolve`
 
-The reader always has a file and a book id once the book is linked. A book that is not linked has no
-`book_id` yet, so it cannot be keyed by one (see "Decisions").
+The reader always has a file and a book id once the book is linked. A change for a book with no `book_id`
+cannot be keyed by one and is dropped (decided).
 
 ## Steps
 
@@ -58,8 +58,8 @@ The reader always has a file and a book id once the book is linked. A book that 
    (`Cache:queueMeta(filename).book_id`).
 2. Migrate on load: for each saved `pending` entry with a `book_id`, move it to the new key (when two files
    share a book, keep the one with the newest `page_updated_at`, and say so in the log). An entry with no
-   `book_id` stays under its path in a small `unlinked` table, and is dropped as today (`_flushEntry`
-   already counts a rejection for it).
+   `book_id` is dropped in the migration: it cannot be sent today either (`_flushEntry` counts a rejection
+   for it until it is held), and nothing found in the code queues a page for an unlinked book.
 3. New specs: the migration (one file, two files for one book, an entry with no book id, an entry from
    another user), and two files linked to one book queueing pages.
 4. Run `spec/emu` offline scenarios (`offline_book_changes`, `reader_panel`).
@@ -82,10 +82,9 @@ Ship alone. Nothing else changes behaviour.
 
 ## Decisions needed
 
-- **Unlinked books:** key by file until linked (above), or refuse to queue a status for a book with no
-  `book_id` (the reader panel already says the book is not linked)?
-- **Two files, one book:** newest wins (above), or keep both pages and let the conflict dialog ask?
-- **Keep the old `shelf_ops` key for one release or two?** It costs one start-up read.
+- ~~**Unlinked books.**~~ Decided: drop entries with no `book_id` in the migration; no new refusal code.
+- **Two files, one book:** newest wins by timestamp, page and status each (recommended), or ask the user?
+- **Keep the old `shelf_ops` key for one release or two?** One is recommended: step 5 converts and clears it.
 
 ## Risks
 
