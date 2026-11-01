@@ -397,16 +397,32 @@ function Journal.waiting(journal_ops, review_ops, user_id, status_changes)
     end
   end
   for _, change in ipairs(status_changes or {}) do
-    local word = change.kind == "remove" and "Removed from your library" or STATUS_MOVE[change.status_id]
+    local word
+    if change.kind == "progress" then
+      word = tonumber(change.page) and ("Updated progress to page " .. math.floor(tonumber(change.page))) or nil
+    else
+      word = change.kind == "remove" and "Removed from your library" or STATUS_MOVE[change.status_id]
+    end
     if word then
       out[#out + 1] = {
-        key = "waiting:status:" .. tostring(change.book_id), kind = "event", waiting = true, event = "status_change",
+        key = "waiting:" .. (change.kind == "progress" and ("page:" .. tostring(change.book_id) .. ":" .. tostring(change.day))
+          or ("status:" .. tostring(change.book_id))),
+        kind = "event", waiting = true, event = "waiting_change",
         action = word, title = change.title or "A book", book_id = tonumber(change.book_id),
         -- the day it was made, which Hardcover is sent too (see HardcoverApi's action_at)
         made_at = tonumber(change.at) ~= nil,
         at = tonumber(change.at) and os.date("!%Y-%m-%dT%H:%M:%SZ", tonumber(change.at)) or nil,
       }
     end
+  end
+  return out
+end
+
+-- The status changes and the pages waiting, as the one list `Journal.waiting` takes.
+function Journal.changesOf(statuses, pages)
+  local out = {}
+  for _, list in ipairs({ statuses or {}, pages or {} }) do
+    for _, change in ipairs(list) do out[#out + 1] = change end
   end
   return out
 end
@@ -424,7 +440,7 @@ end
 -- leaves them saying only that you reviewed it, as Hardcover will. Above them, what Hardcover does
 -- not have yet (Journal.waiting), with the cover and authors of the book where the list has them.
 -- A review waiting for a book whose review is listed is that review edited, not a new one. A status
--- change waiting sits among Hardcover's entries by the day it was made, newest first.
+-- change or page waiting sits among Hardcover's entries by the day it was made, newest first.
 --
 function Journal.withPending(entries, journal_ops, review_ops, user_id, status_changes)
   local changes = {}
@@ -474,14 +490,14 @@ function Journal.withPending(entries, journal_ops, review_ops, user_id, status_c
     if not used[key] then new_reviews[#new_reviews + 1] = op end
   end
   local waiting = Journal.waiting(journal_ops, new_reviews, user_id, status_changes)
-  -- notes, quotes and reviews wait on top; a status change waiting is placed by the day it was made
+  -- notes, quotes and reviews wait on top; a status or progress change waiting is placed by the day it was made
   local out, changes = {}, {}
   for _, e in ipairs(waiting) do
     local known = e.book_id and books[e.book_id]
     if known then
       e.authors, e.cover_url = known.authors, known.cover_url
     end
-    if e.event == "status_change" then changes[#changes + 1] = e else out[#out + 1] = e end
+    if e.made_at then changes[#changes + 1] = e else out[#out + 1] = e end
   end
   table.sort(changes, function(a, b) return (Journal.epoch(a.at) or 0) > (Journal.epoch(b.at) or 0) end)
   local next_change = 1

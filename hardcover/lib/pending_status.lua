@@ -28,6 +28,30 @@ function PendingStatus.list(sync_queue, user_id)
   return out
 end
 
+-- The pages waiting to be sent, one for each day a book was read, for `user_id` (nil: anyone's): { kind
+-- ("progress"), book_id, title, page, day, at }, in a stable order (by book, then day). The queue keeps
+-- the page reached at the end of each day, as it sends them.
+function PendingStatus.pages(sync_queue, user_id)
+  local out = {}
+  if not sync_queue then return out end
+  for _, key in ipairs(sync_queue:keys()) do
+    local entry = sync_queue:get(key)
+    if entry.mapped_page ~= nil and tonumber(entry.book_id) and (user_id == nil or SyncQueue.ownedBy(entry, user_id)) then
+      local days = type(entry.page_days) == "table" and #entry.page_days > 0 and entry.page_days
+        or { { day = "", page = entry.mapped_page, at = entry.page_updated_at } }
+      for _, d in ipairs(days) do
+        out[#out + 1] = { kind = "progress", book_id = tonumber(entry.book_id), title = entry.title,
+          page = d.page, day = d.day, at = d.at }
+      end
+    end
+  end
+  table.sort(out, function(a, b)
+    if a.book_id ~= b.book_id then return a.book_id < b.book_id end
+    return (tonumber(a.at) or 0) < (tonumber(b.at) or 0)
+  end)
+  return out
+end
+
 -- The change waiting for one book, or nil.
 function PendingStatus.get(sync_queue, book_id, user_id)
   local op = sync_queue and sync_queue:shelfOp(book_id, user_id)

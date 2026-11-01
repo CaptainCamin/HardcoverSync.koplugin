@@ -389,6 +389,27 @@ check("a status change waiting sits among Hardcover's entries by the day it was 
   eq(all[1].kind, "note", "notes still wait on top")
 end)
 
+check("a page waiting shows its day, sorts among Hardcover's entries, and says it is waiting", function()
+  local function iso(secs) return os.date("!%Y-%m-%dT%H:%M:%SZ", secs) end
+  local now = os.time()
+  local held = {
+    { key = "a", kind = "event", action = "new", at = iso(now - 1 * 86400), book_id = 1 },
+    { key = "b", kind = "event", action = "old", at = iso(now - 5 * 86400), book_id = 1 },
+  }
+  local all = Journal.withPending(held, {}, {}, 1, {
+    { kind = "progress", book_id = 7, title = "Dune", page = 120.0, day = "d1", at = now - 3 * 86400 },
+    { kind = "progress", book_id = 7, title = "Dune", page = 150, day = "d2", at = now - 2 * 86400 },
+    { kind = "progress", book_id = 7, title = "Dune", day = "d3", at = now },
+  })
+  eq(#all, 4, "a page with no number is left out")
+  eq(all[1].key, "a"); eq(all[2].action, "Updated progress to page 150"); eq(all[3].action, "Updated progress to page 120")
+  eq(all[4].key, "b")
+  local row = Journal.row(all[2])
+  eq(row.title, "Dune"); eq(row.open, "book")
+  eq(row.detail, Journal.dayText(iso(now - 2 * 86400)) .. DOT .. Journal.WAITING)
+  eq(all[2].key == all[3].key, false, "one key for each day")
+end)
+
 check("a waiting row says so instead of a day", function()
   local waiting = Journal.waiting(journalOps(), reviewOps(), 1)
   local row = Journal.row(waiting[3])

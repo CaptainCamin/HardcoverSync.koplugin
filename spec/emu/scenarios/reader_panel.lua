@@ -205,11 +205,14 @@ return {
     emu:pump()
     emu:expectText("2.5")
     emu:shot("reader_first_sync")
+    -- a page read offline waits too, and shows with the other changes
+    dm.sync_queue:enqueuePage("/emu/book.epub", { book_id = 328491, title = "The Dispossessed", mapped_page = 200 })
     tapText("Journal")
     local journal = emu:top()
     assert(journal.name == "hardcover_journal_screen", "Journal is still disabled before first sync")
     -- the shelf change made above is waiting, so the Journal lists it instead of saying it is empty
     emu:expectText("Marked as currently reading")
+    emu:expectText("Updated progress to page 200")
     emu:shot("reader_first_sync_waiting_status")
     local function addEntry(label)
       dismissNotes()
