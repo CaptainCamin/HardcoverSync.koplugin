@@ -71,7 +71,7 @@ return {
     local sent_now, opened_list = 0, 0
     local manager = DialogManager:new { settings = settings,
       sync_queue = { finishedCount = function() return 0 end, pendingCount = function() return pending end,
-        changeCount = function() return pending end },
+        changeCount = function() return pending end, shelfOp = function() return nil end },
       shelf_cache = ShelfCache:new { path = path, open = function(p) return LuaSettings:open(p) end },
       send_now = function() sent_now = sent_now + 1 end,
       show_pending = function() opened_list = opened_list + 1 end }
