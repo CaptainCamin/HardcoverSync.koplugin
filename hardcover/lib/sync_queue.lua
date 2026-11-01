@@ -2,6 +2,7 @@ local HARDCOVER = require("hardcover/lib/constants/hardcover")
 
 local Book = require("hardcover/lib/book")
 local OfflineQueue = require("hardcover/lib/offline_queue")
+local StatusSender = require("hardcover/lib/status_sender")
 
 local SyncQueue = OfflineQueue.extend({})
 SyncQueue.store_key = "pending"
@@ -603,31 +604,32 @@ function SyncQueue:_flushEntry(api, filepath, opts)
 
   local ops = orderedOps(entry)
   local sent = {}
-  local READING = HARDCOVER.STATUS.READING
   local owes_reading = entry.passed_reading and entry.status_id ~= nil
+
+  local info = { book_id = book_id, edition_id = edition_id, privacy_setting_id = privacy_setting_id }
 
   if not hasUserBook(user_book) then
     local first = ops[1]
-    local status_to_set = READING
     -- the status that follows Currently Reading is sent on its own below
     local first_is_status = first.kind == "status" and not owes_reading
     if first_is_status then
-      status_to_set = first.value
+      user_book = StatusSender.setStatus(api, nil, first.value, first.finished_date, info)
+    else
+      -- a page needs a library record to be read on: create it as Currently Reading
+      user_book = StatusSender.passThroughReading(api, nil, info)
     end
-    user_book = api:updateUserBook(book_id, status_to_set, privacy_setting_id, edition_id)
     if not hasUserBook(user_book) then
       countRejection(self, filepath)
       return false
     end
     if first_is_status then
-      if first.finished_date then user_book = api:setFinishedDate(user_book, first.finished_date) or user_book end
       sent.status, sent.status_at = first.value, first.at
       table.remove(ops, 1)
       self:_clearSent(filepath, sent)
       sent = {}
     end
-  elseif owes_reading and user_book.status_id ~= READING then
-    local started = api:updateUserBookStatus(user_book.id, READING)
+  elseif owes_reading then
+    local started = StatusSender.passThroughReading(api, user_book, info)
     if not hasUserBook(started) then
       countRejection(self, filepath)
       return false
@@ -641,13 +643,12 @@ function SyncQueue:_flushEntry(api, filepath, opts)
 
   for _, op in ipairs(ops) do
     if op.kind == "status" then
-      local result = api:updateUserBookStatus(user_book.id, op.value)
+      local result = StatusSender.setStatus(api, user_book, op.value, op.finished_date, info)
       if not hasUserBook(result) then
         countRejection(self, filepath)
         return false
       end
       user_book = result
-      if op.finished_date then user_book = api:setFinishedDate(result, op.finished_date) or result end
       self:_clearSent(filepath, { status = op.value, status_at = op.at })
     else
       local current = user_book.status_id
