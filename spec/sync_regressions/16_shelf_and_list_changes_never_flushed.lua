@@ -10,7 +10,7 @@ local App = KB.load_main()
 local User = require("hardcover/lib/user")
 User.settings = { readSetting = function() return 1 end, updateSetting = function() end }
 local Api = require("hardcover/lib/hardcover_api")
-local ShelfQueue = require("hardcover/lib/shelf_queue")
+local SyncQueue = require("hardcover/lib/sync_queue")
 local ListQueue = require("hardcover/lib/list_queue")
 
 print("\n== shelf and list changes made offline are sent when the connection is back ==")
@@ -20,6 +20,7 @@ Api.updateUserBook = function(_, book_id, status_id, _, edition_id)
   writes[#writes + 1] = { "updateUserBook", book_id, status_id, edition_id }
   return { id = 77, status_id = status_id }
 end
+Api.findUserBook = function() return nil end
 Api.removeUserBook = function(_, id) writes[#writes + 1] = { "removeUserBook", id } return { id = id } end
 Api.addToList = function(_, book_id, list_id, position)
   writes[#writes + 1] = { "addToList", book_id, list_id, position }
@@ -27,18 +28,12 @@ Api.addToList = function(_, book_id, list_id, position)
 end
 Api.removeFromList = function(_, id) writes[#writes + 1] = { "removeFromList", id } return { id = id } end
 
-local function newApp(shelf_queue, list_queue, told)
+local function newApp(sync_queue, list_queue, told)
   return KB.new_app {
     state = { book_status = {} },
     ui = {},
     settings = { readSetting = function() return false end, syncEnabled = function() return false end },
-    sync_queue = {
-      hasPending = function() return false end,
-      pendingCount = function() return 0 end,
-      keys = function() return {} end,
-      flush = function() return true end,
-    },
-    shelf_queue = shelf_queue,
+    sync_queue = sync_queue,
     list_queue = list_queue,
     dialog_manager = {
       shelfSent = function(_, op, ub) told[#told + 1] = { "shelfSent", op.book_id, ub and ub.id } end,
@@ -50,14 +45,14 @@ end
 
 local function queues()
   local settings = KB.fakeSettings()
-  return ShelfQueue:new { settings = settings }, ListQueue:new { settings = settings }
+  return SyncQueue:new { settings = settings }, ListQueue:new { settings = settings }
 end
 
 KB.check("only a shelf change is waiting: it is sent once, the screens are told", function()
   writes = {}
   local told = {}
   local shelf, list = queues()
-  shelf:queueStatus(1, 100, 3, { edition_id = 5 })
+  shelf:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 3, edition_id = 5 })
   KB.network.connected = true
   local app = newApp(shelf, list, told)
   app:onNetworkConnected()
@@ -91,8 +86,8 @@ KB.check("a refused change is held, the user is told once, and nothing else is b
   writes = {}
   local told = {}
   local shelf, list = queues()
-  shelf:queueStatus(1, 100, 3, {})
-  shelf:queueStatus(1, 101, 1, {})
+  shelf:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 3 })
+  shelf:enqueueStatus(101, { user_id = 1, book_id = 101, status_id = 1 })
   local real = Api.updateUserBook
   Api.updateUserBook = function(_, book_id, status_id)
     if book_id == 100 then return nil, "Book not found" end
@@ -116,7 +111,7 @@ KB.check("the first connect sends the shelf, review and rating in one flush", fu
   app.rating_queue = RatingQueue:new { settings = KB.fakeSettings() }
   app.review_queue = ReviewQueue:new { settings = KB.fakeSettings() }
   app.state.book_status = { book_id = 100, status_id = 2 }
-  shelf:queueStatus(1, 100, 2, {})
+  shelf:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 2 })
   app.rating_queue:queue(nil, 4.5, "New book", 100, 1)
   app.review_queue:queue(nil, "Read offline", true, "New book", 100, 1)
   local created = false
@@ -124,7 +119,7 @@ KB.check("the first connect sends the shelf, review and rating in one flush", fu
   app.dialog_manager.ratingSent = function() end
   app.dialog_manager.reviewChangeSent = function() end
   Api.findUserBook = function(_, book_id, user_id)
-    assert(created, "looked up before the shelf was sent")
+    if not created then return nil end -- the book is not in the library until the shelf change is sent
     KB.eq(book_id, 100); KB.eq(user_id, 1)
     return { id = 77, book_id = 100 }
   end

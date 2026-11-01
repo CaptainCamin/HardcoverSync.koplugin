@@ -37,7 +37,7 @@ function GoalQueue:valid(op)
 end
 
 -- Is this op for the signed-in account? Ops from older versions carry no user_id and
--- belong to whoever is signed in (as in ShelfQueue).
+-- belong to whoever is signed in (as in SyncQueue).
 local function ownedBy(op, user_id)
   return op.user_id == nil or op.user_id == user_id
 end

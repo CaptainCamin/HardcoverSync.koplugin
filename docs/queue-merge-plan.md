@@ -1,6 +1,6 @@
 # Plan: one queue for a book's library state
 
-Status: plan, not started. Steps 1 to 3 of the original plan are done (PR #275): the status-sending rules
+Status: done. Steps 1 to 3 are in PR #275, step 4 in #276 and step 5 in the PR that follows them. This is kept for the reasoning. Steps 1 to 3 of the original plan are done (PR #275): the status-sending rules
 live once in `status_sender.lua`, every queued change carries `at` and sends it as `action_at`, and
 `pending_status.lua` reads both queues as one list. This covers what is left: steps 4 and 5.
 

@@ -46,7 +46,6 @@ local SqliteStore = require("hardcover/lib/sqlite_store")
 local SyncQueue = require("hardcover/lib/sync_queue")
 local GoalQueue = require("hardcover/lib/goal_queue")
 local RatingQueue = require("hardcover/lib/rating_queue")
-local ShelfQueue = require("hardcover/lib/shelf_queue")
 local ListQueue = require("hardcover/lib/list_queue")
 local JournalQueue = require("hardcover/lib/journal_queue")
 local ReviewQueue = require("hardcover/lib/review_queue")
@@ -188,7 +187,6 @@ function HardcoverApp:init()
   -- so are ratings set offline from the book details screen
   self.rating_queue = RatingQueue:new { settings = self.sync_queue.settings }
   -- and so are shelf and list changes made from a book's details
-  self.shelf_queue = ShelfQueue:new { settings = self.sync_queue.settings }
   self.list_queue = ListQueue:new { settings = self.sync_queue.settings }
   -- and so are notes and quotes written for a book
   self.journal_queue = JournalQueue:new { settings = self.sync_queue.settings }
@@ -252,7 +250,6 @@ function HardcoverApp:init()
     -- goals made or changed offline, and the way to send them
     goal_queue = self.goal_queue,
     rating_queue = self.rating_queue,
-    shelf_queue = self.shelf_queue,
     list_queue = self.list_queue,
     journal_queue = self.journal_queue,
     review_queue = self.review_queue,
@@ -294,7 +291,6 @@ function HardcoverApp:init()
     sync_queue = self.sync_queue,
     goal_queue = self.goal_queue,
     rating_queue = self.rating_queue,
-    shelf_queue = self.shelf_queue,
     list_queue = self.list_queue,
     journal_queue = self.journal_queue,
     review_queue = self.review_queue,
@@ -924,14 +920,13 @@ end
 function HardcoverApp:on_flush_sync_queue()
   -- pressing Sync is the user asking again: let goal changes Hardcover refused try once more
   if self.goal_queue then self.goal_queue:retryHeld() end
-  if self.shelf_queue then self.shelf_queue:retryHeld() end
+  self.sync_queue:retryHeld()
   if self.list_queue then self.list_queue:retryHeld() end
   if self.journal_queue then self.journal_queue:retryHeld() end
   if self.review_queue then self.review_queue:retryHeld() end
   if self.rating_queue then self.rating_queue:retryHeld() end
   local pending = self.sync_queue:changeCount() + (self.goal_queue and self.goal_queue:count() or 0)
     + (self.rating_queue and self.rating_queue:count() or 0)
-    + (self.shelf_queue and self.shelf_queue:count() or 0)
     + (self.list_queue and self.list_queue:count() or 0)
     + (self.journal_queue and self.journal_queue:count() or 0)
     + (self.review_queue and self.review_queue:count() or 0)
@@ -1150,22 +1145,7 @@ function HardcoverApp:_flushRatings()
   return waiting <= queue:heldCount(User:getId())
 end
 
--- Send the shelf changes made offline. Returns false while any is still waiting for another
--- try (held ones wait for the user).
-function HardcoverApp:_flushShelves()
-  local queue = self.shelf_queue
-  if not queue or queue:isEmpty() then
-    return true
-  end
-  local result = queue:flush(Api, {
-    user_id = User:getId(),
-    on_sent = function(op, user_book) self.dialog_manager:shelfSent(op, user_book) end,
-  })
-  self:_noticeHeld("shelf", result.held)
-  return not result.stopped and result.waiting == result.held
-end
-
--- Send the list changes made offline (as _flushShelves).
+-- Send the list changes made offline (as _flushReviews).
 function HardcoverApp:_flushLists()
   local queue = self.list_queue
   if not queue or queue:isEmpty() then
@@ -1179,7 +1159,7 @@ function HardcoverApp:_flushLists()
   return not result.stopped and result.waiting == result.held
 end
 
--- Send the notes and quotes written offline (as _flushShelves).
+-- Send the notes and quotes written offline (as _flushLists).
 function HardcoverApp:_flushJournals()
   local queue = self.journal_queue
   if not queue or queue:isEmpty() then
@@ -1221,7 +1201,6 @@ end
 function HardcoverApp:flushSyncQueue(use_wifi, callback)
   local goals_waiting = (self.goal_queue and not self.goal_queue:isEmpty())
     or (self.rating_queue and not self.rating_queue:isEmpty())
-    or (self.shelf_queue and not self.shelf_queue:isEmpty())
     or (self.list_queue and not self.list_queue:isEmpty())
     or (self.journal_queue and not self.journal_queue:isEmpty())
     or (self.review_queue and not self.review_queue:isEmpty())
@@ -1246,19 +1225,22 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
     self.flush_running = true
     Trapper:wrap(function()
       local flushed, success = pcall(function()
-        -- a status changed on both the reader and the details screen: only the newer is sent
-        if self.shelf_queue then self.shelf_queue:settleWith(self.sync_queue) end
         local success = self.sync_queue:flush(Api, {
           user_id = User:getId(),
           settings = self.settings,
+          on_status_sent = function(op, user_book) self.dialog_manager:shelfSent(op, user_book) end,
           current_file = self.ui.document and self.ui.document.file,
           state = self.state,
         })
+        -- a change Hardcover refused is held in the progress queue: say so (a page that waits for the
+        -- reader's answer is not one)
+        if self.sync_queue.heldCount then
+          self:_noticeHeld("shelf", math.max(0, self.sync_queue:heldCount(User:getId()) - self.sync_queue:conflictCount()))
+        end
         -- an empty progress queue flushes to true; a queue with nothing to send for
         -- want of a user id says false, which must not hide the goals
         success = self:_flushGoals() and success
         -- Create/update library records before reviews and ratings look them up.
-        success = self:_flushShelves() and success
         success = self:_flushLists() and success
         success = self:_flushJournals() and success
         success = self:_flushReviews() and success

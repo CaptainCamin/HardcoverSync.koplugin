@@ -92,7 +92,7 @@ local BookStore = real_require("hardcover/lib/book_store")
 local ListStore = real_require("hardcover/lib/list_store")
 local ShelfStore = real_require("hardcover/lib/shelf_store")
 local ShelfCache = real_require("hardcover/lib/shelf_cache")
-local ShelfQueue = real_require("hardcover/lib/shelf_queue")
+local SyncQueue = real_require("hardcover/lib/sync_queue")
 local ListQueue = real_require("hardcover/lib/list_queue")
 local RatingQueue = real_require("hardcover/lib/rating_queue")
 local PendingChanges = real_require("hardcover/lib/pending_changes")
@@ -138,6 +138,7 @@ local function serverApi()
     server_calls[#server_calls + 1] = { name = "updateUserBook", book_id = book_id, status_id = status_id, edition_id = edition_id }
     return { id = 700 + book_id, status_id = status_id }
   end
+  function api:findUserBook() return nil end
   function api:setFinishedDate(user_book, date)
     server_calls[#server_calls + 1] = { name = "setFinishedDate", date = date }
     return user_book
@@ -169,7 +170,7 @@ Api.auth = { hasScope = function() return nil end, usingOAuth = function() retur
 
 -- ------------------------------------------------------------ a manager with real stores
 local clock = 10000
-local db, shelves, books, list_store, shelf_queue, list_queue, rating_queue
+local db, shelves, books, list_store, sync_queue, list_queue, rating_queue
 local T1 = "2026-10-08T15:22:25.183388+00:00"
 
 local function memorySettings()
@@ -193,7 +194,7 @@ local function newManager()
   shelves = ShelfStore:new { db = db, books = books, now = function() return clock end }
   list_store = ListStore:new { db = db, books = books, now = function() return clock end }
   local settings = memorySettings()
-  shelf_queue = ShelfQueue:new { settings = settings }
+  sync_queue = SyncQueue:new { settings = settings }
   list_queue = ListQueue:new { settings = settings }
   rating_queue = RatingQueue:new { settings = settings }
 
@@ -206,7 +207,7 @@ local function newManager()
   local m = setmetatable({
     settings = {},
     book_store = books, shelf_store = shelves, list_store = list_store,
-    shelf_queue = shelf_queue, list_queue = list_queue, rating_queue = rating_queue,
+    sync_queue = sync_queue, list_queue = list_queue, rating_queue = rating_queue,
     shelf_cache = ShelfCache:new { path = "/x", open = function() return cache_store end },
   }, { __index = DialogManager })
 
@@ -279,7 +280,7 @@ check("a book new to the library goes on a shelf offline: kept, shown, nothing r
   assert(not hasRow(p, "Remove from library"), "a book not in the library offered Remove")
   tap(p, "Read")
   assert(#calls == 0, "requested offline")
-  local op = shelf_queue:get(100)
+  local op = sync_queue:shelfOp(100)
   assert(op and op.kind == "status" and op.status_id == 3 and op.edition_id == 10001, "not queued")
   assert(#d.status_updates == 1 and d.status_updates[1][1] == 3, "the screen did not change")
   assert(lastInfo():find("Offline"), "no visible acknowledgement: " .. lastInfo())
@@ -294,7 +295,7 @@ check("a book moved between shelves offline: both counts follow, the rating stay
   online = false
   local d = detailScreen(m, SHELVED())
   tap(showing(function() m:chooseShelf(d) end), "Currently Reading")
-  local op = shelf_queue:get(1)
+  local op = sync_queue:shelfOp(1)
   assert(op.status_id == 2 and op.user_book_id == 51 and op.from_status_id == 1)
   assert(countOf(m, 1) == 0 and countOf(m, 2) == 1, "counts: " .. tostring(countOf(m, 1)) .. "/" .. tostring(countOf(m, 2)))
   assert(shelves:member(1, 1).status_id == 2 and shelves:member(1, 1).rating == 4)
@@ -307,7 +308,7 @@ check("removing from the library offline keeps a removal, and the screen goes ba
   tap(showing(function() m:chooseShelf(d) end), "Remove from library")
   confirms[1].ok_callback()
   assert(#calls == 0)
-  local op = shelf_queue:get(1)
+  local op = sync_queue:shelfOp(1)
   assert(op.kind == "remove" and op.user_book_id == 51 and op.from_status_id == 1)
   assert(d.detail.status_id == nil and shelves:member(1, 1) == nil)
   assert(countOf(m, 1) == 0)
@@ -322,7 +323,7 @@ check("a book put on a shelf offline can be taken off again: nothing is left to 
   assert(hasRow(p, "Remove from library"), "no way to take it off again")
   tap(p, "Remove from library")
   confirms[1].ok_callback()
-  assert(shelf_queue:count() == 0 and shelves:member(1, 100) == nil)
+  assert(sync_queue:count() == 0 and shelves:member(1, 100) == nil)
   assert(countOf(m, 1) == 1, "the count did not come back: " .. tostring(countOf(m, 1)))
 end)
 
@@ -336,7 +337,7 @@ check("with the connection back but the shelf change unsent, taking the book off
   tap(p, "Remove from library")
   confirms[1].ok_callback()
   assert(#calls == 0, "asked Hardcover to remove a book it never had")
-  assert(shelf_queue:count() == 0 and d.detail.status_id == nil)
+  assert(sync_queue:count() == 0 and d.detail.status_id == nil)
   assert(lastInfo():find("nothing is left to send"), lastInfo())
 end)
 
@@ -355,10 +356,10 @@ end)
 
 check("opening the book again offline shows what is waiting", function()
   local m = newManager()
-  shelf_queue:queueStatus(1, 1, 3, { user_book_id = 51 })
+  sync_queue:enqueueStatus(1, { user_id = 1, book_id = 1, status_id = 3, user_book_id = 51 })
   local d = m:withPending({ book = { book_id = 1 }, status_id = 1, user_book_id = 51 })
   assert(d.status_id == 3)
-  shelf_queue:queueRemove(1, 1, 51, nil, 1)
+  sync_queue:queueRemove(1, 1, 51, nil, 1)
   d = m:withPending({ book = { book_id = 1 }, status_id = 1, user_book_id = 51, user_rating = 4 })
   assert(d.status_id == nil and d.user_rating == nil)
 end)
@@ -366,10 +367,10 @@ end)
 check("Hardcover's older word about the book does not overwrite a waiting change", function()
   local m = newManager()
   local d = detailScreen(m, { book = { book_id = 1 }, status_id = 3, user_book_id = 51 })
-  shelf_queue:queueStatus(1, 1, 3, { user_book_id = 51, from_status_id = 1 })
+  sync_queue:enqueueStatus(1, { user_id = 1, book_id = 1, status_id = 3, user_book_id = 51, from_status_id = 1 })
   m:applyAbout(d, 1, { user_book = { id = 51, status_id = 1 } })
   assert(#d.status_updates == 0 and d.detail.status_id == 3, "overwritten")
-  shelf_queue:cancel(1)
+  sync_queue:cancelStatus(1)
   m:applyAbout(d, 1, { user_book = { id = 51, status_id = 1 } })
   assert(#d.status_updates == 1, "not applied without a waiting change")
 end)
@@ -387,15 +388,16 @@ check("a book with a file here keeps its offline shelf change in the progress qu
   m.sync_queue:enqueuePage("/books/a.epub", { mapped_page = 10, book_id = 1, title = "Book 1" })
   local d = detailScreen(m, SHELVED())
   tap(showing(function() m:chooseShelf(d) end), "Read")
-  assert(shelf_queue:get(1) == nil, "also queued in the shelf queue")
+  assert(sync_queue:shelfOp(1) == nil, "also queued in the shelf queue")
   local entry = m.sync_queue:get("/books/a.epub")
   assert(entry.status_id == 3 and entry.mapped_page == 10 and entry.from_status_id == 1, "not with its page")
   assert(entry.book_id == 1 and entry.user_book_id == 51, "lost the book's identity")
   assert(#d.status_updates == 1 and d.status_updates[1][1] == 3, "the screen did not change")
-  -- a book with no file still takes the shelf queue
+  -- a book with no file is kept by its book id
   local d2 = detailScreen(m, NEW())
   tap(showing(function() m:chooseShelf(d2) end), "Read")
-  assert(shelf_queue:get(100) and not m.sync_queue:get("/books/100"), "a book without a file left the shelf queue")
+  local waiting = m.sync_queue:get(100)
+  assert(waiting and waiting.status_id == 3 and waiting.file == nil, "a book without a file is kept by its book")
 end)
 
 check("a status set from the reader and still queued is not overwritten by Hardcover's older word", function()
@@ -443,11 +445,11 @@ check("rating a book before its first shelf sync is kept, restored and sent afte
   end
   assert(rating_queue:flush(api, nil, 1) == 1, "rating must wait for the shelf")
   online = true
-  local result = shelf_queue:flush(api, { user_id = 1, on_sent = function(op, ub)
+  local result = sync_queue:flush(api, { user_id = 1, on_status_sent = function(op, ub)
     record = ub
     m:shelfSent(op, ub)
   end })
-  assert(result.sent == 1)
+  assert(result == true)
   assert(rating_queue:flush(api, nil, 1) == 0, "rating did not follow the shelf")
 end)
 
@@ -460,16 +462,16 @@ check("the change is sent once, the shelves are marked out of date, the open scr
   tap(showing(function() m:chooseShelf(d) end), "Read")
   online = true
   local sent
-  local res = shelf_queue:flush(serverApi(), { user_id = 1, on_sent = function(op, ub) sent = true; m:shelfSent(op, ub) end })
-  assert(res.sent == 1 and #server_calls == 2, "sent " .. #server_calls)
+  local res = sync_queue:flush(serverApi(), { user_id = 1, on_status_sent = function(op, ub) sent = true; m:shelfSent(op, ub) end })
+  assert(res == true and #server_calls == 2, "sent " .. #server_calls)
   assert(server_calls[1].book_id == 100 and server_calls[1].status_id == 3 and server_calls[1].edition_id == 10001)
   -- finished: the day it was made goes along, so a later sync does not become the finish date
   assert(server_calls[2].name == "setFinishedDate" and server_calls[2].date == os.date("%Y-%m-%d"))
-  assert(shelf_queue:count() == 0)
+  assert(sync_queue:count() == 0)
   assert(shelves:meta(1, 3).fingerprint == nil, "the shelf was not marked out of date")
   local last = d.status_updates[#d.status_updates]
   assert(last[1] == 3 and last[2] == 800, "the screen did not get the record: " .. tostring(last[2]))
-  shelf_queue:flush(serverApi(), { user_id = 1 })
+  sync_queue:flush(serverApi(), { user_id = 1 })
   assert(#server_calls == 2, "sent twice")
 end)
 
@@ -479,7 +481,7 @@ check("a move is marked stale on the shelf it left too", function()
   local d = detailScreen(m, SHELVED())
   tap(showing(function() m:chooseShelf(d) end), "Read")
   online = true
-  shelf_queue:flush(serverApi(), { user_id = 1, on_sent = function(op, ub) m:shelfSent(op, ub) end })
+  sync_queue:flush(serverApi(), { user_id = 1, on_status_sent = function(op, ub) m:shelfSent(op, ub) end })
   assert(shelves:meta(1, 1).fingerprint == nil and shelves:meta(1, 3).fingerprint == nil)
 end)
 
@@ -490,19 +492,19 @@ check("a removal is sent by the record, and the shelf it left is marked", functi
   tap(showing(function() m:chooseShelf(d) end), "Remove from library")
   confirms[1].ok_callback()
   online = true
-  shelf_queue:flush(serverApi(), { user_id = 1, on_sent = function(op, ub) m:shelfSent(op, ub) end })
+  sync_queue:flush(serverApi(), { user_id = 1, on_status_sent = function(op, ub) m:shelfSent(op, ub) end })
   assert(server_calls[1].name == "removeUserBook" and server_calls[1].id == 51)
   assert(shelves:meta(1, 1).fingerprint == nil)
 end)
 
 check("changing the shelf online while a change is waiting sends the new one and drops the old", function()
   local m = newManager()
-  shelf_queue:queueStatus(1, 1, 3, { user_book_id = 51, from_status_id = 1 })
+  sync_queue:enqueueStatus(1, { user_id = 1, book_id = 1, status_id = 3, user_book_id = 51, from_status_id = 1 })
   local d = detailScreen(m, SHELVED())
   tap(showing(function() m:chooseShelf(d) end), "Currently Reading")
   assert(count("updateUserBook") == 1)
   update_cb({ id = 51, status_id = 2 })
-  assert(shelf_queue:count() == 0, "the older change is still waiting, and would undo this one")
+  assert(sync_queue:count() == 0, "the older change is still waiting, and would undo this one")
 end)
 
 check("cancelling a waiting shelf change puts the screen, shelf and counts back", function()
@@ -510,11 +512,11 @@ check("cancelling a waiting shelf change puts the screen, shelf and counts back"
   online = false
   local d = detailScreen(m, SHELVED())
   tap(showing(function() m:chooseShelf(d) end), "Read")
-  local rows = PendingChanges.list({ shelf_queue = shelf_queue })
+  local rows = PendingChanges.list({ sync_queue = sync_queue })
   assert(#rows == 1 and rows[1].kind == "shelf" and rows[1].text:find("Book 1: move to Read", 1, true), rows[1] and rows[1].text)
   rows[1].cancel()
   m:pendingUndone(rows[1])
-  assert(shelf_queue:count() == 0)
+  assert(sync_queue:count() == 0)
   assert(d.detail.status_id == 1 and shelves:member(1, 1).status_id == 1)
   assert(countOf(m, 1) == 1 and countOf(m, 3) == 1, "counts: " .. tostring(countOf(m, 1)) .. "/" .. tostring(countOf(m, 3)))
   assert(shelves:meta(1, 1).fingerprint == nil, "not asked about again when online")
@@ -709,11 +711,11 @@ print("\n== waiting changes ==")
 
 check("held changes say why in the pending list", function()
   local m = newManager()
-  shelf_queue:queueStatus(1, 1, 3, { title = "Book 1" })
+  sync_queue:enqueueStatus(1, { user_id = 1, book_id = 1, status_id = 3, title = "Book 1" })
   list_queue:queueAdd(1, 100, 5, 0, { title = "Book 100", list_name = "Favourites" })
-  shelf_queue:get(1).held, shelf_queue:get(1).reason = true, "scope"
+  sync_queue:get(1).held, sync_queue:get(1).reason = true, "scope"
   list_queue:get(5, 100).held, list_queue:get(5, 100).reason = true, "refused"
-  local rows = PendingChanges.list({ shelf_queue = shelf_queue, list_queue = list_queue })
+  local rows = PendingChanges.list({ sync_queue = sync_queue, list_queue = list_queue })
   assert(#rows == 2)
   assert(PendingChanges.line(rows[1]):find("sign in again to send it", 1, true), PendingChanges.line(rows[1]))
   assert(PendingChanges.line(rows[2]):find("Hardcover refused it", 1, true), PendingChanges.line(rows[2]))

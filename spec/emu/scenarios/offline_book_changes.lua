@@ -39,7 +39,7 @@ return {
     local BookStore = require("hardcover/lib/book_store")
     local ListStore = require("hardcover/lib/list_store")
     local ShelfStore = require("hardcover/lib/shelf_store")
-    local ShelfQueue = require("hardcover/lib/shelf_queue")
+    local SyncQueue = require("hardcover/lib/sync_queue")
     local ListQueue = require("hardcover/lib/list_queue")
     local PendingChanges = require("hardcover/lib/pending_changes")
     local NetworkManager = require("ui/network/manager")
@@ -69,7 +69,7 @@ return {
     local db = SqliteStore:new { path = path }
     local books = BookStore:new { db = db }
     local queue_settings = LuaSettings:open(queue_path)
-    local shelf_queue = ShelfQueue:new { settings = queue_settings }
+    local sync_queue = SyncQueue:new { settings = queue_settings }
     local list_queue = ListQueue:new { settings = queue_settings }
     local DialogManager = require("hardcover/lib/ui/dialog_manager")
     local manager = DialogManager:new {
@@ -78,7 +78,7 @@ return {
       book_store = books,
       list_store = ListStore:new { db = db, books = books },
       shelf_store = ShelfStore:new { db = db, books = books },
-      shelf_queue = shelf_queue,
+      sync_queue = sync_queue,
       list_queue = list_queue,
     }
     local list_store = manager.list_store
@@ -173,7 +173,7 @@ return {
     assert(picker ~= dialog and picker.rows, "the shelf picker did not open offline: " .. emu:screenText())
     tapText("Want to Read")
     assert(#fixtures.calls == mark, "choosing a shelf offline asked the network")
-    local op = shelf_queue:get(book_id)
+    local op = sync_queue:shelfOp(book_id)
     assert(op and op.status_id == 1, "the shelf change was not kept")
     emu:expectText("Offline: the shelf change is kept")
     assert(dialog.detail.status_id == 1, "the screen did not change")
@@ -182,22 +182,26 @@ return {
     emu:shot("offline_book_changes_detail")
 
     -- both are in the pending list, and say what they are
-    local rows = PendingChanges.list({ shelf_queue = shelf_queue, list_queue = list_queue })
+    local rows = PendingChanges.list({ sync_queue = sync_queue, list_queue = list_queue })
     assert(#rows == 2, "pending rows: " .. #rows)
     for _, r in ipairs(rows) do print("  pending: " .. PendingChanges.line(r)) end
 
     -- ---------------------------------------------------------------- the connection is back
     NetworkManager.isConnected, NetworkManager.getConnectionState = was, was_state
     local user_id = User:getId()
-    local sent_shelf = shelf_queue:flush(Api, { user_id = user_id, on_sent = function(o, ub) manager:shelfSent(o, ub) end })
+    -- (the book is not in the library: the lookup before the write finds nothing)
+    local real_find = Api.findUserBook
+    Api.findUserBook = function() return nil end
+    local sent_shelf = sync_queue:flush(Api, { user_id = user_id, on_status_sent = function(o, ub) manager:shelfSent(o, ub) end })
     local sent_list = list_queue:flush(Api, { user_id = user_id, on_sent = function(o, a) manager:listChangeSent(o, a) end })
-    assert(sent_shelf.sent == 1 and sent_list.sent == 1, "sent " .. sent_shelf.sent .. " and " .. sent_list.sent)
+    assert(sent_shelf == true and sent_list.sent == 1, "sent " .. tostring(sent_shelf) .. " and " .. sent_list.sent)
     assert(count("updateUserBook") == 1 and count("addToList") == 1,
       "one write each: " .. count("updateUserBook") .. ", " .. count("addToList"))
-    shelf_queue:flush(Api, { user_id = user_id })
+    sync_queue:flush(Api, { user_id = user_id })
+    Api.findUserBook = real_find
     list_queue:flush(Api, { user_id = user_id })
     assert(count("updateUserBook") == 1 and count("addToList") == 1, "a change was sent twice")
-    assert(shelf_queue:count() == 0 and list_queue:count() == 0, "something is still waiting")
+    assert(sync_queue:count() == 0 and list_queue:count() == 0, "something is still waiting")
     assert(dialog.detail.user_book_id == 9000 + book_id, "the open screen did not get the library record")
     assert(list_store:contents(user_id, 4).fingerprint == nil, "the saved list is not marked for a fresh download")
 

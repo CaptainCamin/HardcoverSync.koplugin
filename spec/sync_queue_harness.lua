@@ -319,6 +319,47 @@ local function fakeApi(opts)
   }
 end
 
+check("shelf changes kept apart before are moved in: the newer of two for a book wins, the reader's on a tie", function()
+  local q, settings = newQueue()
+  settings:saveSetting("pending", {
+    ["7"] = { book_id = 7, file = "/books/a.epub", files = { ["/books/a.epub"] = true }, updated_at = 300,
+      mapped_page = 10, page_updated_at = 300, status_id = 2, status_updated_at = 200 },
+    ["8"] = { book_id = 8, file = "/books/b.epub", files = { ["/books/b.epub"] = true }, updated_at = 100,
+      status_id = 2, status_updated_at = 100 },
+    ["9"] = { book_id = 9, file = "/books/c.epub", files = { ["/books/c.epub"] = true }, updated_at = 100,
+      status_id = 2, status_updated_at = 150 },
+  })
+  settings:saveSetting("shelf_ops", {
+    ["7"] = { kind = "status", book_id = 7, status_id = 3, at = 250, user_id = 1, user_book_id = 70, from_status_id = 1 },
+    ["8"] = { kind = "status", book_id = 8, status_id = 3, at = 90, user_id = 1 },
+    ["9"] = { kind = "remove", book_id = 9, user_book_id = 90, at = 150, user_id = 1, from_status_id = 2 },
+    ["10"] = { kind = "status", book_id = 10, status_id = 1, at = 5, user_id = 1, title = "New", edition_id = 4,
+      held = true, reason = "scope", failures = 1 },
+    ["11"] = "junk",
+  })
+  q = SyncQueue:new { settings = settings }
+  local e7 = q:get(7)
+  eq(e7.status_id, 3, "the newer shelf change replaced the reader's status")
+  eq(e7.mapped_page, 10, "the page stayed")
+  eq(e7.user_book_id, 70); eq(e7.from_status_id, 1)
+  eq(q:get(8).status_id, 2, "the reader's newer status stands")
+  eq(q:get(9).status_id, 2, "a tie: the reader's stands")
+  local e10 = q:get(10)
+  eq(e10.status_id, 1); eq(e10.edition_id, 4); eq(e10.title, "New")
+  eq(e10.held, true); eq(e10.reason, "scope", "a held change stays held")
+  eq(settings:readSetting("shelf_ops"), nil, "the old key is cleared")
+  eq(q:count(), 4)
+end)
+
+check("a removal kept apart before is moved in as a removal", function()
+  local q, settings = newQueue()
+  settings:saveSetting("shelf_ops", { ["5"] = { kind = "remove", book_id = 5, user_book_id = 50, at = 10, user_id = 1, from_status_id = 3 } })
+  q = SyncQueue:new { settings = settings }
+  local op = q:shelfOp(5, 1)
+  eq(op.kind, "remove"); eq(op.user_book_id, 50); eq(op.from_status_id, 3)
+  eq(q:hasPending(), true)
+end)
+
 check("an entry migrated from a file is sent, and its file takes the snapshot", function()
   local q, settings = newQueue()
   settings:saveSetting("pending", { ["/books/a.epub"] = { book_id = 1, mapped_page = 10, page_updated_at = 5, updated_at = 5 } })
