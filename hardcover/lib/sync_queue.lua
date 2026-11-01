@@ -7,9 +7,86 @@ local StatusSender = require("hardcover/lib/status_sender")
 local SyncQueue = OfflineQueue.extend({})
 SyncQueue.store_key = "pending"
 
--- one entry per book file: its queued page and status
+-- Entries older than this were kept by file path (one per file); they are moved to the book's key
+-- the first time the queue is read.
+local function isBookKey(key)
+  return type(key) == "string" and key:match("^%d+$") ~= nil
+end
+
+local STATUS_FIELDS = { "status_id", "status_updated_at", "finished_date", "passed_reading", "from_status_id" }
+local PAGE_FIELDS = { "mapped_page", "page_updated_at", "page_days", "first_page_date", "force_page", "reread", "conflict" }
+
+-- Two entries for one book (it was read from two files): the one touched last is the base, and the
+-- other adds its status or its page when that is newer, so neither a page nor a status is lost to the
+-- other file's older one.
+local function mergeEntries(a, b)
+  local base, other = a, b
+  if (tonumber(b.updated_at) or 0) > (tonumber(a.updated_at) or 0) then base, other = b, a end
+  if other.status_id ~= nil and (base.status_id == nil
+      or (tonumber(other.status_updated_at) or 0) > (tonumber(base.status_updated_at) or 0)) then
+    for _, field in ipairs(STATUS_FIELDS) do base[field] = other[field] end
+  end
+  if other.mapped_page ~= nil and (base.mapped_page == nil
+      or (tonumber(other.page_updated_at) or 0) > (tonumber(base.page_updated_at) or 0)) then
+    for _, field in ipairs(PAGE_FIELDS) do base[field] = other[field] end
+  end
+  base.files = base.files or {}
+  for file in pairs(other.files or {}) do base.files[file] = true end
+  return base
+end
+
+local function migrate(pending)
+  local old = {}
+  for key, entry in pairs(pending) do
+    if not isBookKey(key) then old[#old + 1] = { key = key, entry = entry } end
+  end
+  if #old == 0 then return false end
+  table.sort(old, function(x, y) return tostring(x.key) < tostring(y.key) end)
+  for _, item in ipairs(old) do
+    pending[item.key] = nil
+    local entry = item.entry
+    local book_id = type(entry) == "table" and tonumber(entry.book_id)
+    -- no book to send it to: it could not be sent before either
+    if book_id and type(item.key) == "string" then
+      entry.file, entry.files = item.key, { [item.key] = true }
+      local key = tostring(book_id)
+      pending[key] = pending[key] and mergeEntries(pending[key], entry) or entry
+      if pending[key].file ~= item.key and (tonumber(pending[key].updated_at) or 0) <= (tonumber(entry.updated_at) or 0) then
+        pending[key].file = item.key
+      end
+    end
+  end
+  return true
+end
+
+-- One entry per book, by Hardcover book id (as text): its queued page and status, and the file or
+-- files it was read from (`file`: the last, `files`: all).
 function SyncQueue:pending()
-  return self:store()
+  local pending = self:store()
+  if not self.migrated then
+    self.migrated = true
+    if migrate(pending) then self:persist() end
+  end
+  return pending
+end
+
+-- The key of the entry for `ref`: a book id, an entry's key, or a file it was read from; nil when
+-- there is none.
+function SyncQueue:keyOf(ref)
+  if ref == nil then return nil end
+  if type(ref) == "number" then return tostring(ref) end
+  local pending = self:pending()
+  if pending[ref] ~= nil then return ref end
+  for key, entry in pairs(pending) do
+    if type(entry) == "table" and type(entry.files) == "table" and entry.files[ref] then return key end
+  end
+  return nil
+end
+
+-- Take the entry for `ref` out of the queue (not persisted).
+function SyncQueue:_drop(ref)
+  local key = self:keyOf(ref)
+  if key then self:pending()[key] = nil end
 end
 
 -- a malformed entry (a hand edit, a merged settings file) is not something to send
@@ -17,11 +94,10 @@ function SyncQueue:valid(entry)
   return not self:isEmpty(entry)
 end
 
-function SyncQueue:get(filepath)
-  if not filepath then
-    return nil
-  end
-  return self:pending()[filepath]
+-- `ref`: the book id, an entry's key, or a file the book was read from.
+function SyncQueue:get(ref)
+  local key = self:keyOf(ref)
+  return key and self:pending()[key] or nil
 end
 
 -- A malformed entry (a hand edit, a merged settings file) counts as empty so
@@ -56,16 +132,17 @@ function SyncQueue:finishedCount()
   return count
 end
 
-function SyncQueue:filepaths()
-  local paths = {}
-  for filepath, entry in pairs(self:pending()) do
+-- The keys of the entries with something to send, in a stable order.
+function SyncQueue:keys()
+  local keys = {}
+  for key, entry in pairs(self:pending()) do
     if not self:isEmpty(entry) then
-      table.insert(paths, filepath)
+      table.insert(keys, key)
     end
   end
   -- pairs() order is arbitrary; a stable order keeps flushes reproducible
-  table.sort(paths)
-  return paths
+  table.sort(keys, function(a, b) return (tonumber(a) or 0) < (tonumber(b) or 0) end)
+  return keys
 end
 
 -- The status waiting for the book (by Hardcover book id, whichever file it was set from),
@@ -81,14 +158,14 @@ function SyncQueue:statusFor(book_id)
 end
 
 function SyncQueue:pendingCount()
-  return #self:filepaths()
+  return #self:keys()
 end
 
 -- How many changes are waiting, counting a page and a status separately when
 -- both are queued for the same book. pendingCount() remains the number of files.
 function SyncQueue:changeCount()
   local count = 0
-  for _, filepath in ipairs(self:filepaths()) do
+  for _, filepath in ipairs(self:keys()) do
     local entry = self:get(filepath)
     if entry.mapped_page ~= nil then count = count + 1 end
     if entry.status_id ~= nil then count = count + 1 end
@@ -114,9 +191,14 @@ end
 
 -- Does not persist: callers set their own fields first and write once. Offline
 -- every page turn lands here, and each write is a flash write on the device.
-function SyncQueue:_ensure(filepath, meta)
+-- `file` is where the change was made from; `meta.book_id` says which book it is for. Returns nil for
+-- a change with no book: there is nothing to send it to.
+function SyncQueue:_ensure(file, meta)
+  local book_id = meta and tonumber(meta.book_id)
+  if not book_id then return nil end
+  local key = tostring(book_id)
   local pending = self:pending()
-  local entry = pending[filepath] or {}
+  local entry = pending[key] or {}
   -- what another account left for this file is not carried over to this one
   if type(entry) ~= "table" or (meta and meta.user_id ~= nil and not SyncQueue.ownedBy(entry, meta.user_id)) then
     entry = {}
@@ -128,8 +210,13 @@ function SyncQueue:_ensure(filepath, meta)
       end
     end
   end
+  if type(file) == "string" then
+    entry.file = file
+    entry.files = type(entry.files) == "table" and entry.files or {}
+    entry.files[file] = true
+  end
   entry.updated_at = os.time()
-  pending[filepath] = entry
+  pending[key] = entry
   return entry
 end
 
@@ -158,6 +245,7 @@ function SyncQueue:enqueuePage(filepath, payload)
     return self:get(filepath)
   end
   local entry = self:_ensure(filepath, payload)
+  if not entry then return nil end
   entry.mapped_page = payload.mapped_page
   entry.page_updated_at = os.time()
   entry.first_page_date = entry.first_page_date or os.date("%Y-%m-%d")
@@ -174,6 +262,7 @@ function SyncQueue:startReread(filepath, payload)
   local held = self:shelfChangeWaiting(filepath)
   local origin = held and self:get(filepath).from_status_id
   local entry = self:enqueuePage(filepath, payload)
+  if not entry then return nil end
   -- pages queued before the restart belong to the read that finished
   entry.page_days = { entry.page_days[#entry.page_days] }
   entry.reread = true
@@ -211,6 +300,7 @@ function SyncQueue:enqueueStatus(filepath, payload)
   local passed_reading = payload.status_id ~= HARDCOVER.STATUS.READING and before
     and (before.status_id == HARDCOVER.STATUS.READING or before.passed_reading) or nil
   local entry = self:_ensure(filepath, payload)
+  if not entry then return nil end
   entry.passed_reading = passed_reading
   entry.from_status_id = origin or payload.from_status_id or 0
   entry.status_id = payload.status_id
@@ -222,12 +312,14 @@ function SyncQueue:enqueueStatus(filepath, payload)
   return entry
 end
 
-function SyncQueue:save(filepath, entry)
+function SyncQueue:save(ref, entry)
   local pending = self:pending()
+  local key = self:keyOf(ref) or (type(entry) == "table" and tonumber(entry.book_id) and tostring(tonumber(entry.book_id)))
+  if not key then return end
   if self:isEmpty(entry) then
-    pending[filepath] = nil
+    pending[key] = nil
   else
-    pending[filepath] = entry
+    pending[key] = entry
   end
   self:persist()
 end
@@ -260,9 +352,8 @@ function SyncQueue:cancelStatus(filepath)
   return true
 end
 
-function SyncQueue:clear(filepath)
-  local pending = self:pending()
-  pending[filepath] = nil
+function SyncQueue:clear(ref)
+  self:_drop(ref)
   self:persist()
 end
 
@@ -327,7 +418,7 @@ function SyncQueue:applyToReading(entries, lookup)
   entries = type(entries) == "table" and entries or {}
 
   local queued = {}
-  for _, filepath in ipairs(self:filepaths()) do
+  for _, filepath in ipairs(self:keys()) do
     local entry = self:get(filepath)
     local book_id = type(entry) == "table" and tonumber(entry.book_id)
     if book_id then queued[book_id] = entry end
@@ -394,10 +485,10 @@ SyncQueue.CONFLICT_PAGES = 5
 -- Entries waiting for the user's answer: a list of { filepath, entry }, ordered.
 function SyncQueue:conflicts()
   local list = {}
-  for _, filepath in ipairs(self:filepaths()) do
-    local entry = self:get(filepath)
+  for _, key in ipairs(self:keys()) do
+    local entry = self:get(key)
     if type(entry) == "table" and entry.conflict then
-      list[#list + 1] = { filepath = filepath, entry = entry }
+      list[#list + 1] = { filepath = entry.file or key, key = key, entry = entry }
     end
   end
   return list
@@ -427,7 +518,9 @@ function SyncQueue:resolve(filepath, choice)
       resume = {}
       self.settings:saveSetting("resume", resume)
     end
-    resume[filepath] = entry.conflict.cloud_page
+    -- the place to resume is a file's: the one asked about, else the one read last
+    local file = type(entry.files) == "table" and entry.files[filepath] and filepath or entry.file or filepath
+    resume[file] = entry.conflict.cloud_page
     self.settings:saveSetting("resume", resume)
     entry.mapped_page = nil
     entry.page_updated_at = nil
@@ -447,7 +540,7 @@ function SyncQueue:resolve(filepath, choice)
   entry.conflict = nil
   entry.failures = nil
   if self:isEmpty(entry) then
-    self:pending()[filepath] = nil
+    self:_drop(filepath)
   end
   self:persist()
   return true
@@ -499,7 +592,7 @@ function SyncQueue:_clearSent(filepath, sent)
     entry.passed_reading = nil
   end
   if self:isEmpty(entry) then
-    self:pending()[filepath] = nil
+    self:_drop(filepath)
   end
   self:persist()
 end
@@ -586,11 +679,7 @@ function SyncQueue:_flushEntry(api, filepath, opts)
     return true
   end
 
-  if entry.book_id == nil then
-    countRejection(self, filepath)
-    return false
-  end
-
+  local files = entry.files or {}
   local book_id = entry.book_id
   local edition_id = entry.edition_id
   local privacy_setting_id = entry.privacy_setting_id
@@ -753,9 +842,9 @@ function SyncQueue:_flushEntry(api, filepath, opts)
 
   if self:isEmpty(self:get(filepath)) then
     if opts.settings and opts.settings.saveBookSnapshot then
-      opts.settings:saveBookSnapshot(filepath, user_book)
+      for file in pairs(files) do opts.settings:saveBookSnapshot(file, user_book) end
     end
-    if opts.state and opts.current_file == filepath then
+    if opts.state and opts.current_file and files[opts.current_file] then
       opts.state.book_status = user_book
       opts.state.book_status_fetched = true
     end
@@ -793,9 +882,9 @@ function SyncQueue:flush(api, opts)
   end
 
   local paths = {}
-  for _, filepath in ipairs(self:filepaths()) do
-    if not self:isHeld(self:get(filepath)) then
-      paths[#paths + 1] = filepath
+  for _, key in ipairs(self:keys()) do
+    if not self:isHeld(self:get(key)) then
+      paths[#paths + 1] = key
     end
   end
   if #paths == 0 then

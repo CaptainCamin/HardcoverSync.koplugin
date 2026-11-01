@@ -111,12 +111,59 @@ end)
 check("a page and a status for one book share an entry", function()
   local q = newQueue()
   q:enqueuePage("/books/a.epub", { mapped_page = 10, book_id = 1 })
-  q:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.READING })
+  q:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.READING, book_id = 1 })
   eq(q:pendingCount(), 1, "pending file count")
   eq(q:changeCount(), 2, "pending change count")
   local e = q:get("/books/a.epub")
   eq(e.mapped_page, 10, "page survives")
   eq(e.status_id, HARDCOVER.STATUS.READING, "status recorded")
+end)
+
+-- ------------------------------------------------- one entry per book
+
+print("\n== one entry per book ==")
+
+check("a change with no book to send it to is not queued", function()
+  local q = newQueue()
+  eq(q:enqueuePage("/books/a.epub", { mapped_page = 10 }), nil, "page")
+  eq(q:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.READING }), nil, "status")
+  eq(q:hasPending(), false)
+end)
+
+check("two files of one book share the entry, and either finds it", function()
+  local q = newQueue()
+  q:enqueuePage("/books/a.epub", { mapped_page = 10, book_id = 7 })
+  q:enqueuePage("/books/a.pdf", { mapped_page = 30, book_id = 7 })
+  eq(q:pendingCount(), 1)
+  eq(q:get("/books/a.epub"), q:get("/books/a.pdf"), "the same entry")
+  eq(q:get(7), q:get("/books/a.pdf"), "by book id")
+  eq(q:get("/books/a.pdf").file, "/books/a.pdf", "the last file read from")
+  eq(q:get("/books/other.epub"), nil)
+end)
+
+check("entries kept by file are moved to the book on first read: newest page and newest status each win", function()
+  local q, settings = newQueue()
+  settings:saveSetting("pending", {
+    ["/books/a.epub"] = { book_id = 7, title = "A", updated_at = 200, mapped_page = 10, page_updated_at = 100,
+      status_id = 3, status_updated_at = 200, finished_date = "2026-10-30" },
+    ["/books/a.pdf"] = { book_id = 7, updated_at = 150, mapped_page = 30, page_updated_at = 150,
+      status_id = 2, status_updated_at = 150 },
+    ["/books/b.epub"] = { book_id = 8, mapped_page = 5, page_updated_at = 50, updated_at = 50 },
+    ["/books/nobook.epub"] = { mapped_page = 9, page_updated_at = 60, updated_at = 60 },
+    ["/books/junk.epub"] = 5,
+  })
+  q = SyncQueue:new { settings = settings }
+  eq(q:pendingCount(), 2, "the entry with no book and the junk are gone")
+  local e = q:get(7)
+  eq(e.mapped_page, 30, "the newer page, from the other file")
+  eq(e.status_id, 3, "the newer status, from this one")
+  eq(e.finished_date, "2026-10-30", "its finish day goes with it")
+  assert(e.files["/books/a.epub"] and e.files["/books/a.pdf"], "both files found")
+  eq(q:get("/books/b.epub").mapped_page, 5)
+  eq(q:get("/books/nobook.epub"), nil)
+  assert(settings:readSetting("pending")["/books/a.epub"] == nil, "the old key was left behind")
+  -- moved once: a second queue over the same settings reads the same
+  eq(SyncQueue:new { settings = settings }:get(7).mapped_page, 30)
 end)
 
 -- ---------------------------------------------------------------- emptiness
@@ -271,6 +318,16 @@ local function fakeApi(opts)
     end,
   }
 end
+
+check("an entry migrated from a file is sent, and its file takes the snapshot", function()
+  local q, settings = newQueue()
+  settings:saveSetting("pending", { ["/books/a.epub"] = { book_id = 1, mapped_page = 10, page_updated_at = 5, updated_at = 5 } })
+  q = SyncQueue:new { settings = settings }
+  local snapshots = {}
+  eq(q:flush(fakeApi(), { user_id = 1, settings = { saveBookSnapshot = function(_, file) snapshots[#snapshots + 1] = file end } }), true)
+  eq(q:hasPending(), false)
+  eq(snapshots[1], "/books/a.epub")
+end)
 
 check("nothing queued flushes cleanly and calls nothing", function()
   local q = newQueue()

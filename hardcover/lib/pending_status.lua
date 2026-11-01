@@ -27,7 +27,7 @@ function PendingStatus.list(sync_queue, shelf_queue, user_id)
   end
 
   if sync_queue then
-    for _, filepath in ipairs(sync_queue:filepaths()) do
+    for _, filepath in ipairs(sync_queue:keys()) do
       local entry = sync_queue:get(filepath)
       local book_id = type(entry) == "table" and tonumber(entry.book_id)
       if book_id and entry.status_id ~= nil and mine(entry.user_id) then

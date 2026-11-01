@@ -114,7 +114,7 @@ local function setup(client_refresh)
   Api.auth = auth
   local queue = SyncQueue:new { settings = makeSettings() }
   for i = 1, 3 do
-    queue:enqueuePage("/books/" .. i .. ".epub", { mapped_page = 100 + i, book_id = 7, edition_id = 3 })
+    queue:enqueuePage("/books/" .. i .. ".epub", { mapped_page = 100 + i, book_id = 6 + i, edition_id = 3 })
   end
   return queue, auth, refreshes, settings
 end

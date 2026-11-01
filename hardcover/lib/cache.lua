@@ -135,8 +135,7 @@ function Cache:syncPage(filename, mapped_page)
   local enqueue = function()
     local payload = self:queueMeta(filename)
     payload.mapped_page = mapped_page
-    self.sync_queue:enqueuePage(filename, payload)
-    return { queued = true }
+    return self.sync_queue:enqueuePage(filename, payload) and { queued = true } or nil
   end
 
   if not NetworkManager:isConnected() then
@@ -241,8 +240,8 @@ function Cache:updateBookStatus(filename, status, privacy_setting_id)
     payload.status_id = status
     payload.from_status_id = old_status_id
     payload.privacy_setting_id = privacy_setting_id
-    self.sync_queue:enqueueStatus(filename, payload)
-    return { queued = true }
+    -- (nil for a book with no Hardcover book to send it to)
+    return self.sync_queue:enqueueStatus(filename, payload) and { queued = true } or nil
   end
 
   if not NetworkManager:isConnected() then

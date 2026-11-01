@@ -147,7 +147,7 @@ end
 --
 function ShelfQueue:settleWith(sync_queue)
   if not sync_queue then return end
-  for _, filepath in ipairs(sync_queue:filepaths()) do
+  for _, filepath in ipairs(sync_queue:keys()) do
     local entry = sync_queue:get(filepath)
     local op = type(entry) == "table" and entry.status_id ~= nil and entry.book_id ~= nil
       and self:get(entry.book_id)

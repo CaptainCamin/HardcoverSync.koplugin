@@ -65,9 +65,9 @@ function PendingChanges.list(queues)
 
   local sync = queues.sync_queue
   if sync then
-    for _i, filepath in ipairs(sync:filepaths()) do
+    for _i, filepath in ipairs(sync:keys()) do
       local entry = sync:get(filepath)
-      local title = SyncConflicts.title(filepath, entry)
+      local title = SyncConflicts.title(entry.file or filepath, entry)
       local note = stuck(entry)
       local shelf_op = shelfOpOf(entry)
       if entry.mapped_page ~= nil then
@@ -100,8 +100,8 @@ function PendingChanges.list(queues)
     if change.filepath then
       local sync, filepath, entry = queues.sync_queue, change.filepath, change.entry
       rows[#rows + 1] = {
-        kind = "status", title = SyncConflicts.title(filepath, entry), note = stuck(entry), shelf_op = shelfOpOf(entry),
-        text = T(_("%1: mark as %2"), SyncConflicts.title(filepath, entry), statusText(entry.status_id)),
+        kind = "status", title = SyncConflicts.title(entry.file or filepath, entry), note = stuck(entry), shelf_op = shelfOpOf(entry),
+        text = T(_("%1: mark as %2"), SyncConflicts.title(entry.file or filepath, entry), statusText(entry.status_id)),
         cancel = function() return sync:cancelStatus(filepath) end,
       }
     else
