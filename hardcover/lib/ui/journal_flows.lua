@@ -277,7 +277,7 @@ end
 function Flows:pendingJournal(entries, user_id)
   return Journal.withPending(entries, self.journal_queue and self.journal_queue:list() or nil,
     self.review_queue and self.review_queue:list(user_id) or nil, user_id,
-    PendingStatus.list(self.sync_queue, user_id))
+    Journal.changesOf(PendingStatus.list(self.sync_queue, user_id), PendingStatus.pages(self.sync_queue, user_id)))
 end
 
 function Flows:showJournal(host)

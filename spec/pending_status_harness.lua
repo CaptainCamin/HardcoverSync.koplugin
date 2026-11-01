@@ -52,5 +52,31 @@ check("another account's change is not listed", function()
   eq(PendingStatus.get(sync, 1, 1), nil)
 end)
 
+check("pages waiting are listed one for each day read, newest last, for the signed-in user", function()
+  local sync = SyncQueue:new { settings = settings() }
+  sync:enqueuePage("/a.epub", { user_id = 1, book_id = 1, title = "A", mapped_page = 10 })
+  local entry = sync:get(1)
+  entry.page_days = {
+    { day = "2026-10-29", page = 10, at = 100 }, { day = "2026-10-30", page = 40, at = 200 },
+  }
+  entry.mapped_page = 40
+  sync:enqueuePage("/b.epub", { user_id = 2, book_id = 2, title = "B", mapped_page = 5 })
+  sync:enqueueStatus("/c.epub", { user_id = 1, book_id = 3, title = "C", status_id = 2 })
+  local pages = PendingStatus.pages(sync, 1)
+  eq(#pages, 2, "another account's and a status with no page are left out")
+  eq(pages[1].page, 10); eq(pages[1].day, "2026-10-29")
+  eq(pages[2].page, 40); eq(pages[2].at, 200); eq(pages[2].kind, "progress"); eq(pages[2].title, "A")
+  eq(#PendingStatus.pages(sync, 2), 1)
+end)
+
+check("a page saved before the days were kept is listed once, by its own time", function()
+  local sync = SyncQueue:new { settings = settings() }
+  sync:enqueuePage("/a.epub", { user_id = 1, book_id = 1, mapped_page = 10 })
+  local entry = sync:get(1)
+  entry.page_days, entry.page_updated_at = nil, 777
+  local pages = PendingStatus.pages(sync, 1)
+  eq(#pages, 1); eq(pages[1].page, 10); eq(pages[1].at, 777)
+end)
+
 print(string.format("\n  %d passed, %d failed", results.passed, results.failed))
 os.exit(results.failed == 0 and 0 or 1)
