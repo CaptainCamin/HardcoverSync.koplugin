@@ -360,13 +360,33 @@ check("a status change waiting to send shows what you did, the day you did it, a
   eq(#waiting, 2, "an unknown status is left out")
   eq(waiting[1].book_id, 7)
   local row = Journal.row(waiting[1])
-  eq(row.what, "Moved to Read")
+  eq(row.what, "Marked as read")
   eq(row.title, "Dune")
   eq(row.open, "book")
   eq(row.detail, Journal.dayText(os.date("!%Y-%m-%dT%H:%M:%SZ", at)) .. DOT .. Journal.WAITING)
   eq(Journal.row(waiting[2]).what, "Removed from your library")
   -- notes keep saying only that they wait
   eq(Journal.row(Journal.waiting(journalOps(), {}, 1)[1]).detail, Journal.WAITING)
+end)
+
+check("a status change waiting sits among Hardcover's entries by the day it was made", function()
+  local function iso(secs) return os.date("!%Y-%m-%dT%H:%M:%SZ", secs) end
+  local now = os.time()
+  local held = {
+    { key = "a", kind = "event", action = "new", at = iso(now - 1 * 86400), book_id = 1 },
+    { key = "b", kind = "event", action = "old", at = iso(now - 5 * 86400), book_id = 1 },
+  }
+  local all = Journal.withPending(held, journalOps(), {}, 1, {
+    { kind = "status", book_id = 7, status_id = 3, title = "Dune", at = now - 3 * 86400 },
+    { kind = "status", book_id = 8, status_id = 2, title = "Kindred", at = now },
+  })
+  local order = {}
+  for _, e in ipairs(all) do order[#order + 1] = e.key:match("^waiting:status") and e.title or e.key end
+  eq(order[#order - 3], "Kindred", "the newest change is first among the entries")
+  eq(order[#order - 2], "a")
+  eq(order[#order - 1], "Dune")
+  eq(order[#order], "b")
+  eq(all[1].kind, "note", "notes still wait on top")
 end)
 
 check("a waiting row says so instead of a day", function()

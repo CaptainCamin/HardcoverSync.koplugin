@@ -3,7 +3,8 @@
 -- ShelfQueue, by Hardcover book id). Screens ask here instead of knowing both.
 --
 -- A change is { kind ("status" or "remove"), book_id, status_id (nil for a remove), user_book_id,
--- title, at (when it was made, os.time) }. When both queues hold one for a book the newer wins,
+-- title, at (when it was made, os.time), and where it is kept: `filepath` and `entry` in the progress
+-- queue, `op` in the shelf queue }. When both queues hold one for a book the newer wins,
 -- as ShelfQueue:settleWith does at flush time.
 --
 -- Plain data, no KOReader requires.
@@ -31,7 +32,8 @@ function PendingStatus.list(sync_queue, shelf_queue, user_id)
       local book_id = type(entry) == "table" and tonumber(entry.book_id)
       if book_id and entry.status_id ~= nil and mine(entry.user_id) then
         consider { kind = "status", book_id = book_id, status_id = entry.status_id,
-          user_book_id = entry.user_book_id, title = entry.title, at = entry.status_updated_at }
+          user_book_id = entry.user_book_id, title = entry.title, at = entry.status_updated_at,
+          filepath = filepath, entry = entry }
       end
     end
   end
@@ -39,7 +41,7 @@ function PendingStatus.list(sync_queue, shelf_queue, user_id)
     for _, op in ipairs(shelf_queue:list()) do
       if mine(op.user_id) then
         consider { kind = op.kind, book_id = tonumber(op.book_id), status_id = op.status_id,
-          user_book_id = op.user_book_id, title = op.title, at = op.at }
+          user_book_id = op.user_book_id, title = op.title, at = op.at, op = op }
       end
     end
   end

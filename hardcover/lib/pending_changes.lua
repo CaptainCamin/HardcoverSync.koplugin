@@ -14,6 +14,7 @@ local T = require("ffi/util").template
 
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local Reviews = require("hardcover/lib/reviews")
+local PendingStatus = require("hardcover/lib/pending_status")
 local SyncConflicts = require("hardcover/lib/sync_conflicts")
 
 local PendingChanges = {}
@@ -45,6 +46,19 @@ local function bookTitle(op)
   return (type(op.title) == "string" and op.title ~= "") and op.title or T(_("Book %1"), op.book_id)
 end
 
+-- what the saved shelves need to put the book back where it was if this entry's status is cancelled
+local function shelfOpOf(entry)
+  if (entry.status_id ~= nil or entry.reread) and tonumber(entry.book_id) then
+    local from = tonumber(entry.from_status_id)
+    return {
+      kind = "status", book_id = tonumber(entry.book_id), user_book_id = entry.user_book_id,
+      status_id = entry.status_id or HARDCOVER.STATUS.READING,
+      from_status_id = (from and from ~= 0) and from or nil,
+      known = entry.from_status_id ~= nil,
+    }
+  end
+end
+
 function PendingChanges.list(queues)
   queues = queues or {}
   local rows = {}
@@ -55,24 +69,7 @@ function PendingChanges.list(queues)
       local entry = sync:get(filepath)
       local title = SyncConflicts.title(filepath, entry)
       local note = stuck(entry)
-      -- what the saved shelves need to put the book back where it was if this is cancelled
-      local shelf_op
-      if (entry.status_id ~= nil or entry.reread) and tonumber(entry.book_id) then
-        local from = tonumber(entry.from_status_id)
-        shelf_op = {
-          kind = "status", book_id = tonumber(entry.book_id), user_book_id = entry.user_book_id,
-          status_id = entry.status_id or HARDCOVER.STATUS.READING,
-          from_status_id = (from and from ~= 0) and from or nil,
-          known = entry.from_status_id ~= nil,
-        }
-      end
-      if entry.status_id ~= nil then
-        rows[#rows + 1] = {
-          kind = "status", title = title, note = note, shelf_op = shelf_op,
-          text = T(_("%1: mark as %2"), title, statusText(entry.status_id)),
-          cancel = function() return sync:cancelStatus(filepath) end,
-        }
-      end
+      local shelf_op = shelfOpOf(entry)
       if entry.mapped_page ~= nil then
         rows[#rows + 1] = {
           kind = "page", title = title, note = note, shelf_op = entry.reread and shelf_op or nil,
@@ -97,10 +94,18 @@ function PendingChanges.list(queues)
     end
   end
 
-  local shelves = queues.shelf_queue
-  if shelves then
-    for _i, op in ipairs(shelves:list()) do
-      local title = bookTitle(op)
+  -- status changes, from the progress queue and the shelf queue read as one
+  for _i, change in ipairs(PendingStatus.list(queues.sync_queue, queues.shelf_queue)) do
+    local title = bookTitle(change)
+    if change.filepath then
+      local sync, filepath, entry = queues.sync_queue, change.filepath, change.entry
+      rows[#rows + 1] = {
+        kind = "status", title = SyncConflicts.title(filepath, entry), note = stuck(entry), shelf_op = shelfOpOf(entry),
+        text = T(_("%1: mark as %2"), SyncConflicts.title(filepath, entry), statusText(entry.status_id)),
+        cancel = function() return sync:cancelStatus(filepath) end,
+      }
+    else
+      local shelves, op = queues.shelf_queue, change.op
       local book_id = op.book_id
       rows[#rows + 1] = {
         kind = "shelf", title = title, op = op, note = heldNote(op),
