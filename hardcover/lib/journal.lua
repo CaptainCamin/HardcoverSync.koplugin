@@ -312,10 +312,18 @@ function Journal.row(entry, now)
   return {
     title = entry.title or "A book",
     what = what,
-    detail = join(entry.authors, entry.waiting and Journal.WAITING or Journal.dayText(entry.at, now)),
+    detail = join(entry.authors, Journal.when(entry, now)),
     cover_url = entry.cover_url,
     open = open,
   }
+end
+
+-- The day an entry shows: its day, "Waiting to send" for one not sent, both for a waiting change that
+-- knows when it was made (`made_at`).
+function Journal.when(entry, now)
+  if not entry.waiting then return Journal.dayText(entry.at, now) end
+  -- (an edited entry keeps its old day out of it: the change has no day of its own)
+  return join(entry.made_at and Journal.dayText(entry.at, now), Journal.WAITING)
 end
 
 -- The heading over an entry's whole text: "Quote · Dune · p. 12".
@@ -326,6 +334,12 @@ end
 -- ---------------------------------------------------------------------------
 -- What this device has not sent yet
 -- ---------------------------------------------------------------------------
+
+-- what a status change waiting to send says, by the status it moves the book to
+local STATUS_MOVE = {
+  [1] = "Moved to Want to Read", [2] = "Moved to Currently Reading", [3] = "Moved to Read",
+  [4] = "Moved to Paused", [5] = "Moved to Did Not Finish",
+}
 
 local function mine(op, user_id)
   return op.user_id == nil or tonumber(op.user_id) == tonumber(user_id)
@@ -354,7 +368,7 @@ end
 -- review being removed (empty text) is left out: there is nothing to show. `queue_id` (a note's or
 -- quote's id in the queue) and `user_book_id` (a review's) are how an edit finds it again.
 --
-function Journal.waiting(journal_ops, review_ops, user_id)
+function Journal.waiting(journal_ops, review_ops, user_id, status_changes)
   local out = {}
   journal_ops = journal_ops or {}
   for i = #journal_ops, 1, -1 do
@@ -382,6 +396,18 @@ function Journal.waiting(journal_ops, review_ops, user_id)
       }
     end
   end
+  for _, change in ipairs(status_changes or {}) do
+    local word = change.kind == "remove" and "Removed from your library" or STATUS_MOVE[change.status_id]
+    if word then
+      out[#out + 1] = {
+        key = "waiting:status:" .. tostring(change.book_id), kind = "event", waiting = true, event = "status_change",
+        action = word, title = change.title or "A book", book_id = tonumber(change.book_id),
+        -- the day it was made, which Hardcover is sent too (see HardcoverApi's action_at)
+        made_at = tonumber(change.at) ~= nil,
+        at = tonumber(change.at) and os.date("!%Y-%m-%dT%H:%M:%SZ", tonumber(change.at)) or nil,
+      }
+    end
+  end
   return out
 end
 
@@ -399,7 +425,7 @@ end
 -- not have yet (Journal.waiting), with the cover and authors of the book where the list has them.
 -- A review waiting for a book whose review is listed is that review edited, not a new one.
 --
-function Journal.withPending(entries, journal_ops, review_ops, user_id)
+function Journal.withPending(entries, journal_ops, review_ops, user_id, status_changes)
   local changes = {}
   for _, op in ipairs(journal_ops or {}) do
     if op.action and mine(op, user_id) then
@@ -446,7 +472,7 @@ function Journal.withPending(entries, journal_ops, review_ops, user_id)
     local key = changeKey { kind = "review", book_id = op.book_id, user_book_id = op.user_book_id }
     if not used[key] then new_reviews[#new_reviews + 1] = op end
   end
-  local out = Journal.waiting(journal_ops, new_reviews, user_id)
+  local out = Journal.waiting(journal_ops, new_reviews, user_id, status_changes)
   for _, e in ipairs(out) do
     local known = e.book_id and books[e.book_id]
     if known then

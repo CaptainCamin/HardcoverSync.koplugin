@@ -22,6 +22,7 @@ local DeviceSearch = require("hardcover/lib/device_search")
 local Home = require("hardcover/lib/home")
 local Lists = require("hardcover/lib/lists")
 local Network = require("hardcover/lib/network")
+local PendingStatus = require("hardcover/lib/pending_status")
 local OnDevice = require("hardcover/lib/on_device")
 local Recommendations = require("hardcover/lib/recommendations")
 local Reviews = require("hardcover/lib/reviews")
@@ -738,9 +739,8 @@ end
 function Flows:withPending(detail)
   local shelf = self.shelf_queue
   if shelf and detail and detail.book then
-    local op = shelf:get(detail.book.book_id, User:getId())
-    local from_reader = not op and self.sync_queue and self.sync_queue:statusFor(detail.book.book_id)
-    BookActions.withPendingShelf(detail, op or (from_reader and { status_id = from_reader }))
+    BookActions.withPendingShelf(detail,
+      PendingStatus.get(self.sync_queue, shelf, detail.book.book_id, User:getId()))
   end
   self:withPendingReview(detail)
   return self:withPendingRating(detail)

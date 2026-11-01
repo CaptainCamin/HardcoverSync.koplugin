@@ -4,6 +4,8 @@
 
 ### Added
 
+- **Status changes made offline show in the Journal.** A book you moved to a shelf (or took out of your library) while offline appears in the Journal as "Moved to Read" and so on, with the day you did it and "Waiting to send", until it is sent.
+
 - **Finishing a book now reaches Hardcover.** Switching a book to Finished on KOReader's book-status screen is sent to Hardcover (it used to be missed). After the last page, "Mark as Read?" is asked when you close the book or once KOReader's own end-of-document menu has closed (it no longer appears on top of that menu; choosing Mark as finished there is enough), with an option to mark automatically instead; the question is off by default when another end page is chosen. A new "Hardcover end page" choice in KOReader's End of document action list shows the book, your rating, a review link and Mark as Read. Offline, the change waits in Pending changes.
 
 - **Add to the book's journal.** The Journal screen opened from the reader panel has a plus button at the bottom right. It offers Note, Quote and Review (Edit your review when you already have one), using the same forms as before, offline included. What you add shows in the list at once. The highlight shortcut and the book page's review button are unchanged.

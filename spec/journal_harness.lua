@@ -350,6 +350,25 @@ check("a waiting entry has what a row and the full text need", function()
   eq(waiting[4].spoilers, true)
 end)
 
+check("a status change waiting to send shows what you did, the day you did it, and that it is waiting", function()
+  local at = os.time() - 3 * 86400
+  local waiting = Journal.waiting(nil, nil, 1, {
+    { kind = "status", book_id = 7, status_id = 3, title = "Dune", at = at },
+    { kind = "remove", book_id = 8, title = "Kindred", at = at },
+    { kind = "status", book_id = 9, status_id = 99 },
+  })
+  eq(#waiting, 2, "an unknown status is left out")
+  eq(waiting[1].book_id, 7)
+  local row = Journal.row(waiting[1])
+  eq(row.what, "Moved to Read")
+  eq(row.title, "Dune")
+  eq(row.open, "book")
+  eq(row.detail, Journal.dayText(os.date("!%Y-%m-%dT%H:%M:%SZ", at)) .. DOT .. Journal.WAITING)
+  eq(Journal.row(waiting[2]).what, "Removed from your library")
+  -- notes keep saying only that they wait
+  eq(Journal.row(Journal.waiting(journalOps(), {}, 1)[1]).detail, Journal.WAITING)
+end)
+
 check("a waiting row says so instead of a day", function()
   local waiting = Journal.waiting(journalOps(), reviewOps(), 1)
   local row = Journal.row(waiting[3])
