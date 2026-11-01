@@ -4,6 +4,8 @@
 
 ### Added
 
+- **Status changes made offline show in the Journal.** A book you moved to a shelf (or took out of your library) while offline appears in the Journal as "Marked as read" and so on, with the day you did it and "Waiting to send", until it is sent.
+
 - **Finishing a book now reaches Hardcover.** Switching a book to Finished on KOReader's book-status screen is sent to Hardcover (it used to be missed). After the last page, "Mark as Read?" is asked when you close the book or once KOReader's own end-of-document menu has closed (it no longer appears on top of that menu; choosing Mark as finished there is enough), with an option to mark automatically instead; the question is off by default when another end page is chosen. A new "Hardcover end page" choice in KOReader's End of document action list shows the book, your rating, a review link and Mark as Read. Offline, the change waits in Pending changes.
 
 - **Add to the book's journal.** The Journal screen opened from the reader panel has a plus button at the bottom right. It offers Note, Quote and Review (Edit your review when you already have one), using the same forms as before, offline included. What you add shows in the list at once. The highlight shortcut and the book page's review button are unchanged.
@@ -11,6 +13,10 @@
 - **Jump to Hardcover's page.** Open a book while online and, if Hardcover has you 5 or more pages further along (you read on another device), you are asked whether to jump there. "Stay here" keeps your place and does not ask again until Hardcover moves on. It is not asked when this device has changes waiting; the sync question covers that.
 
 ### Fixed
+
+- **Changes made offline now carry the time you made them.** A status, rating or review that waited for a connection used to appear in your Hardcover journal on the day it was sent. It is now dated when you made it.
+
+- **A shelf change made offline from a book's details no longer overtakes your reading.** For a book that is on this device, it now waits in the same queue as your page and is sent in the order you made them, so a page cannot reach Hardcover before an earlier status change and start a false "read it again?" question.
 
 - **Opening a book and closing it, or putting the device to sleep, without reading no longer sends your page.** It used to send the page this device opened at, so a book read further on another device went back to the earlier page on Hardcover.
 - **Changes waiting from offline reading are sent when you open a book online,** and a conflict with Hardcover's page is asked about there and then. "Use Hardcover" jumps to Hardcover's page at once, and "Jump to page N?" is no longer asked twice. The "needs your decision" notice no longer covers that question's Decide later choice.

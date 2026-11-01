@@ -20,6 +20,7 @@
 
 local OfflineQueue = require("hardcover/lib/offline_queue")
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
+local StatusSender = require("hardcover/lib/status_sender")
 
 local ShelfQueue = OfflineQueue.extend({})
 ShelfQueue.store_key = "shelf_ops"
@@ -215,14 +216,13 @@ function ShelfQueue:_flush(api, opts)
           end
           return api:removeUserBook(id)
         end
+        local info = { book_id = op.book_id, edition_id = op.edition_id, at = op.at }
         if op.passed_reading then
-          local started, started_err = api:updateUserBook(op.book_id, HARDCOVER.STATUS.READING, nil, op.edition_id)
+          local started, started_err = StatusSender.passThroughReading(api, nil, info)
           if not started then return nil, started_err end
           op.passed_reading = nil
         end
-        local result, err = api:updateUserBook(op.book_id, op.status_id, nil, op.edition_id)
-        if result and op.finished_date then result = api:setFinishedDate(result, op.finished_date) or result end
-        return result, err
+        return StatusSender.setStatus(api, nil, op.status_id, op.finished_date, info)
       end)
       self.sending_op = nil
       if not ok then result, err = nil, nil end

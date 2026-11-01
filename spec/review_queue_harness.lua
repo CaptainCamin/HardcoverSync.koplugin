@@ -33,16 +33,25 @@ end
 -- answers each updateReview in turn: a user book, or nil and the reason
 local function fakeApi(answers)
   local api = { sent = {}, calls = 0 }
-  function api:updateReview(id, text, spoilers)
+  function api:updateReview(id, text, spoilers, _, at)
     self.calls = self.calls + 1
     if self.fail then return nil end
     local answer = answers and answers[self.calls] or { { id = id, has_review = text ~= "" } }
-    if answer[1] then self.sent[#self.sent + 1] = { id = id, text = text, spoilers = spoilers } end
+    if answer[1] then self.sent[#self.sent + 1] = { id = id, text = text, spoilers = spoilers, at = at } end
     return answer[1], answer[2]
   end
   return api
 end
 local refused = { status = 200, errors = { { message = "nope" } } }
+
+check("a review is sent with the time it was written", function()
+  local q = newQueue()
+  local api = fakeApi()
+  local before = os.time()
+  q:queue(7, "good", false)
+  q:flush(api, {})
+  assert(api.sent[1] and api.sent[1].at and api.sent[1].at >= before and api.sent[1].at <= os.time(), "no time sent")
+end)
 
 print("\n== the text ==")
 

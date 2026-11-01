@@ -206,8 +206,9 @@ return {
     tapText("Journal")
     local journal = emu:top()
     assert(journal.name == "hardcover_journal_screen", "Journal is still disabled before first sync")
-    emu:expectText("You can add an entry offline.")
-    emu:shot("reader_first_sync_empty_journal")
+    -- the shelf change made above is waiting, so the Journal lists it instead of saying it is empty
+    emu:expectText("Marked as currently reading")
+    emu:shot("reader_first_sync_waiting_status")
     local function addEntry(label)
       dismissNotes()
       emu:screenNodes()

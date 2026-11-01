@@ -105,7 +105,7 @@ function JournalBody:buildRow(entry, width, row_h)
     table.insert(column, Theme.mmdText(row.title, "strong", 21, { width = text_w }))
     table.insert(column, Theme.span(px(3)))
   else
-    local day = entry.waiting and Journal.WAITING or Journal.dayText(entry.at, self.now and self.now() or nil)
+    local day = Journal.when(entry, self.now and self.now())
     row.detail = table.concat({ entry.page and ("p. " .. entry.page) or "", day or "" }, " · "):gsub("^ · ", ""):gsub(" · $", "")
   end
   table.insert(column, Theme.mmdText(row.what, "text", 18, { width = text_w }))

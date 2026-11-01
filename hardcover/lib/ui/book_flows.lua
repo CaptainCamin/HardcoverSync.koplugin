@@ -22,6 +22,7 @@ local DeviceSearch = require("hardcover/lib/device_search")
 local Home = require("hardcover/lib/home")
 local Lists = require("hardcover/lib/lists")
 local Network = require("hardcover/lib/network")
+local PendingStatus = require("hardcover/lib/pending_status")
 local OnDevice = require("hardcover/lib/on_device")
 local Recommendations = require("hardcover/lib/recommendations")
 local Reviews = require("hardcover/lib/reviews")
@@ -358,8 +359,7 @@ end
 -- Put the book on the details screen on a shelf, or take it off.
 --
 -- Online the change is sent at once and the screen is updated from the answer. Offline it
--- is kept in the shelf queue (shelf_queue.lua), shown at once and sent when the
--- connection is back. (Neither touches the sync queue, which is for reading progress.)
+-- is kept (see saveShelfOffline), shown at once and sent when the connection is back.
 --
 function Flows:chooseShelf(dialog)
   local detail = dialog.detail
@@ -739,7 +739,8 @@ end
 function Flows:withPending(detail)
   local shelf = self.shelf_queue
   if shelf and detail and detail.book then
-    BookActions.withPendingShelf(detail, shelf:get(detail.book.book_id, User:getId()))
+    BookActions.withPendingShelf(detail,
+      PendingStatus.get(self.sync_queue, shelf, detail.book.book_id, User:getId()))
   end
   self:withPendingReview(detail)
   return self:withPendingRating(detail)
@@ -898,19 +899,33 @@ function Flows:keepBookRow(detail)
   store:saveRows({ row })
 end
 
--- Offline: the change is kept (shelf_queue.lua), the saved shelves and the screen show it
+-- Offline: the change is kept (shelf_queue.lua, or the progress queue for a book with a file here), the saved shelves and the screen show it
 -- at once, and it is sent when the connection is back (see shelfSent).
 function Flows:saveShelfOffline(dialog, status_id)
   local detail = dialog.detail
   local old_status_id = detail.status_id
   local request = BookActions.shelfRequest(detail, status_id)
   self:keepBookRow(detail)
-  local op = self.shelf_queue:queueStatus(User:getId(), request.book_id, status_id, {
-    user_book_id = detail.user_book_id, edition_id = request.edition_id, title = detail.book.title,
-    from_status_id = old_status_id,
-  })
-  self:shelfChanged(request.book_id, old_status_id, status_id, op.user_book_id, true)
-  if Live.shown(dialog) then dialog:setStatus(status_id, op.user_book_id) end
+  -- A book with a file here keeps its status next to its pages in the progress queue, so they
+  -- are sent in the order they were made; the shelf queue is for books with no file.
+  local file = self.sync_queue and self:deviceFile(request.book_id)
+  local user_book_id
+  if file then
+    self.shelf_queue:cancel(request.book_id)
+    self.sync_queue:enqueueStatus(file, {
+      user_id = User:getId(), book_id = request.book_id, edition_id = request.edition_id,
+      title = detail.book.title, user_book_id = detail.user_book_id,
+      status_id = status_id, from_status_id = old_status_id,
+    })
+    user_book_id = detail.user_book_id
+  else
+    user_book_id = self.shelf_queue:queueStatus(User:getId(), request.book_id, status_id, {
+      user_book_id = detail.user_book_id, edition_id = request.edition_id, title = detail.book.title,
+      from_status_id = old_status_id,
+    }).user_book_id
+  end
+  self:shelfChanged(request.book_id, old_status_id, status_id, user_book_id, true)
+  if Live.shown(dialog) then dialog:setStatus(status_id, user_book_id) end
   StatusDialogs.info(_("Offline: the shelf change is kept and will be sent when you're connected."), 3)
 end
 

@@ -38,7 +38,7 @@ function RatingQueue:queue(user_book_id, rating, title, book_id, user_id)
   local key, before = self:bookOpKey(user_book_id, book_id, user_id)
   self:ops()[key] = { user_book_id = user_book_id or (before and before.user_book_id),
     book_id = book_id or (before and before.book_id), user_id = user_id or (before and before.user_id),
-    rating = rating, title = title }
+    rating = rating, title = title, at = os.time() }
   self:persist()
 end
 
@@ -86,7 +86,7 @@ function RatingQueue:flush(api, on_sent, user_id)
       if op and not op.held and OfflineQueue.bookOpForUser(op, user_id) then
         local id, err = self:resolveUserBook(api, op, user_id)
         local user_book
-        if id and ops[key] == op then user_book, err = api:updateRating(id, tonumber(op.rating)) end
+        if id and ops[key] == op then user_book, err = api:updateRating(id, tonumber(op.rating), op.at) end
         if user_book then
           -- a newer rating made while this one was in flight stays
           if ops[key] == op then ops[key] = nil end

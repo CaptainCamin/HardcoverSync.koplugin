@@ -24,6 +24,7 @@ local Live = require("hardcover/lib/ui/live")
 local Api = require("hardcover/lib/hardcover_api")
 local Journal = require("hardcover/lib/journal")
 local Network = require("hardcover/lib/network")
+local PendingStatus = require("hardcover/lib/pending_status")
 local Reviews = require("hardcover/lib/reviews")
 local User = require("hardcover/lib/user")
 
@@ -275,7 +276,8 @@ end
 -- Hardcover's entries as changed on this device, under what it does not have yet.
 function Flows:pendingJournal(entries, user_id)
   return Journal.withPending(entries, self.journal_queue and self.journal_queue:list() or nil,
-    self.review_queue and self.review_queue:list(user_id) or nil, user_id)
+    self.review_queue and self.review_queue:list(user_id) or nil, user_id,
+    PendingStatus.list(self.sync_queue, self.shelf_queue, user_id))
 end
 
 function Flows:showJournal(host)

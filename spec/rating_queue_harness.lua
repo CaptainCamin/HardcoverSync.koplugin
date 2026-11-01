@@ -30,9 +30,9 @@ end
 
 local function fakeApi()
   local api = { sent = {}, fail = false }
-  function api:updateRating(id, rating)
+  function api:updateRating(id, rating, at)
     if self.fail then return nil end
-    self.sent[#self.sent + 1] = { id = id, rating = rating }
+    self.sent[#self.sent + 1] = { id = id, rating = rating, at = at }
     return { id = id, rating = rating, status_id = 3 }
   end
   return api
@@ -45,6 +45,15 @@ check("a rating waits, and rating again leaves the newest", function()
   eq(q:count(), 1)
   eq(q:get(7), 4.5)
   eq(q:get(8), nil)
+end)
+
+check("a rating is sent with the time it was made", function()
+  local q = newQueue()
+  local api = fakeApi()
+  local before = os.time()
+  q:queue(7, 4)
+  q:flush(api, nil, nil)
+  assert(api.sent[1] and api.sent[1].at and api.sent[1].at >= before and api.sent[1].at <= os.time(), "no time sent")
 end)
 
 check("a clear (0) is kept as a rating of 0", function()
