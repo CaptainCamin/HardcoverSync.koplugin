@@ -50,20 +50,14 @@ local function findItem(items, prefix, anywhere)
 end
 
 -- One effective shelf for the panel and its actions: Details can change it without updating the
--- reader snapshot. When both queues have a status, use the same newer-wins rule as settleWith.
+-- reader snapshot.
 function HardcoverMenu:bookShelfStatus()
   local status = self.state.book_status or {}
   local book_id = self.settings:getLinkedBookId()
   local file = self.ui.document and self.ui.document.file
-  local pending = file and self.sync_queue and self.sync_queue:get(file)
-  local op = self.shelf_queue and self.shelf_queue:get(book_id, User:getId())
-  if op and (op.user_id == nil or op.user_id == User:getId())
-    and (not (pending and pending.status_id)
-      or (tonumber(op.at) or 0) > (tonumber(pending.status_updated_at) or 0)) then
-    if op.kind == "remove" then return nil, true end
-    return op.status_id, nil
-  end
-  local status_id = (file and self.sync_queue and self.sync_queue:statusOf(file)) or status.status_id
+  local op = book_id and self.sync_queue and self.sync_queue:shelfOp(book_id, User:getId())
+  if op and op.kind == "remove" then return nil, true end
+  local status_id = (file and self.sync_queue and self.sync_queue:statusOf(file)) or (op and op.status_id) or status.status_id
   if status_id or status.not_on_shelf then return status_id, status.not_on_shelf end
   if self.settings:bookLinked() then
     local dm = self.dialog_manager
@@ -707,7 +701,6 @@ end
 function HardcoverMenu:pendingTotal()
   return self.sync_queue:changeCount() + (self.goal_queue and self.goal_queue:count() or 0)
     + (self.rating_queue and self.rating_queue:count() or 0)
-    + (self.shelf_queue and self.shelf_queue:count() or 0)
     + (self.list_queue and self.list_queue:count() or 0)
     + (self.journal_queue and self.journal_queue:count() or 0)
     + (self.review_queue and self.review_queue:count() or 0)
@@ -726,7 +719,7 @@ function HardcoverMenu:showPendingChanges(menu_instance)
     queues = {
       user_id = User:getId(),
       sync_queue = self.sync_queue, goal_queue = self.goal_queue, rating_queue = self.rating_queue,
-      shelf_queue = self.shelf_queue, list_queue = self.list_queue, journal_queue = self.journal_queue,
+      list_queue = self.list_queue, journal_queue = self.journal_queue,
       review_queue = self.review_queue,
     },
     on_cancel = function(row)

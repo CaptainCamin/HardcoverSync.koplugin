@@ -42,7 +42,8 @@ local function build(emu, linked)
     cache = { cacheUserBook = function() end },
     sync_queue = { pendingCount = function() return 0 end, changeCount = function() return 0 end,
       hasPending = function() return false end,
-      get = function() return nil end, statusOf = function() return nil end },
+      get = function() return nil end, statusOf = function() return nil end,
+      shelfOp = function() return nil end },
     auth = { usingOAuth = function() return true end, needsReauth = function() return false end,
              statusText = function() return "Signed in" end },
     dialog_manager = dialog_manager, hardcover = {},
@@ -140,8 +141,9 @@ return {
     end }
     dm.journal_queue = require("hardcover/lib/journal_queue"):new { settings = queue_settings }
     dm.review_queue = require("hardcover/lib/review_queue"):new { settings = queue_settings }
-    dm.shelf_queue = require("hardcover/lib/shelf_queue"):new { settings = queue_settings }
-    menu.shelf_queue = dm.shelf_queue
+    -- the progress queue keeps the shelf change too (a book's page and status are one record)
+    dm.sync_queue = require("hardcover/lib/sync_queue"):new { settings = queue_settings }
+    menu.sync_queue = dm.sync_queue
     local db_path = emu.DataStorage:getSettingsDir() .. "/first_sync_library.sqlite3"
     for _, suffix in ipairs({ "", "-wal", "-shm", "-journal" }) do os.remove(db_path .. suffix) end
     local db = require("hardcover/lib/sqlite_store"):new { path = db_path }

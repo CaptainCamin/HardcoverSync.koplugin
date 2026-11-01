@@ -61,13 +61,63 @@ end
 
 -- One entry per book, by Hardcover book id (as text): its queued page and status, and the file or
 -- files it was read from (`file`: the last, `files`: all).
-function SyncQueue:pending()
-  local pending = self:store()
+function SyncQueue:store()
+  local pending = OfflineQueue.store(self)
   if not self.migrated then
     self.migrated = true
-    if migrate(pending) then self:persist() end
+    local by_file = migrate(pending)
+    local from_shelf = self:_takeShelfOps(pending)
+    if by_file or from_shelf then self:persist() end
   end
   return pending
+end
+
+function SyncQueue:pending()
+  return self:store()
+end
+
+-- Shelf changes were kept apart (ShelfQueue, "shelf_ops", by book id) until they moved in here: a status
+-- or a removal is a change to one book, like its page. Each becomes the book's status (or removal) unless
+-- the book already waits with a newer change; on a tie the one already here stands.
+function SyncQueue:_takeShelfOps(pending)
+  local ops = self.settings:readSetting("shelf_ops")
+  if type(ops) ~= "table" then return false end
+  local list = {}
+  for _, op in pairs(ops) do
+    local kind_ok = type(op) == "table" and tonumber(op.book_id)
+      and (op.kind == "remove" or (op.kind == "status" and tonumber(op.status_id)))
+    if kind_ok then list[#list + 1] = op end
+  end
+  table.sort(list, function(a, b) return tonumber(a.book_id) < tonumber(b.book_id) end)
+  for _, op in ipairs(list) do
+    local key = tostring(tonumber(op.book_id))
+    local entry = type(pending[key]) == "table" and pending[key] or nil
+    local have = entry and (tonumber(entry.remove_at) or tonumber(entry.status_updated_at))
+    if not (entry and (entry.remove or entry.status_id ~= nil) and (tonumber(op.at) or 0) <= (have or 0)) then
+      local from = tonumber(op.from_status_id) or 0
+      if op.kind == "remove" then
+        pending[key] = {
+          book_id = tonumber(op.book_id), user_id = op.user_id, user_book_id = op.user_book_id, title = op.title,
+          from_status_id = from, remove = true, remove_at = tonumber(op.at) or os.time(),
+          file = entry and entry.file, files = entry and entry.files, updated_at = tonumber(op.at) or os.time(),
+          held = op.held, reason = op.reason, failures = op.failures,
+        }
+      else
+        entry = entry or { book_id = tonumber(op.book_id), user_id = op.user_id }
+        entry.remove, entry.remove_at = nil, nil
+        entry.title = op.title or entry.title
+        entry.user_book_id = op.user_book_id or entry.user_book_id
+        entry.edition_id = op.edition_id or entry.edition_id
+        entry.status_id, entry.status_updated_at = tonumber(op.status_id), tonumber(op.at) or os.time()
+        entry.from_status_id, entry.passed_reading, entry.finished_date = from, op.passed_reading, op.finished_date
+        entry.held, entry.reason, entry.failures = op.held, op.reason, op.failures
+        entry.updated_at = math.max(tonumber(entry.updated_at) or 0, tonumber(op.at) or 0)
+        pending[key] = entry
+      end
+    end
+  end
+  self.settings:saveSetting("shelf_ops", nil)
+  return true
 end
 
 -- The key of the entry for `ref`: a book id, an entry's key, or a file it was read from; nil when
@@ -103,7 +153,7 @@ end
 -- A malformed entry (a hand edit, a merged settings file) counts as empty so
 -- one bad value cannot make every queue check throw.
 function SyncQueue:isEmpty(entry)
-  return type(entry) ~= "table" or (entry.mapped_page == nil and entry.status_id == nil)
+  return type(entry) ~= "table" or (entry.mapped_page == nil and entry.status_id == nil and not entry.remove)
 end
 
 function SyncQueue:hasPending(filepath)
@@ -168,7 +218,7 @@ function SyncQueue:changeCount()
   for _, filepath in ipairs(self:keys()) do
     local entry = self:get(filepath)
     if entry.mapped_page ~= nil then count = count + 1 end
-    if entry.status_id ~= nil then count = count + 1 end
+    if entry.status_id ~= nil or entry.remove then count = count + 1 end
   end
   return count
 end
@@ -285,7 +335,7 @@ end
 -- Is a change of the book's shelf (a status, or a re-read) waiting for this file?
 function SyncQueue:shelfChangeWaiting(filepath)
   local entry = self:get(filepath)
-  return type(entry) == "table" and (entry.status_id ~= nil or entry.reread == true)
+  return type(entry) == "table" and (entry.status_id ~= nil or entry.reread == true or entry.remove == true)
 end
 
 -- `payload.from_status_id` is the shelf the book was on before the change (nil: on none), kept
@@ -302,6 +352,9 @@ function SyncQueue:enqueueStatus(filepath, payload)
   local entry = self:_ensure(filepath, payload)
   if not entry then return nil end
   entry.passed_reading = passed_reading
+  -- back from a waiting removal: the record is still there, so this is not a book new to the library
+  if before and before.remove then entry.remove, entry.remove_at, entry.edition_id = nil, nil, nil end
+  entry.held, entry.reason = nil, nil
   entry.from_status_id = origin or payload.from_status_id or 0
   entry.status_id = payload.status_id
   entry.status_updated_at = os.time()
@@ -322,6 +375,61 @@ function SyncQueue:save(ref, entry)
     pending[key] = entry
   end
   self:persist()
+end
+
+--
+-- The book leaves the library. `user_book_id` is its record, `from_status_id` the shelf it is on.
+-- Returns "queued", or "dropped" when the book only ever went on a shelf offline: there is nothing on
+-- Hardcover to remove, so what waits for it (a status, a page) is thrown away. The pages of a removed
+-- book belonged to the record that goes, so a queued removal keeps none. (A change already on its way
+-- is not dropped: the book will exist, so the removal follows it and looks the record up.)
+--
+function SyncQueue:queueRemove(user_id, book_id, user_book_id, title, from_status_id)
+  local key = tostring(tonumber(book_id) or book_id)
+  local pending = self:pending()
+  local before = pending[key]
+  if type(before) ~= "table" or not SyncQueue.ownedBy(before, user_id) then before = nil end
+  user_book_id = tonumber(user_book_id) or (before and tonumber(before.user_book_id)) or nil
+  if not user_book_id and not (before and self.sending_key == key) then
+    pending[key] = nil
+    self:persist()
+    return "dropped"
+  end
+  local now = os.time()
+  pending[key] = {
+    book_id = tonumber(book_id), user_id = user_id, user_book_id = user_book_id,
+    title = title or (before and before.title),
+    from_status_id = before and before.from_status_id or from_status_id or 0,
+    remove = true, remove_at = now, updated_at = now,
+    file = before and before.file, files = before and before.files,
+  }
+  self:persist()
+  return "queued"
+end
+
+-- A change of shelf waiting for a book, as the details screens and Pending changes know it:
+-- { kind ("status" or "remove"), user_id, book_id, status_id, user_book_id, edition_id, title,
+-- from_status_id (nil: on none), passed_reading, finished_date, at, held, reason, failures }; nil
+-- when the entry has none.
+function SyncQueue.opOf(entry)
+  if type(entry) ~= "table" or not (entry.remove or entry.status_id ~= nil) then return nil end
+  local from = tonumber(entry.from_status_id)
+  return {
+    kind = entry.remove and "remove" or "status", user_id = entry.user_id, book_id = tonumber(entry.book_id),
+    status_id = (not entry.remove) and entry.status_id or nil, user_book_id = entry.user_book_id,
+    edition_id = entry.edition_id, title = entry.title, from_status_id = (from and from ~= 0) and from or nil,
+    passed_reading = entry.passed_reading, finished_date = entry.finished_date,
+    at = entry.remove and entry.remove_at or entry.status_updated_at,
+    held = entry.held, reason = entry.reason, failures = entry.failures,
+  }
+end
+
+-- The shelf change waiting for this book, or nil. With a user_id, one made by another account is not
+-- returned (an entry with no user_id, from an older version, is).
+function SyncQueue:shelfOp(book_id, user_id)
+  local entry = self:get(tonumber(book_id) or book_id)
+  if user_id ~= nil and not SyncQueue.ownedBy(entry, user_id) then return nil end
+  return SyncQueue.opOf(entry)
 end
 
 --
@@ -347,6 +455,7 @@ function SyncQueue:cancelStatus(filepath)
   if type(entry) ~= "table" then return false end
   entry.status_id, entry.status_updated_at, entry.finished_date = nil, nil, nil
   entry.privacy_setting_id, entry.failures, entry.passed_reading = nil, nil, nil
+  entry.remove, entry.remove_at, entry.held, entry.reason = nil, nil, nil, nil
   if not entry.reread then entry.from_status_id = nil end
   self:save(filepath, entry)
   return true
@@ -474,7 +583,7 @@ SyncQueue.MAX_REJECTIONS = 3
 
 function SyncQueue:isHeld(entry)
   return type(entry) == "table"
-    and ((entry.failures or 0) >= SyncQueue.MAX_REJECTIONS or entry.conflict ~= nil)
+    and ((entry.failures or 0) >= SyncQueue.MAX_REJECTIONS or entry.conflict ~= nil or entry.held == true)
 end
 
 -- When the cloud is ahead of a queued page by this many pages or more the user
@@ -564,7 +673,7 @@ end
 function SyncQueue:retryHeld()
   for _, entry in pairs(self:pending()) do
     if type(entry) == "table" then
-      entry.failures = nil
+      entry.failures, entry.held, entry.reason = nil, nil, nil
     end
   end
   self:persist()
@@ -669,6 +778,29 @@ local function orderedOps(entry)
   return ops
 end
 
+-- A status or removal did not go through. Hardcover not answering (or a busy server) says nothing about the
+-- change: it is tried again later. A refusal is counted, and held at once for a missing permission.
+local function failed(self, key, err)
+  if err ~= nil and OfflineQueue.transient(err) then return false, "transient" end
+  local entry = self:get(key)
+  if type(entry) == "table" then
+    OfflineQueue.reject(entry, err)
+    self:persist()
+  end
+  return false
+end
+
+-- A status that was kept as a shelf change (no file here) went through: the screens that showed it as
+-- waiting are told. The reader's own changes were shown when they were made.
+local function statusSent(opts, entry, status_id, user_book)
+  if not opts.on_status_sent or entry.file then return end
+  local from = tonumber(entry.from_status_id)
+  opts.on_status_sent({
+    kind = "status", user_id = entry.user_id, book_id = tonumber(entry.book_id), status_id = status_id,
+    user_book_id = entry.user_book_id, from_status_id = (from and from ~= 0) and from or nil,
+  }, user_book)
+end
+
 -- Sends one file's pending status and page. Returns true when the entry is
 -- fully sent, false when it should be kept for another attempt; the second
 -- value is "transient" when the server could not be reached or asked, so the
@@ -683,6 +815,27 @@ function SyncQueue:_flushEntry(api, filepath, opts)
   local book_id = entry.book_id
   local edition_id = entry.edition_id
   local privacy_setting_id = entry.privacy_setting_id
+
+  if entry.remove then
+    local id = entry.user_book_id
+    if not id then
+      local found, lookup_err = api:findUserBook(book_id, opts.user_id)
+      if lookup_err ~= nil then return false, "transient" end
+      id = found and found.id -- not in the library: nothing to remove
+    end
+    local removed, err = true, nil
+    if id then removed, err = api:removeUserBook(id) end
+    if not removed then return failed(self, filepath, err) end
+    -- a status made while this was out is what is left to send
+    local now = self:get(filepath)
+    if now == entry and entry.remove then
+      local op = SyncQueue.opOf(entry)
+      self:_drop(filepath)
+      self:persist()
+      if opts.on_status_sent and not entry.file then opts.on_status_sent(op, removed) end
+    end
+    return true
+  end
 
   -- A failed lookup looks like an empty one; an error means we do not know, so
   -- send nothing rather than create a user book over a real one.
@@ -704,28 +857,28 @@ function SyncQueue:_flushEntry(api, filepath, opts)
     local first = ops[1]
     -- the status that follows Currently Reading is sent on its own below
     local first_is_status = first.kind == "status" and not owes_reading
+    local err
     if first_is_status then
       info.at = first.at
-      user_book = StatusSender.setStatus(api, nil, first.value, first.finished_date, info)
+      user_book, err = StatusSender.setStatus(api, nil, first.value, first.finished_date, info)
     else
       -- a page needs a library record to be read on: create it as Currently Reading
-      user_book = StatusSender.passThroughReading(api, nil, info)
+      user_book, err = StatusSender.passThroughReading(api, nil, info)
     end
     if not hasUserBook(user_book) then
-      countRejection(self, filepath)
-      return false
+      return failed(self, filepath, err)
     end
     if first_is_status then
+      statusSent(opts, entry, first.value, user_book)
       sent.status, sent.status_at = first.value, first.at
       table.remove(ops, 1)
       self:_clearSent(filepath, sent)
       sent = {}
     end
   elseif owes_reading then
-    local started = StatusSender.passThroughReading(api, user_book, info)
+    local started, err = StatusSender.passThroughReading(api, user_book, info)
     if not hasUserBook(started) then
-      countRejection(self, filepath)
-      return false
+      return failed(self, filepath, err)
     end
     user_book = started
   end
@@ -737,12 +890,12 @@ function SyncQueue:_flushEntry(api, filepath, opts)
   for _, op in ipairs(ops) do
     if op.kind == "status" then
       info.at = op.at
-      local result = StatusSender.setStatus(api, user_book, op.value, op.finished_date, info)
+      local result, err = StatusSender.setStatus(api, user_book, op.value, op.finished_date, info)
       if not hasUserBook(result) then
-        countRejection(self, filepath)
-        return false
+        return failed(self, filepath, err)
       end
       user_book = result
+      statusSent(opts, entry, op.value, result)
       self:_clearSent(filepath, { status = op.value, status_at = op.at })
     else
       local current = user_book.status_id
@@ -903,7 +1056,9 @@ function SyncQueue:flush(api, opts)
     for _, filepath in ipairs(paths) do
       -- An API call that throws must not leave `flushing` set, or every later
       -- flush is refused until KOReader restarts.
+      self.sending_key = filepath
       local ok, sent, reason = pcall(self._flushEntry, self, api, filepath, opts)
+      self.sending_key = nil
       if ok and sent then
         consecutive_failures = 0
       else

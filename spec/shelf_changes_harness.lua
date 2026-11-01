@@ -1,12 +1,13 @@
--- Shelf changes made offline: one per book, the newest wins, opposite changes cancel, a
--- change is sent once the connection is back, and what Hardcover refuses is held.
+-- Shelf changes made offline, kept in the progress queue by book: one per book, the newest wins,
+-- opposite changes cancel, a change is sent once the connection is back, and what Hardcover refuses
+-- is held. (They were a queue of their own until they moved into SyncQueue.)
 --
--- Run with:  lua spec/shelf_queue_harness.lua [plugin-root]
+-- Run with:  lua spec/shelf_changes_harness.lua [plugin-root]
 
 local PLUGIN = arg[1] or "."
 package.path = PLUGIN .. "/?.lua;" .. PLUGIN .. "/?/init.lua;" .. package.path
 
-local ShelfQueue = require("hardcover/lib/shelf_queue")
+local SyncQueue = require("hardcover/lib/sync_queue")
 local BookActions = require("hardcover/lib/book_actions")
 
 local results = { passed = 0, failed = 0 }
@@ -26,7 +27,7 @@ local function newQueue()
     saveSetting = function(_, k, v) store[k] = v return true end,
     flush = function() return true end,
   }
-  return ShelfQueue:new { settings = settings }
+  return SyncQueue:new { settings = settings }
 end
 
 -- A recording API. `answers[n]` is what the n-th request gets: nil and an error, or a result.
@@ -40,6 +41,8 @@ local function fakeApi()
     if type(step) == "table" and step.fail ~= nil then return nil, step.fail end
     return step
   end
+  function api:findUserBook() return nil end
+  function api:updateUserBookStatus(...) return reply("updateUserBookStatus", ...) end
   function api:updateUserBook(...) return reply("updateUserBook", ...) end
   function api:removeUserBook(...) return reply("removeUserBook", ...) end
   return api
@@ -47,8 +50,8 @@ end
 
 check("a change is sent with the time it was made", function()
   local q, api = newQueue(), fakeApi()
-  q:queueStatus(1, 100, 1, {})
-  q:get(100).at = 4321
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 1 })
+  q:get(100).status_updated_at = 4321
   q:flush(api, { user_id = 1 })
   eq(api.calls[1].args[5], 4321)
 end)
@@ -57,10 +60,10 @@ print("\n== queueing ==")
 
 check("a change waits, and a second one for the same book leaves the newest", function()
   local q = newQueue()
-  q:queueStatus(1, 100, 1, { title = "Obelisk", edition_id = 7, from_status_id = nil })
-  q:queueStatus(1, 100, 3, {})
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 1, title = "Obelisk", edition_id = 7, from_status_id = nil })
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 3 })
   eq(q:count(), 1)
-  local op = q:get(100)
+  local op = q:shelfOp(100)
   eq(op.status_id, 3)
   eq(op.edition_id, 7, "the edition of a book new to the library is kept")
   eq(op.title, "Obelisk")
@@ -68,14 +71,14 @@ end)
 
 check("the shelf the book started on survives later changes", function()
   local q = newQueue()
-  q:queueStatus(1, 100, 3, { user_book_id = 55, from_status_id = 1 })
-  q:queueStatus(1, 100, 2, { user_book_id = 55, from_status_id = 3 })
-  eq(q:get(100).from_status_id, 1)
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 3, user_book_id = 55, from_status_id = 1 })
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 2, user_book_id = 55, from_status_id = 3 })
+  eq(q:shelfOp(100).from_status_id, 1)
 end)
 
 check("removing a book that only went on a shelf offline leaves nothing to send", function()
   local q = newQueue()
-  q:queueStatus(1, 100, 1, {})
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 1 })
   eq(q:queueRemove(1, 100, nil, "Obelisk"), "dropped")
   eq(q:count(), 0)
 end)
@@ -89,15 +92,15 @@ end)
 check("removing a book in the library waits as a remove, by its record", function()
   local q = newQueue()
   eq(q:queueRemove(1, 100, 55, "Obelisk", 2), "queued")
-  local op = q:get(100)
+  local op = q:shelfOp(100)
   eq(op.kind, "remove"); eq(op.user_book_id, 55); eq(op.from_status_id, 2)
 end)
 
 check("a new shelf after a waiting remove becomes a status change on the same record", function()
   local q = newQueue()
   q:queueRemove(1, 100, 55, "Obelisk", 2)
-  q:queueStatus(1, 100, 3, { edition_id = 7 }) -- the details screen sees a book new to the library
-  local op = q:get(100)
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 3, edition_id = 7 }) -- the details screen sees a book new to the library
+  local op = q:shelfOp(100)
   eq(op.kind, "status"); eq(op.status_id, 3)
   eq(op.user_book_id, 55, "the record, so its history is not deleted")
   eq(op.edition_id, nil, "the edition is not switched")
@@ -106,24 +109,16 @@ end)
 
 check("a status change over a waiting status change on a shelved book keeps its record", function()
   local q = newQueue()
-  q:queueStatus(1, 100, 3, { user_book_id = 55 })
-  q:queueStatus(1, 100, 2, {})
-  eq(q:get(100).user_book_id, 55)
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 3, user_book_id = 55 })
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 2 })
+  eq(q:shelfOp(100).user_book_id, 55)
 end)
 
 check("cancel removes one book's change", function()
   local q = newQueue()
-  q:queueStatus(1, 100, 1, {}); q:queueStatus(1, 101, 1, {})
-  eq(q:cancel(100), true); eq(q:cancel(100), false)
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 1 }); q:enqueueStatus(101, { user_id = 1, book_id = 101, status_id = 1 })
+  eq(q:cancelStatus(100), true); eq(q:cancelStatus(100), false)
   eq(q:count(), 1)
-end)
-
-check("junk in the file is not counted and does not break the list", function()
-  local q = newQueue()
-  q:ops()["x"] = "junk"
-  q:ops()["5"] = { book_id = 5, kind = "status" } -- no status
-  q:queueStatus(1, 100, 1, {})
-  eq(q:count(), 1); eq(#q:list(), 1)
 end)
 
 print("\n== the details screen ==")
@@ -157,41 +152,41 @@ print("\n== sending ==")
 
 check("each change is sent once, with the right arguments, and the queue empties", function()
   local q, api = newQueue(), fakeApi()
-  q:queueStatus(1, 100, 1, { edition_id = 7 })
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 1, edition_id = 7 })
   q:queueRemove(1, 101, 66, "Other")
   local sent = {}
-  local res = q:flush(api, { user_id = 1, on_sent = function(op, r) sent[#sent + 1] = { op = op, r = r } end })
-  eq(res.sent, 2); eq(res.waiting, 0); eq(res.stopped, false)
+  local res = q:flush(api, { user_id = 1, on_status_sent = function(op, r) sent[#sent + 1] = { op = op, r = r } end })
+  eq(res, true)
   eq(#api.calls, 2)
   eq(api.calls[1].name, "updateUserBook")
   eq(api.calls[1].args[1], 100); eq(api.calls[1].args[2], 1); eq(api.calls[1].args[4], 7)
   eq(api.calls[2].name, "removeUserBook"); eq(api.calls[2].args[1], 66)
-  eq(#sent, 2); eq(sent[1].r.id, 901)
+  eq(#sent, 2); eq(sent[1].r.id, 901); eq(sent[1].op.kind, "status"); eq(sent[2].op.kind, "remove")
   eq(q:count(), 0)
   q:flush(api, { user_id = 1 })
   eq(#api.calls, 2, "sent again")
 end)
 
-check("no answer keeps everything and stops, so the rest are not sent out of order", function()
+check("no answer keeps everything, and two in a row stop the flush", function()
   local q, api = newQueue(), fakeApi()
-  q:queueStatus(1, 100, 1, {}); q:queueStatus(1, 101, 1, {})
-  api.script = { false }
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 1 }); q:enqueueStatus(101, { user_id = 1, book_id = 101, status_id = 1 })
+  api.script = { { fail = { completed = false } }, { fail = { completed = false } } }
   local res = q:flush(api, { user_id = 1 })
-  eq(res.stopped, true); eq(res.sent, 0); eq(res.waiting, 2)
-  eq(#api.calls, 1)
-  eq(q:get(100).failures, nil, "a dead connection is not the change's fault")
+  eq(res, false); eq(q:count(), 2)
+  eq(#api.calls, 2)
+  eq(q:shelfOp(100).failures, nil, "a dead connection is not the change's fault")
 end)
 
 check("a refusal is counted and the others still go; the third in a row holds it", function()
   local q, api = newQueue(), fakeApi()
-  q:queueStatus(1, 100, 1, {}); q:queueStatus(1, 101, 1, {})
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 1 }); q:enqueueStatus(101, { user_id = 1, book_id = 101, status_id = 1 })
   for _ = 1, 3 do
     api.script = { { fail = "Book not found" } }
-    local res = q:flush(api, { user_id = 1 })
-    eq(res.sent, 1, "the other change was blocked")
-    q:queueStatus(1, 101, 1, {}) -- the other is made again so there is something to send each time
+    q:flush(api, { user_id = 1 })
+    eq(q:shelfOp(101), nil, "the other change was blocked")
+    q:enqueueStatus(101, { user_id = 1, book_id = 101, status_id = 1 }) -- the other is made again so there is something to send each time
   end
-  local op = q:get(100)
+  local op = q:shelfOp(100)
   eq(op.failures, 3); eq(op.held, true); eq(op.reason, "refused")
   eq(q:heldCount(), 1)
   local before = #api.calls
@@ -201,84 +196,84 @@ end)
 
 check("a missing scope holds at once; retryHeld lets it try again", function()
   local q, api = newQueue(), fakeApi()
-  q:queueStatus(1, 100, 1, {})
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 1 })
   api.script = { { fail = { status = 403, errors = { { message = "insufficient_scope" } } } } }
   q:flush(api, { user_id = 1 })
-  eq(q:get(100).held, true); eq(q:get(100).reason, "scope")
+  eq(q:shelfOp(100).held, true); eq(q:shelfOp(100).reason, "scope")
   q:retryHeld()
-  eq(q:get(100).held, nil)
-  local res = q:flush(api, { user_id = 1 })
-  eq(res.sent, 1)
+  eq(q:shelfOp(100).held, nil)
+  eq(q:flush(api, { user_id = 1 }), true)
+  eq(q:count(), 0)
 end)
 
 check("a server error is tried again without counting", function()
   local q, api = newQueue(), fakeApi()
-  q:queueStatus(1, 100, 1, {})
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 1 })
   api.script = { { fail = { status = 503 } } }
   local res = q:flush(api, { user_id = 1 })
-  eq(res.stopped, true); eq(q:get(100).failures, nil)
+  eq(res, false); eq(q:shelfOp(100).failures, nil)
 end)
 
 check("another user's changes are never sent, and are dropped", function()
   local q, api = newQueue(), fakeApi()
-  q:queueStatus(2, 100, 1, {}); q:queueStatus(1, 101, 1, {})
-  local res = q:flush(api, { user_id = 1 })
-  eq(res.sent, 1); eq(#api.calls, 1); eq(api.calls[1].args[1], 101)
+  q:enqueueStatus(100, { user_id = 2, book_id = 100, status_id = 1 }); q:enqueueStatus(101, { user_id = 1, book_id = 101, status_id = 1 })
+  q:flush(api, { user_id = 1 })
+  eq(#api.calls, 1); eq(api.calls[1].args[1], 101)
   eq(q:count(), 0)
 end)
 
 check("with nobody signed in nothing is sent or dropped", function()
   local q, api = newQueue(), fakeApi()
-  q:queueStatus(1, 100, 1, {})
-  local res = q:flush(api, {})
-  eq(res.stopped, true); eq(#api.calls, 0); eq(q:count(), 1)
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 1 })
+  eq(q:flush(api, {}), false); eq(#api.calls, 0); eq(q:count(), 1)
 end)
 
 check("a change made while its request was out is what stays", function()
   local q, api = newQueue(), fakeApi()
-  q:queueStatus(1, 100, 1, {})
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 1 })
   function api:updateUserBook(...)
-    q:queueStatus(1, 100, 3, {}) -- the reader changed their mind meanwhile
+    q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 3 }) -- the reader changed their mind meanwhile
     return { id = 5 }
   end
   q:flush(api, { user_id = 1 })
-  eq(q:get(100).status_id, 3)
+  eq(q:shelfOp(100).status_id, 3)
 end)
 
 check("a raising request is a failed try, not a crash, and releases the lock", function()
   local q, api = newQueue(), fakeApi()
-  q:queueStatus(1, 100, 1, {})
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 1 })
   function api:updateUserBook() error("boom") end
-  local res = q:flush(api, { user_id = 1 })
-  eq(res.stopped, true); eq(q:count(), 1)
+  eq(q:flush(api, { user_id = 1 }), false); eq(q:count(), 1)
   eq(q.flushing, false)
 end)
 
 check("another account's waiting change is not seen, and not inherited", function()
   local q = newQueue()
-  q:queueStatus(1, 100, 3, { user_book_id = 555, title = "A's book" })
-  eq(q:get(100, 1) ~= nil, true, "the owner sees it")
-  eq(q:get(100, 2), nil, "another account does not")
-  local op = q:queueStatus(2, 100, 2, {})
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 3, user_book_id = 555, title = "A's book" })
+  eq(q:shelfOp(100, 1) ~= nil, true, "the owner sees it")
+  eq(q:shelfOp(100, 2), nil, "another account does not")
+  local op = q:enqueueStatus(100, { user_id = 2, book_id = 100, status_id = 2 })
   eq(op.user_book_id, nil, "B does not inherit A's library record")
   eq(op.title, nil)
-  q:queueStatus(1, 101, 3, { user_book_id = 556 })
+  q:enqueueStatus(101, { user_id = 1, book_id = 101, status_id = 3, user_book_id = 556 })
   eq(q:queueRemove(2, 101, nil, "x"), "dropped", "B's remove has no record of its own")
 end)
 
 check("a book moved to Reading and then to Read is sent as Reading first", function()
   local q, api = newQueue(), fakeApi()
-  q:queueStatus(1, 100, 2, { user_book_id = 55, from_status_id = 4 })
-  q:queueStatus(1, 100, 3, {})
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 2, user_book_id = 55, from_status_id = 4 })
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 3 })
   q:flush(api, { user_id = 1 })
   local seen = {}
-  for _, c in ipairs(api.calls) do if c.name == "updateUserBook" then seen[#seen + 1] = c.args[2] end end
+  for _, c in ipairs(api.calls) do
+    if c.name == "updateUserBook" or c.name == "updateUserBookStatus" then seen[#seen + 1] = c.args[2] end
+  end
   eq(table.concat(seen, ","), "2,3", "statuses sent")
 end)
 
 check("a book removed while its shelf change is being sent is still removed", function()
   local q, api = newQueue(), fakeApi()
-  q:queueStatus(1, 100, 1, {})
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 1 })
   local real = api.updateUserBook
   api.updateUserBook = function(self, ...)
     eq(q:queueRemove(1, 100, nil, "Obelisk"), "queued", "not dropped, the book is being added")
@@ -295,7 +290,7 @@ end)
 
 check("a remove that finds the book already gone sends nothing", function()
   local q, api = newQueue(), fakeApi()
-  q:queueStatus(1, 100, 1, {})
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 1 })
   local real = api.updateUserBook
   api.updateUserBook = function(self, ...)
     q:queueRemove(1, 100, nil, "Obelisk")
@@ -310,7 +305,7 @@ end)
 
 check("a book that was only queued is still dropped when nothing is on its way", function()
   local q = newQueue()
-  q:queueStatus(1, 100, 1, {})
+  q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 1 })
   eq(q:queueRemove(1, 100, nil, "Obelisk"), "dropped")
 end)
 

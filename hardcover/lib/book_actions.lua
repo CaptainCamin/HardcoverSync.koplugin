@@ -53,7 +53,7 @@ function BookActions.withPendingReview(detail, waiting)
 end
 
 -- A shelf change made offline and not yet sent shows in place of the one on record.
--- `op` is the shelf queue's waiting op for the book (ShelfQueue:get), or nil. Returns the
+-- `op` is the waiting shelf change for the book (SyncQueue:shelfOp), or nil. Returns the
 -- detail.
 function BookActions.withPendingShelf(detail, op)
   if not (detail and op) then return detail end

@@ -1,6 +1,5 @@
--- How a book's status reaches Hardcover, for the two queues that send one (SyncQueue, for a
--- book read on this device, and ShelfQueue, for one changed from its details). They hold the
--- change differently but send it by the same rules, kept here once:
+-- How a book's status reaches Hardcover, for the progress queue (SyncQueue), whether the change was made
+-- from the reader or from the book's details. The rules, kept here once:
 --
 --   * Hardcover logs each step of reading a book, so a book that went through Currently
 --     Reading on its way to another status is still sent as started (passThroughReading);

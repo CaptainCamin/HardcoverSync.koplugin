@@ -32,7 +32,8 @@ end
 local function stuck(entry)
   if type(entry) ~= "table" then return nil end
   if entry.conflict then return _("waiting for your answer") end
-  if (entry.failures or 0) >= 3 then return _("Hardcover refused it") end
+  if entry.held and entry.reason == "scope" then return _("sign in again to send it") end
+  if entry.held or (entry.failures or 0) >= 3 then return _("Hardcover refused it") end
   return nil
 end
 
@@ -94,24 +95,24 @@ function PendingChanges.list(queues)
     end
   end
 
-  -- status changes, from the progress queue and the shelf queue read as one
-  for _i, change in ipairs(PendingStatus.list(queues.sync_queue, queues.shelf_queue)) do
-    local title = bookTitle(change)
-    if change.filepath then
-      local sync, filepath, entry = queues.sync_queue, change.filepath, change.entry
+  -- status changes and removals
+  local sync_queue = queues.sync_queue
+  for _i, change in ipairs(PendingStatus.list(sync_queue)) do
+    local entry, key = change.entry, change.key
+    if entry.file and not entry.remove then
+      local title = SyncConflicts.title(entry.file, entry)
       rows[#rows + 1] = {
-        kind = "status", title = SyncConflicts.title(entry.file or filepath, entry), note = stuck(entry), shelf_op = shelfOpOf(entry),
-        text = T(_("%1: mark as %2"), SyncConflicts.title(entry.file or filepath, entry), statusText(entry.status_id)),
-        cancel = function() return sync:cancelStatus(filepath) end,
+        kind = "status", title = title, note = stuck(entry), shelf_op = shelfOpOf(entry),
+        text = T(_("%1: mark as %2"), title, statusText(entry.status_id)),
+        cancel = function() return sync_queue:cancelStatus(key) end,
       }
     else
-      local shelves, op = queues.shelf_queue, change.op
-      local book_id = op.book_id
+      local title = bookTitle(change)
       rows[#rows + 1] = {
-        kind = "shelf", title = title, op = op, note = heldNote(op),
-        text = op.kind == "remove" and T(_("%1: remove from your library"), title)
-          or T(_("%1: move to %2"), title, statusText(op.status_id)),
-        cancel = function() return shelves:cancel(book_id) end,
+        kind = "shelf", title = title, op = change, note = heldNote(change),
+        text = change.kind == "remove" and T(_("%1: remove from your library"), title)
+          or T(_("%1: move to %2"), title, statusText(change.status_id)),
+        cancel = function() return sync_queue:cancelStatus(key) end,
       }
     end
   end

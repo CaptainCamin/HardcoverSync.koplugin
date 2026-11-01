@@ -365,7 +365,7 @@ function Flows:chooseShelf(dialog)
   local detail = dialog.detail
   if not (detail and detail.book and detail.book.book_id) then return end
 
-  if not Network.connected() and not self.shelf_queue then
+  if not Network.connected() and not self.sync_queue then
     StatusDialogs.info(_("You are offline. Changing a shelf needs a connection."))
     return
   end
@@ -389,7 +389,7 @@ function Flows:chooseShelf(dialog)
   end
 
   -- a book put on a shelf offline has no library record yet, but is still removable
-  local waiting = self.shelf_queue and self.shelf_queue:get(detail.book.book_id, User:getId())
+  local waiting = self.sync_queue and self.sync_queue:shelfOp(detail.book.book_id, User:getId())
   if detail.user_book_id or (waiting and waiting.kind == "status") then
     rows[#rows + 1] = {
       text = _("Remove from library"),
@@ -737,10 +737,9 @@ end
 
 -- What was changed here and not sent yet (a shelf, a rating) shows in place of what is on record.
 function Flows:withPending(detail)
-  local shelf = self.shelf_queue
-  if shelf and detail and detail.book then
+  if self.sync_queue and detail and detail.book then
     BookActions.withPendingShelf(detail,
-      PendingStatus.get(self.sync_queue, shelf, detail.book.book_id, User:getId()))
+      PendingStatus.get(self.sync_queue, detail.book.book_id, User:getId()))
   end
   self:withPendingReview(detail)
   return self:withPendingRating(detail)
@@ -899,31 +898,21 @@ function Flows:keepBookRow(detail)
   store:saveRows({ row })
 end
 
--- Offline: the change is kept (shelf_queue.lua, or the progress queue for a book with a file here), the saved shelves and the screen show it
--- at once, and it is sent when the connection is back (see shelfSent).
+-- Offline: the change is kept in the progress queue with the book's pages (see sync_queue.lua), so they
+-- are sent in the order they were made. The saved shelves and the screen show it at once, and it is
+-- sent when the connection is back (see shelfSent).
 function Flows:saveShelfOffline(dialog, status_id)
   local detail = dialog.detail
   local old_status_id = detail.status_id
   local request = BookActions.shelfRequest(detail, status_id)
   self:keepBookRow(detail)
-  -- A book with a file here keeps its status next to its pages in the progress queue, so they
-  -- are sent in the order they were made; the shelf queue is for books with no file.
-  local file = self.sync_queue and self:deviceFile(request.book_id)
-  local user_book_id
-  if file then
-    self.shelf_queue:cancel(request.book_id)
-    self.sync_queue:enqueueStatus(file, {
-      user_id = User:getId(), book_id = request.book_id, edition_id = request.edition_id,
-      title = detail.book.title, user_book_id = detail.user_book_id,
-      status_id = status_id, from_status_id = old_status_id,
-    })
-    user_book_id = detail.user_book_id
-  else
-    user_book_id = self.shelf_queue:queueStatus(User:getId(), request.book_id, status_id, {
-      user_book_id = detail.user_book_id, edition_id = request.edition_id, title = detail.book.title,
-      from_status_id = old_status_id,
-    }).user_book_id
-  end
+  -- by file when the book is on this device, else by book
+  local entry = self.sync_queue:enqueueStatus(self:deviceFile(request.book_id) or request.book_id, {
+    user_id = User:getId(), book_id = request.book_id, edition_id = request.edition_id,
+    title = detail.book.title, user_book_id = detail.user_book_id,
+    status_id = status_id, from_status_id = old_status_id,
+  })
+  local user_book_id = entry and entry.user_book_id
   self:shelfChanged(request.book_id, old_status_id, status_id, user_book_id, true)
   if Live.shown(dialog) then dialog:setStatus(status_id, user_book_id) end
   StatusDialogs.info(_("Offline: the shelf change is kept and will be sent when you're connected."), 3)
@@ -934,7 +923,7 @@ function Flows:saveShelf(dialog, status_id)
   local old_status_id = detail.status_id
   local request = BookActions.shelfRequest(detail, status_id)
 
-  if not Network.connected() and self.shelf_queue then
+  if not Network.connected() and self.sync_queue then
     self:saveShelfOffline(dialog, status_id)
     return
   end
@@ -954,7 +943,7 @@ function Flows:saveShelf(dialog, status_id)
 
       -- the change happened whether or not the screen is still there; one waiting for
       -- this book from before would only undo it later
-      if self.shelf_queue then self.shelf_queue:cancel(request.book_id) end
+      if self.sync_queue then self.sync_queue:cancelStatus(request.book_id) end
       self:shelfChanged(request.book_id, old_status_id, status_id, user_book.id or detail.user_book_id)
       if Live.shown(dialog) then
         dialog:setStatus(status_id, user_book.id or detail.user_book_id)
@@ -968,13 +957,13 @@ function Flows:removeFromShelf(dialog)
   local user_book_id = detail.user_book_id
   local book_id = detail.book and detail.book.book_id
 
-  local waiting = self.shelf_queue and book_id and self.shelf_queue:get(book_id, User:getId())
+  local waiting = self.sync_queue and book_id and self.sync_queue:shelfOp(book_id, User:getId())
   -- offline, or a book that only went on a shelf offline (the connection may be back, but
   -- Hardcover has no record of it yet): kept, not sent
-  if self.shelf_queue and book_id and (not Network.connected() or (not user_book_id and waiting)) then
+  if self.sync_queue and book_id and (not Network.connected() or (not user_book_id and waiting)) then
     if not (user_book_id or waiting) then return end
     -- a book that only went on a shelf offline has nothing on Hardcover to remove
-    local outcome = self.shelf_queue:queueRemove(User:getId(), book_id, user_book_id, detail.book.title, old_status_id)
+    local outcome = self.sync_queue:queueRemove(User:getId(), book_id, user_book_id, detail.book.title, old_status_id)
     self:shelfChanged(book_id, old_status_id, nil, nil, true)
     if Live.shown(dialog) then dialog:setStatus(nil, nil) end
     if outcome == "dropped" then
@@ -999,7 +988,7 @@ function Flows:removeFromShelf(dialog)
       return
     end
 
-    if self.shelf_queue and book_id then self.shelf_queue:cancel(book_id) end
+    if self.sync_queue and book_id then self.sync_queue:cancelStatus(book_id) end
     self:shelfChanged(book_id, old_status_id, nil)
     if Live.shown(dialog) then
       dialog:setStatus(nil, nil)
@@ -1170,8 +1159,7 @@ function Flows:applyAbout(dialog, book_id, about)
   local user_book_id = mine and tonumber(mine.id) or nil
   -- a shelf change made here and not sent yet is what the screen shows, not Hardcover's
   -- older word
-  local shelf_waiting = self.shelf_queue and self.shelf_queue:get(book_id, User:getId())
-    or (self.sync_queue and self.sync_queue:statusFor(book_id))
+  local shelf_waiting = self.sync_queue and self.sync_queue:shelfOp(book_id, User:getId())
   if not shelf_waiting and (status_id ~= detail.status_id or (status_id and user_book_id ~= detail.user_book_id)) then
     local shelves = self:shelves()
     if shelves then
