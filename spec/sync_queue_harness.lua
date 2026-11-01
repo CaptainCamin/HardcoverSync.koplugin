@@ -246,13 +246,13 @@ local function fakeApi(opts)
         user_book_reads = { { id = 900, edition_id = 3, started_at = "2026-01-01" } },
       }
     end,
-    updateUserBook = function(_, book_id, status_id, privacy, edition_id)
-      calls[#calls + 1] = { op = "updateUserBook", book_id = book_id, status_id = status_id }
+    updateUserBook = function(_, book_id, status_id, privacy, edition_id, at)
+      calls[#calls + 1] = { op = "updateUserBook", book_id = book_id, status_id = status_id, at = at }
       if opts.update_fails then return nil end
       return { id = 500, status_id = status_id, user_book_reads = {} }
     end,
-    updateUserBookStatus = function(_, user_book_id, status_id)
-      calls[#calls + 1] = { op = "updateUserBookStatus", user_book_id = user_book_id, status_id = status_id }
+    updateUserBookStatus = function(_, user_book_id, status_id, privacy, at)
+      calls[#calls + 1] = { op = "updateUserBookStatus", user_book_id = user_book_id, status_id = status_id, at = at }
       if opts.update_fails then return nil end
       return { id = user_book_id, status_id = status_id, user_book_reads = {} }
     end,
@@ -448,6 +448,25 @@ check("a queued status is sent and then cleared", function()
     if c.op == "updateUserBookStatus" and c.status_id == HARDCOVER.STATUS.FINISHED then status_update = c end
   end
   eq(status_update and status_update.user_book_id, 500, "the existing record reached the api")
+end)
+
+check("a queued status is sent with the time it was made, on an existing record and a new one", function()
+  local q = newQueue()
+  q:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.FINISHED, book_id = 1 })
+  q:get("/books/a.epub").status_updated_at = 1234
+  local api = fakeApi()
+  q:flush(api, { user_id = 1 })
+  local sent
+  for _, c in ipairs(api.calls) do if c.op == "updateUserBookStatus" then sent = c end end
+  eq(sent and sent.at, 1234, "existing record")
+
+  q = newQueue()
+  q:enqueueStatus("/books/b.epub", { status_id = HARDCOVER.STATUS.FINISHED, book_id = 2 })
+  q:get("/books/b.epub").status_updated_at = 5678
+  api = fakeApi { no_user_book = true }
+  q:flush(api, { user_id = 1 })
+  eq(api.calls[2].op, "updateUserBook")
+  eq(api.calls[2].at, 5678, "new record")
 end)
 
 check("a queued status on an existing user book updates it by record id", function()

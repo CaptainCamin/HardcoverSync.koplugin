@@ -1339,7 +1339,17 @@ function HardcoverApi:setFinishedDate(user_book, date)
   end
 end
 
-function HardcoverApi:updateUserBook(book_id, status_id, privacy_setting_id, edition_id)
+-- `at` (os.time) as the UTC time Hardcover wants for `action_at`, or nil. A change made offline
+-- is sent with the time it was made: without it Hardcover stamps the journal entry it writes
+-- with the time the change arrives. Verified on the live API for status, rating and review
+-- (see docs/hardcover-journal-api.md).
+local function actionAt(at)
+  at = tonumber(at)
+  return at and at > 0 and os.date("!%Y-%m-%dT%H:%M:%SZ", at) or nil
+end
+
+-- `at` (optional, os.time): when the change was made, see actionAt.
+function HardcoverApi:updateUserBook(book_id, status_id, privacy_setting_id, edition_id, at)
   if not privacy_setting_id then
     local me = self:me()
     privacy_setting_id = me.account_privacy_setting_id or 1
@@ -1360,7 +1370,8 @@ function HardcoverApi:updateUserBook(book_id, status_id, privacy_setting_id, edi
     book_id = book_id,
     privacy_setting_id = privacy_setting_id,
     status_id = status_id,
-    edition_id = edition_id
+    edition_id = edition_id,
+    action_at = actionAt(at),
   }
 
   local result, err = self:query(query, { object = update_args })
@@ -1377,7 +1388,7 @@ end
 -- Change the status on an existing library record. The caller has its user_book id; use
 -- update_user_book rather than the insert action used when adding a book to the library.
 -- `privacy_setting_id` (optional) is set on the record too; left out, privacy is not touched.
-function HardcoverApi:updateUserBookStatus(user_book_id, status_id, privacy_setting_id)
+function HardcoverApi:updateUserBookStatus(user_book_id, status_id, privacy_setting_id, at)
   local query = [[
     mutation ($id: Int!, $object: UserBookUpdateInput!) {
       update_user_book(id: $id, object: $object) {
@@ -1390,7 +1401,7 @@ function HardcoverApi:updateUserBookStatus(user_book_id, status_id, privacy_sett
   ]] .. user_book_fragment
 
   local result, err = self:query(query, {
-    id = user_book_id, object = { status_id = status_id, privacy_setting_id = privacy_setting_id },
+    id = user_book_id, object = { status_id = status_id, privacy_setting_id = privacy_setting_id, action_at = actionAt(at) },
   })
   if result and result.update_user_book then
     local updated = result.update_user_book
@@ -1418,7 +1429,7 @@ function HardcoverApi:removeUserBook(user_book_id)
   return nil, err
 end
 
-function HardcoverApi:updateRating(user_book_id, rating)
+function HardcoverApi:updateRating(user_book_id, rating, at)
   -- The API marks a book Read when rating is sent without its current status.
   -- Fetch by library record, including for old queued ratings without a book ID.
   local found, lookup_err = self:query([[
@@ -1429,9 +1440,11 @@ function HardcoverApi:updateRating(user_book_id, rating)
   local book = found and found.user_books and found.user_books[1]
   if not (book and book.status_id) then return nil, lookup_err or { error = "no_response" } end
 
+  local when = actionAt(at)
+  -- (declared only when given: a variable that is not sent reads as null)
   local query = [[
-    mutation ($id: Int!, $rating: numeric, $statusId: Int!) {
-      update_user_book(id: $id, object: { rating: $rating, status_id: $statusId }) {
+    mutation ($id: Int!, $rating: numeric, $statusId: Int!]] .. (when and ", $actionAt: timestamptz" or "") .. [[) {
+      update_user_book(id: $id, object: { rating: $rating, status_id: $statusId]] .. (when and ", action_at: $actionAt" or "") .. [[ }) {
         error
         user_book {
           ...UserBookParts
@@ -1444,7 +1457,7 @@ function HardcoverApi:updateRating(user_book_id, rating)
     rating = json.util.null
   end
 
-  local result, err = self:query(query, { id = user_book_id, rating = rating, statusId = book.status_id })
+  local result, err = self:query(query, { id = user_book_id, rating = rating, statusId = book.status_id, actionAt = when })
   if result and result.update_user_book then
     local updated = result.update_user_book
     if updated.user_book then return updated.user_book end
@@ -1459,7 +1472,7 @@ end
 -- `json` is KOReader's, for the empty lists inside the document. Returns the user book (with
 -- review_raw and has_review) or nil and the reason.
 --
-function HardcoverApi:updateReview(user_book_id, text, spoilers, json_lib)
+function HardcoverApi:updateReview(user_book_id, text, spoilers, json_lib, at)
   local query = [[
     mutation ($id: Int!, $object: UserBookUpdateInput!) {
       update_user_book(id: $id, object: $object) {
@@ -1477,6 +1490,7 @@ function HardcoverApi:updateReview(user_book_id, text, spoilers, json_lib)
   local object = {
     review_slate = ReviewText.slate(text, json_lib or json),
     review_has_spoilers = spoilers == true,
+    action_at = actionAt(at),
   }
   local result, err = self:query(query, { id = user_book_id, object = object })
   if result and result.update_user_book then

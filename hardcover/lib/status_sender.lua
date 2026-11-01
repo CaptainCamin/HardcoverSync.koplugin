@@ -9,7 +9,8 @@
 --
 -- `user_book` is the library record when the caller has it (the change is then made on that
 -- record) or nil (the change is made by book, which adds the book to the library if need be).
--- `info`: { book_id, edition_id, privacy_setting_id }, used when there is no record.
+-- `info`: { book_id, edition_id, privacy_setting_id } (used when there is no record) and `at`, when
+-- the change was made (os.time), which Hardcover dates the journal entries it writes with.
 --
 -- Plain data over the injected `api`, no KOReader requires.
 
@@ -24,9 +25,9 @@ end
 -- Put the book on shelf `status_id`. Returns the library record, or nil and the reason.
 function StatusSender.upsert(api, user_book, status_id, info)
   if hasUserBook(user_book) then
-    return api:updateUserBookStatus(user_book.id, status_id)
+    return api:updateUserBookStatus(user_book.id, status_id, nil, info.at)
   end
-  return api:updateUserBook(info.book_id, status_id, info.privacy_setting_id, info.edition_id)
+  return api:updateUserBook(info.book_id, status_id, info.privacy_setting_id, info.edition_id, info.at)
 end
 
 -- The step through Currently Reading a change owes. Nothing to do for a record already there.

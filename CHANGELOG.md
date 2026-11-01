@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- **Changes made offline now carry the time you made them.** A status, rating or review that waited for a connection used to appear in your Hardcover journal on the day it was sent. It is now dated when you made it.
+
 - **A shelf change made offline from a book's details no longer overtakes your reading.** For a book that is on this device, it now waits in the same queue as your page and is sent in the order you made them, so a page cannot reach Hardcover before an earlier status change and start a false "read it again?" question.
 
 - **Opening a book and closing it, or putting the device to sleep, without reading no longer sends your page.** It used to send the page this device opened at, so a book read further on another device went back to the earlier page on Hardcover.

@@ -38,6 +38,7 @@ function ReviewQueue:queue(user_book_id, text, spoilers, title, book_id, user_id
   self:ops()[key] = {
     user_book_id = user_book_id or (before and before.user_book_id), book_id = book_id or (before and before.book_id),
     user_id = user_id or (before and before.user_id), text = text or "", spoilers = spoilers == true, title = title,
+    at = os.time(),
   }
   self:persist()
 end
@@ -86,7 +87,7 @@ function ReviewQueue:flush(api, opts)
       if op and not op.held and OfflineQueue.bookOpForUser(op, opts.user_id) then
         local id, err = self:resolveUserBook(api, op, opts.user_id)
         local user_book
-        if id and ops[key] == op then user_book, err = api:updateReview(id, op.text, op.spoilers == true, opts.json) end
+        if id and ops[key] == op then user_book, err = api:updateReview(id, op.text, op.spoilers == true, opts.json, op.at) end
         if user_book then
           -- a newer review written while this one was in flight stays
           if ops[key] == op then ops[key] = nil end

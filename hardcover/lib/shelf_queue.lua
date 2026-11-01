@@ -216,7 +216,7 @@ function ShelfQueue:_flush(api, opts)
           end
           return api:removeUserBook(id)
         end
-        local info = { book_id = op.book_id, edition_id = op.edition_id }
+        local info = { book_id = op.book_id, edition_id = op.edition_id, at = op.at }
         if op.passed_reading then
           local started, started_err = StatusSender.passThroughReading(api, nil, info)
           if not started then return nil, started_err end

@@ -606,13 +606,17 @@ function SyncQueue:_flushEntry(api, filepath, opts)
   local sent = {}
   local owes_reading = entry.passed_reading and entry.status_id ~= nil
 
-  local info = { book_id = book_id, edition_id = edition_id, privacy_setting_id = privacy_setting_id }
+  local info = {
+    book_id = book_id, edition_id = edition_id, privacy_setting_id = privacy_setting_id,
+    at = entry.status_updated_at,
+  }
 
   if not hasUserBook(user_book) then
     local first = ops[1]
     -- the status that follows Currently Reading is sent on its own below
     local first_is_status = first.kind == "status" and not owes_reading
     if first_is_status then
+      info.at = first.at
       user_book = StatusSender.setStatus(api, nil, first.value, first.finished_date, info)
     else
       -- a page needs a library record to be read on: create it as Currently Reading
@@ -643,6 +647,7 @@ function SyncQueue:_flushEntry(api, filepath, opts)
 
   for _, op in ipairs(ops) do
     if op.kind == "status" then
+      info.at = op.at
       local result = StatusSender.setStatus(api, user_book, op.value, op.finished_date, info)
       if not hasUserBook(result) then
         countRejection(self, filepath)

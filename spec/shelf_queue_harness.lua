@@ -45,6 +45,14 @@ local function fakeApi()
   return api
 end
 
+check("a change is sent with the time it was made", function()
+  local q, api = newQueue(), fakeApi()
+  q:queueStatus(1, 100, 1, {})
+  q:get(100).at = 4321
+  q:flush(api, { user_id = 1 })
+  eq(api.calls[1].args[5], 4321)
+end)
+
 print("\n== queueing ==")
 
 check("a change waits, and a second one for the same book leaves the newest", function()
