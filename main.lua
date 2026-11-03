@@ -315,8 +315,9 @@ function HardcoverApp:init()
     UIManager:nextTick(function() BookshelfSources.register(self) end)
   end
 
-  -- Bookshelf loads spec files from its settings folder; this feeds it the goal and stats cards.
-  pcall(BookshelfModules.install, self)
+  -- The goal and stats cards ship as a Bookshelf module pack (bookshelf_modules/);
+  -- this clears the stub files that 2.3.1 and older wrote into Bookshelf's folder.
+  pcall(BookshelfModules.cleanStubs)
 
   FileDialog.register(self)
 

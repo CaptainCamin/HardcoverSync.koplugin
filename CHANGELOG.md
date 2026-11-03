@@ -12,9 +12,23 @@
 
 - **Add to the book's journal.** The Journal screen opened from the reader panel has a plus button at the bottom right. It offers Note, Quote and Review (Edit your review when you already have one), using the same forms as before, offline included. What you add shows in the list at once. The highlight shortcut and the book page's review button are unchanged.
 
+- **The Bookshelf goal and stats cards now ship with the plugin.** They are a Bookshelf module pack (a `bookshelf_modules` folder), so they appear under Hardcover Sync in Bookshelf's start menu, update along with the plugin, and are gone when the plugin is off. Bookshelf 6.1.0 or newer is needed; older versions get no card. The cards still read only what is saved on the device, so they work offline, and tapping one opens the Goals or Stats screen.
+
+- **Choose which goal a Bookshelf card shows.** With more than one goal running, long press the Hardcover goal card, then Module settings, and pick the one to show (Automatic keeps the one ending soonest). Each card remembers its own choice, so you can put two goal cards on the shelf, one for each goal.
+
+- **A strip cell shows two goals.** A Bookshelf cell three times as wide as it is tall is long enough for two goals side by side, each with its name, count and bar, divided by a hairline so they read as two cards rather than one column of numbers. A 2×1 cell is still too narrow for half a goal, and keeps one goal with the pace line.
+
+- **A goal ring card.** The same reading goal drawn as a completion ring with the percentage inside it, for a shelf that wants a picture rather than a bar. One goal at a time: a square or tall cell keeps to the ring, the goal's name and its count, so a small tile stays readable, and a strip sets the ring beside the goal's numbers as three labelled facts (pace, time left and the weekly rate). A 2×1 cell puts the ring beside the heading, count, pace and days left. In a cell too short for a name it drops to the ring and its percentage alone, which is what lets it be a single-cell tile. It works offline and follows the same choice of goal.
+
 - **Jump to Hardcover's page.** Open a book while online and, if Hardcover has you 5 or more pages further along (you read on another device), you are asked whether to jump there. "Stay here" keeps your place and does not ask again until Hardcover moves on. It is not asked when this device has changes waiting; the sync question covers that.
 
 ### Fixed
+
+- **Old Bookshelf card files are cleaned up.** Versions up to 2.3.1 wrote two files into Bookshelf's own module folder; they are removed on start now that the cards come from the plugin's module pack.
+
+- **A goal card keeps clear of its frame in a square cell.** Bookshelf hands a square cell its whole width, so the heading, count and bar used to run against the edge; they now step in the same distance a wide cell already had.
+
+- **A goal card gives up lines rather than being cut off.** In a cell too short for everything, the finish rate and then the pace line go, and a cell too narrow for the goal's name shows the count and its bar instead of a row of ellipses. Before, the card kept every line and the host clipped the last one.
 
 - **Changes made offline now carry the time you made them.** A status, rating or review that waited for a connection used to appear in your Hardcover journal on the day it was sent. It is now dated when you made it.
 
