@@ -304,7 +304,7 @@ function Journal.row(entry, now)
     what = entry.action or ""
   end
   local open
-  if entry.text and entry.kind ~= "event" then
+  if entry.queue_entry or (entry.text and entry.kind ~= "event") then
     open = "full"
   elseif entry.book_id then
     open = "book"
@@ -323,7 +323,7 @@ end
 function Journal.when(entry, now)
   if not entry.waiting then return Journal.dayText(entry.at, now) end
   -- (an edited entry keeps its old day out of it: the change has no day of its own)
-  return join(entry.made_at and Journal.dayText(entry.at, now), Journal.WAITING)
+  return join(entry.made_at and Journal.dayText(entry.at, now), entry.sync_state or Journal.WAITING)
 end
 
 -- The heading over an entry's whole text: "Quote · Dune · p. 12".
@@ -400,14 +400,18 @@ function Journal.waiting(journal_ops, review_ops, user_id, status_changes)
     local word
     if change.kind == "progress" then
       word = tonumber(change.page) and ("Updated progress to page " .. math.floor(tonumber(change.page))) or nil
+    elseif change.reading then
+      word = change.reading == "resume" and "Resumed reading" or "Started reading"
     else
       word = change.kind == "remove" and "Removed from your library" or STATUS_MOVE[change.status_id]
     end
     if word then
       out[#out + 1] = {
         key = "waiting:" .. (change.kind == "progress" and ("page:" .. tostring(change.book_id) .. ":" .. tostring(change.day))
-          or ("status:" .. tostring(change.book_id))),
+          or ("status:" .. tostring(change.book_id))) .. (change.seq and (":" .. change.seq) or ""),
         kind = "event", waiting = true, event = "waiting_change",
+        seq = change.seq, queue_entry = change.queue_entry,
+        started = change.started, sync_state = change.sync_state,
         action = word, title = change.title or "A book", book_id = tonumber(change.book_id),
         -- the day it was made, which Hardcover is sent too (see HardcoverApi's action_at)
         made_at = tonumber(change.at) ~= nil,
@@ -499,7 +503,13 @@ function Journal.withPending(entries, journal_ops, review_ops, user_id, status_c
     end
     if e.made_at then changes[#changes + 1] = e else out[#out + 1] = e end
   end
-  table.sort(changes, function(a, b) return (Journal.epoch(a.at) or 0) > (Journal.epoch(b.at) or 0) end)
+  table.sort(changes, function(a, b)
+    local at, bt = Journal.epoch(a.at) or 0, Journal.epoch(b.at) or 0
+    if at ~= bt then return at > bt end
+    if a.book_id ~= b.book_id then return (a.book_id or 0) < (b.book_id or 0) end
+    if a.book_id == b.book_id and a.seq and b.seq then return a.seq > b.seq end
+    return false
+  end)
   local next_change = 1
   local function placeChanges(before)
     while changes[next_change] and (not before or (Journal.epoch(changes[next_change].at) or 0) >= before) do

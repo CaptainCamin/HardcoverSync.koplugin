@@ -276,4 +276,37 @@ check("a page is sent with the time it was read only when there is one", functio
   Api.query = original
 end)
 
+check("a failed page update distinguishes a transient outage from a refusal", function()
+  local original = Api.query
+  Api.query = function() return nil, { status = 503 } end
+  local result, err = Api:updatePage(7, 3, nil, "2026-10-01", "2026-10-01T12:00:00Z")
+  Api.query = function() return { update_user_book_read = { error = "Read not found" } } end
+  local refused, refusal = Api:updatePage(7, 3, 40)
+  Api.query = original
+  assert(result == nil and err and err.status == 503, "outages must remain retryable")
+  assert(refused == nil and refusal == "Read not found", "a refusal keeps its reason")
+end)
+
+check("a date correction targets one read without sending stale progress or edition fields", function()
+  local original = Api.query
+  local seen
+  Api.query = function(_, query, vars)
+    seen = { query = query, vars = vars }
+    return { update_user_book_read = { user_book_read = { id = 7, started_at = "2026-10-01",
+      progress_pages = 89, edition_id = 3, user_book = { id = 91, status_id = 2 } } } }
+  end
+  local result = Api:updateReadDates(7, { started_at = "2026-10-01" })
+  Api.query = function() return nil, { status = 503 } end
+  local failed, err = Api:updateReadDates(7, { finished_at = "2026-10-25" })
+  Api.query = original
+  assert(seen.query:find("object: $dates", 1, true) and seen.vars.id == 7)
+  local fields = 0
+  for field in pairs(seen.vars.dates) do
+    fields = fields + 1
+    assert(field == "started_at", "a date correction resent " .. field)
+  end
+  assert(fields == 1 and result.user_book_reads[1].progress_pages == 89, "newer progress must be preserved")
+  assert(failed == nil and err.status == 503, "a date failure must remain retryable")
+end)
+
 r.finish()

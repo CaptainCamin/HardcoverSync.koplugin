@@ -1428,7 +1428,9 @@ function HardcoverMenu:savePage(current_read, edition_page, menu_instance)
     -- offline there is nothing to wait for: straight to the queue
     -- (a read made offline has no id yet, and a book set to Reading offline no user book: the
     -- queue creates both when it is sent, so there is nothing to ask Hardcover about yet)
-    if Network.connected() then
+    local file = self.ui and self.ui.document and self.ui.document.file
+    local pending = file and self.sync_queue and self.sync_queue:hasPending(file)
+    if Network.connected() and not pending then
       if current_read and current_read.id then
         result = Api:updatePage(current_read.id, current_read.edition_id, edition_page,
           current_read.started_at)
@@ -1440,15 +1442,6 @@ function HardcoverMenu:savePage(current_read, edition_page, menu_instance)
     end
 
     if result then
-      -- the page just set supersedes any older page still queued
-      if self.sync_queue and self.ui and self.ui.document then
-        local queued = self.sync_queue:get(self.ui.document.file)
-        if type(queued) == "table" then
-          queued.mapped_page = nil
-          queued.page_updated_at = nil
-          self.sync_queue:save(self.ui.document.file, queued)
-        end
-      end
       self.state.book_status = result
       menu_instance:updateItems()
     elseif self.cache and self.sync_queue and self.ui and self.ui.document then

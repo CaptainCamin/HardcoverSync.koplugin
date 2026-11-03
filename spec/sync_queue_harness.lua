@@ -301,16 +301,19 @@ local function fakeApi(opts)
     updateUserBookStatus = function(_, user_book_id, status_id, privacy, at)
       calls[#calls + 1] = { op = "updateUserBookStatus", user_book_id = user_book_id, status_id = status_id, at = at }
       if opts.update_fails then return nil end
-      return { id = user_book_id, status_id = status_id, user_book_reads = {} }
+      return { id = user_book_id, status_id = status_id,
+        user_book_reads = status_id == HARDCOVER.STATUS.FINISHED and { { id = 900, finished_at = "2026-01-05" } } or {} }
     end,
-    setFinishedDate = function(_, user_book, date)
-      calls[#calls + 1] = { op = "setFinishedDate", date = date }
-      return user_book
+    updateReadDates = function(_, id, dates)
+      calls[#calls + 1] = { op = "updateReadDates", dates = dates }
+      return { id = 500, status_id = dates.finished_at and HARDCOVER.STATUS.FINISHED or HARDCOVER.STATUS.READING,
+        user_book_reads = { { id = id, started_at = dates.started_at, finished_at = dates.finished_at } } }
     end,
     updatePage = function(_, read_id, edition_id, page, started_at, action_at)
       calls[#calls + 1] = { op = "updatePage", read_id = read_id, edition_id = edition_id, page = page, action_at = action_at }
       if opts.page_fails then return nil end
-      return { id = 500, status_id = HARDCOVER.STATUS.READING, user_book_reads = {} }
+      return { id = 500, status_id = HARDCOVER.STATUS.READING,
+        user_book_reads = { { id = read_id, edition_id = edition_id, progress_pages = page, started_at = started_at } } }
     end,
     createRead = function(_, user_book_id, edition_id, page, started_at, action_at)
       calls[#calls + 1] = { op = "createRead", user_book_id = user_book_id, page = page, action_at = action_at }
@@ -512,7 +515,7 @@ check("a day that was sent is not sent again after a failure later in the trail"
   eq(table.concat(sent, ","), "90", "only the day that was left")
 end)
 
-check("a re-read does not carry the finished read's days", function()
+check("a re-read preserves earlier progress before the new read's page", function()
   local q = newQueue()
   atTimes({ T0, T0 + DAY }, function(at)
     q:enqueuePage("/books/a.epub", { mapped_page = 300, book_id = 1, edition_id = 3 })
@@ -520,15 +523,14 @@ check("a re-read does not carry the finished read's days", function()
     q:startReread("/books/a.epub", { mapped_page = 2, book_id = 1, edition_id = 3 })
   end)
   local days = q:get("/books/a.epub").page_days
-  eq(#days, 1, "one day")
-  eq(days[1].page, 2, "the new read's page")
+  eq(#days, 2, "both reading sessions are kept")
+  eq(days[1].page, 300, "the earlier read's page")
+  eq(days[2].page, 2, "the new read's page")
 end)
 
 check("an entry queued before times were kept is sent undated", function()
   local q = newQueue()
-  q:enqueuePage("/books/a.epub", { mapped_page = 40, book_id = 1, edition_id = 3 })
-  local entry = q:get("/books/a.epub")
-  entry.page_updated_at, entry.page_days = nil, nil
+  q:save(1, { mapped_page = 40, book_id = 1, edition_id = 3 })
   local api = fakeApi()
   q:flush(api, { user_id = 1 })
   for _, c in ipairs(api.calls) do
@@ -550,8 +552,9 @@ end)
 
 check("a queued status is sent with the time it was made, on an existing record and a new one", function()
   local q = newQueue()
-  q:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.FINISHED, book_id = 1 })
-  q:get("/books/a.epub").status_updated_at = 1234
+  atTimes({ 1234 }, function()
+    q:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.FINISHED, book_id = 1 })
+  end)
   local api = fakeApi()
   q:flush(api, { user_id = 1 })
   local sent
@@ -559,8 +562,9 @@ check("a queued status is sent with the time it was made, on an existing record 
   eq(sent and sent.at, 1234, "existing record")
 
   q = newQueue()
-  q:enqueueStatus("/books/b.epub", { status_id = HARDCOVER.STATUS.FINISHED, book_id = 2 })
-  q:get("/books/b.epub").status_updated_at = 5678
+  atTimes({ 5678 }, function()
+    q:enqueueStatus("/books/b.epub", { status_id = HARDCOVER.STATUS.FINISHED, book_id = 2 })
+  end)
   api = fakeApi { no_user_book = true }
   q:flush(api, { user_id = 1 })
   eq(api.calls[2].op, "updateUserBook")
@@ -585,15 +589,17 @@ end)
 
 check("a book finished offline is sent with the day it was finished, not the day of the sync", function()
   local q = newQueue()
-  q:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.FINISHED, book_id = 1 })
+  local finished_at = os.time { year = 2026, month = 10, day = 19, hour = 12 }
+  atTimes({ finished_at }, function()
+    q:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.FINISHED, book_id = 1 })
+  end)
   local entry = q:get("/books/a.epub")
-  eq(entry.finished_date, os.date("%Y-%m-%d"), "the day is kept when the change is made")
-  entry.finished_date = "2026-10-19" -- made on the 19th, synced on the 20th
+  eq(entry.finished_date, "2026-10-19", "the day is kept when the change is made")
   local api = fakeApi()
   eq(q:flush(api, { user_id = 1 }), true, "flush result")
   local date
   for _, c in ipairs(api.calls) do
-    if c.op == "setFinishedDate" then date = c.date end
+    if c.op == "updateReadDates" then date = c.dates.finished_at end
   end
   eq(date, "2026-10-19", "the finish date sent")
 end)
@@ -651,10 +657,10 @@ local function existingBookApi(status_id)
     self.new_status = new_status
     return { id = user_book_id, status_id = new_status, user_book_reads = {} }
   end
-  api.createRead = function(self, _, _, page)
+  api.createRead = function(self, _, _, page, started_at)
     self.created_read = true
     return { id = 500, status_id = self.new_status or status_id,
-      user_book_reads = { { id = 1, progress_pages = page } } }
+      user_book_reads = { { id = 1, progress_pages = page, started_at = started_at } } }
   end
   api.updateUserBook = function(self, _, new_status)
     self.new_status = new_status
@@ -712,10 +718,11 @@ check("re-reading: yes sets Currently Reading, then writes its new read", functi
     self.new_status = status
     return { id = id, status_id = status, user_book_reads = { { id = 99 } } }
   end
-  api.updatePage = function(_, id, _, page)
+  api.updatePage = function(_, id, _, page, started_at)
     order[#order + 1] = "updatePage"
     eq(id, 99, "new read")
-    return { id = 500, status_id = HARDCOVER.STATUS.READING, user_book_reads = { { id = id, progress_pages = page } } }
+    return { id = 500, status_id = HARDCOVER.STATUS.READING,
+      user_book_reads = { { id = id, progress_pages = page, started_at = started_at } } }
   end
   q:flush(api, { user_id = 1 })
   eq(q:resolve("/books/a.epub", "yes"), true, "resolved")

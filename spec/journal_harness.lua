@@ -24,6 +24,14 @@ local function lacks(text, part)
   if text:find(part, 1, true) then error("should not contain: " .. part, 2) end
 end
 
+local function atTime(at, fn)
+  local real = os.time
+  os.time = function(t) if t then return real(t) end return at end
+  local ok, err = pcall(fn)
+  os.time = real
+  if not ok then error(err, 0) end
+end
+
 local DOT = " \194\183 "
 local LQ, RQ = "\226\128\156", "\226\128\157"
 
@@ -387,6 +395,52 @@ check("a status change waiting sits among Hardcover's entries by the day it was 
   eq(order[#order - 1], "Dune")
   eq(order[#order], "b")
   eq(all[1].kind, "note", "notes still wait on top")
+end)
+
+check("an offline start, progress and pause all appear in the journal after a restart", function()
+  local SyncQueue = require("hardcover/lib/sync_queue")
+  local PendingStatus = require("hardcover/lib/pending_status")
+  local store = {}
+  local settings = { readSetting = function(_, k) return store[k] end,
+    saveSetting = function(_, k, v) store[k] = v end }
+  local sync = SyncQueue:new { settings = settings }
+  local started = os.time() - 2 * 86400
+  atTime(started, function()
+    sync:enqueueStatus("/dune.epub", { user_id = 1, book_id = 5, title = "Dune", status_id = 2, from_status_id = 1 })
+  end)
+  atTime(started + 60, function()
+    sync:enqueuePage("/dune.epub", { user_id = 1, book_id = 5, mapped_page = 7 })
+  end)
+  sync:enqueueStatus("/dune.epub", { user_id = 1, book_id = 5, status_id = 4 })
+  sync = SyncQueue:new { settings = settings }
+  local all = Journal.withPending({}, {}, {}, 1,
+    PendingStatus.history(sync, 1))
+  eq(#all, 3, "the start is not replaced by the pause")
+  eq(Journal.row(all[1]).what, "Marked as paused")
+  eq(Journal.row(all[2]).what, "Updated progress to page 7")
+  eq(Journal.row(all[3]).what, "Started reading")
+  eq(all[3].at, os.date("!%Y-%m-%dT%H:%M:%SZ", started), "the original start time")
+  eq(all[1].key == all[3].key, false, "distinct status rows")
+  for _, e in ipairs(all) do eq(e.waiting, true) end
+  atTime(os.time(), function()
+    sync:enqueueStatus("/dune.epub", { user_id = 1, book_id = 5, status_id = 2 })
+    sync:enqueuePage("/dune.epub", { user_id = 1, book_id = 5, mapped_page = 43 })
+    sync:enqueueStatus("/dune.epub", { user_id = 1, book_id = 5, status_id = 3 })
+  end)
+  all = Journal.withPending({}, {}, {}, 1, PendingStatus.history(sync, 1))
+  eq(#all, 6, "resume and finish do not erase the start or pause")
+  eq(all[1].action, "Marked as read")
+  eq(all[2].action, "Updated progress to page 43")
+  eq(all[3].action, "Resumed reading")
+  eq(all[4].action, "Marked as paused")
+  eq(all[6].action, "Started reading")
+  eq(sync:cancelStatus(5), false, "grouped cancellation cannot remove a start needed by progress")
+  local left = Journal.withPending({}, {}, {}, 1,
+    PendingStatus.history(sync, 1))
+  eq(#left, 6, "a rejected cancellation leaves the whole history intact")
+  eq(sync:cancelPage(5), true, "cancel dependent progress first")
+  eq(sync:cancelStatus(5), true, "then cancel the statuses")
+  eq(#PendingStatus.history(sync, 1), 0, "chosen history is now cancelled")
 end)
 
 check("a page waiting shows its day, sorts among Hardcover's entries, and says it is waiting", function()

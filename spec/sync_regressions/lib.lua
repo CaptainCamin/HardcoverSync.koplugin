@@ -101,6 +101,16 @@ function KB.fakeApi(shelf)
       end
     end
   end
+  function api:updateReadDates(read_id, dates)
+    for _, ub in pairs(self.shelf) do
+      for _, read in ipairs(ub.user_book_reads or {}) do
+        if read.id == read_id then
+          for field, value in pairs(dates) do read[field] = value end
+          return ub
+        end
+      end
+    end
+  end
   function api:createRead(user_book_id, edition_id, page, started_at)
     rec("createRead", { user_book_id = user_book_id, page = page, started_at = started_at })
     for _, ub in pairs(self.shelf) do

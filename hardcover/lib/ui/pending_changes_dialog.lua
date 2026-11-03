@@ -32,13 +32,20 @@ function PendingChangesDialog.show(opts)
       items[#items + 1] = {
         text = PendingChanges.line(row),
         callback = function()
+          if row.started then
+            StatusDialogs.info(_("Sync has already started for this change, so it cannot be cancelled. Some work may already be on Hardcover; discarding remaining work does not undo anything already sent."))
+            return
+          end
           StatusDialogs.confirm {
             title = _("Cancel this change?"),
             text = T(_("%1\n\nHardcover keeps what it has now."), row.text),
             ok_text = _("Cancel the change"),
             cancel_text = _("Keep it"),
             ok_callback = function()
-              row.cancel()
+              if not row.cancel() then
+                StatusDialogs.info(_("This change cannot be cancelled: it may already be syncing, or other queued changes depend on it. Discarding remaining work does not undo anything already sent."))
+                return
+              end
               if opts.on_cancel then opts.on_cancel(row) end
               if screen then UIManager:close(screen) end
               open() -- the list again, without it
@@ -67,10 +74,14 @@ function PendingChangesDialog.show(opts)
         callback = function()
           StatusDialogs.confirm {
             title = T(_("Discard %1 queued changes?"), queued),
-            text = _("They are deleted from this device and never sent to Hardcover."),
+            text = _("Remaining queued work is deleted from this device and will not be retried. Anything already sent to Hardcover is kept; this does not undo it."),
             ok_text = _("Discard"),
             cancel_text = _("Keep them"),
             ok_callback = function()
+              if sync_queue.flushing then
+                StatusDialogs.info(_("Sync is running. Wait for it to finish before discarding remaining work."))
+                return
+              end
               sync_queue:clearAll()
               if opts.on_discard then opts.on_discard() end
               if screen then UIManager:close(screen) end

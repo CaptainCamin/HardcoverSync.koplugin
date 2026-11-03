@@ -24,6 +24,7 @@ local RatingQueue = require("hardcover/lib/rating_queue")
 local JournalQueue = require("hardcover/lib/journal_queue")
 local ReviewQueue = require("hardcover/lib/review_queue")
 local PendingChanges = require("hardcover/lib/pending_changes")
+local Actions = require("hardcover/lib/reading_actions")
 
 local function fakeSettings()
   local store = {}
@@ -79,6 +80,28 @@ check("a book with no title is named by its file; a rating with none by its id",
   assert(q.rating_queue:count() == 1 and q.rating_queue:get(9) == 3)
 end)
 
+check("a partly synced change says so and is not offered as ordinary cancellable work", function()
+  local q = queues()
+  q.sync_queue:enqueueStatus("/b/dune.epub", { status_id = HARDCOVER.STATUS.READING, book_id = 7, title = "Dune" })
+  q.sync_queue:enqueuePage("/b/dune.epub", { mapped_page = 7, book_id = 7, title = "Dune" })
+  q.sync_queue:enqueueStatus("/b/dune.epub", { status_id = HARDCOVER.STATUS.PAUSED, book_id = 7, title = "Dune" })
+  local entry = q.sync_queue:get("/b/dune.epub")
+  Actions.list(entry)[1].status_sent = true
+  local status_row, page_row
+  for _, row in ipairs(PendingChanges.list(q)) do
+    if row.kind == "status" or row.kind == "shelf" then status_row = row elseif row.kind == "page" then page_row = row end
+  end
+  assert(status_row.started and status_row.note == "Finishing sync", PendingChanges.line(status_row))
+  assert(PendingChanges.line(status_row):sub(1, #"Finishing sync · ") == "Finishing sync · ", PendingChanges.line(status_row))
+  assert(status_row.cancel() == false, "a sent status was cancellable")
+  assert(page_row and not page_row.started and page_row.note == nil, "unsent progress was labelled as syncing")
+  Actions.list(entry)[2].page_attempt = true
+  page_row = PendingChanges.list(q)[1]
+  assert(page_row.started and page_row.note == "Checking sync outcome", PendingChanges.line(page_row))
+  assert(PendingChanges.line(page_row):sub(1, #"Checking sync outcome · ") == "Checking sync outcome · ", PendingChanges.line(page_row))
+  assert(page_row.cancel() == false, "a page awaiting an answer was cancellable")
+end)
+
 check("a change that is stuck says why", function()
   local q = queues()
   q.sync_queue:enqueuePage("/b/a.epub", { mapped_page = 50, book_id = 1, title = "A" })
@@ -122,8 +145,9 @@ check("cancelling the status leaves a question about the page, and the answer gi
   q.sync_queue:enqueuePage("/b/a.epub", { mapped_page = 50, book_id = 1, title = "A" })
   q.sync_queue:enqueueStatus("/b/a.epub", { status_id = HARDCOVER.STATUS.FINISHED, book_id = 1, title = "A" })
   local entry = q.sync_queue:get("/b/a.epub")
+  entry.conflict = { kind = "reread", local_page = 50 }
+  assert(q.sync_queue:resolve("/b/a.epub", "yes"))
   entry.conflict = { kind = "page", local_page = 50, cloud_page = 200 }
-  entry.reread = true
   for _, row in ipairs(PendingChanges.list(q)) do if row.kind == "status" then row.cancel() end end
   entry = q.sync_queue:get("/b/a.epub")
   assert(entry.mapped_page == 50 and entry.conflict and entry.conflict.kind == "page" and entry.reread == true,

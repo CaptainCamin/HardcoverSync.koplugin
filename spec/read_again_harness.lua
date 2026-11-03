@@ -55,12 +55,15 @@ end
 
 print("\n== starting a finished book again ==")
 
-check("the re-read queues only the page: no status ahead of it", function()
+check("the re-read queues its start and page as one cancellable change", function()
   local q = KB.newQueue()
   local entry = q:startReread(PATH, payload(12))
-  eq(entry.status_id, nil, "status queued")
+  eq(entry.status_id, HARDCOVER.STATUS.READING, "status queued")
   eq(entry.mapped_page, 12, "page")
   eq(entry.reread, true, "re-read flag")
+  eq(q:changeCount(), 1, "one cancellation control")
+  q:cancelPage(PATH)
+  eq(q:hasPending(), false, "cancelling the reread also cancels its start")
 end)
 
 check("a re-read is sent as a new read, and the finished read is never written", function()
@@ -68,7 +71,6 @@ check("a re-read is sent as a new read, and the finished read is never written",
   q:startReread(PATH, payload(12))
   local api = apiWithStatusRead(finishedBook())
   q:flush(api, { user_id = 1 })
-  eq(api:count("updatePage"), 1, "updatePage calls")
   eq(api:count("createRead"), 0, "createRead calls")
   local reads = api.shelf[7].user_book_reads
   eq(#reads, 2, "reads after the re-read")

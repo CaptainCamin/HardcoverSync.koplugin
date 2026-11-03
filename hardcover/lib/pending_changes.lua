@@ -15,6 +15,7 @@ local T = require("ffi/util").template
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local Reviews = require("hardcover/lib/reviews")
 local PendingStatus = require("hardcover/lib/pending_status")
+local Actions = require("hardcover/lib/reading_actions")
 local SyncConflicts = require("hardcover/lib/sync_conflicts")
 
 local PendingChanges = {}
@@ -31,6 +32,7 @@ end
 -- why a change that is waiting is not simply on its way
 local function stuck(entry)
   if type(entry) ~= "table" then return nil end
+  if entry.reason == "reading_changed" then return _("reading changed on Hardcover; remaining work held") end
   if entry.conflict then return _("waiting for your answer") end
   if entry.held and entry.reason == "scope" then return _("sign in again to send it") end
   if entry.held or (entry.failures or 0) >= 3 then return _("Hardcover refused it") end
@@ -40,11 +42,27 @@ end
 -- the same for a change that can be held (shelf and list changes, as goals are)
 local function heldNote(op)
   if not op.held then return nil end
+  if op.reason == "reading_changed" then return _("reading changed on Hardcover; remaining work held") end
   return op.reason == "scope" and _("sign in again to send it") or _("Hardcover refused it")
 end
 
 local function bookTitle(op)
   return (type(op.title) == "string" and op.title ~= "") and op.title or T(_("Book %1"), op.book_id)
+end
+
+-- The state of the part of this row sync has already touched. A page row includes the
+-- synthetic start a reread records; a status row does not, because that start cancels with the page.
+local function startedState(entry, kind)
+  local state
+  for _, action in ipairs(Actions.list(entry)) do
+    local selected = kind == "page" and (action.kind == "page" or action.from_page)
+      or kind == "status" and action.kind == "status" and not action.from_page
+    if selected and Actions.started(action) then
+      if action.applied or action.status_sent then return "Finishing sync" end
+      state = "Checking sync outcome"
+    end
+  end
+  return state
 end
 
 -- what the saved shelves need to put the book back where it was if this entry's status is cancelled
@@ -72,8 +90,10 @@ function PendingChanges.list(queues)
       local note = stuck(entry)
       local shelf_op = shelfOpOf(entry)
       if entry.mapped_page ~= nil then
+        local state = startedState(entry, "page")
         rows[#rows + 1] = {
-          kind = "page", title = title, note = note, shelf_op = entry.reread and shelf_op or nil,
+          kind = "page", title = title, note = note or state, state = state, started = state ~= nil,
+          shelf_op = entry.reread and shelf_op or nil,
           text = T(_("%1: page %2"), title, entry.mapped_page),
           cancel = function() return sync:cancelPage(filepath) end,
         }
@@ -99,19 +119,22 @@ function PendingChanges.list(queues)
   local sync_queue = queues.sync_queue
   for _i, change in ipairs(PendingStatus.list(sync_queue)) do
     local entry, key = change.entry, change.key
+    local summary = change.count > 1 and T(_("%1 status changes; ends at %2"), change.count, statusText(change.status_id)) or nil
+    local state = not entry.remove and startedState(entry, "status") or nil
     if entry.file and not entry.remove then
       local title = SyncConflicts.title(entry.file, entry)
       rows[#rows + 1] = {
-        kind = "status", title = title, note = stuck(entry), shelf_op = shelfOpOf(entry),
-        text = T(_("%1: mark as %2"), title, statusText(entry.status_id)),
+        kind = "status", title = title, note = stuck(entry) or state, state = state, started = state ~= nil,
+        shelf_op = shelfOpOf(entry),
+        text = summary and T(_("%1: %2"), title, summary) or T(_("%1: mark as %2"), title, statusText(entry.status_id)),
         cancel = function() return sync_queue:cancelStatus(key) end,
       }
     else
       local title = bookTitle(change)
       rows[#rows + 1] = {
-        kind = "shelf", title = title, op = change, note = heldNote(change),
+        kind = "shelf", title = title, op = change, note = heldNote(change) or state, state = state, started = state ~= nil,
         text = change.kind == "remove" and T(_("%1: remove from your library"), title)
-          or T(_("%1: move to %2"), title, statusText(change.status_id)),
+          or (summary and T(_("%1: %2"), title, summary) or T(_("%1: move to %2"), title, statusText(change.status_id))),
         cancel = function() return sync_queue:cancelStatus(key) end,
       }
     end
@@ -195,8 +218,14 @@ function PendingChanges.list(queues)
   return rows
 end
 
--- the line a screen shows: the change, and why it is stuck when it is
+-- the line a screen shows: a started state leads, so a long title cannot hide it, then the
+-- change and why it is stuck when it is
 function PendingChanges.line(row)
+  if row.state then
+    local text = T(_("%1 · %2"), row.state, row.text)
+    if row.note and row.note ~= row.state then text = T(_("%1 (%2)"), text, row.note) end
+    return text
+  end
   if row.note then return T(_("%1 (%2)"), row.text, row.note) end
   return row.text
 end

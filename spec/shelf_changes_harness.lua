@@ -50,8 +50,10 @@ end
 
 check("a change is sent with the time it was made", function()
   local q, api = newQueue(), fakeApi()
+  local real_time = os.time
+  os.time = function() return 4321 end
   q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 1 })
-  q:get(100).status_updated_at = 4321
+  os.time = real_time
   q:flush(api, { user_id = 1 })
   eq(api.calls[1].args[5], 4321)
 end)

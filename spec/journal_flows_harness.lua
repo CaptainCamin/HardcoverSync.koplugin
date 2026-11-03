@@ -395,6 +395,51 @@ check("any other entry opens the book, and so does a review since removed", func
   assert(#opened == before, "no text screen for an entry with no text")
 end)
 
+check("a waiting pause can be cancelled from the journal without losing its start or pages", function()
+  local m = savedTab()
+  m.sync_queue = real_require("hardcover/lib/sync_queue"):new { settings = fakeSettings() }
+  m.sync_queue:enqueueStatus("/dune.epub", { user_id = 1, book_id = 5, title = "Dune", status_id = 2, from_status_id = 1 })
+  m.sync_queue:enqueuePage("/dune.epub", { user_id = 1, book_id = 5, mapped_page = 7 })
+  m.sync_queue:enqueueStatus("/dune.epub", { user_id = 1, book_id = 5, status_id = 4 })
+  local shelf
+  m.shelfChanged = function(_, _, _, status) shelf = status end
+  m.shelves = function() return nil end
+  m:showJournal()
+  local pause
+  for _, e in ipairs(tab.entries) do if e.waiting and e.action == "Marked as paused" then pause = e end end
+  assert(pause, "waiting pause is missing")
+  tab.select_cb(pause)
+  local screen = last("text")
+  assert(screen.text:find("Marked as paused", 1, true))
+  button(screen, "Cancel queued change").callback()
+  assert(m.sync_queue:statusOf(5) == 4, "merely opening confirmation cancelled the change")
+  assert(confirms[#confirms].cancel_text == "Keep it")
+  confirms[#confirms].ok_callback()
+  assert(m.sync_queue:statusOf(5) == 2 and m.sync_queue:get(5).mapped_page == 7)
+  assert(shelf == 2, "the shelf should return to Currently Reading")
+  local pending = 0
+  for _, e in ipairs(tab.entries) do
+    if e.waiting then pending = pending + 1; assert(e.action ~= "Marked as paused") end
+  end
+  assert(pending == 2, "start and progress must remain visible")
+  assert(infos[#infos] == "Queued change cancelled.")
+  local ub = { id = 77, status_id = 1, user_book_reads = {} }
+  local api = {
+    findUserBook = function() return ub end,
+    updateUserBookStatus = function(_, _, status)
+      assert(status == 2, "cancelled pause was sent to Hardcover")
+      ub.status_id = status
+      return ub
+    end,
+    createRead = function(_, _, _, page)
+      ub.user_book_reads = { { id = 9, progress_pages = page } }
+      return ub
+    end,
+  }
+  assert(m.sync_queue:flush(api, { user_id = 1 }))
+  assert(ub.status_id == 2 and ub.user_book_reads[1].progress_pages == 7, "start and progress must still sync")
+end)
+
 check("editing a note offline keeps the change, shows it in place, and says it waits", function()
   local m = savedTab()
   tab.select_cb(find("note:4001"))

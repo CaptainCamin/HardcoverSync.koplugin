@@ -136,12 +136,13 @@ local function serverApi()
   local api = {}
   function api:updateUserBook(book_id, status_id, _p, edition_id)
     server_calls[#server_calls + 1] = { name = "updateUserBook", book_id = book_id, status_id = status_id, edition_id = edition_id }
-    return { id = 700 + book_id, status_id = status_id }
+    return { id = 700 + book_id, status_id = status_id,
+      user_book_reads = status_id == 3 and { { id = 900, finished_at = "2026-01-05" } } or {} }
   end
   function api:findUserBook() return nil end
-  function api:setFinishedDate(user_book, date)
-    server_calls[#server_calls + 1] = { name = "setFinishedDate", date = date }
-    return user_book
+  function api:updateReadDates(id, dates)
+    server_calls[#server_calls + 1] = { name = "updateReadDates", date = dates.finished_at }
+    return { id = 800, status_id = 3, user_book_reads = { { id = id, finished_at = dates.finished_at } } }
   end
   function api:removeUserBook(id)
     server_calls[#server_calls + 1] = { name = "removeUserBook", id = id }
@@ -466,7 +467,7 @@ check("the change is sent once, the shelves are marked out of date, the open scr
   assert(res == true and #server_calls == 2, "sent " .. #server_calls)
   assert(server_calls[1].book_id == 100 and server_calls[1].status_id == 3 and server_calls[1].edition_id == 10001)
   -- finished: the day it was made goes along, so a later sync does not become the finish date
-  assert(server_calls[2].name == "setFinishedDate" and server_calls[2].date == os.date("%Y-%m-%d"))
+  assert(server_calls[2].name == "updateReadDates" and server_calls[2].date == os.date("%Y-%m-%d"))
   assert(sync_queue:count() == 0)
   assert(shelves:meta(1, 3).fingerprint == nil, "the shelf was not marked out of date")
   local last = d.status_updates[#d.status_updates]
@@ -497,14 +498,21 @@ check("a removal is sent by the record, and the shelf it left is marked", functi
   assert(shelves:meta(1, 1).fingerprint == nil)
 end)
 
-check("changing the shelf online while a change is waiting sends the new one and drops the old", function()
+check("changing the shelf online preserves the offline change ahead of it", function()
   local m = newManager()
   sync_queue:enqueueStatus(1, { user_id = 1, book_id = 1, status_id = 3, user_book_id = 51, from_status_id = 1 })
   local d = detailScreen(m, SHELVED())
   tap(showing(function() m:chooseShelf(d) end), "Currently Reading")
-  assert(count("updateUserBook") == 1)
-  update_cb({ id = 51, status_id = 2 })
-  assert(sync_queue:count() == 0, "the older change is still waiting, and would undo this one")
+  assert(count("updateUserBook") == 0, "new status bypassed the queued history")
+  local api = serverApi()
+  function api:updateUserBookStatus(id, status_id)
+    server_calls[#server_calls + 1] = { name = "updateUserBookStatus", status_id = status_id }
+    return { id = id, status_id = status_id }
+  end
+  assert(sync_queue:flush(api, { user_id = 1 }))
+  assert(#server_calls == 3, "both status transitions and the finish date must be sent")
+  assert(server_calls[1].status_id == 3 and server_calls[3].status_id == 2, "statuses were reordered")
+  assert(sync_queue:count() == 0, "history did not drain")
 end)
 
 check("cancelling a waiting shelf change puts the screen, shelf and counts back", function()

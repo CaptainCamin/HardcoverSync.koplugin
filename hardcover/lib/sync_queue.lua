@@ -3,6 +3,7 @@ local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local Book = require("hardcover/lib/book")
 local OfflineQueue = require("hardcover/lib/offline_queue")
 local StatusSender = require("hardcover/lib/status_sender")
+local Actions = require("hardcover/lib/reading_actions")
 
 local SyncQueue = OfflineQueue.extend({})
 SyncQueue.store_key = "pending"
@@ -13,7 +14,7 @@ local function isBookKey(key)
   return type(key) == "string" and key:match("^%d+$") ~= nil
 end
 
-local STATUS_FIELDS = { "status_id", "status_updated_at", "finished_date", "passed_reading", "from_status_id" }
+local STATUS_FIELDS = { "status_id", "status_updated_at", "finished_date", "passed_reading", "passed_reading_at", "from_status_id" }
 local PAGE_FIELDS = { "mapped_page", "page_updated_at", "page_days", "first_page_date", "force_page", "reread", "conflict" }
 
 -- Two entries for one book (it was read from two files): the one touched last is the base, and the
@@ -67,7 +68,14 @@ function SyncQueue:store()
     self.migrated = true
     local by_file = migrate(pending)
     local from_shelf = self:_takeShelfOps(pending)
-    if by_file or from_shelf then self:persist() end
+    local actions_changed = false
+    for _, entry in pairs(pending) do
+      if type(entry) == "table" and not entry.actions then
+        Actions.list(entry)
+        actions_changed = true
+      end
+    end
+    if by_file or from_shelf or actions_changed then self:persist() end
   end
   return pending
 end
@@ -110,6 +118,7 @@ function SyncQueue:_takeShelfOps(pending)
         entry.edition_id = op.edition_id or entry.edition_id
         entry.status_id, entry.status_updated_at = tonumber(op.status_id), tonumber(op.at) or os.time()
         entry.from_status_id, entry.passed_reading, entry.finished_date = from, op.passed_reading, op.finished_date
+        entry.passed_reading_at = op.passed_reading_at
         entry.held, entry.reason, entry.failures = op.held, op.reason, op.failures
         entry.updated_at = math.max(tonumber(entry.updated_at) or 0, tonumber(op.at) or 0)
         pending[key] = entry
@@ -218,7 +227,8 @@ function SyncQueue:changeCount()
   for _, filepath in ipairs(self:keys()) do
     local entry = self:get(filepath)
     if entry.mapped_page ~= nil then count = count + 1 end
-    if entry.status_id ~= nil or entry.remove then count = count + 1 end
+    -- Pending changes groups a book's statuses under one cancellation control.
+    if Actions.statusCount(entry) > 0 or entry.remove then count = count + 1 end
   end
   return count
 end
@@ -253,9 +263,10 @@ function SyncQueue:_ensure(file, meta)
   if type(entry) ~= "table" or (meta and meta.user_id ~= nil and not SyncQueue.ownedBy(entry, meta.user_id)) then
     entry = {}
   end
+  Actions.list(entry)
   if meta then
     for key, value in pairs(meta) do
-      if value ~= nil then
+      if value ~= nil and key ~= "status_id" and key ~= "mapped_page" then
         entry[key] = value
       end
     end
@@ -270,25 +281,6 @@ function SyncQueue:_ensure(file, meta)
   return entry
 end
 
--- The page the reader had reached at the end of each day, oldest first, so reading over several
--- days offline reaches Hardcover as one dated progress entry per day instead of one entry for
--- the day the connection came back. `entry.page_days` holds { day = "2026-10-23", page, at }; a
--- page on the same local day replaces that day's. The last one is always mapped_page.
-SyncQueue.MAX_DAYS = 31
-
-function SyncQueue:_noteDay(entry)
-  local days = type(entry.page_days) == "table" and entry.page_days or {}
-  local day = os.date("%Y-%m-%d", entry.page_updated_at)
-  local last = days[#days]
-  if last and last.day == day then
-    last.page, last.at = entry.mapped_page, entry.page_updated_at
-  else
-    days[#days + 1] = { day = day, page = entry.mapped_page, at = entry.page_updated_at }
-  end
-  while #days > SyncQueue.MAX_DAYS do table.remove(days, 1) end
-  entry.page_days = days
-end
-
 function SyncQueue:enqueuePage(filepath, payload)
   -- No page to record: keep whatever is already queued rather than erase it
   if payload.mapped_page == nil then
@@ -296,10 +288,9 @@ function SyncQueue:enqueuePage(filepath, payload)
   end
   local entry = self:_ensure(filepath, payload)
   if not entry then return nil end
-  entry.mapped_page = payload.mapped_page
-  entry.page_updated_at = os.time()
-  entry.first_page_date = entry.first_page_date or os.date("%Y-%m-%d")
-  self:_noteDay(entry)
+  local at = os.time()
+  Actions.page(entry, payload.mapped_page, at, entry.reread, payload.force_page)
+  entry.first_page_date = entry.first_page_date or os.date("%Y-%m-%d", at)
   entry.failures = nil
   -- reading on changes the question being asked (and the user's earlier answer)
   entry.conflict = nil
@@ -309,27 +300,25 @@ end
 
 -- A page that starts the book again. The flush changes status and writes the read Hardcover creates.
 function SyncQueue:startReread(filepath, payload)
-  local held = self:shelfChangeWaiting(filepath)
-  local origin = held and self:get(filepath).from_status_id
-  local entry = self:enqueuePage(filepath, payload)
+  local entry = self:_ensure(filepath, payload)
   if not entry then return nil end
-  -- pages queued before the restart belong to the read that finished
-  entry.page_days = { entry.page_days[#entry.page_days] }
-  entry.reread = true
+  entry.from_status_id = entry.from_status_id or payload.from_status_id or 0
+  local at = os.time()
+  local start = Actions.status(entry, HARDCOVER.STATUS.READING, at, nil, true)
+  start.from_page = true
   entry.read_id, entry.started_at = nil, nil
-  entry.from_status_id = origin or payload.from_status_id or 0
+  entry.first_page_date = os.date("%Y-%m-%d", at)
+  Actions.page(entry, payload.mapped_page or 0, at, true)
+  entry.conflict, entry.failures = nil, nil
   self:persist()
   return entry
 end
 
--- The status the book has as far as this device knows, a change waiting counted: nil when none is.
--- A book started over is on Currently Reading, though a Finished waiting ahead of the new read keeps
--- its status_id until it is sent.
+-- The final shelf on this device, irrespective of earlier unsent transitions.
 function SyncQueue:statusOf(filepath)
   local entry = self:get(filepath)
   if type(entry) ~= "table" then return nil end
-  if entry.reread then return HARDCOVER.STATUS.READING end
-  return entry.status_id
+  return entry.status_id or (entry.reread and HARDCOVER.STATUS.READING or nil)
 end
 
 -- Is a change of the book's shelf (a status, or a re-read) waiting for this file?
@@ -345,21 +334,23 @@ function SyncQueue:enqueueStatus(filepath, payload)
   local held = self:shelfChangeWaiting(filepath)
   local before = held and self:get(filepath)
   local origin = before and before.from_status_id
-  -- A status replaces the one waiting, but Hardcover logs each step of reading a book: a book that
-  -- went through Currently Reading on its way to Read must still be sent as started.
-  local passed_reading = payload.status_id ~= HARDCOVER.STATUS.READING and before
-    and (before.status_id == HARDCOVER.STATUS.READING or before.passed_reading) or nil
+  local previous = before and before.status_id or payload.from_status_id
+  local reread = payload.status_id == HARDCOVER.STATUS.READING
+    and (previous == HARDCOVER.STATUS.FINISHED or previous == HARDCOVER.STATUS.DNF) or nil
   local entry = self:_ensure(filepath, payload)
   if not entry then return nil end
-  entry.passed_reading = passed_reading
   -- back from a waiting removal: the record is still there, so this is not a book new to the library
   if before and before.remove then entry.remove, entry.remove_at, entry.edition_id = nil, nil, nil end
   entry.held, entry.reason = nil, nil
   entry.from_status_id = origin or payload.from_status_id or 0
-  entry.status_id = payload.status_id
-  entry.status_updated_at = os.time()
   -- The day the book was finished, kept so a sync on a later day does not become the finish date
-  entry.finished_date = payload.status_id == HARDCOVER.STATUS.FINISHED and os.date("%Y-%m-%d") or nil
+  local at = os.time()
+  local finished_date = payload.status_id == HARDCOVER.STATUS.FINISHED and os.date("%Y-%m-%d", at) or nil
+  Actions.status(entry, payload.status_id, at, finished_date, reread)
+  if reread then
+    entry.read_id, entry.started_at = nil, nil
+    entry.first_page_date = os.date("%Y-%m-%d", at)
+  end
   entry.failures = nil
   self:persist()
   return entry
@@ -409,7 +400,7 @@ end
 
 -- A change of shelf waiting for a book, as the details screens and Pending changes know it:
 -- { kind ("status" or "remove"), user_id, book_id, status_id, user_book_id, edition_id, title,
--- from_status_id (nil: on none), passed_reading, finished_date, at, held, reason, failures }; nil
+-- from_status_id (nil: on none), finished_date, at, held, reason, failures }; nil
 -- when the entry has none.
 function SyncQueue.opOf(entry)
   if type(entry) ~= "table" or not (entry.remove or entry.status_id ~= nil) then return nil end
@@ -418,7 +409,7 @@ function SyncQueue.opOf(entry)
     kind = entry.remove and "remove" or "status", user_id = entry.user_id, book_id = tonumber(entry.book_id),
     status_id = (not entry.remove) and entry.status_id or nil, user_book_id = entry.user_book_id,
     edition_id = entry.edition_id, title = entry.title, from_status_id = (from and from ~= 0) and from or nil,
-    passed_reading = entry.passed_reading, finished_date = entry.finished_date,
+    finished_date = entry.finished_date,
     at = entry.remove and entry.remove_at or entry.status_updated_at,
     held = entry.held, reason = entry.reason, failures = entry.failures,
   }
@@ -440,7 +431,7 @@ end
 function SyncQueue:cancelPage(filepath)
   local entry = self:get(filepath)
   if type(entry) ~= "table" then return false end
-  entry.mapped_page, entry.page_updated_at, entry.page_days = nil, nil, nil
+  if self.sending_key == self:keyOf(filepath) or not Actions.cancel(entry, "page") then return false end
   entry.force_page, entry.first_page_date, entry.reread = nil, nil, nil
   if entry.status_id == nil then entry.from_status_id = nil end
   entry.conflict, entry.failures = nil, nil
@@ -453,12 +444,41 @@ end
 function SyncQueue:cancelStatus(filepath)
   local entry = self:get(filepath)
   if type(entry) ~= "table" then return false end
-  entry.status_id, entry.status_updated_at, entry.finished_date = nil, nil, nil
-  entry.privacy_setting_id, entry.failures, entry.passed_reading = nil, nil, nil
+  if self.sending_key == self:keyOf(filepath) then return false end
+  if not entry.remove and not Actions.cancel(entry, "status") then return false end
+  entry.privacy_setting_id, entry.failures = nil, nil
   entry.remove, entry.remove_at, entry.held, entry.reason = nil, nil, nil, nil
   if not entry.reread then entry.from_status_id = nil end
   self:save(filepath, entry)
   return true
+end
+
+-- Cancel the exact journal row, not a newer action with the same value. A start needed by
+-- later progress (or a finish needed by a reread) must be cancelled after its dependants.
+function SyncQueue:cancelAction(book_id, seq, user_id, expected_entry)
+  local entry = self:get(book_id)
+  if not entry or entry ~= expected_entry or not SyncQueue.ownedBy(entry, user_id) then return false, "missing" end
+  if self.sending_key == self:keyOf(book_id) then return false, "sending" end
+  local before, origin = self:statusOf(book_id), tonumber(entry.from_status_id)
+  local removed
+  if entry.remove and seq == nil then
+    removed = true
+    entry.remove, entry.remove_at = nil, nil
+  else
+    local reason
+    removed, reason = Actions.cancel(entry, nil, seq)
+    if not removed then return false, reason end
+  end
+  if not removed then return false, "missing" end
+  Actions.refresh(entry)
+  local after = self:statusOf(book_id) or (origin and origin ~= 0 and origin or nil)
+  entry.failures, entry.held, entry.reason = nil, nil, nil
+  if entry.conflict and entry.conflict.seq == seq then entry.conflict = nil end
+  self:save(book_id, entry)
+  return true, { kind = "status", shelf_op = {
+    kind = "status", book_id = tonumber(entry.book_id), user_book_id = entry.user_book_id,
+    status_id = before, from_status_id = after, known = origin ~= nil,
+  } }
 end
 
 function SyncQueue:clear(ref)
@@ -490,7 +510,14 @@ function SyncQueue:applyPending(filepath, book_status)
   end
   if entry.mapped_page ~= nil then
     local reads = book_status.user_book_reads
-    local read = not entry.reread and Book:currentRead(reads)
+    -- A finished reread still has its own progress, even though it is no longer an active
+    -- reading session. Do not lay its lower page over the earlier read's higher page.
+    local reread = entry.reread
+    local actions = Actions.list(entry)
+    for i = #actions, 1, -1 do
+      if actions[i].kind == "page" then reread = actions[i].reread; break end
+    end
+    local read = not reread and Book:currentRead(reads)
     if read then
       -- The server may already be ahead (read on another device): never show
       -- the book as further back than the cloud says.
@@ -539,13 +566,13 @@ function SyncQueue:applyToReading(entries, lookup)
     local id = tonumber(entry.book_id)
     local q = id and queued[id]
     if id then have[id] = true end
-    local queued_status = q and (q.reread and HARDCOVER.STATUS.READING or q.status_id)
+    local queued_status = q and self:statusOf(id)
     if not (queued_status and queued_status ~= HARDCOVER.STATUS.READING) then
       local card = {}
       for k, v in pairs(entry) do card[k] = v end
       if q and q.mapped_page ~= nil then
         local shown = tonumber(card.progress_pages)
-        if not shown or shown < q.mapped_page or q.force_page then card.progress_pages = q.mapped_page end
+        if not shown or shown < q.mapped_page or q.force_page or q.reread then card.progress_pages = q.mapped_page end
       end
       out[#out + 1] = card
     end
@@ -554,7 +581,7 @@ function SyncQueue:applyToReading(entries, lookup)
   -- books started (or put back to Currently Reading) offline, the newest first
   local fresh = {}
   for id, q in pairs(queued) do
-    if (q.status_id == HARDCOVER.STATUS.READING or q.reread) and not have[id] then fresh[#fresh + 1] = { id = id, q = q } end
+    if self:statusOf(id) == HARDCOVER.STATUS.READING and not have[id] then fresh[#fresh + 1] = { id = id, q = q } end
   end
   table.sort(fresh, function(a, b)
     return (a.q.status_updated_at or 0) > (b.q.status_updated_at or 0)
@@ -619,7 +646,7 @@ function SyncQueue:resolve(filepath, choice)
   if type(entry) ~= "table" or not entry.conflict then
     return false
   end
-  local kind = entry.conflict.kind
+  local kind, seq = entry.conflict.kind, entry.conflict.seq
 
   if kind == "page" and choice == "cloud" then
     local resume = self.settings:readSetting("resume")
@@ -631,22 +658,37 @@ function SyncQueue:resolve(filepath, choice)
     local file = type(entry.files) == "table" and entry.files[filepath] and filepath or entry.file or filepath
     resume[file] = entry.conflict.cloud_page
     self.settings:saveSetting("resume", resume)
-    entry.mapped_page = nil
-    entry.page_updated_at = nil
-    entry.page_days = nil
   elseif kind == "page" and choice == "local" then
-    entry.force_page = true
+    for _, action in ipairs(Actions.list(entry)) do
+      if action.kind == "page" and (not entry.conflict.seq or action.seq == entry.conflict.seq) then
+        action.force = true
+      end
+    end
+    Actions.refresh(entry)
   elseif kind == "reread" and choice == "yes" then
-    entry.reread = true
+    local active = entry.conflict.seq == nil
+    for _, action in ipairs(Actions.list(entry)) do
+      if action.seq == entry.conflict.seq then active = true end
+      if active then
+        if action.kind == "page" then
+          action.reread = true
+        elseif action.value == HARDCOVER.STATUS.FINISHED or action.value == HARDCOVER.STATUS.DNF
+          or action.value == HARDCOVER.STATUS.TO_READ then
+          break
+        end
+      end
+    end
+    Actions.refresh(entry)
   elseif kind == "reread" and choice == "no" then
-    entry.mapped_page = nil
-    entry.page_updated_at = nil
-    entry.page_days = nil
+    -- Removed below, along with the page's metadata.
   else
     return false
   end
 
   entry.conflict = nil
+  if (kind == "page" and choice == "cloud") or (kind == "reread" and choice == "no") then
+    Actions.rejectPages(entry, seq)
+  end
   entry.failures = nil
   if self:isEmpty(entry) then
     self:_drop(filepath)
@@ -679,103 +721,12 @@ function SyncQueue:retryHeld()
   self:persist()
 end
 
--- Remove only what was sent. The flush yields to the UI while a request is out,
--- so the entry may have changed meanwhile; a newer page or status stays queued.
-function SyncQueue:_clearSent(filepath, sent)
-  local entry = self:get(filepath)
-  if type(entry) ~= "table" then
-    return
-  end
-  if sent.page ~= nil and entry.mapped_page == sent.page and (entry.page_updated_at or 0) == sent.page_at then
-    entry.mapped_page = nil
-    entry.page_updated_at = nil
-    entry.page_days = nil
-    entry.force_page = nil
-    entry.reread = nil
-    entry.read_made = nil
-  end
-  if sent.status ~= nil and entry.status_id == sent.status and (entry.status_updated_at or 0) == sent.status_at then
-    entry.status_id = nil
-    entry.status_updated_at = nil
-    entry.finished_date = nil
-    entry.passed_reading = nil
-  end
-  if self:isEmpty(entry) then
-    self:_drop(filepath)
-  end
-  self:persist()
-end
-
--- The writes one queued page needs: the days read before the latest page (only those that
--- move the read forward from what Hardcover has), then the latest page itself. Every one carries
--- the time it was read.
-function SyncQueue:_pageSteps(entry, op, server_page)
-  local steps, above = {}, tonumber(server_page) or 0
-  for _, day in ipairs(type(entry.page_days) == "table" and entry.page_days or {}) do
-    if type(day) == "table" and (tonumber(day.at) or 0) > 0 and day.at < op.at
-      and tonumber(day.page) and day.page > above and day.page < op.value then
-      steps[#steps + 1] = { page = day.page, action_at = os.date("!%Y-%m-%dT%H:%M:%SZ", day.at), day = day.day }
-      above = day.page
-    end
-  end
-  -- an entry from before the time was kept has none: send the page undated rather than as 1970
-  steps[#steps + 1] = { page = op.value, action_at = op.at > 0 and os.date("!%Y-%m-%dT%H:%M:%SZ", op.at) or nil }
-  return steps
-end
-
-function SyncQueue:_dropDay(filepath, day)
-  local entry = self:get(filepath)
-  if not (day and type(entry) == "table" and type(entry.page_days) == "table") then return end
-  for i, item in ipairs(entry.page_days) do
-    if item.day == day then
-      table.remove(entry.page_days, i)
-      break
-    end
-  end
-  self:persist()
-end
-
 local function countRejection(self, filepath)
   local entry = self:get(filepath)
   if type(entry) == "table" then
     entry.failures = (entry.failures or 0) + 1
     self:persist()
   end
-end
-
--- The page and the status are sent in the order they were made, so reading to
--- the last page and then finishing the book lands the same way it would online.
--- When both carry the same second, a page goes first before a status that ends
--- the read and after one that starts it.
-local function orderedOps(entry)
-  local ops = {}
-  if entry.mapped_page ~= nil then
-    ops[#ops + 1] = { kind = "page", value = entry.mapped_page, at = entry.page_updated_at or 0 }
-  end
-  if entry.status_id ~= nil then
-    ops[#ops + 1] = {
-      kind = "status", value = entry.status_id, at = entry.status_updated_at or 0,
-      finished_date = entry.finished_date,
-    }
-  end
-  local status_first = entry.status_id == HARDCOVER.STATUS.READING
-      or entry.status_id == HARDCOVER.STATUS.TO_READ
-  -- Finished and then started over before anything was sent: the finish belongs to the old read,
-  -- so it goes first whatever the clock says, and the page opens the new one.
-  local finish_first = entry.reread and entry.status_id == HARDCOVER.STATUS.FINISHED
-  table.sort(ops, function(a, b)
-    if finish_first and a.kind ~= b.kind then
-      return a.kind == "status"
-    end
-    if a.at ~= b.at then
-      return a.at < b.at
-    end
-    if a.kind == b.kind then
-      return false
-    end
-    return (a.kind == "status") == status_first
-  end)
-  return ops
 end
 
 -- A status or removal did not go through. Hardcover not answering (or a busy server) says nothing about the
@@ -799,6 +750,66 @@ local function statusSent(opts, entry, status_id, user_book)
     kind = "status", user_id = entry.user_id, book_id = tonumber(entry.book_id), status_id = status_id,
     user_book_id = entry.user_book_id, from_status_id = (from and from ~= 0) and from or nil,
   }, user_book)
+end
+
+local function latestRead(user_book)
+  local reads = user_book and user_book.user_book_reads
+  return reads and reads[#reads]
+end
+
+local function holdChangedReading(self, entry)
+  entry.held, entry.reason = true, "reading_changed"
+  self:persist()
+  return nil, "reading_changed"
+end
+
+-- The status request and its remaining date/page writes are separate durable steps. Keep the
+-- pre-request identity too: a lost response must not turn a remotely finished read into a reread.
+function SyncQueue:_sendStatus(api, key, entry, op, user_book, status, info)
+  if op.status_sent then
+    if not hasUserBook(user_book) or user_book.id ~= entry.user_book_id then
+      return holdChangedReading(self, entry)
+    end
+    return user_book
+  end
+  local read = latestRead(user_book)
+  local attempt = op.status_attempt
+  if attempt then
+    local same_book = (user_book and user_book.id or 0) == attempt.user_book_id
+    local same_read = (read and read.id or 0) == attempt.read_id
+    local new_read = status == HARDCOVER.STATUS.READING and (attempt.read_id == 0
+      or attempt.from_status == HARDCOVER.STATUS.FINISHED or attempt.from_status == HARDCOVER.STATUS.DNF)
+    local applied = hasUserBook(user_book) and user_book.status_id == status
+      and (same_book or attempt.user_book_id == 0)
+      and (new_read and read and not read.finished_at
+        and #user_book.user_book_reads == attempt.read_count + 1 or not new_read and same_read)
+    if not (same_book and same_read and (user_book and user_book.status_id or 0) == attempt.from_status)
+      and not applied then
+      return holdChangedReading(self, entry)
+    end
+  end
+  local result, err = user_book, nil
+  if not hasUserBook(user_book) or user_book.status_id ~= status then
+    op.status_attempt = attempt or { user_book_id = user_book and user_book.id or 0,
+      read_id = read and read.id or 0, read_count = #(user_book and user_book.user_book_reads or {}),
+      from_status = user_book and user_book.status_id or 0 }
+    self:persist()
+    result, err = StatusSender.upsert(api, user_book, status, info)
+    if not hasUserBook(result) then
+      if err ~= nil and not OfflineQueue.transient(err) then
+        op.status_attempt = nil -- a definite refusal, not an ambiguous outcome
+        self:persist()
+      end
+      return nil, err
+    end
+  end
+  -- Do not attach a response to an entry replaced while the network yielded.
+  if self:get(key) ~= entry or entry.remove then return nil end
+  op.status_sent = true
+  op.read_id = latestRead(result) and latestRead(result).id
+  entry.user_book_id = result.id
+  self:persist()
+  return result
 end
 
 -- Sends one file's pending status and page. Returns true when the entry is
@@ -844,141 +855,143 @@ function SyncQueue:_flushEntry(api, filepath, opts)
     return false, "transient"
   end
 
-  local ops = orderedOps(entry)
-  local sent = {}
-  local owes_reading = entry.passed_reading and entry.status_id ~= nil
-
+  local ops = {}
+  for _, action in ipairs(Actions.list(entry)) do ops[#ops + 1] = action end
   local info = {
     book_id = book_id, edition_id = edition_id, privacy_setting_id = privacy_setting_id,
-    at = entry.status_updated_at,
   }
 
-  if not hasUserBook(user_book) then
-    local first = ops[1]
-    -- the status that follows Currently Reading is sent on its own below
-    local first_is_status = first.kind == "status" and not owes_reading
-    local err
-    if first_is_status then
-      info.at = first.at
-      user_book, err = StatusSender.setStatus(api, nil, first.value, first.finished_date, info)
-    else
-      -- a page needs a library record to be read on: create it as Currently Reading
-      user_book, err = StatusSender.passThroughReading(api, nil, info)
-    end
-    if not hasUserBook(user_book) then
-      return failed(self, filepath, err)
-    end
-    if first_is_status then
-      statusSent(opts, entry, first.value, user_book)
-      sent.status, sent.status_at = first.value, first.at
-      table.remove(ops, 1)
-      self:_clearSent(filepath, sent)
-      sent = {}
-    end
-  elseif owes_reading then
-    local started, err = StatusSender.passThroughReading(api, user_book, info)
-    if not hasUserBook(started) then
-      return failed(self, filepath, err)
-    end
-    user_book = started
-  end
-  if owes_reading then
-    local now = self:get(filepath)
-    if type(now) == "table" then now.passed_reading = nil end
-  end
-
-  for _, op in ipairs(ops) do
-    if op.kind == "status" then
+  for i, op in ipairs(ops) do
+    -- A cancellation, removal or replacement while the network yielded must stop this stream.
+    if self:get(filepath) ~= entry or entry.remove then return false end
+    local pending = false
+    for _, action in ipairs(entry.actions) do if action.seq == op.seq then pending = true break end end
+    if pending then
+      entry.sending_seq = op.seq
       info.at = op.at
-      local result, err = StatusSender.setStatus(api, user_book, op.value, op.finished_date, info)
-      if not hasUserBook(result) then
-        return failed(self, filepath, err)
+      local current = hasUserBook(user_book) and user_book.status_id
+      local finished = current == HARDCOVER.STATUS.FINISHED or current == HARDCOVER.STATUS.DNF
+      local starts = op.kind == "status" and op.value == HARDCOVER.STATUS.READING
+        or op.kind == "page" and (not current or current == HARDCOVER.STATUS.TO_READ or op.reread and finished)
+      local read = hasUserBook(user_book) and Book:currentRead(user_book.user_book_reads)
+      if starts and current ~= HARDCOVER.STATUS.READING and (not read or read.finished_at or finished)
+        and not op.start_date and op.at and op.at > 0 then
+        -- action_at dates the journal, not the read Hardcover creates. Keep the intended date
+        -- before the request: even a lost status response must leave its date correction queued.
+        op.start_date = op.kind == "page" and not op.reread and op.started_at or os.date("%Y-%m-%d", op.at)
+        self:persist()
       end
-      user_book = result
-      statusSent(opts, entry, op.value, result)
-      self:_clearSent(filepath, { status = op.value, status_at = op.at })
-    else
-      local current = user_book.status_id
-      if current == HARDCOVER.STATUS.TO_READ then
-        -- Reading a Want to Read book offline means it is now being read
-        local started = api:updateUserBookStatus(user_book.id, HARDCOVER.STATUS.READING)
-        if not hasUserBook(started) then
-          countRejection(self, filepath)
+      if op.kind == "status" then
+        local result, err = self:_sendStatus(api, filepath, entry, op, user_book, op.value, info)
+        if not hasUserBook(result) then
+          if err == "reading_changed" then return false end
+          return failed(self, filepath, err)
+        end
+        user_book = result
+        op.applied = true
+        self:persist()
+      elseif not op.applied then
+        -- An implicit start is still outstanding after a lost response even if the lookup
+        -- now says Reading. Reconcile its saved identity before choosing a page's target.
+        if op.status_attempt or op.status_sent then
+          local started, err = self:_sendStatus(api, filepath, entry, op, user_book, HARDCOVER.STATUS.READING, info)
+          if err == "reading_changed" then return false end
+          if not hasUserBook(started) then return failed(self, filepath, err) end
+          user_book = started
+        end
+        if not hasUserBook(user_book) then
+          local created, err = self:_sendStatus(api, filepath, entry, op, user_book, HARDCOVER.STATUS.READING, info)
+          if err == "reading_changed" then return false end
+          if not hasUserBook(created) then return failed(self, filepath, err) end
+          user_book = created
+        end
+        local current = user_book.status_id
+        if current == HARDCOVER.STATUS.TO_READ then
+          -- Reading a Want to Read book offline means it is now being read
+          local started, err = self:_sendStatus(api, filepath, entry, op, user_book, HARDCOVER.STATUS.READING, info)
+          if err == "reading_changed" then return false end
+          if not hasUserBook(started) then
+            return failed(self, filepath, err)
+          end
+          user_book = started
+        end
+
+        local reads = user_book.user_book_reads
+        local current_read = op.reread and reads and reads[#reads] or Book:currentRead(reads)
+        local server_page = current_read and tonumber(current_read.progress_pages)
+        -- A Paused book is still being read: a page on it is progress, not the start of a re-read
+        local finished = current == HARDCOVER.STATUS.FINISHED or current == HARDCOVER.STATUS.DNF
+
+        if op.read_id and (not current_read or current_read.id ~= op.read_id or finished or current_read.finished_at) then
+          holdChangedReading(self, entry)
           return false
         end
-        user_book = started
-      end
 
-      local reads = user_book.user_book_reads
-      local current_read = Book:currentRead(reads)
-      local server_page = current_read and tonumber(current_read.progress_pages)
-      -- A Paused book is still being read: a page on it is progress, not the start of a re-read
-      local finished = current == HARDCOVER.STATUS.FINISHED or current == HARDCOVER.STATUS.DNF
-
-      -- Finished / Did Not Finish with new progress here: this may be a
-      -- re-read, which only the user can say. The old read is never touched.
-      if finished and not entry.reread then
-        entry.conflict = { kind = "reread", local_page = op.value, cloud_status = current, cloud_page = server_page }
-        self:persist()
-        return false, "conflict"
-      end
-
-      -- The cloud is further along (read on another device). Far ahead: ask.
-      -- Slightly ahead: it wins quietly. Never take the server backwards
-      -- unless the user said to.
-      local skip = false
-      if not entry.reread and not finished and server_page and server_page > op.value and not entry.force_page then
-        if server_page - op.value >= SyncQueue.CONFLICT_PAGES then
-          entry.conflict = { kind = "page", local_page = op.value, cloud_page = server_page }
+        -- Finished / Did Not Finish with new progress here: this may be a
+        -- re-read, which only the user can say. The old read is never touched.
+        if finished and not op.reread then
+          entry.conflict = { kind = "reread", local_page = op.value, cloud_status = current, cloud_page = server_page, seq = op.seq }
           self:persist()
           return false, "conflict"
         end
-        skip = true
-      end
 
-      if entry.reread and finished then
-        -- Hardcover creates the new read as part of this transition.
-        local reading = api:updateUserBookStatus(user_book.id, HARDCOVER.STATUS.READING)
-        if not hasUserBook(reading) then
-          countRejection(self, filepath)
-          return false
-        end
-        user_book = reading
-      end
-
-      if not skip then
-        -- Each earlier day goes first, dated when it was read, then the latest page. A day that
-        -- is sent leaves the list, so a retry after a failure does not send it twice.
-        local steps = self:_pageSteps(entry, op, server_page)
-        for _, step in ipairs(steps) do
-          local reads_now = user_book.user_book_reads
-          -- During a restart the newest read is the one created by the status change,
-          -- even when an older DNF read has progress. Keep that choice on retry.
-          if entry.reread then
-            current_read = reads_now and reads_now[#reads_now]
-          else
-            current_read = Book:currentRead(reads_now) or current_read
+        -- The cloud is further along (read on another device). Far ahead: ask.
+        -- Slightly ahead: it wins quietly. Never take the server backwards
+        -- unless the user said to.
+        local skip = false
+        if not op.reread and not finished and server_page and server_page > op.value and not op.force then
+          -- An earlier daily checkpoint behind the cloud is harmless when a later checkpoint
+          -- before the next status reaches it. Only the segment's final position needs a choice.
+          local caught_up = false
+          for j = i + 1, #ops do
+            if ops[j].kind ~= "page" then break end
+            if ops[j].value >= server_page then caught_up = true end
           end
-          if entry.reread and not (current_read and current_read.id and not current_read.finished_at) then
+          if not caught_up and server_page - op.value >= SyncQueue.CONFLICT_PAGES then
+            entry.conflict = { kind = "page", local_page = op.value, cloud_page = server_page, seq = op.seq }
+            self:persist()
+            return false, "conflict"
+          end
+          skip = true
+        end
+
+        if op.reread and finished then
+          -- Hardcover creates the new read as part of this transition.
+          local reading, err = self:_sendStatus(api, filepath, entry, op, user_book, HARDCOVER.STATUS.READING, info)
+          if err == "reading_changed" then return false end
+          if not hasUserBook(reading) then
+            return failed(self, filepath, err)
+          end
+          user_book = reading
+          reads = user_book.user_book_reads
+          current_read = reads and reads[#reads]
+        end
+
+        if not skip then
+          if op.reread and not (current_read and current_read.id and not current_read.finished_at) then
             countRejection(self, filepath)
             return false
           end
+          local action_at = op.at and op.at > 0 and os.date("!%Y-%m-%dT%H:%M:%SZ", op.at) or nil
           local result
+          op.read_id = current_read and current_read.id
+          op.page_attempt = true
+          self:persist()
           if current_read and current_read.id then
             result = api:updatePage(
               current_read.id,
               current_read.edition_id or edition_id,
-              step.page,
-              current_read.started_at or entry.started_at or entry.first_page_date,
-              step.action_at
+              op.value,
+              op.start_date or current_read.started_at or op.started_at,
+              action_at
             )
           elseif user_book.id then
             result = api:createRead(
               user_book.id,
               edition_id or user_book.edition_id,
-              step.page,
-              entry.started_at or entry.first_page_date or os.date("%Y-%m-%d"),
-              step.action_at
+              op.value,
+              op.start_date or op.started_at or os.date("%Y-%m-%d"),
+              action_at
             )
           end
           if not hasUserBook(result) then
@@ -986,10 +999,56 @@ function SyncQueue:_flushEntry(api, filepath, opts)
             return false
           end
           user_book = result
-          self:_dropDay(filepath, step.day)
+          op.read_id = op.read_id or (latestRead(result) and latestRead(result).id)
+          op.applied = true
+          self:persist()
         end
       end
-      self:_clearSent(filepath, { page = op.value, page_at = op.at })
+      local target = latestRead(user_book)
+      if (op.start_date or op.finished_date) and op.read_id and (not target or target.id ~= op.read_id) then
+        holdChangedReading(self, entry)
+        return false
+      end
+      local dates = {}
+      if op.start_date and target and target.started_at ~= op.start_date then
+        if target.finished_at or (user_book.status_id ~= HARDCOVER.STATUS.READING
+          and user_book.status_id ~= HARDCOVER.STATUS.PAUSED) then
+          holdChangedReading(self, entry)
+          return false
+        end
+        dates.started_at = op.start_date
+      end
+      if op.finished_date and target and target.finished_at ~= op.finished_date then
+        if user_book.status_id ~= HARDCOVER.STATUS.FINISHED then
+          holdChangedReading(self, entry)
+          return false
+        end
+        dates.finished_at = op.finished_date
+      end
+      if next(dates) then
+        if op.at and op.at > 0 then dates.action_at = os.date("!%Y-%m-%dT%H:%M:%SZ", op.at) end
+        local result, err = api:updateReadDates(target.id, dates)
+        if not hasUserBook(result) then return failed(self, filepath, err) end
+        if result.status_id ~= user_book.status_id then
+          holdChangedReading(self, entry)
+          return false
+        end
+        -- The sparse mutation returns only its target read. Keep the full lookup's other reads.
+        user_book.status_id = result.status_id
+        for _, read in ipairs(result.user_book_reads or {}) do
+          if read.id == target.id then
+            for field, value in pairs(read) do target[field] = value end
+          end
+        end
+      end
+      if op.kind == "status" then statusSent(opts, entry, op.value, user_book) end
+      entry.sending_seq = nil
+      if self:get(filepath) == entry and not entry.remove then
+        entry.user_book_id = user_book.id
+        Actions.ack(entry, op.seq)
+        if self:isEmpty(entry) then self:_drop(filepath) end
+        self:persist()
+      end
     end
   end
 
@@ -1002,7 +1061,7 @@ function SyncQueue:_flushEntry(api, filepath, opts)
       opts.state.book_status_fetched = true
     end
   end
-  return true
+  return self:isEmpty(self:get(filepath))
 end
 
 -- After this many entries fail back to back for want of an answer, stop: that

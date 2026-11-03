@@ -36,6 +36,7 @@ _G.require = function(name)
 end
 
 local Api = real_require("hardcover/lib/hardcover_api")
+local Cache = real_require("hardcover/lib/cache")
 local HardcoverMenu = real_require("hardcover/lib/ui/hardcover_menu")
 local HARDCOVER = real_require("hardcover/lib/constants/hardcover")
 
@@ -44,13 +45,19 @@ local FILE = "/books/a.epub"
 print("\n== manual edits vs the offline queue ==")
 
 local function newMenu(queue)
-  return setmetatable({
+  local menu = setmetatable({
     state = { book_status = { id = 500, book_id = 7, status_id = HARDCOVER.STATUS.READING, edition_id = 3,
       user_book_reads = { { id = 900, progress_pages = 10, edition_id = 3 } } } },
     ui = { document = { file = FILE } },
     dialog_manager = { showError = function() end },
     sync_queue = queue,
   }, { __index = HardcoverMenu })
+  menu.cache = Cache:new { sync_queue = queue, state = menu.state, settings = {
+    readBookSettings = function() return { book_id = 7, edition_id = 3 } end,
+    readBookSetting = function(_, _, key) return ({ book_id = 7, edition_id = 3 })[key] end,
+    saveBookSnapshot = function() end,
+  } }
+  return menu
 end
 
 local mi = { updateItems = function() end }
@@ -66,9 +73,16 @@ end)
 KB.check("setting the page by hand supersedes an older queued page", function()
   local q = KB.newQueue()
   q:enqueuePage(FILE, { mapped_page = 120, book_id = 7, edition_id = 3 })
-  Api.updatePage = function() return { id = 500, status_id = 2, user_book_reads = { { id = 900, progress_pages = 50 } } } end
-  newMenu(q):savePage({ id = 900, edition_id = 3, started_at = "2026-01-01" }, 50, mi)
-  KB.eq(q:hasPending(FILE), false, "queued 120 after the user set the page to 50")
+  Api.updatePage = function() error("manual page bypassed pending actions") end
+  local menu = newMenu(q)
+  menu:savePage({ id = 900, edition_id = 3, started_at = "2026-01-01" }, 50, mi)
+  KB.eq(q:get(FILE).mapped_page, 50, "manual correction replaced the queued 120")
+  menu.cache:syncPage(FILE, 51)
+  local api = KB.fakeApi { [7] = { id = 500, status_id = 2,
+    user_book_reads = { { id = 900, progress_pages = 120 } } } }
+  q:flush(api, { user_id = 1 })
+  KB.eq(api.shelf[7].user_book_reads[1].progress_pages, 51, "reading on keeps the manual correction")
+  KB.eq(q:hasPending(FILE), false, "correction drained")
 end)
 
 KB.finish("manual remove / set-page must clear the superseded queue entry")

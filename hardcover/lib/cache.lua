@@ -105,23 +105,6 @@ function Cache:queueMeta(filename)
   }
 end
 
--- Drop the queued page and what only makes sense with it, unless a newer page was queued
--- since `seen` ({ page, at }) was taken. A pending status stays.
-local function dropQueuedPage(self, filename, seen)
-  local entry = self.sync_queue and self.sync_queue:get(filename)
-  if not entry then return end
-  if entry.mapped_page == seen.page and entry.page_updated_at == seen.at then
-    entry.mapped_page, entry.page_updated_at, entry.page_days = nil, nil, nil
-    entry.force_page, entry.first_page_date, entry.reread, entry.conflict = nil, nil, nil, nil
-    self.sync_queue:save(filename, entry)
-  end
-end
-
-local function queuedPage(self, filename)
-  local entry = self.sync_queue and self.sync_queue:get(filename)
-  return { page = entry and entry.mapped_page, at = entry and entry.page_updated_at }
-end
-
 function Cache:syncPage(filename, mapped_page)
   local book_status = self.state.book_status or {}
   local reads = book_status.user_book_reads
@@ -138,7 +121,8 @@ function Cache:syncPage(filename, mapped_page)
     return self.sync_queue:enqueuePage(filename, payload) and { queued = true } or nil
   end
 
-  if not NetworkManager:isConnected() then
+  if not NetworkManager:isConnected()
+    or (self.sync_queue and self.sync_queue.hasPending and self.sync_queue:hasPending(filename)) then
     return enqueue()
   end
 
@@ -160,7 +144,6 @@ function Cache:syncPage(filename, mapped_page)
     end
   end
 
-  local seen = queuedPage(self, filename)
   local result
   if current_read and current_read.id then
     result = Api:updatePage(current_read.id, edition_id, mapped_page, started_at)
@@ -172,7 +155,6 @@ function Cache:syncPage(filename, mapped_page)
     self.state.book_status = result
     self.state.book_status_fetched = true
     self:saveSnapshot(filename, result)
-    dropQueuedPage(self, filename, seen)
     return result
   end
 
@@ -193,12 +175,8 @@ function Cache:queuePage(filename, edition_page)
 
   local payload = self:queueMeta(filename)
   payload.mapped_page = edition_page
-  local entry = self.sync_queue:enqueuePage(filename, payload)
-  if type(entry) == "table" then
-    entry.force_page = true
-    self.sync_queue:save(filename, entry)
-  end
-  return entry
+  payload.force_page = true
+  return self.sync_queue:enqueuePage(filename, payload)
 end
 
 -- The book's shelf changed on this device: tell whoever keeps the saved shelves (the Library, Home's
@@ -244,7 +222,8 @@ function Cache:updateBookStatus(filename, status, privacy_setting_id)
     return self.sync_queue:enqueueStatus(filename, payload) and { queued = true } or nil
   end
 
-  if not NetworkManager:isConnected() then
+  if not NetworkManager:isConnected()
+    or (self.sync_queue and self.sync_queue.hasPending and self.sync_queue:hasPending(filename)) then
     return enqueue()
   end
 
@@ -267,12 +246,6 @@ function Cache:updateBookStatus(filename, status, privacy_setting_id)
     end
   end
 
-  local seen = queuedPage(self, filename)
-  -- a page queued after a status that is still waiting was made after it: leave it
-  local waiting = self.sync_queue and self.sync_queue:get(filename)
-  if waiting and waiting.status_updated_at and (waiting.page_updated_at or 0) >= waiting.status_updated_at then
-    seen = {}
-  end
   local result
   if user_book_id then
     result = Api:updateUserBookStatus(user_book_id, status, privacy_setting_id)
@@ -284,17 +257,6 @@ function Cache:updateBookStatus(filename, status, privacy_setting_id)
     self.state.book_status_fetched = true
     self:saveSnapshot(filename, result)
     self:shelfChanged(filename, old_status_id, status, false)
-    if self.sync_queue then
-      local entry = self.sync_queue:get(filename)
-      if entry then
-        entry.status_id = nil
-        self.sync_queue:save(filename, entry)
-      end
-    end
-    -- Finished: an older queued page would only raise a re-read question next flush
-    if status == HARDCOVER.STATUS.FINISHED then
-      dropQueuedPage(self, filename, seen)
-    end
     return result
   end
 
