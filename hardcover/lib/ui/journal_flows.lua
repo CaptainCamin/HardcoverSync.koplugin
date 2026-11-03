@@ -89,6 +89,55 @@ end
 -- it is yours, and the book for the rest. `changed` is called after either, so the tab shows the
 -- change.
 function Flows:openJournalEntry(entry, changed)
+  if entry.waiting and entry.queue_entry then
+    local UIManager = require("ui/uimanager")
+    local screen
+    local function done()
+      UIManager:close(screen)
+      if changed then changed() end
+    end
+    screen = require("hardcover/lib/ui/text_screen"):new {
+      title = _("Journal"), heading = entry.title,
+      text = entry.action .. "\n" .. Journal.when(entry) .. "\n\n"
+        .. (entry.started and _("Sync has started for this change. Some work may already be on Hardcover. Review pending changes to retry or discard the remaining work; this does not undo anything already sent.")
+          or _("This change is waiting on this device. You can cancel it before it is sent to Hardcover.")),
+      buttons = {
+        { label = _("Open book"), callback = function() self:showBookDetail(entry.book_id) end },
+        { label = entry.started and _("Review pending changes") or _("Cancel queued change"), callback = function()
+          if entry.started then return self:showPendingChanges() end
+          StatusDialogs.confirm {
+            title = _("Cancel queued change?"),
+            text = _("This change will not be sent to Hardcover. Other queued changes are kept."),
+            ok_text = _("Cancel the change"), cancel_text = _("Keep it"),
+            ok_callback = function()
+              local ok, result = self.sync_queue:cancelAction(entry.book_id, entry.seq, User:getId(), entry.queue_entry)
+              if not ok then
+                local messages = {
+                  sending = _("This book is syncing now. Wait for it to finish before cancelling a change."),
+                  started = _("Sync has already started for this change. Review pending changes; cancelling cannot undo work already sent."),
+                  dependent = _("Later queued progress or a new reading session needs this change. Cancel those later changes first."),
+                  missing = _("This change is no longer waiting. It may already have been sent to Hardcover."),
+                }
+                StatusDialogs.info(messages[result])
+                done()
+                return
+              end
+              self:pendingUndone(result)
+              if self.cache and self.state and self.state.book_status
+                and tonumber(self.state.book_status.book_id) == tonumber(entry.book_id) then
+                self.cache:hydrateBookStatus()
+              end
+              self:queueChanged()
+              StatusDialogs.info(_("Queued change cancelled."))
+              done()
+            end,
+          }
+        end },
+      },
+    }
+    UIManager:show(screen, "full")
+    return screen
+  end
   if entry.kind == "event" or not entry.text then
     if entry.book_id then self:showBookDetail(entry.book_id) end
     return
@@ -277,7 +326,7 @@ end
 function Flows:pendingJournal(entries, user_id)
   return Journal.withPending(entries, self.journal_queue and self.journal_queue:list() or nil,
     self.review_queue and self.review_queue:list(user_id) or nil, user_id,
-    Journal.changesOf(PendingStatus.list(self.sync_queue, user_id), PendingStatus.pages(self.sync_queue, user_id)))
+    PendingStatus.history(self.sync_queue, user_id))
 end
 
 function Flows:showJournal(host)

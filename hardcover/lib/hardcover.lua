@@ -130,13 +130,26 @@ function Hardcover:linkBook(book)
   -- user's shelf, so a failure leaves the link as it was.
   local changing = book.book_id and previous == book.book_id and new_settings.edition_id
     and new_settings.edition_id ~= old_edition
-  if changing and not self:moveEdition(filename, book, new_settings.edition_id, old_pages) then
-    StatusDialogs.error(_("The edition could not be changed. Check your connection and try again."))
+  local queue = self.cache.sync_queue
+  if changing and queue and (queue:hasPending(filename) or queue:hasPending(book.book_id)
+    or queue.sending_key == tostring(book.book_id)) then
+    StatusDialogs.error(_("Sync or cancel this book's pending changes in Settings > Sync before changing edition."))
     return false
+  end
+  if changing then
+    if self.on_edition_change then self.on_edition_change(true, filename) end
+    local ok, moved = pcall(self.moveEdition, self, filename, book, new_settings.edition_id, old_pages)
+    if not ok or not moved then
+      if self.on_edition_change then self.on_edition_change(false, filename) end
+      if not ok then error(moved, 0) end
+      StatusDialogs.error(_("The edition could not be changed. Check your connection and try again."))
+      return false
+    end
   end
 
   self.settings:updateBookSetting(filename, new_settings)
   self.cache:cacheUserBook()
+  if changing and self.on_edition_change then self.on_edition_change(false, filename) end
 
   return true
 end
@@ -154,7 +167,7 @@ end
 -- the shelf entry and on the current read, and the read's progress is in the old edition's pages,
 -- so the read moves first, with its progress. Returns false, having changed nothing on this device,
 -- when Hardcover does not answer; trying again is then safe, because it works from what was saved.
--- Whether shelved or not, a queued page is in the old edition's pages, so it moves too.
+-- linkBook blocks this operation while changes in the old edition are pending.
 function Hardcover:moveEdition(filename, book, edition_id, old_pages)
   local status = self.state.book_status
   if status.id then
@@ -185,14 +198,6 @@ function Hardcover:moveEdition(filename, book, edition_id, old_pages)
       end
     end
     self.cache:saveSnapshot(filename, status)
-  end
-
-  local queue = self.cache.sync_queue
-  local entry = queue and queue:get(filename)
-  if entry then
-    entry.mapped_page = movedPage(entry.mapped_page, old_pages, book.pages)
-    entry.edition_id = edition_id
-    queue:save(filename, entry)
   end
 
   return true

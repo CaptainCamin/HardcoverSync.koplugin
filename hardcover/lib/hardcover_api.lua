@@ -1285,12 +1285,39 @@ function HardcoverApi:updatePage(user_read_id, edition_id, page, started_at, act
     }
   ]]
 
-  local result = self:query(query, {
+  local result, err = self:query(query, {
     id = user_read_id, pages = page, editionId = edition_id, startedAt = started_at, actionAt = action_at,
   })
   if result and result.update_user_book_read then
-    return self:normalizeUserBookRead(result.update_user_book_read.user_book_read)
+    local updated = result.update_user_book_read
+    local user_book = self:normalizeUserBookRead(updated.user_book_read)
+    if user_book then return user_book end
+    return nil, updated.error
   end
+  return nil, err
+end
+
+-- Correct dates on an identified read without resending stale progress or edition data.
+-- Callers omit unchanged dates; a retry must first check the same read and its shelf context.
+function HardcoverApi:updateReadDates(read_id, dates)
+  local result, err = self:query([[
+    mutation CorrectReadDates($id: Int!, $dates: DatesReadInput!) {
+      update_user_book_read(id: $id, object: $dates) {
+        error
+        user_book_read {
+          id started_at finished_at edition_id progress_pages
+          user_book { id book_id status_id edition_id privacy_setting_id rating }
+        }
+      }
+    }
+  ]], { id = read_id, dates = dates })
+  if result and result.update_user_book_read then
+    local updated = result.update_user_book_read
+    local user_book = self:normalizeUserBookRead(updated.user_book_read)
+    if user_book then return user_book end
+    return nil, updated.error
+  end
+  return nil, err
 end
 
 -- Put the day a book was finished on its latest read. Hardcover dates a finish with the day the

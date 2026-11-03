@@ -923,7 +923,7 @@ function Flows:saveShelf(dialog, status_id)
   local old_status_id = detail.status_id
   local request = BookActions.shelfRequest(detail, status_id)
 
-  if not Network.connected() and self.sync_queue then
+  if self.sync_queue and (not Network.connected() or self.sync_queue:hasPending(request.book_id)) then
     self:saveShelfOffline(dialog, status_id)
     return
   end
@@ -941,9 +941,7 @@ function Flows:saveShelf(dialog, status_id)
         return
       end
 
-      -- the change happened whether or not the screen is still there; one waiting for
-      -- this book from before would only undo it later
-      if self.sync_queue then self.sync_queue:cancelStatus(request.book_id) end
+      -- A change queued while the request was out is newer and must remain queued.
       self:shelfChanged(request.book_id, old_status_id, status_id, user_book.id or detail.user_book_id)
       if Live.shown(dialog) then
         dialog:setStatus(status_id, user_book.id or detail.user_book_id)

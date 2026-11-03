@@ -71,6 +71,7 @@ check("a status already sent is not sent again when the page behind it failed", 
   q:enqueueStatus("/b/a.epub", { status_id = HARDCOVER.STATUS.READING, book_id = 1, edition_id = 3 })
   q:enqueuePage("/b/a.epub", { mapped_page = 10, book_id = 1, edition_id = 3 })
   local api = KB.fakeApi { [1] = reading(1) }
+  api.shelf[1].status_id = HARDCOVER.STATUS.TO_READ
   local fail = true
   api.page_hook = function(read_id, page)
     if fail then return nil end
@@ -135,15 +136,19 @@ check("online but the request fails: syncPage queues instead of losing the page"
   eq(q:get("/b/a.epub").mapped_page, 50, "queued page")
 end)
 
-check("online success clears the queued page but keeps a queued status", function()
+check("online progress waits behind an older status instead of bypassing it", function()
   local q = KB.newQueue()
   q:enqueuePage("/b/a.epub", { mapped_page = 20, book_id = 7 })
   q:enqueueStatus("/b/a.epub", { status_id = HARDCOVER.STATUS.READING, book_id = 7 })
-  Api.updatePage = function() return reading(7, 50) end
+  Api.updatePage = function() error("new progress bypassed the queued status") end
   local result = newCache(q):syncPage("/b/a.epub", 50)
-  eq(result.id, 507, "result is the user book")
-  eq(q:get("/b/a.epub").mapped_page, nil, "page")
+  eq(result.queued, true, "queued result")
+  eq(q:get("/b/a.epub").mapped_page, 50, "page")
   eq(q:get("/b/a.epub").status_id, HARDCOVER.STATUS.READING, "status")
+  local api = KB.fakeApi { [7] = reading(7) }
+  q:flush(api, { user_id = 1 })
+  eq(api.shelf[7].user_book_reads[1].progress_pages, 50, "flushed progress")
+  eq(q:hasPending(), false, "queue drained")
 end)
 
 check("online status change updates the existing user book by its record id", function()
@@ -218,21 +223,26 @@ check("online status change queues rather than inserting when shelf lookup fails
   assert(ok, err)
 end)
 
-check("offline status change is queued; online success clears only the status", function()
+check("an online status change waits behind offline progress", function()
   KB.network.connected = false
   local q = KB.newQueue()
   local cache = newCache(q)
-  local result = cache:updateBookStatus("/b/a.epub", HARDCOVER.STATUS.FINISHED)
+  local result = cache:updateBookStatus("/b/a.epub", HARDCOVER.STATUS.PAUSED)
   KB.network.connected = true
   eq(result.queued, true, "queued flag")
-  eq(q:get("/b/a.epub").status_id, HARDCOVER.STATUS.FINISHED, "queued status")
+  eq(q:get("/b/a.epub").status_id, HARDCOVER.STATUS.PAUSED, "queued status")
   q:enqueuePage("/b/a.epub", { mapped_page = 20, book_id = 7 })
-  Api.updateUserBookStatus = function(_, user_book_id, status_id)
-    return { id = user_book_id, status_id = status_id, user_book_reads = {} }
-  end
-  cache:updateBookStatus("/b/a.epub", HARDCOVER.STATUS.FINISHED)
-  eq(q:get("/b/a.epub").status_id, nil, "status after the online send")
+  Api.updateUserBookStatus = function() error("finish bypassed the queued page") end
+  result = cache:updateBookStatus("/b/a.epub", HARDCOVER.STATUS.FINISHED)
+  eq(result.queued, true, "finish waits")
+  eq(q:get("/b/a.epub").status_id, HARDCOVER.STATUS.FINISHED, "final status projection")
   eq(q:get("/b/a.epub").mapped_page, 20, "page untouched")
+  local api = KB.fakeApi { [7] = reading(7) }
+  api.setFinishedDate = function(_, ub) return ub end
+  q:flush(api, { user_id = 1 })
+  eq(api.shelf[7].user_book_reads[1].progress_pages, 20, "page sent before finish")
+  eq(api.shelf[7].status_id, HARDCOVER.STATUS.FINISHED, "finished shelf")
+  eq(q:hasPending(), false, "queue drained")
 end)
 
 r.finish()

@@ -211,7 +211,7 @@ return {
     local journal = emu:top()
     assert(journal.name == "hardcover_journal_screen", "Journal is still disabled before first sync")
     -- the shelf change made above is waiting, so the Journal lists it instead of saying it is empty
-    emu:expectText("Marked as currently reading")
+    emu:expectText("Started reading")
     emu:expectText("Updated progress to page 200")
     emu:shot("reader_first_sync_waiting_status")
     local function addEntry(label)

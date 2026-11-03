@@ -238,6 +238,7 @@ function HardcoverApp:init()
   }
   self.dialog_manager = DialogManager:new {
     page_mapper = self.page_mapper,
+    cache = self.cache,
     settings = self.settings,
     shelf_cache = self.shelf_cache,
     book_store = self.book_store,
@@ -274,7 +275,8 @@ function HardcoverApp:init()
     settings = self.settings,
     state = self.state,
     ui = self.ui,
-    wifi = self.wifi
+    wifi = self.wifi,
+    on_edition_change = function(active, filename) self:onEditionChange(active, filename) end,
   }
 
   self.menu = HardcoverMenu:new {
@@ -580,7 +582,28 @@ function HardcoverApp:startReading(filename)
   end)
 end
 
+-- Edition requests yield to scheduled page callbacks. Invalidate their old-unit snapshots;
+-- any progress requested during the move is mapped afresh after the local link is committed.
+function HardcoverApp:onEditionChange(active, filename)
+  if active then
+    self.edition_change_file = filename
+    self.edition_page_pending = (self.page_update_pending
+      or self.page_update_scheduled and self.page_update_scheduled.filename == filename) and filename or nil
+    self:cancelPendingUpdates()
+    self.page_update_generation = (self.page_update_generation or 0) + 1
+  else
+    self.edition_change_file = nil
+    local pending = self.edition_page_pending
+    self.edition_page_pending = nil
+    if pending and self.ui.document and self.ui.document.file == pending then self:updatePageNow() end
+  end
+end
+
 function HardcoverApp:updatePageNowForced(filename)
+  if self.edition_change_file == filename then
+    self.edition_page_pending = filename
+    return
+  end
   local page = self.ui.getCurrentPage and self.ui:getCurrentPage() or self.state.page
   local mapped_page = self.page_mapper:getMappedPage(page, self.ui.document:getPageCount(), self.settings:pages())
   self.cache:syncPage(filename, mapped_page)
@@ -589,6 +612,10 @@ end
 function HardcoverApp:_handlePageUpdate(filename, mapped_page, immediate, callback)
   --logger.warn("HARDCOVER: Throttled page update", mapped_page)
   self.page_update_pending = false
+  if self.edition_change_file == filename then
+    self.edition_page_pending = filename
+    return
+  end
 
   if not self:syncFileUpdates(filename) then
     return
@@ -599,9 +626,15 @@ function HardcoverApp:_handlePageUpdate(filename, mapped_page, immediate, callba
   end
 
   local generation = self.page_update_generation or 0
+  local scheduled = not immediate and { filename = filename } or nil
   local immediate_update = function()
+    if self.edition_change_file == filename then
+      self.edition_page_pending = filename
+      return
+    end
     if not immediate then
       if generation ~= (self.page_update_generation or 0) then return end
+      if self.page_update_scheduled == scheduled then self.page_update_scheduled = nil end
       if self.start_reading_in_progress then
         self.start_reading_page = { filename = filename, page = mapped_page }
         return
@@ -624,6 +657,7 @@ function HardcoverApp:_handlePageUpdate(filename, mapped_page, immediate, callba
   if immediate then
     immediate_update()
   else
+    self.page_update_scheduled = scheduled
     UIManager:scheduleIn(1, trapped_update)
   end
 end
@@ -765,6 +799,7 @@ function HardcoverApp:cancelPendingUpdates()
   end
 
   self.page_update_pending = false
+  self.page_update_scheduled = nil
 end
 
 function HardcoverApp:onCloseDocument()

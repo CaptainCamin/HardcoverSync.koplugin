@@ -121,5 +121,24 @@ return {
     assert(not q.sync_queue:hasPending(), "Discard kept the changes")
     assert(discarded == 1, "on_discard was not told")
     emu:closeAll()
+
+    -- Partly synced work says so, and tapping explains rather than asking to cancel.
+    q.sync_queue:enqueueStatus("/b/dune.epub", { status_id = HARDCOVER.STATUS.READING, book_id = 7, title = "Dune" })
+    local long_title = "Pride and Prejudice and Zombies: The Complete and Unabridged Edition"
+    q.sync_queue:enqueueStatus("/b/pride.epub", { status_id = HARDCOVER.STATUS.READING, book_id = 9, title = long_title })
+    local Actions = require("hardcover/lib/reading_actions")
+    Actions.list(q.sync_queue:get("/b/dune.epub"))[1].status_sent = true
+    Actions.list(q.sync_queue:get("/b/pride.epub"))[1].status_sent = true
+    Dialog.show { queues = q }
+    emu:pump()
+    emu:expectText("Finishing sync · Dune: mark as Currently Reading")
+    emu:expectText("Finishing sync · " .. long_title .. ": mark as Currently Reading")
+    emu:shot("pending_changes_partial")
+    tap("Finishing sync · Dune: mark as Currently Reading")
+    emu:expectText("Sync has already started for this change")
+    assert(not emu:screenText():find("Cancel this change?", 1, true), "partly synced work offered cancellation")
+    emu:shot("pending_changes_partial_notice")
+    assert(q.sync_queue:hasPending(), "the notice changed the queue")
+    emu:closeAll()
   end,
 }

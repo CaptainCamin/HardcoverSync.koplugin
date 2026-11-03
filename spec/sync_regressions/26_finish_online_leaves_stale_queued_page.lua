@@ -2,7 +2,7 @@
 -- page (80) stayed; the next flush saw the server Finished with no re-read flag, raised a
 -- "reread" conflict and held the entry.
 --
--- Expected: the older queued page goes with the status; a page queued after it stays.
+-- Expected: the older page is sent before Finished; a new read queued during that send stays.
 local KB = dofile((arg[1] or ".") .. "/spec/sync_regressions/lib.lua")
 KB.stub_koreader()
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
@@ -26,24 +26,32 @@ end
 print("\n== Finished online with an older page queued ==")
 
 KB.check("the older queued page is dropped", function()
-  Api.updateUserBookStatus = function() return { id = 507, book_id = 7, status_id = HARDCOVER.STATUS.FINISHED } end
+  Api.updateUserBookStatus = function() error("finish bypassed pending progress") end
   local cache, q = newCache()
   q:enqueuePage("/b/a.epub", { mapped_page = 80, book_id = 7, edition_id = 3 })
-  cache:updateBookStatus("/b/a.epub", HARDCOVER.STATUS.FINISHED)
-  KB.eq(q:hasPending("/b/a.epub"), false, "still queued")
+  KB.eq(cache:updateBookStatus("/b/a.epub", HARDCOVER.STATUS.FINISHED).queued, true, "finish queued")
+  local api = KB.fakeApi { [7] = { id = 507, status_id = HARDCOVER.STATUS.READING, user_book_reads = {} } }
+  api.setFinishedDate = function(_, ub) return ub end
+  KB.eq(q:flush(api, { user_id = 1 }), true, "flush")
+  KB.eq(api.shelf[7].user_book_reads[1].progress_pages, 80, "progress survived the finish")
+  KB.eq(api.shelf[7].status_id, HARDCOVER.STATUS.FINISHED, "final shelf")
+  KB.eq(q:hasPending("/b/a.epub"), false, "sent page is not left behind")
 end)
 
 KB.check("a different pending change is kept", function()
-  Api.updateUserBookStatus = function() return { id = 507, book_id = 7, status_id = HARDCOVER.STATUS.FINISHED } end
   local cache, q = newCache()
   q:enqueuePage("/b/a.epub", { mapped_page = 80, book_id = 7, edition_id = 3 })
-  Api.updateUserBookStatus = function()
-    q:enqueuePage("/b/a.epub", { mapped_page = 5, book_id = 7, edition_id = 3 })
-    q:get("/b/a.epub").page_updated_at = os.time() + 10
-    return { id = 507, book_id = 7, status_id = HARDCOVER.STATUS.FINISHED }
-  end
   cache:updateBookStatus("/b/a.epub", HARDCOVER.STATUS.FINISHED)
+  local api = KB.fakeApi { [7] = { id = 507, status_id = HARDCOVER.STATUS.READING, user_book_reads = {} } }
+  api.setFinishedDate = function(_, ub) return ub end
+  local update = api.updateUserBookStatus
+  api.updateUserBookStatus = function(self, id, status)
+    q:startReread("/b/a.epub", { mapped_page = 5, book_id = 7, edition_id = 3 })
+    return update(self, id, status)
+  end
+  q:flush(api, { user_id = 1 })
   KB.eq(q:get("/b/a.epub").mapped_page, 5, "newer page")
+  KB.eq(q:statusOf("/b/a.epub"), HARDCOVER.STATUS.READING, "new read kept")
 end)
 
 KB.finish("a Finished status sent online must take the older queued page with it")

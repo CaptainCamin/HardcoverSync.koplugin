@@ -94,6 +94,7 @@ local function newLink(opts)
     entries = opts.queue or {},
   }
   function queue:get(f) return self.entries[f] end
+  function queue:hasPending(f) return self.entries[f] ~= nil end
   function queue:save(f, entry) self.entries[f] = entry; saved.queue_saves = (saved.queue_saves or 0) + 1 end
   function queue:clear(f) self.entries[f] = nil end
 
@@ -130,11 +131,25 @@ end
 
 local check = r.test
 
-check("a shelved book moves on Hardcover, its read and its queued page to the new edition", function()
+check("an edition change cannot publish still-cancellable progress", function()
   resetApi({ updatePage = { id = 5, user_book_reads = { { id = 77, progress_pages = 160, edition_id = 20 } } },
     updateUserBook = { id = 5, status_id = 3, edition_id = 20, privacy_setting_id = 1 } })
-  local h, store, queue, saved = newLink({ status = shelvedStatus(),
-    queue = { [FILE] = { book_id = 7, edition_id = 10, mapped_page = 120, updated_at = 1 } } })
+  local status = shelvedStatus()
+  status.user_book_reads[1].progress_pages = 210 -- local pending overlay, not confirmed server progress
+  local h, store, queue = newLink({ status = status,
+    queue = { [FILE] = { book_id = 7, edition_id = 10, mapped_page = 210 } } })
+  shown = {}
+  assert(h:linkBook(newBook()) == false, "edition change must wait")
+  assert(#calls == 0, "no pending progress may escape through edition conversion")
+  assert(store.edition_id == 10 and queue:get(FILE).mapped_page == 210, "link and queue stay unchanged")
+  assert(#shown == 1, "explain how to resolve the pending changes")
+end)
+
+check("a shelved book without pending changes moves its read to the new edition", function()
+  resetApi({ updatePage = { id = 5, user_book_reads = { { id = 77, progress_pages = 160, edition_id = 20 } } },
+    updateUserBook = { id = 5, status_id = 3, edition_id = 20, privacy_setting_id = 1 } })
+  local h, store, queue, saved = newLink({ status = shelvedStatus() })
+  shown = {}
 
   assert(h:linkBook(newBook()) == true, "linkBook did not succeed")
   assert(#calls == 2 and calls[1][1] == "updatePage" and calls[2][1] == "updateUserBook",
@@ -144,8 +159,7 @@ check("a shelved book moves on Hardcover, its read and its queued page to the ne
   assert(calls[2][2] == 7 and calls[2][3] == 3 and calls[2][4] == 1 and calls[2][5] == 20,
     "the shelf entry was not moved to the new edition")
   assert(store.edition_id == 20 and store.pages == 400, "the file's link did not take the new edition")
-  local entry = queue:get(FILE)
-  assert(entry.mapped_page == 160 and entry.edition_id == 20, "the queued page was not moved")
+  assert(queue:get(FILE) == nil, "an edition change must not enqueue progress")
   assert(saved.snapshots == 1 and saved.snapshot.edition_id == 20, "the snapshot was not saved with the new edition")
   assert(h.state.book_status.user_book_reads[1].id == 77, "the stored read is not the moved read")
   assert(h.state.book_status.edition_id == 20 and h.state.book_status.user_book_reads[1].progress_pages == 160,
@@ -155,14 +169,13 @@ end)
 
 check("a failed read move changes nothing here, and a retry gives the same result", function()
   resetApi({ updatePage = nil })
-  local h, store, queue = newLink({ status = shelvedStatus(),
-    queue = { [FILE] = { book_id = 7, edition_id = 10, mapped_page = 120 } } })
+  local h, store, queue = newLink({ status = shelvedStatus() })
   shown = {}
 
   assert(h:linkBook(newBook()) == false, "linkBook reported success")
   assert(#calls == 1, "the shelf entry was changed after the read failed")
   assert(store.edition_id == 10, "the file's link changed")
-  assert(queue:get(FILE).mapped_page == 120 and queue:get(FILE).edition_id == 10, "the queue changed")
+  assert(queue:get(FILE) == nil, "the queue changed")
   assert(h.state.book_status.edition_id == 10 and h.state.book_status.user_book_reads[1].progress_pages == 120,
     "the saved status changed")
   assert(#shown == 1, "the failure was not shown")
@@ -175,26 +188,28 @@ end)
 
 check("a failed shelf update changes nothing here", function()
   resetApi({ updatePage = { id = 5, user_book_reads = { { id = 77, progress_pages = 160, edition_id = 20 } } }, updateUserBook = nil })
-  local h, store, queue = newLink({ status = shelvedStatus(),
-    queue = { [FILE] = { book_id = 7, edition_id = 10, mapped_page = 120 } } })
+  local h, store, queue = newLink({ status = shelvedStatus() })
   shown = {}
 
   assert(h:linkBook(newBook()) == false, "linkBook reported success")
   assert(store.edition_id == 10, "the file's link changed")
-  assert(queue:get(FILE).mapped_page == 120 and queue:get(FILE).edition_id == 10, "the queue changed")
+  assert(queue:get(FILE) == nil, "the queue changed")
   assert(h.state.book_status.edition_id == 10, "the saved status was wiped")
   assert(#shown == 1, "the failure was not shown")
 end)
 
-check("an unshelved book changes no server data, but its queued page still moves", function()
+check("even an unshelved book must settle its pending page before changing edition", function()
   resetApi({})
   local h, store, queue = newLink({ status = {},
     queue = { [FILE] = { book_id = 7, edition_id = 10, mapped_page = 120 } } })
 
-  assert(h:linkBook(newBook()) == true, "linkBook did not succeed")
+  assert(h:linkBook(newBook()) == false, "pending progress must block edition conversion")
   assert(#calls == 0, "the server was called for an unshelved book")
-  assert(store.edition_id == 20, "the file's link did not take the new edition")
-  assert(queue:get(FILE).mapped_page == 160 and queue:get(FILE).edition_id == 20, "the queued page was not moved")
+  assert(store.edition_id == 10, "the file's link changed")
+  assert(queue:get(FILE).mapped_page == 120 and queue:get(FILE).edition_id == 10, "the queued page changed")
+  queue:clear(FILE)
+  assert(h:linkBook(newBook()) == true, "edition can change after the pending work is settled")
+  assert(store.edition_id == 20 and #calls == 0, "unshelved edition changes remain local")
 end)
 
 check("a different book clears the queue and calls nothing", function()
@@ -218,12 +233,12 @@ check("choosing the same edition again changes nothing", function()
   assert(queue:get(FILE).mapped_page == 120, "the queued page moved for the same edition")
 end)
 
-check("with no page count known, the page is kept as it is", function()
+check("pending progress blocks an edition change even without a known page count", function()
   resetApi({})
   local h, _, queue = newLink({ no_pages = true, status = {},
     queue = { [FILE] = { book_id = 7, edition_id = 10, mapped_page = 120 } } })
 
-  assert(h:linkBook(newBook()) == true, "linkBook did not succeed")
+  assert(h:linkBook(newBook()) == false, "unknown lengths do not bypass pending changes")
   assert(queue:get(FILE).mapped_page == 120, "the page was moved without a page count to move it by")
 end)
 

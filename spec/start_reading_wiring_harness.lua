@@ -177,6 +177,55 @@ check("a delayed pre-start page cannot overwrite the page sent by Start reading"
   assert(table.concat(sent, ",") == "13,21", "sent " .. table.concat(sent, ","))
 end)
 
+for _, during_move in ipairs({ false, true }) do
+check("an edition move remaps a page timer firing " .. (during_move and "during" or "after") .. " the move", function()
+  local app = newApp { process = true, sync = true, shelf_known = true, status = HARDCOVER.STATUS.READING }
+  local linked = { book_id = 7, edition_id = 10, pages = 300 }
+  local sent = {}
+  app.syncFileUpdates = function() return true end
+  app.ui.getCurrentPage = function() return 123 end
+  app.settings.pages = function() return linked.pages end
+  app.settings.readBookSetting = function(_, _, k) return linked[k] end
+  app.settings.updateBookSetting = function(_, _, values)
+    for k, v in pairs(values) do linked[k] = v end
+  end
+  app.page_mapper = require("hardcover/lib/page_mapper"):new { state = {}, ui = { } }
+  app.page_mapper.usePageMap = function() return false end
+  app.state.book_status = { id = 500, book_id = 7, status_id = 2, edition_id = 10,
+    user_book_reads = { { id = 800, edition_id = 10, progress_pages = 120, started_at = "2026-01-01" } } }
+  app.sync_queue.hasPending = function() return false end
+  app.cache.sync_queue = app.sync_queue
+  app.cache.saveSnapshot = function() end
+  app.cache.cacheUserBook = function() end
+  app.cache.syncPage = function(_, _, page) sent[#sent + 1] = { page = page, edition = linked.edition_id } end
+  app:_handlePageUpdate("/book.epub", 119, false)
+  local old = KB.sched.scheduled[#KB.sched.scheduled].fn
+  local api = require("hardcover/lib/hardcover_api")
+  local update_page, update_book = api.updatePage, api.updateUserBook
+  api.updatePage = function()
+    if during_move then
+      old()
+      app:_handlePageUpdate("/book.epub", 123, true)
+      app:updatePageNowForced("/book.epub")
+    end
+    assert(#sent == 0, "progress escaped while the edition request yielded")
+    return { id = 500, user_book_reads = { { id = 800, edition_id = 20, progress_pages = 160 } } }
+  end
+  api.updateUserBook = function() return { id = 500, status_id = 2, edition_id = 20 } end
+  local h = require("hardcover/lib/hardcover"):new {
+    ui = app.ui, settings = app.settings, state = app.state, cache = app.cache,
+    on_edition_change = function(active, filename) app:onEditionChange(active, filename) end,
+  }
+  local ok, err = pcall(function()
+    assert(h:linkBook { book_id = 7, edition_id = 20, pages = 400, title = "A book" })
+    old() -- an old-unit timer firing after the move must also be harmless
+    assert(#sent == 1 and sent[1].page == 164 and sent[1].edition == 20, "wrong page or edition after move")
+  end)
+  api.updatePage, api.updateUserBook = update_page, update_book
+  assert(ok, err)
+end)
+end
+
 check("the jump offer uses the unfinished read with progress, not a newer empty read", function()
   local app = newApp { process = true, sync = true, shelf_known = true, status = HARDCOVER.STATUS.READING }
   app.state.book_status.user_book_reads = { { id = 1, progress_pages = 250 }, { id = 2 } }

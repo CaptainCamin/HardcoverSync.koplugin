@@ -39,7 +39,9 @@ end)
 KB.check("a status queued while the status request is in flight survives", function()
   local q = KB.newQueue()
   q:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.READING, book_id = 7, edition_id = 3 })
-  local api = KB.fakeApi(shelf())
+  local books = shelf()
+  books[7].status_id = HARDCOVER.STATUS.PAUSED
+  local api = KB.fakeApi(books)
   local real = api.updateUserBookStatus
   api.updateUserBookStatus = function(self, user_book_id, status_id)
     -- the user marks it Finished while the first status is being sent
@@ -49,6 +51,30 @@ KB.check("a status queued while the status request is in flight survives", funct
   q:flush(api, { user_id = 1 })
   local entry = q:get("/books/a.epub")
   KB.eq(entry ~= nil and entry.status_id or nil, HARDCOVER.STATUS.FINISHED, "newer queued status after the flush")
+end)
+
+KB.check("an identical page recorded in the same second is not acknowledged with the older request", function()
+  local real_time = os.time
+  os.time = function() return 1793442600 end
+  local ok, err = pcall(function()
+    local q, settings = KB.newQueue()
+    local page = { mapped_page = 120, book_id = 7, edition_id = 3 }
+    q:enqueuePage("/books/a.epub", page)
+    local api = KB.fakeApi(shelf())
+    local update = api.updatePage
+    api.updatePage = function(self, ...)
+      q:enqueuePage("/books/a.epub", page)
+      return update(self, ...)
+    end
+    q:flush(api, { user_id = 1 })
+    q = require("hardcover/lib/sync_queue"):new { settings = settings }
+    KB.eq(q:hasPending(), true, "new action survived the acknowledgement and restart")
+    api.updatePage = update
+    KB.eq(q:flush(api, { user_id = 1 }), true, "retry sends the new action")
+    KB.eq(api:count("updatePage"), 2, "each recorded action sent once")
+  end)
+  os.time = real_time
+  assert(ok, err)
 end)
 
 KB.finish("a flush must not erase changes queued while it was running")
