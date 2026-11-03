@@ -20,6 +20,8 @@
 
 - **A goal ring card.** The same reading goal drawn as a completion ring with the percentage inside it, for a shelf that wants a picture rather than a bar. One goal at a time: a square or tall cell keeps to the ring, the goal's name and its count, so a small tile stays readable, and a strip sets the ring beside the goal's numbers as three labelled facts (pace, time left and the weekly rate). A 2×1 cell puts the ring beside the heading, count, pace and days left. In a cell too short for a name it drops to the ring and its percentage alone, which is what lets it be a single-cell tile. It works offline and follows the same choice of goal.
 
+- **A year-in-bars card.** The pages you read each month of the year as twelve bars, named by month, with the month still counting drawn hollow and the biggest month named under them. A wide cell puts the numbers beside the bars. It reads the same saved stats as the Stats screen, so it works offline, and tapping it opens that screen.
+
 - **Jump to Hardcover's page.** Open a book while online and, if Hardcover has you 5 or more pages further along (you read on another device), you are asked whether to jump there. "Stay here" keeps your place and does not ask again until Hardcover moves on. It is not asked when this device has changes waiting; the sync question covers that.
 
 ### Fixed

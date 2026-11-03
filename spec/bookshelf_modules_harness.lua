@@ -130,6 +130,7 @@ do
   local Text = class()
   function Text:init()
     local s = tostring(self.text or "")
+    self.is_text = true
     ring_texts[#ring_texts + 1] = s
     -- A line's height follows its face, the way a real one does: the card's
     -- layout maths is all about how many lines fit in a cell.
@@ -138,6 +139,7 @@ do
   end
   function Text:getSize() return self.dimen end
   function Text:getBaseline() return 12 end
+  function Text:paintTo() end
   package.preload["lib/bookshelf_colour_text"] = function() return Text end
 
   package.preload["lib/bookshelf_color"] = function()
@@ -211,7 +213,7 @@ local pages_goal = { id = 2, name = "Pages goal", metric = "page", target = 3000
 -- ------------------------------------------------------------------- the pack
 
 check("the cards ship as Bookshelf module pack files", function()
-  for _, key in ipairs({ "hardcover_goal", "hardcover_goal_ring", "hardcover_stats" }) do
+  for _, key in ipairs({ "hardcover_goal", "hardcover_goal_ring", "hardcover_stats", "hardcover_year" }) do
     local spec = loadPack(key)
     assert(type(spec) == "table", key .. " did not return a spec")
     assert(spec.key == key, tostring(spec.key))
@@ -222,8 +224,8 @@ check("the cards ship as Bookshelf module pack files", function()
     -- ring drops to a bare ring in a short cell and can be a single tile.
     local min_w = (key == "hardcover_goal_ring") and 1 or 2
     assert(spec.min_w == min_w, key .. " min_w " .. tostring(spec.min_w))
-    -- The two goal cards let the reader pick which goal they show.
-    if key ~= "hardcover_stats" then
+    -- The goal cards let the reader pick which goal they show.
+    if key == "hardcover_goal" or key == "hardcover_goal_ring" then
       assert(type(spec.show_settings) == "function", key .. " settings")
     end
     -- No category or pack name: the cards belong under the plugin's own chip.
@@ -459,7 +461,7 @@ local function paintRings(node)
   local function paint(n)
     if type(n) ~= "table" then return end
     if n.paintTo then
-      rings = rings + 1
+      if not n.is_text then rings = rings + 1 end
       n:paintTo({}, 0, 0)
     end
     for _, child in ipairs(n) do paint(child) end
@@ -587,6 +589,55 @@ check("stats module draws the saved stats", function()
   loadPack("hardcover_stats").render(ctx)
   assert(card_args.value == "3" and card_args.suffix == " books", tostring(card_args.value))
   assert(card_args.bar == nil, "stats has no bar to fill")
+end)
+
+-- The year card's series comes from Stats.compute, so the fixture year is the
+-- one the rows name, never the wall clock.
+check("year card splits the year into months, pages first", function()
+  local c = Modules.yearCard(cache(nil, { rows = rows }), 7, 2026)
+  assert(c and c.year == 2026, "no card")
+  assert(c.unit == "pages", c.unit)
+  assert(c.total == 600, tostring(c.total))
+  -- March: 300 + 200 pages. June: 100. The rest are empty.
+  assert(c.months[3] == 500, tostring(c.months[3]))
+  assert(c.months[6] == 100, tostring(c.months[6]))
+  assert(c.months[1] == 0 and c.months[12] == 0)
+  assert(c.peak == 500 and c.peak_month == 3,
+    tostring(c.peak) .. " / " .. tostring(c.peak_month))
+end)
+
+check("year card falls back to books when no edition has a page count", function()
+  local c = Modules.yearCard(cache(nil, { rows = {
+    { date = "2026-02-01" }, { date = "2026-02-10" }, { date = "2026-07-04" },
+  } }), 7, 2026)
+  assert(c.unit == "books", c.unit)
+  assert(c.total == 3, tostring(c.total))
+  assert(c.months[2] == 2 and c.months[7] == 1)
+  assert(c.peak_month == 2, tostring(c.peak_month))
+end)
+
+check("year card says so when the year is empty", function()
+  local _, why = Modules.yearCard(cache(nil, { rows = rows }), 7, 2024)
+  assert(why == "no_books", tostring(why))
+  local _, none = Modules.yearCard(cache(nil, nil), 7, 2026)
+  assert(none == "no_data", tostring(none))
+end)
+
+check("year module paints a bar per month that has one", function()
+  plugin_instance = app(nil, { rows = rows })
+  current_user_id = 7
+  ring_paints = 0
+  clear()
+  local card = loadPack("hardcover_year").render({ width = 300, height = 300, scale = 100 })
+  assert(card, "no card")
+  local drawn = treeTexts(card)
+  assert(drawn:find("2026", 1, true), drawn)
+  assert(drawn:find("600", 1, true), drawn)
+  assert(drawn:find("pages", 1, true), drawn)
+  assert(drawn:find("Best: March", 1, true), drawn)
+  paintRings(card)
+  -- Two months have pages, so two bars, and no third.
+  assert(ring_paints == 2, "expected two bars, painted " .. tostring(ring_paints))
 end)
 
 check("tapping a card opens its screen, and nothing when the plugin is off", function()
