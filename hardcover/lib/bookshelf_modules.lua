@@ -1,4 +1,4 @@
--- Hardcover cards for Bookshelf's micro-modules (a reading goal and your stats).
+-- Hardcover cards for Bookshelf's micro-modules.
 --
 -- The cards ship as a Bookshelf module pack: bookshelf_modules/ at the plugin
 -- root holds one spec file per card, and Bookshelf scans every installed plugin
@@ -7,7 +7,7 @@
 -- with the plugin and are skipped when the plugin is disabled.
 --
 -- Cards draw only what is already saved on the device (no network on render),
--- so they read the same offline. Open the Goals or Stats screen to refresh them.
+-- so they read the same offline. Open Goals, Stats or Want to Read to refresh.
 
 local _ = require("gettext")
 
@@ -82,8 +82,14 @@ local function goalToCard(goal, today, finished_offline)
   local p = Goals.pace(goal, today, Goals.extra(goal, today, finished_offline))
   return {
     heading = goal.name,
+    -- A square cell at the host's largest type can be too narrow for a long
+    -- goal name; "Goal" still says what the number belongs to.
+    short_heading = _("Goal"),
     value = string.format("%d", math.floor(p.progress + 0.5)),
     suffix = " / " .. count(p.target, p.unit),
+    -- When the cell is too narrow for " / 70 books", the target still fits
+    -- without the unit: the bar and the heading say what is being counted.
+    short_suffix = string.format(" / %d", math.floor(p.target + 0.5)),
     fraction = p.fraction,
     sub = p.status,
     left = Goals.leftText(p),
@@ -131,6 +137,9 @@ function Modules.statsCard(shelf_cache, user_id, year)
   if s.ratings.average then sub[#sub + 1] = string.format(_("%.1f average rating"), s.ratings.average) end
   return {
     heading = string.format(_("Finished in %d"), year),
+    -- When the host has grown the type too large for the full heading, the
+    -- year alone still says which reading year the number belongs to.
+    short_heading = tostring(year),
     value = string.format("%d", s.books),
     suffix = " " .. (s.books == 1 and _("book") or _("books")),
     sub = #sub > 0 and table.concat(sub, " \194\183 ") or nil,
@@ -154,14 +163,134 @@ function Modules.goalChoices(shelf_cache, queue, user_id, today)
   return out
 end
 
+-- Full-history cards never infer lifetime totals from the old, latest-read
+-- dashboard rows, nor pass a capped download off as a complete library.
+local function historyFor(shelf_cache, user_id)
+  if not user_id then return nil, "signed_out" end
+  local saved = shelf_cache and shelf_cache:stats(user_id)
+  if not (saved and saved.history) then return nil, "no_history" end
+  if saved.complete == false then return nil, "incomplete_history" end
+  return saved.history, nil, saved
+end
+
+local TOTAL_LABELS = {
+  authors = _("Authors read"), books = _("Books read"),
+  five_star = _("Five-star books"), rereads = _("Rereads"),
+}
+
+function Modules.totalCard(shelf_cache, user_id, kind)
+  local history, reason, saved = historyFor(shelf_cache, user_id)
+  if not history then return nil, reason end
+  local totals = { authors = 0, books = 0, five_star = 0, rereads = 0 }
+  local books, authors = {}, {}
+  for _, row in ipairs(history) do
+    local id = tostring(row.book_id)
+    -- Hardcover normally has one entry per book. Do not double-count a book
+    -- if an imported library contains duplicates.
+    local reads = row.completions or 1
+    books[id] = math.max(books[id] or 0, reads)
+    for _, author in ipairs(row.authors or {}) do
+      local key = author.id and ("id:" .. tostring(author.id)) or ("slug:" .. author.slug)
+      authors[key] = true
+    end
+  end
+  local rated = {}
+  for _, row in ipairs(history) do
+    if row.rating == 5 then rated[tostring(row.book_id)] = true end
+  end
+  for _, reads in pairs(books) do
+    totals.books = totals.books + 1
+    totals.rereads = totals.rereads + math.max(0, reads - 1)
+  end
+  for _id in pairs(authors) do totals.authors = totals.authors + 1 end
+  for _id in pairs(rated) do totals.five_star = totals.five_star + 1 end
+  return { value = tostring(totals[kind]), sub = TOTAL_LABELS[kind],
+    context = saved.stale and _("Saved history · tap to refresh") or _("Hardcover · all time") }
+end
+
+-- A deterministic daily choice. Fit-search and picker renders never advance
+-- it. An explicit Another tap adds an offset local to this card and day.
+local function dailyPick(candidates, today, offset)
+  if #candidates == 0 then return nil end
+  local seed = tonumber((today:gsub("%-", ""))) or 0
+  return candidates[(seed + (offset or 0)) % #candidates + 1]
+end
+
+function Modules.memoryCard(shelf_cache, user_id, today, offset)
+  local history, reason, saved = historyFor(shelf_cache, user_id)
+  if not history then return nil, reason end
+  today = today or os.date("%Y-%m-%d")
+  local candidates, seen = {}, {}
+  for _, row in ipairs(history) do
+    for _, date in ipairs(row.reads or {}) do
+      local key = tostring(row.book_id) .. ":" .. date
+      if #date >= 7 and date:sub(6, 7) == today:sub(6, 7)
+          and date:sub(1, 4) < today:sub(1, 4) and not seen[key] then
+        seen[key] = true
+        candidates[#candidates + 1] = { book_id = row.book_id, title = row.title,
+          rating = row.rating, image = row.image, date = date,
+          author = row.authors and row.authors[1] and row.authors[1].name }
+      end
+    end
+  end
+  table.sort(candidates, function(a, b)
+    if a.date ~= b.date then return a.date > b.date end
+    return a.book_id < b.book_id
+  end)
+  local chosen = dailyPick(candidates, today, offset)
+  if not chosen then return nil, "no_memories" end
+  chosen.candidates, chosen.stale = #candidates, saved.stale
+  return chosen
+end
+
+-- Select from the saved Want to Read membership before decoding a book. A
+-- large TBR costs one small membership read and one book, not every cover and
+-- description. Only dates before this calendar month qualify as rediscovery.
+function Modules.tbrCard(shelf_store, user_id, today, offset)
+  if not user_id then return nil, "signed_out" end
+  local members, meta
+  if shelf_store then members, meta = shelf_store:members(user_id, 1) end
+  if not members then return nil, "no_tbr" end
+  if not meta.complete then return nil, "incomplete_tbr" end
+  today = today or os.date("%Y-%m-%d")
+  local candidates = {}
+  for _, member in ipairs(members) do
+    local date = member.date_added
+    if type(date) == "string" and date:match("^%d%d%d%d%-%d%d%-%d%d")
+        and date:sub(1, 7) < today:sub(1, 7) then candidates[#candidates + 1] = member end
+  end
+  table.sort(candidates, function(a, b)
+    if a.date_added ~= b.date_added then return a.date_added < b.date_added end
+    return a.book_id < b.book_id
+  end)
+  local member = dailyPick(candidates, today, offset)
+  if not member then return nil, "no_older_tbr" end
+  local entry = shelf_store:entriesOf({ member })[1]
+  if not entry then return nil, "no_tbr" end
+  return { book_id = entry.book_id, title = entry.title, author = entry.authors,
+    image = entry.cached_image, date = member.date_added:sub(1, 10),
+    candidates = #candidates, stale = meta.fingerprint == nil }
+end
+
 -- ------------------------------------------------------------------ cards
 
-local function empty(ctx, text)
+local function moduleMessage(ctx, heading, text)
   local Kit = require("lib/bookshelf_module_kit")
-  return Kit.valueCard {
-    width = ctx.width, height = ctx.height, scale_pct = ctx.scale,
-    heading = "Hardcover", sub = text,
+  local Theme = require("hardcover/lib/ui/theme")
+  local Group = require("ui/widget/verticalgroup")
+  return Group:new { align = "left",
+    Kit.fitText { text = heading, width = ctx.width, size = Theme.type.small,
+      scale_pct = ctx.scale, opts = { bold = true } },
+    require("ui/widget/verticalspan"):new { width = Kit.sc(ctx.scale)(Theme.space.s) },
+    Kit.fitText { text = text, width = ctx.width, size = ctx.clamp and Theme.type.label or Theme.type.small,
+      scale_pct = ctx.scale },
   }
+end
+
+-- A card with nothing to show says which card it is and what to do, in whole
+-- wrapped lines: a one-line TextWidget would cut the message to an ellipsis.
+local function empty(ctx, text, heading)
+  return moduleMessage(ctx, heading or _("Hardcover"), text)
 end
 
 local function reasonText(reason)
@@ -169,6 +298,12 @@ local function reasonText(reason)
   if reason == "no_goal" then return _("No current goal. Tap to set one.") end
   if reason == "no_books" then return _("No books finished this year yet.") end
   if reason == "no_plugin" then return _("Turn on Hardcover Sync.") end
+  if reason == "no_history" then return _("Tap to load reading history in Stats.") end
+  if reason == "incomplete_history" then return _("History incomplete. Tap to refresh Stats.") end
+  if reason == "no_memories" then return _("No finishes this month in earlier years.") end
+  if reason == "no_tbr" then return _("Tap to load your Want to Read shelf.") end
+  if reason == "incomplete_tbr" then return _("Want to Read incomplete. Tap to refresh.") end
+  if reason == "no_older_tbr" then return _("No books saved before this month on Want to Read.") end
   return _("Open Hardcover once to load this.")
 end
 
@@ -188,8 +323,9 @@ end
 -- One goal fills the card. A strip carries two, side by side, each with its
 -- name, count and bar: the strip is long enough for a second goal, and the pace
 -- line would be crowded in half of it.
-local function draw(ctx, cards, reason)
-  if not cards or #cards == 0 then return empty(ctx, reasonText(reason)) end
+local function draw(ctx, cards, reason, opts)
+  opts = opts or {}
+  if not cards or #cards == 0 then return empty(ctx, reasonText(reason), opts.heading) end
   local Kit = require("lib/bookshelf_module_kit")
   local sc = Kit.sc(ctx.scale)
   local w = math.max(50, ctx.width or 50)
@@ -203,46 +339,77 @@ local function draw(ctx, cards, reason)
     local bar = c.fraction and Kit.progressBar {
       width = cw, height = sc(6), fraction = c.fraction,
     } or nil
+    -- Each level adds one kind of line, so a card can lose its quietest fact
+    -- without also losing the heading that says what it is.
+    local heading = c.heading
+    local suffix = c.suffix
     local function at(level)
       return Kit.valueCard {
         width = cw, height = ctx.height, scale_pct = ctx.scale,
-        heading = level >= 3 and c.heading or nil,
+        heading = level >= 3 and heading or nil,
         value = c.value,
-        suffix = level >= 2 and c.suffix or nil,
+        suffix = level >= 2 and suffix or nil,
         bar = bar, bar_fraction = c.fraction,
-        sub = level >= 3 and c.sub or nil,
-        context = level >= 4 and c.context or nil,
+        sub = level >= 4 and c.sub or nil,
+        context = level >= 5 and c.context or nil,
       }
     end
-    -- The host shrinks a card to 60% before it gives up and clips, so a level is
-    -- worth keeping only if it fits at that floor. Judged there, not at the
-    -- current scale: a card that shortens itself to fit would be grown back by
-    -- the host, which drops another line at the bigger type, and so on until
-    -- only the number is left.
-    local FLOOR = 60
-    if not ctx.height then return at(top) end
+    -- A level is only kept when it fits the cell at this scale. Judging it at
+    -- the host's 60% floor let a smaller scale unlock an extra line that then
+    -- overflowed, so the host shrank further and the card grew again.
     -- Words wider than the card would be cut to an ellipsis, so a cell too
     -- narrow for the goal's name gets the number and the bar instead.
     local TextWidget = require("lib/bookshelf_colour_text")
-    local function fitsWidth(text, size)
+    local function fitsWidth(text, size, bold)
       if not text then return true end
-      local probe = TextWidget:new{ text = text, face = Kit.face(size, ctx.scale) }
+      local face = Kit.face(size, ctx.scale, bold and { bold = true } or nil)
+      local probe = TextWidget:new{ text = text, face = face, bold = bold }
       local ok, w = pcall(function() return probe:getSize().w end)
       if probe.free then probe:free() end
       return not ok or w <= cw
     end
-    local rungs = (top >= 4) and { 4, 3, 1 } or { 3, 1 }
-    if not (fitsWidth(c.heading, 15) and fitsWidth(c.sub, 13)) then rungs = { 1 } end
-    -- Richest first. The last rung is the number and its bar alone: a target
-    -- beside it would be cut to an ellipsis in a cell that small, which reads
-    -- worse than no target at all.
+    -- The number and its suffix share one line, so measure them together: a
+    -- suffix that fits on its own can still be cut to an ellipsis beside it.
+    local function fitsPair(text, unit)
+      if not unit then return true end
+      local vsize = Kit.isStrip and Kit.isStrip(cw, ctx.height) and 26 or 20
+      local vface = Kit.face(vsize, ctx.scale, { bold = true })
+      local v = TextWidget:new{ text = text, face = vface, bold = true }
+      local u = TextWidget:new{ text = unit, face = Kit.face(14, ctx.scale) }
+      local ok, w = pcall(function() return v:getSize().w + u:getSize().w end)
+      if v.free then v:free() end
+      if u.free then u:free() end
+      return not ok or w <= cw
+    end
+    -- The host grows a sparse card until it fills the cell, and a long heading
+    -- that fitted at 100% can be too wide at 220%. Use the short form rather
+    -- than lose the line that says what the number is.
+    if c.short_heading and not fitsWidth(heading, 15, true) then heading = c.short_heading end
+    if suffix and not fitsPair(c.value, suffix) then
+      suffix = c.short_suffix and fitsPair(c.value, c.short_suffix) and c.short_suffix or nil
+    end
+    if not ctx.height then return at(top) end
+    -- Drop a line the cell is too narrow to show whole, rather than letting the
+    -- host cut it to an ellipsis: the finish rate first, then the pace line,
+    -- then the heading. The number keeps its unit as long as that unit fits.
+    local max = top
+    if c.context and not fitsWidth(c.context, 13) then max = math.min(max, 4) end
+    if c.sub and not fitsWidth(c.sub, 13) then max = math.min(max, 3) end
+    if not fitsWidth(heading, 15, true) then max = math.min(max, 2) end
+    if not fitsWidth(suffix, 14) then max = 1 end
+    local floor = math.min(opts.min_level or 1, max)
+    local rungs = {}
+    for level = max, floor, -1 do rungs[#rungs + 1] = level end
+    if #rungs == 0 then rungs[1] = max end
+    -- Richest first. The last rung keeps at least the number and its unit, so
+    -- even a one-line card still says what the number counts.
     for _, level in ipairs(rungs) do
       local widget = at(level)
       local ok, size = pcall(function() return widget:getSize() end)
-      local fits = ok and size and size.h * FLOOR / (ctx.scale or 100) <= ctx.height
+      local fits = ok and size and size.h <= ctx.height
       if fits then return widget end
     end
-    return at(1)
+    return at(rungs[#rungs])
   end
   -- Two goals need a strip. A 2x1 cell is wide too, but half of it is too
   -- narrow for a goal's name at the size the host grows the card to.
@@ -251,7 +418,7 @@ local function draw(ctx, cards, reason)
     local HorizontalSpan = require("ui/widget/horizontalspan")
     local sep = sc(40)
     local half = math.floor((w - sep) / 2)
-    local left, right = card(cards[1], half, 3), card(cards[2], half, 3)
+    local left, right = card(cards[1], half, 4), card(cards[2], half, 4)
     -- A rule between the goals, so the two halves read as two cards rather than
     -- one column of numbers. It is an unfilled bar: the bars' own track grey,
     -- which keeps the rule and the tracks in step under the shelf's dark theme,
@@ -275,7 +442,7 @@ local function draw(ctx, cards, reason)
   end
   local cw = w
   if shape == "square" then cw = math.max(50, w - 2 * Kit.sc(ctx.scale)(8)) end
-  return card(cards[1], cw, 4)
+  return card(cards[1], cw, 5)
 end
 
 -- -------------------------------------------------------------- ring card
@@ -396,9 +563,20 @@ local function ringText(ctx, card, width, height, opts)
   local fbig, bbig = Kit.face(opts.value_pts or 20, ctx.scale, { bold = true })
   local num = TextWidget:new{ text = card.value, face = fbig, bold = bbig,
     fgcolor = Kit.COLOR_PRIMARY, max_width = width }
+  local function suffixWidth(text)
+    local probe = TextWidget:new{ text = text, face = Kit.face(14, ctx.scale) }
+    local w = probe:getSize().w
+    if probe.free then probe:free() end
+    return w
+  end
+  local suffix = card.suffix
+  if suffix and num:getSize().w + suffixWidth(suffix) > width then
+    suffix = card.short_suffix and num:getSize().w + suffixWidth(card.short_suffix) <= width
+      and card.short_suffix or nil
+  end
   local value = num
-  if card.suffix then
-    local suf = TextWidget:new{ text = card.suffix, face = Kit.face(14, ctx.scale),
+  if suffix then
+    local suf = TextWidget:new{ text = suffix, face = Kit.face(14, ctx.scale),
       fgcolor = Kit.COLOR_PRIMARY, max_width = math.max(10, width - num:getSize().w) }
     local dy = math.max(0, num:getBaseline() - suf:getBaseline())
     value = HorizontalGroup:new{ align = "top", num,
@@ -406,14 +584,24 @@ local function ringText(ctx, card, width, height, opts)
   end
 
   -- One entry per line: its widget, the space above it, and whether the layout
-  -- may drop it when the cell is short. The goal's name is not optional: it is
-  -- what tells one card from another on a shelf, so a cell too short for the
-  -- rest shrinks the type instead of losing it.
-  local lines = {
-    { w = TextWidget:new{ text = card.heading, face = fh, bold = bh,
-        fgcolor = Kit.COLOR_MUTED, max_width = width } },
-    { w = value, gap = sc(2) },
-  }
+  -- may drop it when the cell is short. A name too wide for the column is left
+  -- out whole rather than cut to an ellipsis; the ring and its count still say
+  -- what the card is.
+  local heading_text = card.heading
+  local heading = TextWidget:new{ text = heading_text, face = fh, bold = bh,
+    fgcolor = Kit.COLOR_MUTED }
+  if heading:getSize().w > width and card.short_heading then
+    heading_text = card.short_heading
+    heading = TextWidget:new{ text = heading_text, face = fh, bold = bh,
+      fgcolor = Kit.COLOR_MUTED }
+  end
+  local lines = {}
+  if heading:getSize().w <= width then
+    heading = TextWidget:new{ text = heading_text, face = fh, bold = bh,
+      fgcolor = Kit.COLOR_MUTED, max_width = width }
+    lines[#lines + 1] = { w = heading }
+  end
+  lines[#lines + 1] = { w = value, gap = #lines > 0 and sc(2) or 0 }
   -- A wide column has room for the goal's numbers as a row of labelled stats,
   -- which reads at a glance. Where the row does not fit, the sentences below say
   -- the same things in more words: where the goal stands and how long is left
@@ -432,16 +620,18 @@ local function ringText(ctx, card, width, height, opts)
   elseif joined then
     lines[#lines + 1] = { w = joined, gap = sc(4), opt = true }
   elseif not opts.brief then
-    if card.sub then
-      lines[#lines + 1] = { w = TextWidget:new{ text = card.sub,
-        face = quiet, fgcolor = Kit.COLOR_MUTED, max_width = width },
-        gap = sc(4), opt = true }
+    -- A line wider than the column is left out whole: an ellipsis in a small
+    -- card says less than the count and percentage that remain.
+    local function line_if_fits(text, gap)
+      local probe = TextWidget:new{ text = text, face = quiet, fgcolor = Kit.COLOR_MUTED }
+      if probe:getSize().w <= width then
+        lines[#lines + 1] = { w = TextWidget:new{ text = text,
+          face = quiet, fgcolor = Kit.COLOR_MUTED, max_width = width },
+          gap = gap, opt = true }
+      end
     end
-    if opts.extra and card.left then
-      lines[#lines + 1] = { w = TextWidget:new{ text = card.left,
-        face = quiet, fgcolor = Kit.COLOR_MUTED, max_width = width },
-        gap = sc(3), opt = true }
-    end
+    if card.sub then line_if_fits(card.sub, sc(4)) end
+    if opts.extra and card.left then line_if_fits(card.left, sc(3)) end
   end
   if not stats and not opts.brief and card.context then
     -- A sentence cut off mid-word reads worse than no sentence, so the context
@@ -453,11 +643,13 @@ local function ringText(ctx, card, width, height, opts)
     end
   end
 
-  local function build(drop)
+  local function build(drop, tight)
     local g = VerticalGroup:new{ align = "left" }
     for i, line in ipairs(lines) do
       if not (drop and drop[i]) then
-        if #g > 0 and line.gap then g[#g + 1] = VerticalSpan:new{ width = line.gap } end
+        if #g > 0 and line.gap and not tight then
+          g[#g + 1] = VerticalSpan:new{ width = line.gap }
+        end
         g[#g + 1] = line.w
       end
     end
@@ -466,11 +658,14 @@ local function ringText(ctx, card, width, height, opts)
 
   local g, drop = build(), {}
   if height then
+    -- A pixel of rounding can put the column just past the cell. Close the
+    -- small gaps before dropping a line the reader still needs.
+    if g:getSize().h > height then g = build(drop, true) end
     for i = #lines, 1, -1 do
       if g:getSize().h <= height then break end
       if lines[i].opt then
         drop[i] = true
-        g = build(drop)
+        g = build(drop, true)
       end
     end
   end
@@ -527,7 +722,7 @@ end
 -- facts rather than one paragraph. A square or tall cell has room for the name,
 -- the count and a ring that fills the rest of it, and no more.
 local function ringCard(ctx, cards, reason)
-  if not cards or #cards == 0 then return empty(ctx, reasonText(reason)) end
+  if not cards or #cards == 0 then return empty(ctx, reasonText(reason), _("Goal ring")) end
   local Kit = require("lib/bookshelf_module_kit")
   local sc = Kit.sc(ctx.scale)
   local HorizontalGroup = require("ui/widget/horizontalgroup")
@@ -565,17 +760,15 @@ local function ringCard(ctx, cards, reason)
     local text = ringText(ctx, card, w, nil, { brief = true, value_pts = 22 })
     local size = math.floor(math.min(w * 0.94,
       h - text:getSize().h - gap - sc(4)) + 0.5)
-    if size >= sc(44) then
+    local ring = size >= sc(44) and ringWithPct(ctx, size, fraction) or nil
+    -- The percentage is the point of the ring. A ring squeezed beside the name
+    -- can be too small for it at a high screen density, so in that case drop
+    -- the name and give the ring the whole tile.
+    if ring and #ring > 1 then
       return CenterContainer:new{ dimen = Geom:new{ w = w, h = h },
-        VerticalGroup:new{ align = "center",
-          ringWithPct(ctx, size, fraction),
-          VerticalSpan:new{ width = gap },
-          text } }
+        VerticalGroup:new{ align = "center", ring,
+          VerticalSpan:new{ width = gap }, text } }
     end
-    -- A cell too short for a ring and a name takes the ring alone, with the
-    -- percentage in its hole. That is what lets the card be one cell wide: at
-    -- that size a name would be cut off, and a ring running past the cell's
-    -- edge says less than one that fits inside it.
     local tile = math.max(sc(24), math.floor(math.min(w, h) * 0.94 + 0.5))
     return CenterContainer:new{ dimen = Geom:new{ w = w, h = h },
       ringWithPct(ctx, tile, fraction) }
@@ -601,8 +794,9 @@ local function goalsFor(a, ctx, limit)
 end
 
 function Modules.goalWidget(a, ctx)
-  if not a then return draw(ctx, nil, "no_plugin") end
-  return draw(ctx, goalsFor(a, ctx, 2))
+  if not a then return draw(ctx, nil, "no_plugin", { heading = _("Reading goal") }) end
+  local cards, reason = goalsFor(a, ctx, 2)
+  return draw(ctx, cards, reason, { heading = _("Reading goal") })
 end
 
 function Modules.goalRingWidget(a, ctx)
@@ -612,8 +806,272 @@ function Modules.goalRingWidget(a, ctx)
 end
 
 function Modules.statsWidget(a, ctx)
-  if not a then return draw(ctx, nil, "no_plugin") end
-  return draw(ctx, { Modules.statsCard(a.shelf_cache, userId()) })
+  if not a then return draw(ctx, nil, "no_plugin", { heading = _("Hardcover stats") }) end
+  -- A stats card without its unit is just a number: keep "10 books" even when
+  -- the cell is too short for the heading and the supporting facts.
+  local card, reason = Modules.statsCard(a.shelf_cache, userId())
+  return draw(ctx, card and { card } or nil, reason,
+    { min_level = 2, heading = _("Hardcover stats") })
+end
+
+-- Uncapped text reports its natural height to Bookshelf's fit search. A
+-- single-line ellipsis would hide overflow and let the host grow clipped labels.
+function Modules.totalWidget(a, ctx, kind)
+  local Theme = require("hardcover/lib/ui/theme")
+  local roomy = not ctx.height or ctx.height >= Theme.space.xl * 4
+  local card, reason
+  if a then card, reason = Modules.totalCard(a.shelf_cache, userId(), kind) else reason = "no_plugin" end
+  if not card then
+    local message = reasonText(reason)
+    if not roomy then
+      message = reason == "signed_out" and _("Sign in") or reason == "no_plugin" and _("Enable plugin")
+        or reason == "incomplete_history" and _("Refresh Stats") or _("Load Stats")
+    end
+    return moduleMessage(ctx, TOTAL_LABELS[kind], message)
+  end
+  local Kit = require("lib/bookshelf_module_kit")
+  local Group = require("ui/widget/verticalgroup")
+  local Span = require("ui/widget/verticalspan")
+  local face, bold = Kit.face(ctx.clamp and Theme.type.title or Theme.type.display, ctx.scale, { bold = true })
+  local value = require("lib/bookshelf_colour_text"):new { text = card.value, face = face, bold = bold,
+    fgcolor = Kit.COLOR_PRIMARY }
+  local label = Kit.fitText { text = card.sub, width = ctx.width, size = Theme.type.label,
+    scale_pct = ctx.scale, fgcolor = Kit.COLOR_MUTED }
+  local gap = Kit.sc(ctx.scale)(Theme.space.xs)
+  if ctx.height then gap = math.max(0, math.min(gap, ctx.height - value:getSize().h - label:getSize().h)) end
+  local g = Group:new { align = "left", value, Span:new { width = gap }, label }
+  if roomy then
+    g[#g + 1] = Span:new { width = Kit.sc(ctx.scale)(Theme.space.xs) }
+    g[#g + 1] = Kit.fitText { text = card.context, width = ctx.width, size = Theme.type.label,
+      scale_pct = ctx.scale, fgcolor = Kit.COLOR_MUTED }
+  end
+  return g
+end
+
+-- ------------------------------------------------------- rediscovery cards
+
+local function choiceOffset(ctx, today)
+  local choice = ctx.config and ctx.config:get("discovery_choice")
+  return choice and choice.day == today and choice.offset or 0
+end
+
+local function discoveryFor(a, ctx, kind)
+  if not a then return nil, "no_plugin" end
+  local today, id = os.date("%Y-%m-%d"), userId()
+  local offset = choiceOffset(ctx, today)
+  if kind == "memories" then return Modules.memoryCard(a.shelf_cache, id, today, offset) end
+  -- The host re-renders repeatedly to fit a cell. Decode the TBR membership
+  -- once per fit, not once per font size. Short-lived: shelf changes appear
+  -- on the next open, even when they were made outside this plugin.
+  local key = tostring(id) .. ":" .. today .. ":" .. offset
+  local memo = a._bookshelf_tbr
+  local now = os.time()
+  if not memo or memo.key ~= key or memo.at ~= now then
+    local card, reason = Modules.tbrCard(a.shelf_store, id, today, offset)
+    memo = { key = key, at = now, card = card, reason = reason }
+    a._bookshelf_tbr = memo
+  end
+  return memo.card, memo.reason
+end
+
+-- Uses only a cached image path. Decode by contents (cache files end in .img,
+-- which ImageWidget's file loader cannot recognise). Each widget owns its
+-- bitmap; nothing is fetched or shared with another fit render.
+local function discoveryCover(ctx, data, width, required)
+  local Kit = require("lib/bookshelf_module_kit")
+  local Theme = require("hardcover/lib/ui/theme")
+  local CenterContainer = require("ui/widget/container/centercontainer")
+  local Geom = require("ui/geometry")
+  local height = math.floor(width * 3 / 2)
+  local url = type(data.image) == "table" and data.image.url
+  local path = url and require("hardcover/lib/ui/image_loader"):cachedPath(url)
+  local image = path and require("ui/renderimage"):renderImageFile(path, false, width, height)
+  if image then
+    return require("ui/widget/imagewidget"):new {
+      image = image, image_disposable = true, width = width, height = height, scale_factor = 0,
+    }
+  end
+  if not required then return nil end
+  -- Keep a book-shaped placeholder; the real title is beside it, not squeezed
+  -- into an unreadable miniature cover.
+  local pad = Kit.sc(ctx.scale)(Theme.space.xs)
+  local border = Theme.line.hair
+  local inner = math.max(1, width - 2 * (pad + border))
+  local icon = Theme.icon("book", math.max(1, math.floor(inner * 0.6)))
+  if Kit.tintIcon then icon = Kit.tintIcon(icon) end
+  return require("ui/widget/container/framecontainer"):new {
+    padding = pad, margin = 0, bordersize = border, color = Kit.COLOR_PRIMARY,
+    background = Kit.CARD_BG,
+    CenterContainer:new {
+      dimen = Geom:new { w = inner, h = math.max(1, height - 2 * (pad + border)) },
+      icon,
+    },
+  }
+end
+
+function Modules.discoveryWidget(a, ctx, kind)
+  if ctx.set_tap_regions then ctx.set_tap_regions({}) end
+  local data, reason = discoveryFor(a, ctx, kind)
+  if not data then
+    return moduleMessage(ctx, kind == "memories" and _("Reading memories") or _("TBR rediscovery"), reasonText(reason))
+  end
+  local Kit = require("lib/bookshelf_module_kit")
+  local Theme = require("hardcover/lib/ui/theme")
+  local TextWidget = require("lib/bookshelf_colour_text")
+  local VerticalGroup = require("ui/widget/verticalgroup")
+  local VerticalSpan = require("ui/widget/verticalspan")
+  local HorizontalGroup = require("ui/widget/horizontalgroup")
+  local HorizontalSpan = require("ui/widget/horizontalspan")
+  local FrameContainer = require("ui/widget/container/framecontainer")
+  local CenterContainer = require("ui/widget/container/centercontainer")
+  local Geom = require("ui/geometry")
+  local sc = Kit.sc(ctx.scale)
+  local gap, w = sc(Theme.space.s), ctx.width
+  local memories = kind == "memories"
+  local wide = wideCell(ctx, w)
+  local compact = not wide and ctx.height and ctx.height < w * 1.25
+  local function line(text, size, width, secondary, bold)
+    local face, weight = Kit.face(size, ctx.scale, { bold = bold })
+    return TextWidget:new { text = text, face = face, bold = weight,
+      max_width = width, fgcolor = secondary and Kit.COLOR_MUTED or Kit.COLOR_PRIMARY }
+  end
+  local button, button_w, button_h
+  if data.candidates > 1 and ctx.set_tap_regions and ctx.config and not ctx.preview then
+    local label = line(_("Another"), Theme.type.small, nil, false)
+    button_w = wide and math.max(Theme.TOUCH_MIN, label:getSize().w + 2 * gap) or w
+    button_h = math.max(Theme.TOUCH_MIN, label:getSize().h + 2 * gap)
+    button = FrameContainer:new { padding = 0, margin = 0,
+      bordersize = Theme.line.hair, color = Kit.COLOR_PRIMARY, radius = Theme.mmd.button.radius,
+      CenterContainer:new { dimen = Geom:new { w = button_w - 2 * Theme.line.hair,
+        h = button_h - 2 * Theme.line.hair }, label } }
+  end
+  local function dateHeader(width)
+    return VerticalGroup:new { align = "left",
+      line(_("This month in"), Theme.type.small, width, true),
+      line(data.date:sub(1, 4), Theme.type.display * 1.6, nil, false, true),
+    }
+  end
+  local function words(width)
+    local g = VerticalGroup:new { align = "left" }
+    local flexible_gap
+    if memories and not wide then
+      g[#g + 1] = dateHeader(width)
+      flexible_gap = VerticalSpan:new { width = gap }
+      g[#g + 1] = flexible_gap
+    elseif not memories and not compact then
+      g[#g + 1] = line(_("On your TBR"), Theme.type.small, width, true)
+      g[#g + 1] = VerticalSpan:new { width = gap }
+    end
+    local title_at = #g + 1
+    local title_args = { text = data.title or _("Untitled"), width = width,
+      size = Theme.type.body, scale_pct = ctx.scale, opts = { bold = true },
+      max_h = sc(Theme.px(Theme.type.body) * 3) } -- two title lines, not a paragraph
+    g[title_at] = Kit.fitText(title_args)
+    if data.author then g[#g + 1] = line(data.author, Theme.type.small, width, true) end
+    local rating_at
+    if memories and data.rating then
+      rating_at = #g + 1
+      g[rating_at] = line(string.format(_("Your rating: %s / 5"), data.rating), Theme.type.small, width, false)
+    elseif not memories then
+      local Goals = require("hardcover/lib/goals")
+      flexible_gap = VerticalSpan:new { width = gap }
+      g[#g + 1] = flexible_gap
+      g[#g + 1] = compact and Kit.fitText { text = _("Added to Hardcover"), width = width,
+        size = Theme.type.label, scale_pct = ctx.scale, fgcolor = Kit.COLOR_MUTED }
+        or line(_("Added to Hardcover"), Theme.type.label, width, true)
+      g[#g + 1] = line(Goals.dateLabel(data.date), Theme.type.label, width, true)
+    end
+    if data.stale and not compact and (not ctx.height or ctx.height >= Theme.space.xl * 4) then
+      g[#g + 1] = line(_("From saved history"), Theme.type.label, width, true)
+    end
+    -- The host's final clamp keeps the date, attribution and action visible;
+    -- the title is the flexible part. Do not run another font-fit loop here.
+    if ctx.clamp and ctx.height then
+      local limit = ctx.height - (not wide and button and button_h or 0)
+      local overflow = g:getSize().h - limit
+      if overflow > 0 and flexible_gap then
+        local removed = math.min(flexible_gap.width, overflow)
+        flexible_gap.width = flexible_gap.width - removed
+        overflow = overflow - removed
+        g:resetLayout()
+      end
+      -- A cell still too tight after the gap closed drops the rating line
+      -- before the title gives up any of its lines.
+      if overflow > 0 and rating_at and g[rating_at] then
+        table.remove(g, rating_at)
+        g:resetLayout()
+        overflow = g:getSize().h - limit
+      end
+      if overflow > 0 then
+        title_args.max_h = math.max(1, g[title_at]:getSize().h - overflow)
+        g[title_at]:free()
+        g[title_at] = Kit.fitText(title_args)
+        g:resetLayout()
+      end
+    end
+    return g
+  end
+  local body
+  if wide then
+    local body_w = w - (button and button_w + gap or 0)
+    local cover_w = math.min(math.floor(body_w * 0.2),
+      sc(Theme.space.xl * (memories and 1.5 or 2)))
+    if ctx.height then cover_w = math.min(cover_w, math.floor(ctx.height * 2 / 3)) end
+    local cover = discoveryCover(ctx, data, cover_w, not memories)
+    local date = memories and dateHeader(math.floor(body_w * 0.3))
+    local text_w = body_w - (cover and cover_w + gap or 0) - (date and date:getSize().w + gap or 0)
+    body = HorizontalGroup:new { align = "center" }
+    if date then body[#body + 1] = date; body[#body + 1] = HorizontalSpan:new { width = gap } end
+    if cover and not memories then body[#body + 1] = cover; body[#body + 1] = HorizontalSpan:new { width = gap } end
+    body[#body + 1] = words(math.max(1, text_w))
+    if cover and memories then body[#body + 1] = HorizontalSpan:new { width = gap }; body[#body + 1] = cover end
+  elseif memories then
+    body = words(w)
+  elseif compact then
+    local cover_w = math.min(math.floor(w / 3), sc(Theme.space.xl * 2))
+    body = HorizontalGroup:new { align = "center", discoveryCover(ctx, data, cover_w, true),
+      HorizontalSpan:new { width = gap }, words(w - cover_w - gap) }
+  else
+    local column = words(w)
+    local cover_w = math.min(math.floor(w * 0.65), sc(Theme.space.xl * 4))
+    if ctx.clamp and ctx.height then
+      local room = ctx.height - column:getSize().h - gap - (button and button_h + gap or 0)
+      cover_w = math.max(1, math.min(cover_w, math.floor(room * 2 / 3)))
+    end
+    body = VerticalGroup:new { align = "left",
+      CenterContainer:new { dimen = Geom:new { w = w, h = math.floor(cover_w * 1.5) },
+        discoveryCover(ctx, data, cover_w, true) },
+      VerticalSpan:new { width = gap }, column }
+  end
+  -- The host handles taps; a visible button contributes a region in the
+  -- returned widget's coordinates. Preserve a finger-sized target even when
+  -- the host shrinks the type. Older hosts simply get the whole-card action.
+  if not button then return body end
+  if wide then
+    local h = math.max(body:getSize().h, button_h)
+    ctx.set_tap_regions({ { id = "another", x = body:getSize().w + gap,
+      y = math.floor((h - button_h) / 2), w = button_w, h = button_h } })
+    return HorizontalGroup:new { align = "center", body, HorizontalSpan:new { width = gap }, button }
+  end
+  local footer_gap = gap
+  if ctx.height then footer_gap = math.max(0, math.min(gap, ctx.height - body:getSize().h - button_h)) end
+  ctx.set_tap_regions({ { id = "another", x = 0, y = body:getSize().h + footer_gap, w = w, h = button_h } })
+  return VerticalGroup:new { align = "left", body, VerticalSpan:new { width = footer_gap }, button }
+end
+
+function Modules.discoveryTap(a, ctx, kind)
+  if not a then return end
+  if ctx.tapped_region == "another" and ctx.config then
+    local today = os.date("%Y-%m-%d")
+    ctx.config:set("discovery_choice", { day = today, offset = choiceOffset(ctx, today) + 1 })
+    return
+  end
+  local data = discoveryFor(a, ctx, kind)
+  local dm = a.dialog_manager
+  if not dm then return end
+  if data then dm:showBookDetail(data.book_id)
+  elseif kind == "tbr" then dm:showShelf(1, _("Want to Read"))
+  else dm:showStats() end
 end
 
 -- ------------------------------------------------------------- year card
@@ -701,7 +1159,9 @@ local function monthChart(ctx, data, width, height)
     elseif bar_w * 3 >= widest + sc(2) then step = 3 end
   end
   local labels = step > 0
-  local label_h = labels and sc(15) or 0
+  -- Reserve the measured height of the month names, not a fixed guess: at the
+  -- host's larger scales a guessed row was shorter than the text it held.
+  local label_h = labels and names[1]:getSize().h + sc(2) or 0
   local bars_h = math.max(1, h - label_h)
 
   local Chart = Widget:extend{}
@@ -719,7 +1179,9 @@ local function monthChart(ctx, data, width, height)
           -- than a measurement. Four sides, thin enough to stay a bar.
           local t = math.max(1, sc(1))
           Color.paintRect(bb, bx, by, bar_w, t, ink)
-          Color.paintRect(bb, bx, y + h - t, bar_w, t, ink)
+          -- The bottom edge sits on the bars' baseline, not at the chart's
+          -- full height: the month names live below that baseline.
+          Color.paintRect(bb, bx, y + bars_h - t, bar_w, t, ink)
           if bh > 2 * t then
             Color.paintRect(bb, bx, by, t, bh, ink)
             Color.paintRect(bb, bx + bar_w - t, by, t, bh, ink)
@@ -745,7 +1207,7 @@ end
 -- the year. A wide cell puts the words beside the bars; a short one gives up the
 -- caption before it gives up the bars.
 local function yearDraw(ctx, data, reason)
-  if not data then return empty(ctx, reasonText(reason)) end
+  if not data then return empty(ctx, reasonText(reason), _("Year in books")) end
   local Kit = require("lib/bookshelf_module_kit")
   local TextWidget = require("lib/bookshelf_colour_text")
   local VerticalGroup = require("ui/widget/verticalgroup")
@@ -763,21 +1225,39 @@ local function yearDraw(ctx, data, reason)
   -- The year and its total. Built per width, because a wide cell gives the
   -- words a column and the bars the rest: without the limit a long total would
   -- push the bars off the card.
-  local function title(width)
+  local function title(width, tight, no_unit)
+    local limit = width or w
     local heading = TextWidget:new{ text = tostring(data.year),
       face = Kit.face(15, ctx.scale, { bold = true }), bold = true,
       fgcolor = Kit.COLOR_MUTED, max_width = width }
     local value = TextWidget:new{ text = grouped(data.total),
       face = Kit.face(26, ctx.scale, { bold = true }), bold = true,
       fgcolor = Kit.COLOR_PRIMARY, max_width = width }
+    -- Measure the unit beside the total before capping it. If the pair does
+    -- not fit, the unit goes under the number instead of being cut off.
     local suffix = TextWidget:new{ text = " " .. data.unit,
-      face = Kit.face(14, ctx.scale), fgcolor = Kit.COLOR_PRIMARY,
-      max_width = math.max(10, (width or w) - value:getSize().w) }
-    local dy = math.max(0, value:getBaseline() - suffix:getBaseline())
-    return VerticalGroup:new{ align = "left",
-      heading, VerticalSpan:new{ width = sc(2) },
-      HorizontalGroup:new{ align = "top", value,
-        VerticalGroup:new{ align = "left", VerticalSpan:new{ width = dy }, suffix } } }
+      face = Kit.face(14, ctx.scale), fgcolor = Kit.COLOR_PRIMARY }
+    local unit_line
+    if value:getSize().w + suffix:getSize().w > limit then
+      suffix = nil
+      unit_line = TextWidget:new{ text = data.unit,
+        face = Kit.face(tight and 12 or 13, ctx.scale),
+        fgcolor = Kit.COLOR_MUTED, max_width = width }
+    end
+    if no_unit then suffix, unit_line = nil, nil end
+    local total = value
+    if suffix then
+      local dy = math.max(0, value:getBaseline() - suffix:getBaseline())
+      total = HorizontalGroup:new{ align = "top", value,
+        VerticalGroup:new{ align = "left", VerticalSpan:new{ width = dy }, suffix } }
+    end
+    local g = VerticalGroup:new{ align = "left",
+      heading, VerticalSpan:new{ width = tight and 0 or sc(2) }, total }
+    if unit_line then
+      g[#g + 1] = VerticalSpan:new{ width = tight and 0 or sc(1) }
+      g[#g + 1] = unit_line
+    end
+    return g
   end
   local caption
   if data.peak_month then
@@ -798,6 +1278,16 @@ local function yearDraw(ctx, data, reason)
       column[#column + 1] = VerticalSpan:new{ width = sc(4) }
       column[#column + 1] = caption
     end
+    -- The chart fills the cell height, so a column taller than the cell would
+    -- be clipped even though the chart fits. Drop the caption before that.
+    if column:getSize().h > h then
+      column = VerticalGroup:new{ align = "left", title(words_w, true) }
+    end
+    -- Still too tall: the unit goes before the card is clipped. The year and
+    -- the total remain, and the chart carries the rest of the meaning.
+    if column:getSize().h > h then
+      column = VerticalGroup:new{ align = "left", title(words_w, true, true) }
+    end
     return HorizontalGroup:new{ align = "center",
       column,
       HorizontalSpan:new{ width = gap },
@@ -813,9 +1303,12 @@ local function yearDraw(ctx, data, reason)
       monthChart(ctx, data, w, sc(70)) }
   end
   local room = h - text_h - gap
+  local caption_gap = sc(6)
   if caption then
-    if room - caption:getSize().h - sc(3) >= sc(24) then
-      room = room - caption:getSize().h - sc(3)
+    -- Reserve exactly the gap the caption is later given. Reserving a smaller
+    -- one pushed the card a few pixels past the cell, which the host clipped.
+    if room - caption:getSize().h - caption_gap >= sc(24) then
+      room = room - caption:getSize().h - caption_gap
     else
       caption = nil
     end
@@ -823,7 +1316,7 @@ local function yearDraw(ctx, data, reason)
   local stack = VerticalGroup:new{ align = "left", text, VerticalSpan:new{ width = gap },
     monthChart(ctx, data, w, math.max(sc(16), room)) }
   if caption then
-    stack[#stack + 1] = VerticalSpan:new{ width = sc(6) }
+    stack[#stack + 1] = VerticalSpan:new{ width = caption_gap }
     stack[#stack + 1] = caption
   end
   return CenterContainer:new{ dimen = Geom:new{ w = w, h = h }, stack }
@@ -838,6 +1331,60 @@ end
 -- running goals, or leave it on Automatic. A pinned goal that has since ended
 -- falls back to Automatic, which is what the card is already showing. Adding the
 -- card twice and pinning each to a different goal shows two goals at once.
+-- A shelf's layout editor works on copies of its modules. Saving the whole
+-- copy from a settings dialog would also write back its older style and
+-- position, and the host's fitted-size memo can reuse the previous goal's
+-- render. Change only the goal on the stored shelf module, then forget that
+-- card's fit.
+local function shelfModule(ctx)
+  if ctx.surface ~= "shelf" or not (ctx.bw and ctx.entry and ctx.entry.id) then return nil end
+  local ok, found = pcall(function()
+    local TabModel = require("lib/bookshelf_tab_model")
+    local tabs = TabModel.load()
+    for _, tab in ipairs(tabs or {}) do
+      if tab.id == ctx.bw.chip and type(tab.shelf_modules) == "table" then
+        for _, m in ipairs(tab.shelf_modules) do
+          if m.id == ctx.entry.id then
+            return { tabs = tabs, module = m, TabModel = TabModel }
+          end
+        end
+      end
+    end
+  end)
+  return ok and found or nil
+end
+
+local function shelfGoal(ctx)
+  local found = shelfModule(ctx)
+  if found then return found.module.goal end
+  return ctx.config and ctx.config:get("goal")
+end
+
+local function setShelfGoal(ctx, value)
+  local found = shelfModule(ctx)
+  if not found then return false end
+  found.module.goal = value
+  if not pcall(function() found.TabModel.save(found.tabs) end) then return false end
+  -- The editor holds a copy; keep its goal in step so its next save does not
+  -- write the old one back.
+  if ctx.entry then ctx.entry.goal = value end
+  pcall(function()
+    local Cache = require("lib/bookshelf_module_cache")
+    local memo = Cache.read("module_fit_memo")
+    if type(memo) ~= "table" then return end
+    local changed, id = false, "|" .. tostring(ctx.entry.id) .. "|"
+    for key in pairs(memo) do
+      if type(key) == "string" and key:find(id, 1, true) then
+        memo[key] = nil
+        changed = true
+      end
+    end
+    if changed then Cache.save("module_fit_memo", memo) end
+  end)
+  pcall(function() require("lib/bookshelf_hero_modules")._resetFitMemo() end)
+  return true
+end
+
 function Modules.goalSettings(a, ctx)
   if not (ctx and ctx.config) then return end
   local UIManager = require("ui/uimanager")
@@ -845,7 +1392,7 @@ function Modules.goalSettings(a, ctx)
   local Kit = require("lib/bookshelf_module_kit")
 
   local choices = a and Modules.goalChoices(a.shelf_cache, a.goal_queue, userId()) or {}
-  local pinned = ctx.config:get("goal")
+  local pinned = shelfGoal(ctx)
   local active
   for _, c in ipairs(choices) do
     if pinned ~= nil and tostring(c.id) == tostring(pinned) then active = c.id end
@@ -856,7 +1403,12 @@ function Modules.goalSettings(a, ctx)
   local function close(setting, value)
     return function()
       UIManager:close(dialog)
-      if setting == "delete" then ctx.config:delete("goal") else ctx.config:set("goal", value) end
+      local goal = setting == "delete" and nil or value
+      if setShelfGoal(ctx, goal) then
+        if ctx.menu and ctx.menu._reload then ctx.menu:_reload() end
+        return
+      end
+      if setting == "delete" then ctx.config:delete("goal") else ctx.config:set("goal", goal) end
     end
   end
 

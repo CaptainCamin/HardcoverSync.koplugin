@@ -87,6 +87,79 @@ function Stats.normalizeAll(list)
   return rows
 end
 
+-- Full reading history for the Bookshelf cards. Separate from the dashboard's
+-- one/latest-finish rows above: a book currently being reread still belongs here.
+-- Counting follows hardcoverapp/hardcover-sdk's shared/stats.json. Keep only the
+-- completed reads, and never assign an unknown/year-only finish to a month.
+function Stats.history(list, roles, specializations)
+  local primary, overrides = {}, {}
+  for _, role in ipairs(roles or {}) do primary[role.id] = role.primary end
+  for _, role in ipairs(specializations or {}) do
+    overrides[tostring(role.contributor_role_id) .. ":" .. tostring(role.contributor_specialization_id)] = role.primary
+  end
+  local function isAuthor(c)
+    local role = (c.contributor_role_name or c.contribution or ""):lower():match("^%s*(.-)%s*$")
+    if role == "translator" then return false end
+    if type(c.primary) == "boolean" then return c.primary end
+    if c.contributor_role_id then
+      local override = overrides[tostring(c.contributor_role_id) .. ":" .. tostring(c.contributor_specialization_id)]
+      if override ~= nil then return override end
+      return primary[c.contributor_role_id] == true
+    end
+    return role == "" or role == "author" or role == "writer"
+  end
+  local function finish(value, precision)
+    if tonumber(precision) == 0 then return nil end
+    return datePart(value, precision)
+  end
+  local history = {}
+  for _, raw in ipairs(list or {}) do
+    local book = raw.book or {}
+    if book.id and (raw.status_id == 3 or (tonumber(raw.read_count) or 0) >= 1) then
+      local row = { book_id = book.id, title = text(book.title), rating = number(raw.rating),
+        image = book.cached_image, authors = {}, reads = {}, completions = 0 }
+      for _, c in ipairs(book.cached_contributors or {}) do
+        local author = c.author
+        if author and (author.id or text(author.slug)) and isAuthor(c) then
+          row.authors[#row.authors + 1] = { id = author.id, slug = author.slug, name = text(author.name) }
+        end
+      end
+      local reads = raw.user_book_reads or {}
+      local has_finish, eligible, carrier = false, {}, nil
+      for _, read in ipairs(reads) do
+        if read.finished_at then has_finish = true end
+        if tonumber(read.finished_at_precision) ~= 0 then eligible[#eligible + 1] = read end
+      end
+      -- The query orders by latest finish for the existing dashboard. Fallback
+      -- carriers use id order, as Hardcover does, not whichever row arrived first.
+      table.sort(eligible, function(a, b) return (a.id or 0) < (b.id or 0) end)
+      local fallback = raw.last_read_date and not has_finish and #eligible > 0
+      if fallback then
+        for _, read in ipairs(eligible) do if not read.started_at then carrier = read; break end end
+        if not carrier then
+          for _, read in ipairs(eligible) do
+            if read.started_at <= raw.last_read_date then carrier = read; break end
+          end
+        end
+      end
+      local function add(date)
+        row.completions = row.completions + 1
+        if date then row.reads[#row.reads + 1] = date end
+      end
+      for _, read in ipairs(reads) do
+        if read.finished_at or read == carrier
+            or (read.finished_at_precision ~= nil and (tonumber(read.progress) or 0) >= 100) then
+          add(finish(read.finished_at or (read == carrier and raw.last_read_date), read.finished_at_precision))
+        end
+      end
+      if #reads == 0 or (fallback and not carrier) then add(finish(raw.last_read_date)) end
+      if row.completions == 0 then add(nil) end -- imported Read entries still count once
+      history[#history + 1] = row
+    end
+  end
+  return history
+end
+
 local function yearOf(row) return row.date and tonumber(row.date:sub(1, 4)) or nil end
 
 -- Noon of a "YYYY-MM-DD" day, in seconds. Noon keeps a day change clear of a daylight-saving shift.

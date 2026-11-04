@@ -82,9 +82,17 @@ jobs:
       - name: Install the plugin's fonts
         run: cp fonts/Lato-Medium.ttf fonts/Lato-Black.ttf squashfs-root/usr/lib/koreader/fonts/
 
+      - name: Download Bookshelf 6.2 for micro-module integration
+        uses: actions/checkout@v4
+        with:
+          repository: AndyHazz/bookshelf.koplugin
+          ref: 78f582fd8e4f2612b2d41498e6878af90d30f31e
+          path: .bookshelf
+
       - name: Run the emulator scenarios
         env:
           KO_EMU_APP: ${{ github.workspace }}/squashfs-root
+          KO_EMU_BOOKSHELF: ${{ github.workspace }}/.bookshelf
           KO_EMU_HOME: ${{ runner.temp }}/ko-home
           KO_EMU_OUT: ${{ runner.temp }}/ko-out
           KO_EMU_W: ${{ matrix.w }}

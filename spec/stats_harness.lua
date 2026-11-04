@@ -128,4 +128,33 @@ eq(#Stats.compute(Stats.normalizeAll(many)).by_year, 30, "history capped at 30 y
 local g = Stats.genres({ { tag = "B", count = 2 }, { tag = "A", count = 2 }, { tag = "C", count = 9 }, { tag = "D", count = 0 }, "x" })
 eq(#g, 3, "genres") eq(g[1].label, "C", "genre order") eq(g[2].label, "A", "genre tie by name")
 
+-- Imported completions must not disappear or turn an unfinished read into a
+-- second completion. A fallback date belongs to the earlier read, not a later
+-- reread, and a 100%-complete read may have an explicitly unknown finish date.
+local imported = Stats.history({
+  { status_id = 3, book = { id = 1 }, user_book_reads = {} },
+  { status_id = 2, read_count = 1, last_read_date = "2023-05-06", book = { id = 2 }, user_book_reads = {
+    { id = 8, started_at = "2026-01-01", progress = 40 },
+  } },
+  { status_id = 3, last_read_date = "2024-06-07", book = { id = 3 }, user_book_reads = {
+    { id = 12, started_at = "2025-01-01", progress = 5 },
+    { id = 10, started_at = "2024-01-01", progress = 100 },
+  } },
+  { status_id = 3, book = { id = 4 }, user_book_reads = {
+    { id = 20, finished_at_precision = 0, progress = 100 },
+    { id = 21, finished_at_precision = 0, progress = 100 },
+    { id = 22, progress = 100 }, -- no finish metadata: not a completion
+  } },
+  { status_id = 5, read_count = 0, book = { id = 5 }, user_book_reads = { { progress = 20 } } },
+})
+eq(#imported, 4, "unfinished/DNF entries are not finished books")
+eq(imported[1].completions, 1, "undated imported Read entry")
+eq(#imported[1].reads, 0, "undated stays undated")
+eq(imported[2].completions, 1, "unfinished reread adds no completion")
+eq(imported[2].reads[1], "2023-05-06", "earlier completion kept separately")
+eq(imported[3].completions, 1, "fallback merged with earlier read, not counted twice")
+eq(imported[3].reads[1], "2024-06-07", "fallback date carried")
+eq(imported[4].completions, 2, "unknown-date completions still count")
+eq(#imported[4].reads, 0, "unknown dates produce no anniversaries")
+
 print("stats_harness OK")

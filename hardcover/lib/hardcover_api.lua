@@ -1593,36 +1593,51 @@ function HardcoverApi:deleteJournalEntry(id)
 end
 
 --
--- The books you have finished, for Stats: lean rows (no covers, no descriptions) in pages of
--- STATS_PAGE, in a fixed order so the pages do not overlap, plus your genre counts. Returns
--- { rows = Stats rows, genres = Stats.genres, complete = bool } (complete false when the
+-- The books you have finished, including those now being reread. The dashboard
+-- keeps its existing Read-shelf/latest-finish rows; history retains every completed
+-- read and all primary authors for the Bookshelf cards. Cover URLs only, no images.
+-- Returns { rows, history, genres, complete } (complete false when the
 -- library is longer than STATS_MAX_PAGES pages), or nil and the error.
 --
 local STATS_PAGE = 500
 local STATS_MAX_PAGES = 8
 
 function HardcoverApi:getStats(user_id)
-  local raw, genres = {}, nil
+  local raw, finished, genres, roles, specializations = {}, {}, nil, nil, nil
   local complete = false
   for page = 0, STATS_MAX_PAGES - 1 do
     local result, err = self:query([[
       query ($userId: Int!, $offset: Int!, $limit: Int!) {
-        ]] .. (page == 0 and "me { cached_genres }" or "") .. [[
+        ]] .. (page == 0 and [[
+          me { cached_genres }
+          contributor_roles { id primary }
+          contributor_role_specializations(where: { primary: { _is_null: false } }) {
+            contributor_role_id contributor_specialization_id primary
+          }
+        ]] or "") .. [[
         user_books(
-          where: { user_id: { _eq: $userId }, status_id: { _eq: 3 } }
+          where: { user_id: { _eq: $userId },
+            _or: [{ status_id: { _eq: 3 } }, { read_count: { _gte: 1 } }] }
           order_by: [{ id: asc }]
           offset: $offset
           limit: $limit
         ) {
           id
+          status_id
+          read_count
           rating
           last_read_date
-          user_book_reads(order_by: [{ finished_at: desc_nulls_last }], limit: 1) {
+          user_book_reads(order_by: [{ finished_at: desc_nulls_last }, { id: asc }]) {
+            id
             started_at
             finished_at
             finished_at_precision
+            progress
           }
-          book { title pages audio_seconds contributions { author { name } } }
+          book {
+            id title pages audio_seconds cached_image cached_contributors
+            contributions { author { name } }
+          }
         }
       }
     ]], { userId = user_id, offset = page * STATS_PAGE, limit = STATS_PAGE }, true)
@@ -1632,14 +1647,19 @@ function HardcoverApi:getStats(user_id)
     if page == 0 then
       local me = type(result.me) == "table" and result.me[1] or nil
       genres = Stats.genres(type(me) == "table" and me.cached_genres or nil)
+      roles, specializations = result.contributor_roles, result.contributor_role_specializations
     end
-    for _, row in ipairs(result.user_books) do raw[#raw + 1] = row end
+    for _, row in ipairs(result.user_books) do
+      raw[#raw + 1] = row
+      if row.status_id == 3 then finished[#finished + 1] = row end
+    end
     if #result.user_books < STATS_PAGE then
       complete = true
       break
     end
   end
-  return { rows = Stats.normalizeAll(raw), genres = genres or {}, complete = complete }
+  return { rows = Stats.normalizeAll(finished), history = Stats.history(raw, roles, specializations),
+    genres = genres or {}, complete = complete }
 end
 
 -- ------------------------------------------------------------------------------
