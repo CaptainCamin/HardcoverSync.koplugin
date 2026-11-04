@@ -96,6 +96,15 @@ return {
     assert(manager.stats_dialog.note and manager.stats_dialog.note:find("Offline"), "no offline note: " .. tostring(manager.stats_dialog.note))
     emu:shot("stats_offline")
     emu:closeAll()
+
+    -- first time offline: no saved copy, so say so instead of loading forever
+    manager.shelf_cache:clear()
+    manager:showStats()
+    for _ = 1, 4 do emu:pump() end
+    emu:expectText("Stats need an internet connection the first time.")
+    assert(not (manager.stats_dialog and manager.stats_dialog.rows), "an empty save was shown as data")
+    emu:shot("stats_first_offline")
+    emu:closeAll()
     Network.isConnected, Network.getConnectionState = was, was_state
 
     -- nothing finished yet

@@ -17,6 +17,15 @@ release. Fix a parked scenario and delete its line.
 Output lands in `spec/emu/.out/`: a `.png` per screen plus a `.txt` of
 everything drawn, with coordinates.
 
+The `bookshelf_modules` and `bookshelf_goal_stats` scenarios also need a
+Bookshelf 6.2 checkout. Set `KO_EMU_BOOKSHELF` to its absolute path; without it,
+those scenarios skip.
+CI downloads the pinned upstream revision in `test.yml`. The scenario runs
+the real host's sizing and tap routing with saved Hardcover fixtures, including
+small totals, wide discovery cards, missing covers and empty libraries.
+`bookshelf_goal_stats` does the same for the goal, ring, stats and year cards at
+a square cell, a short 2x1 strip and the ring's one-cell tile.
+
 ## Why this and not more stubbing
 
 The existing `spec/*_harness.lua` suite stubs KOReader and captures what the

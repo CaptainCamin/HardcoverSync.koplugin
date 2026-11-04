@@ -114,7 +114,7 @@ Api.getShelfMembers = function(_, _, status_id, offset)
   return {}, nil, false
 end
 Api.getBooksByIds = function(_, ids) call("getBooksByIds", ids) return {} end
-Api.getStatsAsync = function(_, _, cb) call("getStats"); cb({ rows = { { title = "x" } }, genres = {}, complete = true }) end
+Api.getStatsAsync = function(_, _, cb) call("getStats"); cb({ rows = { { title = "x" } }, history = {}, genres = {}, complete = true }) end
 Api.getForYouAsync = function(_, cb) call("getForYou"); cb({ { book_id = 77, title = "Pick" } }) end
 Api.getCurrentlyReading = function() call("getCurrentlyReading") return nil end
 Api.getListCount = function() call("getListCount") return nil end
@@ -549,9 +549,20 @@ print("\n== Stats ==")
 
 check("unchanged Read, saved this week: Stats opens with no request for your books", function()
   local m = newManager()
-  m.shelf_cache:putStats(1, { rows = { { title = "x" } }, genres = {} }, FP[3])
+  m.shelf_cache:putStats(1, { rows = { { title = "x" } }, history = {}, genres = {} }, FP[3])
   m:showStats()
   assert(named("getStats") == 0 and named("getShelfCounts") == 0, "asked: " .. #calls)
+end)
+
+check("legacy or incomplete Stats refreshes once, even with an unchanged Read shelf", function()
+  for _, saved in ipairs({ { rows = {}, genres = {} }, { rows = {}, history = {}, complete = false } }) do
+    local m = newManager()
+    m.shelf_cache:putStats(1, saved, FP[3])
+    m:showStats()
+    assert(named("getStats") == 1 and m.shelf_cache:stats(1).history, "partial rows were trusted as full history")
+    m:showStats()
+    assert(named("getStats") == 1, "repeated the upgrade")
+  end
 end)
 
 check("Read changed: Stats loads again, and keeps the new fingerprint", function()
@@ -574,7 +585,7 @@ end)
 
 check("when Home has not checked lately, one small request decides", function()
   local m = newManager()
-  m.shelf_cache:putStats(1, { rows = {}, genres = {} }, FP[3])
+  m.shelf_cache:putStats(1, { rows = {}, history = {}, genres = {} }, FP[3])
   clock = clock + 3600
   m:showStats()
   assert(named("getShelfCounts") == 1 and named("getStats") == 0)

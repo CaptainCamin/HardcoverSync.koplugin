@@ -53,8 +53,9 @@ end
 local function rows(n, from)
   local list = {}
   for i = 1, n do
-    list[i] = { id = (from or 0) + i, rating = 4, last_read_date = "2024-05-05", user_book_reads = {},
-      book = { title = "B" .. i, pages = 100, contributions = {} } }
+    list[i] = { id = (from or 0) + i, status_id = 3, read_count = 1, rating = 4,
+      last_read_date = "2024-05-05", user_book_reads = {},
+      book = { id = (from or 0) + i, title = "B" .. i, pages = 100, contributions = {} } }
   end
   return list
 end
@@ -66,6 +67,40 @@ check("a short library is one request, ordered by id, never cancelled by a touch
   assert(stats.genres[1].label == "Fantasy" and stats.genres[1].value == 3, "genres")
   assert(#sent == 1 and sent[1].background == true and sent[1].vars.userId == 7291 and sent[1].vars.offset == 0)
   assert(sent[1].q:find("order_by: [{ id: asc }]", 1, true), "unordered paging overlaps")
+end)
+
+check("history includes current rereads, every completion and primary coauthors; the dashboard is unchanged", function()
+  local raw = rows(2)
+  raw[1].rating = 5
+  raw[1].user_book_reads = {
+    { id = 3, finished_at = "2025-11-09", finished_at_precision = 1 },
+    { id = 1, finished_at = "2023-11-01", finished_at_precision = 2 },
+    { id = 2, finished_at = "2024-01-01", finished_at_precision = 3 },
+  }
+  raw[1].book.cached_contributors = {
+    { primary = true, author = { id = 10, name = "A" } },
+    { contributor_role_id = 1, author = { id = 11, name = "B" } },
+    { primary = true, contribution = "Translator", author = { id = 12, name = "Translator" } },
+    { primary = false, author = { id = 13, name = "Narrator" } },
+    { contributor_role_id = 1, contributor_specialization_id = 2, author = { id = 14 } },
+  }
+  raw[2].status_id = 2 -- a previously finished book now being reread
+  raw[2].rating = 4.5
+  raw[2].user_book_reads = {
+    { id = 5, started_at = "2026-10-01", progress = 60 }, -- not a completed reread
+    { id = 4, finished_at = "2024-11-01", finished_at_precision = 0 }, -- completion, unknown date
+  }
+  answers({ result = { me = {}, user_books = raw,
+    contributor_roles = { { id = 1, primary = true } },
+    contributor_role_specializations = { { contributor_role_id = 1, contributor_specialization_id = 2, primary = false } },
+  } })
+  local stats = Api:getStats(1)
+  assert(#stats.rows == 1 and stats.rows[1].date == "2025-11-09", "the existing dashboard population changed")
+  assert(#stats.history == 2 and stats.history[1].book_id == 1)
+  assert(stats.history[1].completions == 3 and stats.history[2].completions == 1, "an unfinished reread was counted")
+  assert(#stats.history[1].authors == 2, "coauthors lost or non-authors counted")
+  assert(stats.history[1].reads[2] == "2023-11" and stats.history[1].reads[3] == "2024", "date precision lost")
+  assert(#stats.history[2].reads == 0, "unknown precision became a dated memory")
 end)
 
 check("a long library is paged by 500 until a short page", function()

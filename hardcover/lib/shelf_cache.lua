@@ -340,8 +340,8 @@ function ShelfCache:findEntry(user_id, book_id)
   end
 end
 
--- Your finished books as Stats last loaded them: { rows, genres, complete, saved_at }, or
--- nil. Rows are small (no covers or descriptions), so this lives in the shelf file.
+-- Your finished books as Stats last loaded them, including full reading history
+-- for the Bookshelf cards. Old saves lack `history` until Stats next refreshes.
 function ShelfCache:stats(user_id)
   local store = self:_store()
   local saved = store and store:readSetting("stats")
@@ -361,6 +361,7 @@ function ShelfCache:putStats(user_id, stats, fingerprint)
   end
   saved[tostring(user_id or 0)] = {
     rows = stats.rows, genres = stats.genres or {}, complete = stats.complete ~= false, saved_at = os.time(),
+    history = stats.history,
     fingerprint = fingerprint,
   }
   return (pcall(store.flush, store))

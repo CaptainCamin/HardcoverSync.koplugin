@@ -61,6 +61,8 @@ Home’s bottom tabs open **Library**, **Goals**, and **Stats**. You can also as
 
 Automatic linking by ISBN or Hardcover metadata, batch linking of books on your device, and sync frequency are available in Settings. Progress is mapped to the Hardcover edition’s page count, so page numbers may differ from KOReader’s.
 
+**Using Bookshelf 6.2?** Its micro-module picker includes Hardcover reading memories, TBR rediscovery, authors read, books read, five-star books and rereads, alongside the goal and stats cards. Open Hardcover’s Stats screen once to load reading history, and Want to Read for TBR rediscovery. The cards then work offline; covers appear when cached. Totals cover your whole Hardcover history, not just this device. Memories shows this month in earlier years; TBR rediscovery chooses books added to Hardcover before this month that are still on Want to Read.
+
 <details>
 <summary><strong>Advanced: use your own OAuth app or API token</strong></summary>
 

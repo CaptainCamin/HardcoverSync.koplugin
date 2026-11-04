@@ -52,6 +52,9 @@ package.preload["lib/bookshelf_module_kit"] = function()
     end,
     sc = function(scale) local s = (scale or 100) / 100; return function(n) return math.floor(n * s + 0.5) end end,
     face = function(size) return size or 15, false end,
+    fitText = function(o)
+      return require("lib/bookshelf_colour_text"):new { text = o.text, face = o.size }
+    end,
     isStrip = function() return kit_strip end,
     radioRow = function(o)
       return {
@@ -157,6 +160,7 @@ do
     return { screen = { scaleBySize = function(_, n) return n end } }
   end
 end
+support.preload_theme_stubs()
 
 local current_user_id = 7
 package.preload["hardcover/lib/user"] = function()
@@ -344,27 +348,41 @@ check("goal module steps in from the frame of a square cell", function()
   assert(cards_drawn[1].bar.bar.width == cards_drawn[1].width, "bar not the width of the card")
 end)
 
+-- The text actually in the card's tree. Text the card built to measure
+-- something and then left out never reaches the tree, so this is what the
+-- reader sees rather than everything the render touched.
+local function treeTexts(node)
+  local out = {}
+  local function walk(n)
+    if type(n) ~= "table" then return end
+    if n.text then out[#out + 1] = tostring(n.text) end
+    for _, child in ipairs(n) do walk(child) end
+  end
+  walk(node)
+  return table.concat(out, "|")
+end
+
 check("goal module asks a signed-out reader to sign in", function()
   plugin_instance = app({ year_goal })
   current_user_id = nil
   clear()
-  loadPack("hardcover_goal").render(ctx)
-  assert(card_args.sub == "Sign in to Hardcover Sync.", tostring(card_args.sub))
+  local text = treeTexts(loadPack("hardcover_goal").render(ctx))
+  assert(text:find("Sign in to Hardcover Sync.", 1, true), text)
 end)
 
 check("goal module points at the goal screen when there is no goal", function()
   plugin_instance = app({})
   current_user_id = 7
   clear()
-  loadPack("hardcover_goal").render(ctx)
-  assert(card_args.sub == "No current goal. Tap to set one.", tostring(card_args.sub))
+  local text = treeTexts(loadPack("hardcover_goal").render(ctx))
+  assert(text:find("No current goal. Tap to set one.", 1, true), text)
 end)
 
 check("goal module says so when the plugin is off", function()
   plugin_instance = nil
   clear()
-  loadPack("hardcover_goal").render(ctx)
-  assert(card_args.sub == "Turn on Hardcover Sync.", tostring(card_args.sub))
+  local text = treeTexts(loadPack("hardcover_goal").render(ctx))
+  assert(text:find("Turn on Hardcover Sync.", 1, true), text)
 end)
 
 -- ------------------------------------------------------- choosing the goal
@@ -444,6 +462,96 @@ check("the goal card's settings pin a goal, and Automatic unpins it", function()
   assert(tostring(config:get("goal")) == "nil", tostring(config:get("goal")))
 end)
 
+check("a shelf goal change keeps its style and works again next time", function()
+  plugin_instance = app({ year_goal, pages_goal })
+  current_user_id = 7
+  package.loaded["ui/uimanager"] = nil
+  package.loaded["ui/widget/buttondialog"] = nil
+  -- The shelf's editor holds copies: a save that writes the whole copy back
+  -- loses a style set elsewhere, and a stale copy makes the next pick wrong.
+  local stored = { { id = "tab1", shelf_modules = { {
+    id = "sm_1", module = "hardcover_goal_ring", goal = 1,
+    bg = false, colors = { ink = "black" }, after = 4, w = 2,
+  } } } }
+  local saves, reloads, resets = 0, 0, 0
+  package.preload["lib/bookshelf_tab_model"] = function()
+    return {
+      load = function() return stored end,
+      save = function(tabs) stored = tabs; saves = saves + 1 end,
+    }
+  end
+  package.preload["lib/bookshelf_module_cache"] = function()
+    return {
+      read = function() return { ["shelf|hardcover_goal_ring|sm_1|100|100|100|100"] = {} } end,
+      save = function() end,
+    }
+  end
+  package.preload["lib/bookshelf_hero_modules"] = function()
+    return { _resetFitMemo = function() resets = resets + 1 end }
+  end
+  local entry = { id = "sm_1", module = "hardcover_goal_ring", goal = 1,
+    bg = false, colors = { ink = "black" } }
+  local ctx = { surface = "shelf", bw = { chip = "tab1" }, entry = entry,
+    config = entryConfig(entry), menu = { _reload = function() reloads = reloads + 1 end } }
+  local spec = loadPack("hardcover_goal_ring")
+  local function pick(label)
+    for _, row in ipairs(shown.buttons) do
+      if row[1].text:find(label, 1, true) then row[1].callback(); return true end
+    end
+  end
+
+  shown = nil
+  spec.show_settings(ctx)
+  assert(pick("Pages goal"), "no Pages goal choice")
+  local m = stored[1].shelf_modules[1]
+  assert(m.goal == 2, "first change not stored: " .. tostring(m.goal))
+  assert(entry.goal == 2, "the editor copy kept the old goal: " .. tostring(entry.goal))
+  assert(m.bg == false and m.colors.ink == "black" and m.after == 4 and m.w == 2,
+    "the goal save dropped the style or position")
+  assert(saves == 1 and reloads == 1 and resets == 1, "the shelf was not saved and refreshed")
+
+  -- The second dialog must start from the stored goal, not the editor's copy.
+  shown = nil
+  spec.show_settings(ctx)
+  local active
+  for _, row in ipairs(shown.buttons) do
+    if row[1].text:sub(1, 3) == "\226\156\147" and row[1].text:find("Pages goal", 1, true) then
+      active = true
+    end
+  end
+  assert(active, "the stored goal was not marked active on the next open")
+  assert(pick("Reading goal"), "no Reading goal choice")
+  m = stored[1].shelf_modules[1]
+  assert(m.goal == 1, "second change not stored: " .. tostring(m.goal))
+  assert(m.bg == false and m.colors.ink == "black", "style lost on the second change")
+  assert(saves == 2 and reloads == 2 and resets == 2, "the second change did not refresh")
+
+  -- Automatic removes the pin, and the next open must not fall back to the
+  -- stale copy's goal.
+  shown = nil
+  spec.show_settings(ctx)
+  assert(pick("Automatic"), "no Automatic choice")
+  m = stored[1].shelf_modules[1]
+  assert(m.goal == nil, "Automatic left a goal: " .. tostring(m.goal))
+  assert(m.bg == false and m.colors.ink == "black", "style lost on Automatic")
+  shown = nil
+  spec.show_settings(ctx)
+  active = nil
+  for _, row in ipairs(shown.buttons) do
+    if row[1].text:find("Automatic", 1, true) and row[1].text:sub(1, 3) == "\226\156\147" then
+      active = true
+    end
+  end
+  assert(active, "Automatic was not marked active after unpinning")
+
+  package.preload["lib/bookshelf_tab_model"] = nil
+  package.preload["lib/bookshelf_module_cache"] = nil
+  package.preload["lib/bookshelf_hero_modules"] = nil
+  package.loaded["lib/bookshelf_tab_model"] = nil
+  package.loaded["lib/bookshelf_module_cache"] = nil
+  package.loaded["lib/bookshelf_hero_modules"] = nil
+end)
+
 check("the settings say so when no goal is running", function()
   plugin_instance = app({})
   current_user_id = 7
@@ -468,20 +576,6 @@ local function paintRings(node)
   end
   paint(node)
   return rings
-end
-
--- The text actually in the card's tree. Text the card built to measure
--- something and then left out never reaches the tree, so this is what the
--- reader sees rather than everything the render touched.
-local function treeTexts(node)
-  local out = {}
-  local function walk(n)
-    if type(n) ~= "table" then return end
-    if n.text then out[#out + 1] = tostring(n.text) end
-    for _, child in ipairs(n) do walk(child) end
-  end
-  walk(node)
-  return table.concat(out, "|")
 end
 
 local function ringRender(goals, size, pinned)
@@ -557,9 +651,9 @@ check("the ring card says why there is nothing to show", function()
   plugin_instance = app({})
   current_user_id = 7
   clear()
-  loadPack("hardcover_goal_ring").render({ width = 300, height = 150, scale = 100 })
-  assert(card_args and card_args.sub == "No current goal. Tap to set one.",
-    tostring(card_args and card_args.sub))
+  local text = treeTexts(loadPack("hardcover_goal_ring").render({ width = 300, height = 150, scale = 100 }))
+  assert(text:find("Goal ring", 1, true), text)
+  assert(text:find("No current goal. Tap to set one.", 1, true), text)
 end)
 
 local rows = {
@@ -589,6 +683,17 @@ check("stats module draws the saved stats", function()
   loadPack("hardcover_stats").render(ctx)
   assert(card_args.value == "3" and card_args.suffix == " books", tostring(card_args.value))
   assert(card_args.bar == nil, "stats has no bar to fill")
+end)
+
+check("stats keeps its unit when the cell is too short for anything else", function()
+  -- A bare "3" is not a statistic a reader can interpret. The shortest stats
+  -- card still says what it counts, even when the heading and facts are gone.
+  plugin_instance = app(nil, { rows = rows })
+  current_user_id = 7
+  clear()
+  loadPack("hardcover_stats").render({ width = 90, height = 10, scale = 100 })
+  assert(card_args.value == "3", tostring(card_args.value))
+  assert(card_args.suffix == " books", "lost the unit: " .. tostring(card_args.suffix))
 end)
 
 -- The year card's series comes from Stats.compute, so the fixture year is the
@@ -651,6 +756,85 @@ check("tapping a card opens its screen, and nothing when the plugin is off", fun
   plugin_instance = nil
   loadPack("hardcover_goal").on_tap({})
   assert(opened == nil, tostring(opened))
+end)
+
+-- --------------------------------------------------------- lifetime/discovery
+
+local history = {
+  { book_id = 101, title = "First", rating = 5, completions = 3,
+    authors = { { id = 1, name = "A" }, { id = 2, name = "B" } },
+    reads = { "2023-11-02", "2024-11", "2025-12-01" } },
+  { book_id = 102, title = "Second", rating = 4.5, completions = 1,
+    authors = { { id = 1, name = "A" } }, reads = { "2025-11-03" } },
+  { book_id = 103, title = "Undated import", rating = 5, completions = 1,
+    authors = {}, reads = {} },
+}
+
+check("the four lifetime counts distinguish books, authors, five stars and additional reads", function()
+  local saved = cache(nil, { rows = {}, history = history, complete = true })
+  for kind, expected in pairs({ authors = "2", books = "3", five_star = "2", rereads = "2" }) do
+    assert(Modules.totalCard(saved, 7, kind).value == expected, kind)
+  end
+  assert(Modules.totalCard(cache(nil, { rows = {}, history = {} }), 7, "books").value == "0")
+  for _, saved_stats in ipairs({ { rows = rows }, { rows = {}, history = history, complete = false } }) do
+    assert(Modules.totalCard(cache(nil, saved_stats), 7, "books") == nil, "partial/legacy rows became a full total")
+  end
+end)
+
+check("memories match the month in earlier years, rotate stably and preserve date precision", function()
+  local saved = cache(nil, { rows = {}, history = history })
+  local seen = {}
+  for offset = 0, 2 do
+    local c = Modules.memoryCard(saved, 7, "2026-11-03", offset)
+    assert(c.candidates == 3)
+    assert(c.date == Modules.memoryCard(saved, 7, "2026-11-03", offset).date, "a render re-rolled the memory")
+    seen[c.date] = true
+  end
+  assert(seen["2023-11-02"] and seen["2024-11"] and seen["2025-11-03"], "lost a reread or fabricated a day")
+  local c = Modules.memoryCard(saved, 7, "2024-11-03")
+  assert(c.candidates == 1 and c.date == "2023-11-02", "this year/future finishes leaked in")
+  local _, why = Modules.memoryCard(saved, 7, "2026-10-03")
+  assert(why == "no_memories", "an unrelated month was substituted")
+end)
+
+check("TBR rediscovery uses only older saved Want to Read members and refuses a partial shelf", function()
+  local store = {
+    members = function(_, user, status)
+      assert(user == 7 and status == 1)
+      return { { book_id = 301, date_added = "2023-01-01" }, { book_id = 302, date_added = "2026-10-31" },
+        { book_id = 303, date_added = "2026-11-01" }, { book_id = 304 } }, { complete = true, fingerprint = "x" }
+    end,
+    entriesOf = function(_, members)
+      return { { book_id = members[1].book_id, title = "Saved book", authors = "Author" } }
+    end,
+  }
+  local first = Modules.tbrCard(store, 7, "2026-11-03", 0)
+  local second = Modules.tbrCard(store, 7, "2026-11-03", 1)
+  assert(first.candidates == 2 and first.book_id ~= second.book_id)
+  assert(first.book_id == Modules.tbrCard(store, 7, "2026-11-03", 0).book_id)
+  assert(first.date == "2026-10-31" or first.date == "2023-01-01")
+  store.members = function() return {}, { complete = false } end
+  local _, why = Modules.tbrCard(store, 7, "2026-11-03")
+  assert(why == "incomplete_tbr")
+end)
+
+check("the six additions are packs, the totals allow a single cell, and missing data opens its source", function()
+  plugin_instance = app(nil, nil)
+  plugin_instance.dialog_manager.showShelf = function(_, status) opened = status end
+  for _, key in ipairs({ "hardcover_authors", "hardcover_books_read", "hardcover_five_star", "hardcover_rereads",
+    "hardcover_memories", "hardcover_tbr" }) do
+    local spec = loadPack(key)
+    assert(spec.key == key and spec.summary:find("offline") and spec.render and spec.on_tap)
+    assert(spec.min_w == ((key == "hardcover_memories" or key == "hardcover_tbr") and 2 or 1))
+    clear()
+    local rendered = assert(spec.render(ctx), key .. " missing-data render failed")
+    local text = treeTexts(rendered)
+    assert(text:find("Stats", 1, true) or text:find("Want to Read", 1, true), "missing data shown as a total")
+    opened = nil
+    spec.on_tap({})
+    assert(opened == (key == "hardcover_tbr" and 1 or "stats"), key .. " tap")
+  end
+  plugin_instance = nil
 end)
 
 -- -------------------------------------------------------------------- cleanup

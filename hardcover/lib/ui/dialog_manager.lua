@@ -827,15 +827,16 @@ function DialogManager:showStats(host)
   local dialog = require("hardcover/lib/ui/stats_dialog"):new {
     shell = host and host.shell, width = host and host.width, height = host and host.height,
     parent = host and host.parent,
+    -- Passed before the dialog builds: setting it afterwards left the first
+    -- offline open on its "Loading…" line forever.
+    message = (start == "loading" and _("Loading your stats\226\128\166"))
+      or (start == "needs_network" and _("Stats need an internet connection the first time."))
+      or nil,
   }
   if saved then
     dialog.rows, dialog.genres, dialog.complete = saved.rows, saved.genres, saved.complete ~= false
     if start == "saved_offline" then dialog.note = statsNote(saved.saved_at, _("Offline.")) end
     dialog:rebuild()
-  elseif start == "loading" then
-    dialog.message = _("Loading your stats\226\128\166")
-  else
-    dialog.message = _("Stats need an internet connection the first time.")
   end
   self:openScreen("stats", dialog, host)
   if not online then return dialog end
@@ -846,7 +847,8 @@ function DialogManager:showStats(host)
   local FINISHED = HARDCOVER.STATUS.FINISHED
   local function unchanged(fingerprint)
     local age = saved and saved.saved_at and (os.time() - saved.saved_at)
-    return saved ~= nil and not saved.stale and saved.fingerprint ~= nil and fingerprint == saved.fingerprint
+    return saved ~= nil and saved.history ~= nil and saved.complete ~= false and not saved.stale
+      and saved.fingerprint ~= nil and fingerprint == saved.fingerprint
       and age ~= nil and age >= 0 and age < STATS_FRESH_FOR
   end
 

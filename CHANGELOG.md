@@ -14,6 +14,8 @@
 
 - **The Bookshelf goal and stats cards now ship with the plugin.** They are a Bookshelf module pack (a `bookshelf_modules` folder), so they appear under Hardcover Sync in Bookshelf's start menu, update along with the plugin, and are gone when the plugin is off. Bookshelf 6.1.0 or newer is needed; older versions get no card. The cards still read only what is saved on the device, so they work offline, and tapping one opens the Goals or Stats screen.
 
+- **Six more Hardcover cards for Bookshelf.** Authors read, books read, five-star books and rereads are small all-time totals from your Hardcover history, including books read away from this device. Books count once; rereads count each completed read after the first. Reading memories leads with the year of a finish from this month in an earlier year; TBR rediscovery leads with an older book still on Want to Read. Both rotate daily and have an Another button on Bookshelf 6.2. Open Stats and Want to Read once to load their offline data; covers use the device's cache.
+
 - **Choose which goal a Bookshelf card shows.** With more than one goal running, long press the Hardcover goal card, then Module settings, and pick the one to show (Automatic keeps the one ending soonest). Each card remembers its own choice, so you can put two goal cards on the shelf, one for each goal.
 
 - **A strip cell shows two goals.** A Bookshelf cell three times as wide as it is tall is long enough for two goals side by side, each with its name, count and bar, divided by a hairline so they read as two cards rather than one column of numbers. A 2×1 cell is still too narrow for half a goal, and keeps one goal with the pace line.
@@ -25,6 +27,12 @@
 - **Jump to Hardcover's page.** Open a book while online and, if Hardcover has you 5 or more pages further along (you read on another device), you are asked whether to jump there. "Stay here" keeps your place and does not ask again until Hardcover moves on. It is not asked when this device has changes waiting; the sync question covers that.
 
 ### Fixed
+
+- **A Bookshelf goal card on a shelf changes goals every time and keeps its style.** The shelf layout editor works on copies of its modules, and saving a whole copy from the goal picker could restore an older style and leave the next pick reading a stale goal. Only the goal is written to the stored shelf module now, the editor's copy is kept in step, and the card is re-fitted so the new goal is drawn.
+
+- **Opening Stats offline for the first time says why it cannot load.** With nothing saved, the screen used to stay on "Loading your stats…" forever; it now says "Stats need an internet connection the first time." The same screen opens when a Bookshelf card has no saved data yet.
+
+- **The Bookshelf goal, stats and year cards fit their cells at every size.** The stats card keeps its unit ("10 books") instead of shrinking to a bare number, and its full heading or a short year replaces an ellipsis. The year chart's outlined current month no longer runs into the month names, and the card no longer clips by a pixel. Long goal names and facts are left out whole instead of being cut to "Reading g…", and a card with no data shows its whole message. The goal ring keeps its percentage in a one-cell tile even at a high screen density.
 
 - **Old Bookshelf card files are cleaned up.** Versions up to 2.3.1 wrote two files into Bookshelf's own module folder; they are removed on start now that the cards come from the plugin's module pack.
 
