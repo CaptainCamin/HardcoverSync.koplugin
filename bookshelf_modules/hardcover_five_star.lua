@@ -14,5 +14,6 @@ return {
   summary = _("Finished books you rated five stars. Works offline after loading Stats."),
   aspect = "square", min_w = 1,
   render = function(ctx) return M.totalWidget(app(), ctx, "five_star") end,
-  on_tap = function() M.openScreen(app(), "showStats") end,
+  on_tap = function(ctx) M.cardTap(app(), ctx, "showStats") end,
+  show_settings = function(ctx) M.cardSettings(app(), ctx, "five_star") end,
 }

@@ -30,11 +30,11 @@ return {
   render = function(ctx)
     return M.goalRingWidget(app(), ctx)
   end,
-  on_tap = function()
-    M.openScreen(app(), "showGoals")
+  on_tap = function(ctx)
+    M.cardTap(app(), ctx, "showGoals")
   end,
   -- Long press -> Module settings: which running goal this ring shows.
   show_settings = function(ctx)
-    M.goalSettings(app(), ctx)
+    M.cardSettings(app(), ctx, "goal_ring")
   end,
 }

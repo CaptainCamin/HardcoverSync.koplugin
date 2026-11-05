@@ -160,7 +160,9 @@ return {
 
     local square = 3 * unit + 2 * gap
     show(square, square)
-    for _, text in ipairs({ "Reading goal", "46", "70", "books", "66%", "10",
+    -- Small squares may use the existing short "Goal" heading. The ring
+    -- must keep its percentage and the annual ledger must label its facts.
+    for _, text in ipairs({ "Goal", "46", "70", "books", "66%", "10", "Pages read", "Average pages",
       tostring(today.year), grouped(total), "pages", "Best: " .. best }) do
       emu:expectText(text)
     end
@@ -181,6 +183,26 @@ return {
     tap(2, "goals")
     tap(3, "stats")
     tap(4, "stats")
+
+    -- Both existing entry keys can switch style without replacement or migration.
+    local function choose(i, value)
+      SM.get(keys[i]).show_settings(Hero._ctx(nil, nil, entries[i]))
+      emu:pump()
+      local function press(text)
+        local node = emu:expectText(text)
+        emu:tapExpecting(math.floor(node.x + node.w / 2), math.floor(node.y + node.h / 2))
+      end
+      press("Presentation:")
+      press(value)
+      expectFit()
+    end
+    choose(1, "Ring")
+    choose(2, "Bar")
+    assert(entries[1].presentation == "ring" and entries[2].presentation == "bar")
+    emu:expectText("66%")
+    emu:shot("bookshelf_goal_presentations")
+    choose(1, "Bar")
+    choose(2, "Ring")
 
     -- The short 2x1 cell every one of these cards can be sized to on the shelf.
     show(2 * unit + gap, unit)

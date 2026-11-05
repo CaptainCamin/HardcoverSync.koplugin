@@ -14,6 +14,7 @@ return {
   summary = _("Older books still on Want to Read. Works offline after loading the shelf."),
   min_w = 2, min_h = 2,
   render = function(ctx) return M.discoveryWidget(app(), ctx, "tbr") end,
-  keep_open = function(ctx) return ctx.tapped_region == "another" end,
+  keep_open = M.discoveryKeepOpen,
   on_tap = function(ctx) M.discoveryTap(app(), ctx, "tbr") end,
+  show_settings = function(ctx) M.cardSettings(app(), ctx, "tbr") end,
 }

@@ -14,6 +14,7 @@ return {
   summary = _("This month in your reading past. Works offline after loading Stats."),
   min_w = 2, min_h = 2,
   render = function(ctx) return M.discoveryWidget(app(), ctx, "memories") end,
-  keep_open = function(ctx) return ctx.tapped_region == "another" end,
+  keep_open = M.discoveryKeepOpen,
   on_tap = function(ctx) M.discoveryTap(app(), ctx, "memories") end,
+  show_settings = function(ctx) M.cardSettings(app(), ctx, "memories") end,
 }

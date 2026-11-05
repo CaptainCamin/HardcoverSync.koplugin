@@ -92,6 +92,8 @@ do
       sub.new = C.new
       return sub
     end
+    function C:free() end
+    function C:resetLayout() end
     return C
   end
 
@@ -413,6 +415,12 @@ package.preload["ui/widget/buttondialog"] = function()
   return { new = function(_, spec) return spec end }
 end
 
+local function showGoalSettings(spec, ctx)
+  spec.show_settings(ctx)
+  assert(shown.buttons[1][1].text == "Which goal to show")
+  shown.buttons[1][1].callback()
+end
+
 check("a card pinned to a goal shows it, and Automatic shows the one ending soonest", function()
   plugin_instance = app({ year_goal, pages_goal })
   current_user_id = 7
@@ -439,7 +447,7 @@ check("the goal card's settings pin a goal, and Automatic unpins it", function()
   local spec = loadPack("hardcover_goal")
 
   shown, closed = nil, nil
-  spec.show_settings({ config = config })
+  showGoalSettings(spec, { config = config })
   assert(shown and #shown.buttons == 3, "expected Automatic and two goals")
   assert(shown.title == "Which goal to show", tostring(shown.title))
   assert(shown.buttons[1][1].text == "\226\156\147 Automatic (ends soonest)", shown.buttons[1][1].text)
@@ -447,14 +455,14 @@ check("the goal card's settings pin a goal, and Automatic unpins it", function()
   assert(shown.buttons[3][1].text == "  Reading goal \194\183 70 books", shown.buttons[3][1].text)
 
   shown.buttons[2][1].callback()
-  assert(closed == 1, "dialog left open")
+  assert(closed == 2, "dialog left open")
   assert(tostring(config:get("goal")) == "2", tostring(config:get("goal")))
   clear()
   spec.render({ width = 300, height = 150, scale = 100, config = config })
   assert(card_args.heading == "Pages goal", tostring(card_args.heading))
 
   shown, closed = nil, nil
-  spec.show_settings({ config = config })
+  showGoalSettings(spec, { config = config })
   assert(shown.buttons[2][1].text:sub(1, 3) == "\226\156\147",
     "pin not marked: " .. shown.buttons[2][1].text)
 
@@ -501,7 +509,7 @@ check("a shelf goal change keeps its style and works again next time", function(
   end
 
   shown = nil
-  spec.show_settings(ctx)
+  showGoalSettings(spec, ctx)
   assert(pick("Pages goal"), "no Pages goal choice")
   local m = stored[1].shelf_modules[1]
   assert(m.goal == 2, "first change not stored: " .. tostring(m.goal))
@@ -512,7 +520,7 @@ check("a shelf goal change keeps its style and works again next time", function(
 
   -- The second dialog must start from the stored goal, not the editor's copy.
   shown = nil
-  spec.show_settings(ctx)
+  showGoalSettings(spec, ctx)
   local active
   for _, row in ipairs(shown.buttons) do
     if row[1].text:sub(1, 3) == "\226\156\147" and row[1].text:find("Pages goal", 1, true) then
@@ -529,13 +537,13 @@ check("a shelf goal change keeps its style and works again next time", function(
   -- Automatic removes the pin, and the next open must not fall back to the
   -- stale copy's goal.
   shown = nil
-  spec.show_settings(ctx)
+  showGoalSettings(spec, ctx)
   assert(pick("Automatic"), "no Automatic choice")
   m = stored[1].shelf_modules[1]
   assert(m.goal == nil, "Automatic left a goal: " .. tostring(m.goal))
   assert(m.bg == false and m.colors.ink == "black", "style lost on Automatic")
   shown = nil
-  spec.show_settings(ctx)
+  showGoalSettings(spec, ctx)
   active = nil
   for _, row in ipairs(shown.buttons) do
     if row[1].text:find("Automatic", 1, true) and row[1].text:sub(1, 3) == "\226\156\147" then
@@ -543,6 +551,17 @@ check("a shelf goal change keeps its style and works again next time", function(
     end
   end
   assert(active, "Automatic was not marked active after unpinning")
+
+  spec.show_settings(ctx)
+  assert(pick("Presentation"))
+  assert(pick("Bar"))
+  m = stored[1].shelf_modules[1]
+  assert(m.presentation == "bar" and entry.presentation == "bar" and m.goal == nil)
+  assert(m.bg == false and m.colors.ink == "black" and m.after == 4 and m.w == 2)
+  spec.show_settings(ctx)
+  assert(pick("Presentation"))
+  assert(pick("Ring"))
+  assert(m.presentation == "ring" and entry.presentation == "ring", "second presentation change was lost")
 
   package.preload["lib/bookshelf_tab_model"] = nil
   package.preload["lib/bookshelf_module_cache"] = nil
@@ -558,7 +577,7 @@ check("the settings say so when no goal is running", function()
   package.loaded["ui/uimanager"] = nil
   package.loaded["ui/widget/buttondialog"] = nil
   shown = nil
-  loadPack("hardcover_goal").show_settings({ config = entryConfig() })
+  showGoalSettings(loadPack("hardcover_goal"), { config = entryConfig() })
   assert(shown and #shown.buttons == 2, "expected Automatic and a note")
   assert(shown.buttons[2][1].text:find("No goal is running"), shown.buttons[2][1].text)
 end)
@@ -592,15 +611,13 @@ local function ringRender(goals, size, pinned)
 end
 
 check("the ring card keeps a square cell to the name, the count and the ring", function()
-  -- A small tile has no room for the pace or the days left: the ring, the
-  -- goal's name and its count are the whole card.
+  -- A square can put the ring beside its facts; the one-cell fallback below
+  -- must still keep the percentage when the words will not fit.
   local card, text = ringRender({ year_goal, pages_goal }, { 380, 380 }, 1)
   assert(text:find("Reading goal"), text)
   assert(text:find("46"), text)
   assert(text:find("70"), text)
   assert(text:find("66%%"), text)
-  assert(not text:find("pace"), text)
-  assert(not text:find("days left"), text)
   assert(paintRings(card) == 1, "expected one ring widget")
   assert(ring_paints > 0, "the ring was never painted")
 end)
@@ -752,6 +769,16 @@ check("tapping a card opens its screen, and nothing when the plugin is off", fun
   assert(opened == "goals", tostring(opened))
   loadPack("hardcover_stats").on_tap({})
   assert(opened == "stats", tostring(opened))
+  plugin_instance.dialog_manager.showHome = function() opened = "home" end
+  local config = entryConfig()
+  for _, name in ipairs({ "goal", "goal_ring", "stats", "year", "authors", "books_read", "five_star", "rereads" }) do
+    config:set("tap_action", "home")
+    loadPack("hardcover_" .. name).on_tap({ config = config })
+    assert(opened == "home", name .. " ignored its configured tap")
+    config:set("tap_action", "source")
+    loadPack("hardcover_" .. name).on_tap({ config = config })
+    assert(opened == ((name == "goal" or name == "goal_ring") and "goals" or "stats"), name .. " wrong source")
+  end
   opened = nil
   plugin_instance = nil
   loadPack("hardcover_goal").on_tap({})
@@ -795,6 +822,133 @@ check("memories match the month in earlier years, rotate stably and preserve dat
   assert(c.candidates == 1 and c.date == "2023-11-02", "this year/future finishes leaked in")
   local _, why = Modules.memoryCard(saved, 7, "2026-10-03")
   assert(why == "no_memories", "an unrelated month was substituted")
+end)
+
+check("memory Window falls back without broadening Reach or inventing dates", function()
+  local saved = cache(nil, { rows = {}, history = history })
+  local function memory(today, window, reach)
+    return Modules.memoryCard(saved, 7, today, 0, window, reach)
+  end
+  local c = memory("2026-11-03", "day", "all")
+  assert(c.date == "2025-11-03" and c.window == "day" and c.candidates == 1)
+  c = memory("2026-11-05", "day", "all")
+  assert(c.window == "week" and c.candidates == 2, "day did not widen to the nearest nonempty window")
+  c = memory("2026-11-20", "week", "all")
+  assert(c.window == "month" and c.candidates == 3, "month-only dates were lost in fallback")
+  c = memory("2026-11-20", "day", "last_year")
+  assert(c.window == "month" and c.candidates == 1 and c.date == "2025-11-03")
+  assert(memory("2025-11-03", "day", "last_year").date == "2024-11", "partial date was treated as exact")
+  assert(memory("2023-11-03", "day", "all") == nil, "current/future year leaked in")
+  assert(memory("2024-12-01", "day", "last_year") == nil, "empty reach silently widened")
+
+  saved = cache(nil, { rows = {}, history = {
+    { book_id = 201, reads = { "2025-12-29", "2025-12-28", "2025-01-04", "2025-01-05" } },
+  } })
+  c = memory("2026-01-01", "week", "last_year")
+  assert(c.window == "week" and c.candidates == 2, "New Year or inclusive ±3-day boundary is wrong")
+  c = memory("2026-12-31", "week", "last_year")
+  assert(c.window == "week" and c.candidates == 2, "reverse New Year boundary is wrong")
+  saved = cache(nil, { rows = {}, history = {
+    { book_id = 202, reads = { "2024-02-29", "2025-02-26", "2025-02-25" } },
+  } })
+  c = memory("2026-03-01", "week", "all")
+  assert(c.date == "2025-02-26" and c.candidates == 1, "non-leap week included a phantom day")
+  c = memory("2028-02-29", "day", "all")
+  assert(c.date == "2024-02-29" and c.window == "day", "leap-day anniversary was lost")
+end)
+
+local function pickSetting(spec, ctx, label, value)
+  spec.show_settings(ctx)
+  local function pick(text)
+    for _, row in ipairs(shown.buttons) do
+      if row[1].text:find(text, 1, true) then row[1].callback(); return end
+    end
+    error("missing option " .. text)
+  end
+  pick(label)
+  pick(value)
+end
+
+check("discovery settings persist per instance and hidden Another does not change taps", function()
+  current_user_id = 7
+  local last_month = tostring(tonumber(os.date("%Y")) - 1) .. os.date("-%m")
+  plugin_instance = app(nil, { rows = {}, history = {
+    { book_id = 101, reads = { last_month } }, { book_id = 102, reads = { last_month } },
+  } })
+  plugin_instance.dialog_manager.showHome = function() opened = "home" end
+  local spec, other = loadPack("hardcover_memories"), entryConfig()
+  local ctx = { config = entryConfig() }
+  pickSetting(spec, ctx, "Window", "This day")
+  pickSetting(spec, ctx, "Reach", "Last year")
+  pickSetting(spec, ctx, "Another button", "Hide")
+  assert(ctx.config:get("memory_window") == "day" and ctx.config:get("memory_reach") == "last_year")
+  assert(ctx.config:get("show_another") == false and ctx.config:get("tap_action") == nil)
+  assert(other:get("memory_window") == nil and other:get("show_another") == nil)
+  pickSetting(spec, ctx, "Tap action", "Open Hardcover Home")
+  assert(not spec.keep_open(ctx))
+  spec.on_tap(ctx)
+  assert(opened == "home")
+  pickSetting(spec, ctx, "Tap action", "Show another saved book")
+  assert(spec.keep_open(ctx))
+  spec.on_tap(ctx)
+  spec.on_tap(ctx)
+  assert(ctx.config:get("discovery_choice").offset == 2)
+  ctx.tapped_region = "another"
+  ctx.config:set("tap_action", "home")
+  spec.on_tap(ctx)
+  assert(ctx.config:get("discovery_choice").offset == 3, "visible button obeyed card action")
+  plugin_instance = nil
+end)
+
+check("both goal entries switch presentation without losing their goal pin", function()
+  current_user_id = 7
+  plugin_instance = app({ year_goal, pages_goal })
+  local ctx = { config = entryConfig(), width = 400, height = 300, scale = 100 }
+  ctx.config:set("goal", 2)
+  local spec = loadPack("hardcover_goal")
+  pickSetting(spec, ctx, "Presentation", "Ring")
+  ring_paints = 0
+  assert(paintRings(spec.render(ctx)) == 1 and ctx.config:get("goal") == 2)
+  spec = loadPack("hardcover_goal_ring")
+  pickSetting(spec, ctx, "Presentation", "Bar")
+  clear()
+  spec.render(ctx)
+  assert(card_args.heading == "Pages goal" and ctx.config:get("goal") == 2)
+  plugin_instance = nil
+end)
+
+check("refresh taps preserve history on failure and replace it only on complete success", function()
+  local names = { "hardcover/lib/network", "hardcover/lib/ui/status_dialogs", "hardcover/lib/hardcover_api" }
+  local previous = {}
+  for _, name in ipairs(names) do previous[name] = package.loaded[name] end
+  local online, message, callback = false, nil, nil
+  package.loaded[names[1]] = { connected = function() return online end }
+  package.loaded[names[2]] = { info = function(text) message = text end,
+    loading = function() return {} end, close = function() end }
+  package.loaded[names[3]] = { getStatsAsync = function(_, _, cb) callback = cb end }
+  current_user_id = 7
+  local saved = { rows = {}, history = history }
+  local cache = { stats = function() return saved end,
+    putStats = function(_, _, value) saved = value; return true end }
+  plugin_instance = { shelf_cache = cache }
+  local ctx = { config = entryConfig(), refresh = function() opened = "refreshed" end }
+  ctx.config:set("tap_action", "refresh")
+  local spec = loadPack("hardcover_memories")
+  assert(spec.keep_open(ctx))
+  spec.on_tap(ctx)
+  assert(message:find("internet") and callback == nil and saved.history == history)
+  online = true
+  spec.on_tap(ctx)
+  callback(nil)
+  assert(saved.history == history and message:find("unchanged"))
+  spec.on_tap(ctx)
+  callback({ rows = {}, history = {}, complete = false })
+  assert(saved.history == history, "partial history replaced complete data")
+  spec.on_tap(ctx)
+  callback({ rows = {}, history = {}, complete = true })
+  assert(#saved.history == 0 and opened == "refreshed" and message == "Updated from Hardcover.")
+  for _, name in ipairs(names) do package.loaded[name] = previous[name] end
+  plugin_instance = nil
 end)
 
 check("TBR rediscovery uses only older saved Want to Read members and refuses a partial shelf", function()

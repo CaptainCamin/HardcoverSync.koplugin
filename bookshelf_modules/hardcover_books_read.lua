@@ -14,5 +14,6 @@ return {
   summary = _("Distinct books finished, all time. Works offline after loading Stats."),
   aspect = "square", min_w = 1,
   render = function(ctx) return M.totalWidget(app(), ctx, "books") end,
-  on_tap = function() M.openScreen(app(), "showStats") end,
+  on_tap = function(ctx) M.cardTap(app(), ctx, "showStats") end,
+  show_settings = function(ctx) M.cardSettings(app(), ctx, "books") end,
 }

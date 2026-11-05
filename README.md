@@ -63,6 +63,8 @@ Automatic linking by ISBN or Hardcover metadata, batch linking of books on your 
 
 **Using Bookshelf 6.2?** Its micro-module picker includes Hardcover reading memories, TBR rediscovery, authors read, books read, five-star books and rereads, alongside the goal and stats cards. Open Hardcover’s Stats screen once to load reading history, and Want to Read for TBR rediscovery. The cards then work offline; covers appear when cached. Totals cover your whole Hardcover history, not just this device. Memories shows this month in earlier years; TBR rediscovery chooses books added to Hardcover before this month that are still on Want to Read.
 
+Each card’s **Module settings** applies only to that placement. Memories offers **Window** (This day, This week, This month) and **Reach** (Last year, All previous years). This week means the seven-day anniversary window centered on today. If a day has no match, it tries the week, then the month; an empty week tries the month. The header names the window actually used, and fallback never broadens Reach. Month-only finish dates qualify only for the month. Memories can show its cached cover and hide its rating; Memories and TBR can hide Another and independently choose the card’s tap action: book details, Stats/Want to Read, Hardcover Home, another saved book, or refresh from Hardcover. “Another” works offline; refresh needs internet and keeps saved data if the request fails. Goal cards can switch between bar and ring without replacing them, and totals can hide their icon. Existing placements keep their defaults.
+
 <details>
 <summary><strong>Advanced: use your own OAuth app or API token</strong></summary>
 

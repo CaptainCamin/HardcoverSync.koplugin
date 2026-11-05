@@ -36,8 +36,8 @@ return {
       local month = i <= 3 and today.month or today.month % 12 + 1
       local reads = {}
       for j = 1, ((i >= 4 and i <= 9) and 3 or 1) do
-        reads[#reads + 1] = { id = i * 10 + j, finished_at_precision = 2,
-          finished_at = string.format("%04d-%02d-01", today.year - j, month) }
+        reads[#reads + 1] = { id = i * 10 + j, finished_at_precision = 1,
+          finished_at = string.format("%04d-%02d-%02d", today.year - j, month, i <= 3 and today.day or 1) }
       end
       raw[#raw + 1] = { id = i, status_id = 3, rating = i <= 19 and 5 or 4.5,
         book = book, user_book_reads = reads }
@@ -148,6 +148,31 @@ return {
       expectFit()
       assert(#fixtures.calls == requests, "render made an API request")
     end
+    local function showLargeTotals()
+      local requests = #fixtures.calls
+      if screen then UIManager:close(screen) end
+      slots = {}
+      local size = math.floor((width - gap) / 2)
+      local all = VGroup:new { align = "left" }
+      for row = 1, 2 do
+        if row > 1 then all[#all + 1] = VSpan:new { width = gap } end
+        all[#all + 1] = HGroup:new { align = "top",
+          cell((row - 1) * 2 + 1, size, size), HSpan:new { width = gap },
+          cell((row - 1) * 2 + 2, size, size) }
+      end
+      screen = Frame:new { padding = margin, margin = 0, bordersize = 0, background = Theme.WHITE,
+        width = emu.Screen:getWidth(), height = emu.Screen:getHeight(), all }
+      UIManager:show(screen)
+      emu:pump()
+      expectFit()
+      for _, text in ipairs({ "17", "Authors read", "84", "Books read", "19", "Five-star books", "12", "Rereads" }) do
+        emu:expectText(text)
+      end
+      assert(not emu:screenText():find("tap to refresh", 1, true), "cached totals replaced by refresh copy")
+      assert(not emu:screenText():find("Saved history", 1, true), "cached totals still have the stale footer")
+      assert(#fixtures.calls == requests, "render made an API request")
+      emu:shot("bookshelf_totals_large")
+    end
     local requests = #fixtures.calls
     show(false)
     for _, text in ipairs({ "17", "Authors read", "84", "Books read", "19", "Five-star books", "12", "Rereads",
@@ -193,6 +218,58 @@ return {
     tap(5, true)
     tap(6, true)
 
+    -- Exercise the actual settings buttons and host save/re-fit path. The
+    -- hidden button and whole-card cycling are independent per instance.
+    local function tapText(text)
+      local node = emu:expectText(text)
+      assert(not node.relative, "unpainted settings control " .. text)
+      emu:tapExpecting(math.floor(node.x + node.w / 2), math.floor(node.y + node.h / 2))
+    end
+    local function settings(i)
+      SM.get(keys[i]).show_settings(Hero._ctx(nil, nil, entries[i]))
+      emu:pump()
+    end
+    local function choose(i, label, value)
+      settings(i)
+      tapText(label)
+      tapText(value)
+      expectFit()
+    end
+    show(false)
+    settings(5)
+    for _, label in ipairs({ "Window: This month", "Reach: All previous years", "Cover: Hide",
+      "Rating: Show", "Another button: Show", "Tap action: Open book details" }) do emu:expectText(label) end
+    emu:shot("bookshelf_memories_settings")
+    tapText("Window:")
+    tapText("This day")
+    choose(5, "Reach:", "Last year")
+    choose(5, "Cover:", "Show")
+    choose(5, "Rating:", "Hide")
+    choose(5, "Another button:", "Hide")
+    choose(5, "Tap action:", "Show another saved book")
+    choose(6, "Cover:", "Hide")
+    choose(6, "Another button:", "Hide")
+    choose(6, "Tap action:", "Show another saved book")
+    choose(1, "Icon:", "Hide")
+    emu:expectText("This day in")
+    local visible = emu:screenText()
+    assert(not visible:find("Another", 1, true) and not visible:find("Your rating:", 1, true))
+    assert(#findClip(slots[5])[1]._tap_regions == 0 and #findClip(slots[6])[1]._tap_regions == 0)
+    local offset = entries[5].discovery_choice.offset
+    tap(5, false)
+    assert(entries[5].discovery_choice.offset == offset + 1)
+    assert(entries[6].discovery_choice.offset == 3, "memory tap changed another instance")
+    emu:shot("bookshelf_modules_custom")
+    show(true)
+    emu:shot("bookshelf_modules_custom_wide")
+    show(false, true)
+    emu:shot("bookshelf_modules_custom_small")
+    -- Restore defaults for the existing offline/empty-state checks below.
+    for _, entry in ipairs(entries) do
+      for _, name in ipairs({ "memory_window", "memory_reach", "show_cover", "show_rating",
+        "show_another", "show_icon", "tap_action" }) do entry[name] = nil end
+    end
+
     -- Start-menu rows have no cell height and no host font-fit search.
     for _, key in ipairs(keys) do
       local entry = { module = key }
@@ -214,6 +291,7 @@ return {
     cache:invalidate(user_id, { 3 })
     show(false)
     emu:shot("bookshelf_modules_saved")
+    showLargeTotals() -- stale, complete history still shows the actual totals
     show(false, true)
     cache:putStats(user_id, { rows = {} }) -- pre-upgrade history is unknown, not zero
     show(false, true)

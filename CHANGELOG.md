@@ -26,6 +26,12 @@
 
 - **Jump to Hardcover's page.** Open a book while online and, if Hardcover has you 5 or more pages further along (you read on another device), you are asked whether to jump there. "Stay here" keeps your place and does not ask again until Hardcover moves on. It is not asked when this device has changes waiting; the sync question covers that.
 
+### Improved
+
+- **Customize each Bookshelf card.** Reading memories has Window (day, week or month) and Reach (last year or all previous years), automatically widening an empty day or week to the month without changing Reach. Its heading names the window actually shown. Memories and TBR let you hide the cover or Another button and choose what a card tap does: book details, its source screen, Hardcover Home, another saved book or an online refresh. Memories also lets you hide the rating. Goal cards can switch between bar and ring without replacing their saved placement or goal; totals can hide their icon. Existing cards keep their defaults.
+
+- **Bookshelf cards have distinct layouts.** Lifetime totals scale their icons with their numbers and no longer show a refresh footer over saved totals; the goal bar marks today's pace; square goal-ring cards put the ring beside the count. Annual Stats is an aligned ledger of books, pages and average pages, and the year chart has single-letter month labels. Reading memories keeps its prominent year; TBR rediscovery puts the cover beside the book and uses an internal dotted ticket footer. Another stays compact and finger-sized. Smaller cells drop decoration and supporting facts before their essential numbers, and the cards still read only saved Hardcover data.
+
 ### Fixed
 
 - **A Bookshelf goal card on a shelf changes goals every time and keeps its style.** The shelf layout editor works on copies of its modules, and saving a whole copy from the goal picker could restore an older style and leave the next pick reading a stale goal. Only the goal is written to the stored shelf module now, the editor's copy is kept in step, and the card is re-fitted so the new goal is drawn.

@@ -27,7 +27,8 @@ return {
   render = function(ctx)
     return M.yearWidget(app(), ctx)
   end,
-  on_tap = function()
-    M.openScreen(app(), "showStats")
+  on_tap = function(ctx)
+    M.cardTap(app(), ctx, "showStats")
   end,
+  show_settings = function(ctx) M.cardSettings(app(), ctx, "year") end,
 }
