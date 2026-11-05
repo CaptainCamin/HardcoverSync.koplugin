@@ -67,6 +67,8 @@ Each card’s **Module settings** applies only to that placement. Memories offer
 
 Year in bars offers **Layout** (Upright columns or Stacked rows) and **Metric** (Pages or Books). Pages and upright columns remain the defaults. Stacked rows show monthly totals where space allows; short cells keep the bars and thin out labels. When page counts are unavailable, the chart keeps its existing fallback to books.
 
+The four totals automatically put the icon above the number in portrait cards and beside it in square or wide cards. The **Icon** setting applies to both layouts; very small cards prioritize the number and label.
+
 <details>
 <summary><strong>Advanced: use your own OAuth app or API token</strong></summary>
 

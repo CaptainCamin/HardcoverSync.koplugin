@@ -148,17 +148,18 @@ return {
       expectFit()
       assert(#fixtures.calls == requests, "render made an API request")
     end
-    local function showLargeTotals()
+    local function showLargeTotals(w, h, name)
       local requests = #fixtures.calls
       if screen then UIManager:close(screen) end
       slots = {}
       local size = math.floor((width - gap) / 2)
+      w, h = w or size, h or size
       local all = VGroup:new { align = "left" }
       for row = 1, 2 do
         if row > 1 then all[#all + 1] = VSpan:new { width = gap } end
         all[#all + 1] = HGroup:new { align = "top",
-          cell((row - 1) * 2 + 1, size, size), HSpan:new { width = gap },
-          cell((row - 1) * 2 + 2, size, size) }
+          cell((row - 1) * 2 + 1, w, h), HSpan:new { width = gap },
+          cell((row - 1) * 2 + 2, w, h) }
       end
       screen = Frame:new { padding = margin, margin = 0, bordersize = 0, background = Theme.WHITE,
         width = emu.Screen:getWidth(), height = emu.Screen:getHeight(), all }
@@ -171,7 +172,48 @@ return {
       assert(not emu:screenText():find("tap to refresh", 1, true), "cached totals replaced by refresh copy")
       assert(not emu:screenText():find("Saved history", 1, true), "cached totals still have the stale footer")
       assert(#fixtures.calls == requests, "render made an API request")
-      emu:shot("bookshelf_totals_large")
+      emu:shot(name or "bookshelf_totals_large")
+    end
+    local function expectTotalLayout(stacked, hidden)
+      -- Measure actual paint positions in each cell's offscreen buffer, not
+      -- the particular group/container tree used to arrange these widgets.
+      local painted, restore = {}, {}
+      for i, count in ipairs({ "17", "84", "19", "12" }) do
+        painted[i] = {}
+        local function watch(node)
+          local role = node.is_icon and "icon" or node.text == count and "value"
+          if role then
+            local paint = node.paintTo
+            restore[#restore + 1] = function() node.paintTo = paint end
+            node.paintTo = function(self, bb, x, y)
+              local s = self:getSize()
+              painted[i][role] = { x = x, y = y, w = s.w, h = s.h }
+              return paint(self, bb, x, y)
+            end
+          end
+          for _, child in ipairs(node) do watch(child) end
+        end
+        watch(slots[i])
+      end
+      UIManager:setDirty(screen, "ui")
+      emu:pump()
+      emu:screenNodes()
+      for _, reset in ipairs(restore) do reset() end
+      for i, drawn in ipairs(painted) do
+        local icon, value = drawn.icon, assert(drawn.value, "total not painted")
+        if hidden and i == 1 then
+          assert(not icon, "hidden icon was painted")
+        else
+          assert(icon, keys[i] .. ": icon missing")
+          if stacked then
+            assert(icon.y + icon.h <= value.y, keys[i] .. ": icon not above number")
+            assert(math.abs(icon.x + icon.w / 2 - value.x - value.w / 2) <= 1,
+              keys[i] .. ": icon and number not centered")
+          else
+            assert(icon.x >= value.x + value.w, keys[i] .. ": icon not beside number")
+          end
+        end
+      end
     end
     local requests = #fixtures.calls
     show(false)
@@ -292,6 +334,24 @@ return {
     show(false)
     emu:shot("bookshelf_modules_saved")
     showLargeTotals() -- stale, complete history still shows the actual totals
+    expectTotalLayout(false)
+    local size = math.floor((width - gap) / 2)
+    -- Grid rounding can leave a square-looking cell a pixel taller than it
+    -- is wide. Bookshelf still classifies this as square, not portrait.
+    showLargeTotals(size, size + 1, "bookshelf_totals_near_square")
+    expectTotalLayout(false)
+    showLargeTotals(math.floor(size * 0.8), size, "bookshelf_totals_square_band")
+    expectTotalLayout(false)
+    local tall_w = math.floor(width / 3)
+    showLargeTotals(tall_w, size, "bookshelf_totals_tall")
+    expectTotalLayout(true)
+    choose(1, "Icon:", "Hide")
+    expectTotalLayout(true, true)
+    emu:shot("bookshelf_totals_tall_no_icon")
+    choose(1, "Icon:", "Show")
+    expectTotalLayout(true)
+    showLargeTotals(size, math.floor(size / 2), "bookshelf_totals_wide")
+    expectTotalLayout(false)
     show(false, true)
     cache:putStats(user_id, { rows = {} }) -- pre-upgrade history is unknown, not zero
     show(false, true)

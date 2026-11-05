@@ -28,6 +28,8 @@
 
 ### Improved
 
+- **Totals adapt to taller Bookshelf cards.** Authors read, books read, five-star books and rereads center the icon above the number in portrait cells. Square and wide cells keep the icon beside the number; hiding the icon still works in either layout.
+
 - **Choose the year chart's layout and metric.** Bookshelf's Year in bars card offers Pages or Books, and upright columns or vertically stacked rows with horizontal bars and monthly totals. Pages and upright columns remain the defaults. Each placement keeps its own choices; the chart still uses saved Stats data offline.
 
 - **Customize each Bookshelf card.** Reading memories has Window (day, week or month) and Reach (last year or all previous years), automatically widening an empty day or week to the month without changing Reach. Its heading names the window actually shown. Memories and TBR let you hide the cover or Another button and choose what a card tap does: book details, its source screen, Hardcover Home, another saved book or an online refresh. Memories also lets you hide the rating. Goal cards can switch between bar and ring without replacing their saved placement or goal; totals can hide their icon. Existing cards keep their defaults.

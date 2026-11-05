@@ -967,23 +967,30 @@ function Modules.totalWidget(a, ctx, kind)
   local face, bold = Kit.face(ctx.clamp and Theme.type.title or size, ctx.scale, { bold = true })
   local value = require("lib/bookshelf_colour_text"):new { text = card.value, face = face, bold = bold,
     fgcolor = Kit.COLOR_PRIMARY }
+  local shape = ctx.shape or (Kit.shape and Kit.shape(ctx.width, ctx.height))
+  local stacked = ctx.height and shape == "tall"
   local label = Kit.fitText { text = card.sub, width = ctx.width, size = Theme.type.label,
-    scale_pct = ctx.scale, fgcolor = Kit.COLOR_MUTED }
+    scale_pct = ctx.scale, align = stacked and "center" or "left", fgcolor = Kit.COLOR_MUTED }
   local gap = Kit.sc(ctx.scale)(Theme.space.xs)
   if ctx.height then gap = math.max(0, math.min(gap, ctx.height - value:getSize().h - label:getSize().h)) end
   local top = value
   -- Keep the icon in the host's fit probes, so it scales with the number
   -- instead of disappearing as soon as a probe exceeds the cell width.
-  -- Only the final compact fallback may give its space back to the count.
+  -- Portrait cells use the height for an icon above the number; reporting the
+  -- whole stack lets the host fit it before the compact icon-free fallback.
   if not ctx.clamp and setting(ctx, "show_icon", true) then
     local icon_size = value:getSize().h
     local names = { authors = "edit", books = "shelves", five_star = "star-filled", rereads = "sync" }
     local icon = Theme.icon(names[kind], icon_size)
     if Kit.tintIcon then icon = Kit.tintIcon(icon) end
-    top = require("ui/widget/horizontalgroup"):new { align = "center", value,
-      require("ui/widget/horizontalspan"):new { width = gap }, icon }
+    if stacked then
+      top = Group:new { align = "center", icon, Span:new { width = gap }, value }
+    else
+      top = require("ui/widget/horizontalgroup"):new { align = "center", value,
+        require("ui/widget/horizontalspan"):new { width = gap }, icon }
+    end
   end
-  return Group:new { align = "left", top, Span:new { width = gap }, label }
+  return Group:new { align = stacked and "center" or "left", top, Span:new { width = gap }, label }
 end
 
 -- ------------------------------------------------------- rediscovery cards
