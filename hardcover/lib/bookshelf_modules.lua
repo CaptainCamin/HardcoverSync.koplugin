@@ -967,7 +967,8 @@ function Modules.totalWidget(a, ctx, kind)
   local face, bold = Kit.face(ctx.clamp and Theme.type.title or size, ctx.scale, { bold = true })
   local value = require("lib/bookshelf_colour_text"):new { text = card.value, face = face, bold = bold,
     fgcolor = Kit.COLOR_PRIMARY }
-  local stacked = ctx.height and ctx.width and ctx.height > ctx.width
+  local shape = ctx.shape or (Kit.shape and Kit.shape(ctx.width, ctx.height))
+  local stacked = ctx.height and shape == "tall"
   local label = Kit.fitText { text = card.sub, width = ctx.width, size = Theme.type.label,
     scale_pct = ctx.scale, align = stacked and "center" or "left", fgcolor = Kit.COLOR_MUTED }
   local gap = Kit.sc(ctx.scale)(Theme.space.xs)

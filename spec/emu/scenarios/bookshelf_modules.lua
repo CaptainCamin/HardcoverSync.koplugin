@@ -336,6 +336,12 @@ return {
     showLargeTotals() -- stale, complete history still shows the actual totals
     expectTotalLayout(false)
     local size = math.floor((width - gap) / 2)
+    -- Grid rounding can leave a square-looking cell a pixel taller than it
+    -- is wide. Bookshelf still classifies this as square, not portrait.
+    showLargeTotals(size, size + 1, "bookshelf_totals_near_square")
+    expectTotalLayout(false)
+    showLargeTotals(math.floor(size * 0.8), size, "bookshelf_totals_square_band")
+    expectTotalLayout(false)
     local tall_w = math.floor(width / 3)
     showLargeTotals(tall_w, size, "bookshelf_totals_tall")
     expectTotalLayout(true)
