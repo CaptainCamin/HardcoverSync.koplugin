@@ -65,6 +65,8 @@ Automatic linking by ISBN or Hardcover metadata, batch linking of books on your 
 
 Each card’s **Module settings** applies only to that placement. Memories offers **Window** (This day, This week, This month) and **Reach** (Last year, All previous years). This week means the seven-day anniversary window centered on today. If a day has no match, it tries the week, then the month; an empty week tries the month. The header names the window actually used, and fallback never broadens Reach. Month-only finish dates qualify only for the month. Memories can show its cached cover and hide its rating; Memories and TBR can hide Another and independently choose the card’s tap action: book details, Stats/Want to Read, Hardcover Home, another saved book, or refresh from Hardcover. “Another” works offline; refresh needs internet and keeps saved data if the request fails. Goal cards can switch between bar and ring without replacing them, and totals can hide their icon. Existing placements keep their defaults.
 
+Year in bars offers **Layout** (Upright columns or Stacked rows) and **Metric** (Pages or Books). Pages and upright columns remain the defaults. Stacked rows show monthly totals where space allows; short cells keep the bars and thin out labels. When page counts are unavailable, the chart keeps its existing fallback to books.
+
 <details>
 <summary><strong>Advanced: use your own OAuth app or API token</strong></summary>
 

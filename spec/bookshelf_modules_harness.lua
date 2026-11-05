@@ -715,8 +715,9 @@ end)
 
 -- The year card's series comes from Stats.compute, so the fixture year is the
 -- one the rows name, never the wall clock.
-check("year card splits the year into months, pages first", function()
-  local c = Modules.yearCard(cache(nil, { rows = rows }), 7, 2026)
+check("year card selects books or pages from the same monthly history", function()
+  local saved = cache(nil, { rows = rows })
+  local c = Modules.yearCard(saved, 7, 2026)
   assert(c and c.year == 2026, "no card")
   assert(c.unit == "pages", c.unit)
   assert(c.total == 600, tostring(c.total))
@@ -726,16 +727,22 @@ check("year card splits the year into months, pages first", function()
   assert(c.months[1] == 0 and c.months[12] == 0)
   assert(c.peak == 500 and c.peak_month == 3,
     tostring(c.peak) .. " / " .. tostring(c.peak_month))
+  c = Modules.yearCard(saved, 7, 2026, "books")
+  assert(c.unit == "books" and c.total == 3, "the book metric must ignore available page totals")
+  assert(c.months[3] == 2 and c.months[6] == 1 and c.peak == 2 and c.peak_month == 3)
 end)
 
-check("year card falls back to books when no edition has a page count", function()
-  local c = Modules.yearCard(cache(nil, { rows = {
+check("year card still falls back to books when no edition has a page count", function()
+  local saved = cache(nil, { rows = {
     { date = "2026-02-01" }, { date = "2026-02-10" }, { date = "2026-07-04" },
-  } }), 7, 2026)
+  } })
+  local c = Modules.yearCard(saved, 7, 2026)
   assert(c.unit == "books", c.unit)
   assert(c.total == 3, tostring(c.total))
   assert(c.months[2] == 2 and c.months[7] == 1)
   assert(c.peak_month == 2, tostring(c.peak_month))
+  c = Modules.yearCard(saved, 7, 2026, "pages")
+  assert(c.unit == "books" and c.total == 3, "missing page counts should preserve the existing book fallback")
 end)
 
 check("year card says so when the year is empty", function()

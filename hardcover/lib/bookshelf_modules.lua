@@ -1286,9 +1286,8 @@ end
 
 -- ------------------------------------------------------------- year card
 
--- This year in twelve bars, from the saved stats: the pages (or the books, when
--- no edition has a page count) each month, the total, and the biggest month.
-function Modules.yearCard(shelf_cache, user_id, year)
+-- This year in twelve bars, from the saved stats, with a selectable metric.
+function Modules.yearCard(shelf_cache, user_id, year, metric)
   if not (shelf_cache and user_id) then return nil, "signed_out" end
   local saved = shelf_cache:stats(user_id)
   if not saved then return nil, "no_data" end
@@ -1296,9 +1295,7 @@ function Modules.yearCard(shelf_cache, user_id, year)
   year = year or tonumber(os.date("%Y"))
   local s = Stats.compute(saved.rows, { year = year })
   if s.books == 0 then return nil, "no_books" end
-  -- Pages say more than books: one long book is not the same month as three
-  -- short ones, and the stats keep both series.
-  local pages = s.pages > 0
+  local pages = metric ~= "books" and s.pages > 0
   local months = pages and s.pages_months or s.months
   local peak, peak_month = 0, nil
   for m = 1, 12 do
@@ -1405,6 +1402,81 @@ local function monthChart(ctx, data, width, height)
   return Chart:new{}
 end
 
+-- Months stacked vertically, with horizontal bars and aligned monthly totals.
+-- Report the natural text height to the host's fit search; only its final
+-- clamp may thin out labels, never the twelve bars themselves.
+local function monthRows(ctx, data, width, height)
+  local Kit = require("lib/bookshelf_module_kit")
+  local Theme = require("hardcover/lib/ui/theme")
+  local Color = require("lib/bookshelf_color")
+  local Geom = require("ui/geometry")
+  local Text = require("lib/bookshelf_colour_text")
+  local sc = Kit.sc(ctx.scale)
+  local gap, names, values = sc(Theme.space.xs), {}, {}
+  local name_w, value_w, text_h = 0, 0, 0
+  for m = 1, 12 do
+    names[m] = Text:new { text = data.labels[m], face = Kit.face(Theme.type.label, ctx.scale),
+      fgcolor = Kit.COLOR_MUTED }
+    values[m] = Text:new { text = grouped(data.months[m]), face = Kit.face(Theme.type.label, ctx.scale),
+      fgcolor = Kit.COLOR_PRIMARY }
+    name_w = math.max(name_w, names[m]:getSize().w)
+    value_w = math.max(value_w, values[m]:getSize().w)
+    text_h = math.max(text_h, names[m]:getSize().h, values[m]:getSize().h)
+  end
+  local h = math.max(height or 0, 12 * text_h + 11 * gap)
+  if ctx.clamp and height then
+    h = math.max(12, height)
+    -- Close the gaps before dropping labels when the fitted card is only a
+    -- few pixels short of twelve complete rows. Keep a hairline between bars
+    -- in short cells so equal monthly counts do not merge into solid blocks.
+    gap = math.min(gap, math.floor(h / 24), math.max(Theme.line.hair, math.floor((h - 12 * text_h) / 11)))
+  end
+  local row_h = math.max(1, math.floor((h - 11 * gap) / 12))
+  local step = math.max(1, math.ceil((text_h + gap) / (row_h + gap)))
+  local w = math.max(width, name_w + value_w + 2 * gap + sc(Theme.space.m))
+  local plot_w = w - name_w - value_w - 2 * gap
+  local bar_h = math.max(1, math.min(row_h, sc(Theme.space.s)))
+  local Chart = require("ui/widget/widget"):extend{}
+  function Chart:getSize() return Geom:new { w = w, h = h } end
+  function Chart:free()
+    for m = 1, 12 do names[m]:free(); values[m]:free() end
+  end
+  function Chart:paintTo(bb, x, y)
+    self.dimen = Geom:new { x = x, y = y, w = w, h = h }
+    for m = 1, 12 do
+      local top = y + (m - 1) * (row_h + gap)
+      if (m - 1) % step == 0 and top + text_h <= y + h then
+        local ty = top + math.max(0, math.floor((row_h - text_h) / 2))
+        names[m]:paintTo(bb, x, ty)
+        if step == 1 then values[m]:paintTo(bb, x + w - values[m]:getSize().w, ty) end
+      end
+      if data.months[m] > 0 then
+        local bw = math.max(1, math.floor(plot_w * data.months[m] / math.max(1, data.peak)))
+        local bx, by = x + name_w + gap, top + math.floor((row_h - bar_h) / 2)
+        local t = Theme.line.hair
+        if m == data.current and bw > 2 * t and bar_h > 2 * t then
+          Color.paintRect(bb, bx, by, bw, t, Kit.COLOR_PRIMARY)
+          Color.paintRect(bb, bx, by + bar_h - t, bw, t, Kit.COLOR_PRIMARY)
+          Color.paintRect(bb, bx, by, t, bar_h, Kit.COLOR_PRIMARY)
+          Color.paintRect(bb, bx + bw - t, by, t, bar_h, Kit.COLOR_PRIMARY)
+        else
+          Color.paintRect(bb, bx, by, bw, bar_h, Kit.COLOR_PRIMARY)
+        end
+      end
+    end
+  end
+  local chart = Chart:new{}
+  -- Expose visible text in the widget tree while painting its aligned
+  -- positions here rather than delegating layout to a container.
+  for m = 1, 12 do
+    if (m - 1) % step == 0 and (m - 1) * (row_h + gap) + text_h <= h then
+      chart[#chart + 1] = names[m]
+      if step == 1 then chart[#chart + 1] = values[m] end
+    end
+  end
+  return chart
+end
+
 -- The card: the year and its total, the twelve bars, and the month that carried
 -- the year. A wide cell puts the words beside the bars; a short one gives up the
 -- caption before it gives up the bars.
@@ -1423,6 +1495,7 @@ local function yearDraw(ctx, data, reason)
   local w = math.max(50, ctx.width or 50)
   local h = ctx.height
   local gap = sc(8)
+  local rows = setting(ctx, "chart_layout", "columns") == "rows"
 
   -- The year and its total. Built per width, because a wide cell gives the
   -- words a column and the bars the rest: without the limit a long total would
@@ -1472,7 +1545,7 @@ local function yearDraw(ctx, data, reason)
   -- strip has room for both. The chart gets what the words do not take, and the
   -- words never take more than half, so a long total cannot squeeze the year
   -- flat.
-  if wideCell(ctx, w) and h then
+  if not rows and wideCell(ctx, w) and h then
     local words_w = math.min(title(nil):getSize().w, math.floor(w * 0.5))
     local chart_w = math.max(sc(60), w - words_w - gap)
     local column = VerticalGroup:new{ align = "left", title(words_w) }
@@ -1499,6 +1572,10 @@ local function yearDraw(ctx, data, reason)
 
   local text = title(w)
   local text_h = text:getSize().h
+  if rows then
+    return VerticalGroup:new { align = "left", text, VerticalSpan:new { width = gap },
+      monthRows(ctx, data, w, h and math.max(12, h - text_h - gap) or nil) }
+  end
   if not h then
     -- The start menu has no cell: take a natural height for the bars.
     return VerticalGroup:new{ align = "left", text, VerticalSpan:new{ width = gap },
@@ -1526,7 +1603,7 @@ end
 
 function Modules.yearWidget(a, ctx)
   if not a then return yearDraw(ctx, nil, "no_plugin") end
-  return yearDraw(ctx, Modules.yearCard(a.shelf_cache, userId()))
+  return yearDraw(ctx, Modules.yearCard(a.shelf_cache, userId(), nil, setting(ctx, "year_metric", "pages")))
 end
 
 -- The goal card's own settings (long press on the card): pin it to one of the
@@ -1645,6 +1722,10 @@ function Modules.cardSettings(a, ctx, kind)
       kind == "goal_ring" and "ring" or "bar")
   elseif TOTAL_LABELS[kind] then
     add("show_icon", _("Icon"), yes_no, true)
+  elseif kind == "year" then
+    add("chart_layout", _("Layout"), {
+      { "columns", _("Upright columns") }, { "rows", _("Stacked rows") } }, "columns")
+    add("year_metric", _("Metric"), { { "pages", _("Pages") }, { "books", _("Books") } }, "pages")
   end
   local actions = { { "source", kind == "tbr" and _("Open Want to Read")
     or (kind == "goal" or kind == "goal_ring") and _("Open Goals") or _("Open Stats") },

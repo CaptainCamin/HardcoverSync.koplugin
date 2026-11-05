@@ -1,7 +1,7 @@
 -- The year as twelve bars, for Bookshelf's start menu and hero grid.
 --
--- Pages per month (or books, where no edition has a page count), from the stats
--- already saved on the device, with the month still counting drawn hollow. A
+-- Books or pages per month, from the stats already saved on the device,
+-- with the month still counting drawn hollow. A
 -- module pack file (Bookshelf's micromodules/README.md).
 local MODULE_DIR = ...
 
@@ -22,7 +22,7 @@ end
 return {
   key = "hardcover_year",
   title = _("Hardcover year in bars"),
-  summary = _("Pages a month this year, as twelve bars. Works offline."),
+  summary = _("Books or pages a month, as columns or stacked rows. Works offline."),
   min_w = 2,
   render = function(ctx)
     return M.yearWidget(app(), ctx)

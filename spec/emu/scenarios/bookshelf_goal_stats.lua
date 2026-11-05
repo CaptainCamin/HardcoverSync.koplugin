@@ -185,14 +185,14 @@ return {
     tap(4, "stats")
 
     -- Both existing entry keys can switch style without replacement or migration.
-    local function choose(i, value)
+    local function choose(i, value, label)
       SM.get(keys[i]).show_settings(Hero._ctx(nil, nil, entries[i]))
       emu:pump()
       local function press(text)
         local node = emu:expectText(text)
         emu:tapExpecting(math.floor(node.x + node.w / 2), math.floor(node.y + node.h / 2))
       end
-      press("Presentation:")
+      press(label or "Presentation:")
       press(value)
       expectFit()
     end
@@ -203,6 +203,41 @@ return {
     emu:shot("bookshelf_goal_presentations")
     choose(1, "Bar")
     choose(2, "Ring")
+
+    -- Pages remains the default. Exercise both metrics and layouts through
+    -- real settings taps without changing the other setting or instance.
+    show(square, square, 4)
+    emu:expectText(grouped(total))
+    emu:expectText("pages")
+    emu:shot("bookshelf_year_columns_pages")
+    choose(4, "Stacked rows", "Layout:")
+    assert(entries[4].chart_layout == "rows" and entries[4].year_metric == nil)
+    if emu.Screen:getWidth() >= 1072 then
+      -- Larger squares show every month and its total; the smallest screen's
+      -- square retains the bars but thins labels at the host's minimum scale.
+      emu:expectText("Dec")
+      emu:expectText(grouped(pages[3]))
+    else
+      emu:expectText("Jan")
+      emu:expectText("Nov")
+    end
+    emu:shot("bookshelf_year_rows_pages")
+    choose(4, "Books", "Metric:")
+    assert(entries[4].year_metric == "books" and entries[4].chart_layout == "rows")
+    emu:expectText(tostring(#rows))
+    emu:expectText("books")
+    emu:expectText(emu.Screen:getWidth() >= 1072 and "Dec" or "Nov")
+    emu:shot("bookshelf_year_rows_books")
+    show(2 * unit + gap, unit, 4)
+    emu:shot("bookshelf_year_rows_small")
+    show(width, square, 4)
+    emu:shot("bookshelf_year_rows_wide")
+    choose(4, "Upright columns", "Layout:")
+    show(square, square, 4)
+    emu:expectText("Best: " .. os.date("%B", os.time { year = today.year, month = 1, day = 1 }))
+    emu:shot("bookshelf_year_columns_books")
+    choose(4, "Pages", "Metric:")
+    assert(entries[4].year_metric == "pages" and entries[4].chart_layout == "columns")
 
     -- The short 2x1 cell every one of these cards can be sized to on the shelf.
     show(2 * unit + gap, unit)
