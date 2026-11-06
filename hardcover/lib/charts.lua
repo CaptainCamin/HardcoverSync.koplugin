@@ -99,9 +99,9 @@ function Charts.slices(items, max, other_label)
   max = max or 5
   if #list > max then
     local rest = 0
-    for i = max, #list do rest = rest + list[i].value end
-    for i = #list, max, -1 do list[i] = nil end
-    list[max] = { label = other_label or "Other", value = rest, other = true }
+    for i = max + 1, #list do rest = rest + list[i].value end
+    for i = #list, max + 1, -1 do list[i] = nil end
+    list[max + 1] = { label = other_label or "Other", value = rest, other = true }
   end
 
   -- percents by largest remainder

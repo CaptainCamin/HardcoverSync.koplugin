@@ -69,9 +69,9 @@ check("a long tail is folded into one Other, last, with the leftover share", fun
   local items = {}
   for i = 1, 9 do items[i] = { label = "g" .. i, value = 10 - i } end -- 9..1
   local s = Charts.slices(items, 4, "Other")
-  assert(#s == 4 and s[4].label == "Other" and s[4].other == true)
-  assert(s[1].label == "g1" and s[3].label == "g3")
-  assert(s[4].value == 6 + 5 + 4 + 3 + 2 + 1, "Other holds the rest: " .. s[4].value)
+  assert(#s == 5 and s[5].label == "Other" and s[5].other == true)
+  assert(s[1].label == "g1" and s[3].label == "g3" and s[4].label == "g4")
+  assert(s[5].value == 5 + 4 + 3 + 2 + 1, "Other holds the rest: " .. s[5].value)
   local sum = 0
   for _, x in ipairs(s) do sum = sum + x.percent end
   assert(sum == 100)
