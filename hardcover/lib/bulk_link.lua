@@ -107,16 +107,15 @@ function BulkLink.readEpubOpf(filepath, popen)
   for chunk in read:lines() do
     total = total + #chunk
     if total > 1024 * 1024 then break end
-    local package_end = select(2, chunk:find("</%s*[%w_%-]*:?package%s*>"))
-    if package_end then
-      chunks[#chunks + 1] = chunk:sub(1, package_end)
-      break
-    end
     chunks[#chunks + 1] = chunk
   end
   read:close()
   if #chunks == 0 then return nil end
-  return table.concat(chunks, "\n")
+  local text = table.concat(chunks, "\n")
+  -- Comments are blanked out only to find the end, so a "</package>" inside one does not count.
+  local masked = text:gsub("<!%-%-.-%-%->", function(comment) return (" "):rep(#comment) end)
+  local package_end = select(2, masked:find("</%s*[%w_%-]*:?package%s*>"))
+  return package_end and text:sub(1, package_end) or text
 end
 
 -- The identifiers inside an EPUB, one per line, or nil.
