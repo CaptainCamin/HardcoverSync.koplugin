@@ -664,7 +664,7 @@ function DialogManager:showHomeBody(host)
   -- the account line in Settings names who is signed in: found out here if it is not known yet
   User:refreshName()
 
-  -- One request after another, each independent of the other's outcome.
+  -- Two requests, one after the other: the counts, then reading, lists and goals together.
   local list_marks, shelf_prints
   Background.run(function()
     HomeLoader.refresh {

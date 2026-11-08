@@ -306,6 +306,90 @@ check("an empty shelf is an empty list, not a failure", function()
   assert(type(entries) == "table" and #entries == 0)
 end)
 
+print("\n== Home's combined request ==")
+
+local function topLevelFields(q)
+  -- the names at depth one of the document's selection set
+  local names, depth, i = {}, 0, 1
+  while i <= #q do
+    local c = q:sub(i, i)
+    if c == "{" then depth = depth + 1
+    elseif c == "}" then depth = depth - 1
+    elseif c == "(" then
+      i = q:find(")", i, true)
+    elseif depth == 1 and c:match("[%a_]") then
+      local name = q:match("^[%w_]+", i)
+      names[#names + 1] = name
+      i = i + #name - 1
+    end
+    i = i + 1
+  end
+  return names
+end
+
+check("reading, lists and goals go in one request with two top-level fields", function()
+  answer({ user_books = {}, me = { { lists = {}, followed_lists = {}, goals = {} } } })
+  Api:getHomeSummary(7, 5)
+  assert(captured.vars.userId == 7 and captured.vars.statusId == 2 and captured.vars.limit == 5)
+  local top = topLevelFields(captured.q)
+  assert(table.concat(top, ",") == "user_books,me", table.concat(top, ","))
+  local q = captured.q
+  for _, field in ipairs({ "order_by: { updated_at: desc }", "user_book_reads(order_by: { id: asc })",
+                           "followed_lists", "list_books_aggregate", "archived: { _eq: false }",
+                           "conditions", "privacy_setting_id" }) do
+    assert(q:find(field, 1, true), "query lacks " .. field)
+  end
+end)
+
+check("each part comes back as the separate requests return it", function()
+  local rows = { {
+    id = 1, status_id = 2,
+    book = { book_id = 9, title = "Nine", pages = 300, contributions = { { author = { name = "A. Writer" } } } },
+    user_book_reads = { { progress_pages = 120, edition = { pages = 250 } } },
+  } }
+  local me = {
+    lists = { { id = 3, updated_at = "2026-01-01", list_books_aggregate = { aggregate = { count = 2 } } } },
+    followed_lists = { { list = { id = 4, updated_at = "2026-02-02", list_books_aggregate = { aggregate = { count = 5 } } } } },
+    goals = { { id = 11, goal = 50, metric = "book", start_date = "2026-01-01", end_date = "2026-12-31",
+                progress = 3, archived = false } },
+  }
+  answer({ user_books = rows, me = { me } })
+  local summary = Api:getHomeSummary(7, 5)
+  answer({ user_books = rows })
+  local reading = Api:getCurrentlyReading(7, 5)
+  answer({ me = { me } })
+  local count, marks = Api:getListCount()
+  answer({ me = { me } })
+  local goals = Api:getGoals()
+  local function same(a, b)
+    if type(a) ~= "table" or type(b) ~= "table" then return a == b end
+    for k, v in pairs(a) do if not same(v, b[k]) then return false end end
+    for k in pairs(b) do if a[k] == nil then return false end end
+    return true
+  end
+  assert(same(summary.reading, reading) and summary.reading[1].progress_pages == 120, "reading differs")
+  assert(summary.list_count == count and count == 2, "list count " .. tostring(summary.list_count))
+  for i, m in ipairs(marks) do
+    assert(summary.list_marks[i].id == m.id and summary.list_marks[i].source == m.source
+      and summary.list_marks[i].fingerprint == m.fingerprint, "mark " .. i .. " differs")
+  end
+  assert(#summary.goals == #goals and #goals == 1 and summary.goals[1].id == goals[1].id, "goals differ")
+end)
+
+check("a failed request is nil and the error; a missing part is nil, the rest still comes back", function()
+  answer(nil, { completed = false })
+  local summary, err = Api:getHomeSummary(7, 5)
+  assert(summary == nil and err ~= nil)
+  answer({ me = { { lists = {}, followed_lists = {} } } })
+  summary = Api:getHomeSummary(7, 5)
+  assert(summary.reading == nil and summary.goals == nil, "invented a part")
+  assert(summary.list_count == 0)
+  answer({ user_books = {} })
+  summary = Api:getHomeSummary(7, 5)
+  assert(type(summary.reading) == "table" and #summary.reading == 0)
+  assert(summary.list_count == nil and summary.goals == nil)
+end)
+
 print("\n== the saved reading list ==")
 
 check("a saved list comes back, per account, and empty is a real answer", function()

@@ -1175,6 +1175,48 @@ function HardcoverApi:getShelfMembers(user_id, status_id, offset, limit)
   return members, nil, #results.user_books >= limit
 end
 
+-- The Currently Reading part of a request: needs $userId, $statusId and $limit.
+local CURRENTLY_READING_FIELD = [[
+  user_books(
+    where: { user_id: { _eq: $userId }, status_id: { _eq: $statusId } }
+    order_by: { updated_at: desc }
+    limit: $limit
+  ) {
+    id
+    status_id
+    book {
+      book_id: id
+      title
+      pages
+      cached_image
+      contributions {
+        author {
+          name
+        }
+      }
+    }
+    user_book_reads(order_by: { id: asc }) {
+      progress_pages
+      finished_at
+      edition {
+        pages
+      }
+    }
+  }
+]]
+
+local function readingEntries(user_books)
+  return _t.map(user_books, function(user_book)
+    local entry = Shelf.normalizeEntry(user_book)
+    local read = Book:currentRead(user_book.user_book_reads)
+    if read then
+      entry.progress_pages = read.progress_pages
+      entry.edition_pages = _t.dig(read, "edition", "pages")
+    end
+    return entry
+  end)
+end
+
 --
 -- What you are reading now, for the home screen: the most recently updated
 -- books on the Currently Reading shelf, each with the progress of its current
@@ -1184,36 +1226,8 @@ end
 function HardcoverApi:getCurrentlyReading(user_id, limit)
   limit = limit or 5
 
-  local query = [[
-    query ($userId: Int!, $statusId: Int!, $limit: Int!) {
-      user_books(
-        where: { user_id: { _eq: $userId }, status_id: { _eq: $statusId } }
-        order_by: { updated_at: desc }
-        limit: $limit
-      ) {
-        id
-        status_id
-        book {
-          book_id: id
-          title
-          pages
-          cached_image
-          contributions {
-            author {
-              name
-            }
-          }
-        }
-        user_book_reads(order_by: { id: asc }) {
-          progress_pages
-          finished_at
-          edition {
-            pages
-          }
-        }
-      }
-    }
-  ]]
+  local query = "query ($userId: Int!, $statusId: Int!, $limit: Int!) {\n"
+    .. CURRENTLY_READING_FIELD .. "}"
 
   local results, err = self:query(query, {
     userId = user_id,
@@ -1224,15 +1238,7 @@ function HardcoverApi:getCurrentlyReading(user_id, limit)
     return nil, err or { completed = false }
   end
 
-  return _t.map(results.user_books, function(user_book)
-    local entry = Shelf.normalizeEntry(user_book)
-    local read = Book:currentRead(user_book.user_book_reads)
-    if read then
-      entry.progress_pages = read.progress_pages
-      entry.edition_pages = _t.dig(read, "edition", "pages")
-    end
-    return entry
-  end)
+  return readingEntries(results.user_books)
 end
 
 -- `action_at` (optional, "2026-10-23T18:04:11Z", UTC) is when the page was read. Hardcover stamps
@@ -1745,6 +1751,19 @@ function HardcoverApi:getLists()
   return Lists.normalize(results.me)
 end
 
+-- The fields under `me` that Lists.marks reads.
+local LIST_MARK_FIELDS = [[
+  lists { id updated_at list_books_aggregate { aggregate { count } } }
+  followed_lists { list { id updated_at list_books_aggregate { aggregate { count } } } }
+]]
+
+-- `me` out of an answer: Hardcover sends it as a one-row list.
+local function meOf(results)
+  local me = results and results.me
+  if type(me) == "table" and me[1] ~= nil then me = me[1] end
+  return type(me) == "table" and me or nil
+end
+
 --
 -- How many lists there are to open (yours plus the ones you follow), for the home
 -- screen's tile, and each one's fingerprint (see Lists.marks), so Home can tell whether
@@ -1752,18 +1771,10 @@ end
 -- bytes a list). Returns count, marks; or nil and the error.
 --
 function HardcoverApi:getListCount()
-  local query = [[
-    query {
-      me {
-        lists { id updated_at list_books_aggregate { aggregate { count } } }
-        followed_lists { list { id updated_at list_books_aggregate { aggregate { count } } } }
-      }
-    }
-  ]]
+  local query = "query {\n  me {\n" .. LIST_MARK_FIELDS .. "  }\n}"
   local results, err = self:query(query, {}, true) -- a tap while Home is scrolled must not cancel it
-  local me = results and results.me
-  if type(me) == "table" and me[1] ~= nil then me = me[1] end
-  if type(me) ~= "table" then
+  local me = meOf(results)
+  if not me then
     return nil, err or { completed = false }
   end
   local marks = Lists.marks(me)
@@ -1995,40 +2006,74 @@ end
 -- Reading goals
 -- ------------------------------------------------------------------------------
 
+-- The goals part of a request, under `me`.
+local GOALS_FIELD = [[
+  goals(
+    where: { archived: { _eq: false } }
+    order_by: [{ end_date: asc }, { id: asc }]
+  ) {
+    id
+    goal
+    metric
+    description
+    start_date
+    end_date
+    progress
+    archived
+    privacy_setting_id
+    conditions
+  }
+]]
+
 --
 -- Your reading goals, as a list (see Goals.normalize: archived ones are left out).
 -- Everything about pace is worked out on the device from this and the date.
 --
 function HardcoverApi:getGoals()
-  local query = [[
-    query {
-      me {
-        goals(
-          where: { archived: { _eq: false } }
-          order_by: [{ end_date: asc }, { id: asc }]
-        ) {
-          id
-          goal
-          metric
-          description
-          start_date
-          end_date
-          progress
-          archived
-          privacy_setting_id
-          conditions
-        }
-      }
-    }
-  ]]
+  local query = "query {\n  me {\n" .. GOALS_FIELD .. "  }\n}"
 
   local results, err = self:query(query, {}, true)
-  local me = results and results.me
-  if type(me) == "table" and me[1] ~= nil then me = me[1] end
-  if type(me) ~= "table" or type(me.goals) ~= "table" then
+  local me = meOf(results)
+  if not me or type(me.goals) ~= "table" then
     return nil, err or { completed = false }
   end
   return Goals.normalize(me.goals)
+end
+
+--
+-- What Home shows after the shelf counts, in one request instead of three: the books
+-- being read (as getCurrentlyReading), the lists' count and marks (as getListCount) and
+-- the goals (as getGoals). Two top-level fields, `user_books` and `me`. Returns
+-- { reading, list_count, list_marks, goals }, each nil when its part did not come back;
+-- or nil and the error. Never cancelled by a tap.
+--
+function HardcoverApi:getHomeSummary(user_id, limit)
+  local query = "query ($userId: Int!, $statusId: Int!, $limit: Int!) {\n"
+    .. CURRENTLY_READING_FIELD
+    .. "  me {\n" .. LIST_MARK_FIELDS .. GOALS_FIELD .. "  }\n}"
+
+  local results, err = self:query(query, {
+    userId = user_id,
+    statusId = 2,
+    limit = limit or 5,
+  }, true)
+  if not results then
+    return nil, err or { completed = false }
+  end
+
+  local summary = {}
+  if type(results.user_books) == "table" then
+    summary.reading = readingEntries(results.user_books)
+  end
+  local me = meOf(results)
+  if me then
+    summary.list_marks = Lists.marks(me)
+    summary.list_count = #summary.list_marks
+    if type(me.goals) == "table" then
+      summary.goals = Goals.normalize(me.goals)
+    end
+  end
+  return summary
 end
 
 -- The fields of a goal we read back from the goal mutations: the same ones getGoals

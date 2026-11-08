@@ -110,8 +110,13 @@ Api.getCurrentlyReading = function()
   if nextresult == nil then return nil, { completed = false } end
   return nextresult
 end
--- the "More lists" tile's number is a third request; it answers nothing here, so
--- the screen is left as the other requests drew it
+-- Home's second request carries the reading cards; the lists and goals in it answer
+-- nothing here, so the screen is left as the other parts drew it
+Api.getHomeSummary = function(self, user_id, limit)
+  local entries = Api.getCurrentlyReading(self, user_id, limit)
+  if not entries then return nil, { completed = false } end
+  return { reading = entries }
+end
 Api.getListCount = function() return nil, { completed = false } end
 Api.getGoals = function() return nil, { completed = false } end
 local count_results, count_calls

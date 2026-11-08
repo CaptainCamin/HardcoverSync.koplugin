@@ -117,6 +117,7 @@ Api.getBooksByIds = function(_, ids) call("getBooksByIds", ids) return {} end
 Api.getStatsAsync = function(_, _, cb) call("getStats"); cb({ rows = { { title = "x" } }, history = {}, genres = {}, complete = true }) end
 Api.getForYouAsync = function(_, cb) call("getForYou"); cb({ { book_id = 77, title = "Pick" } }) end
 Api.getCurrentlyReading = function() call("getCurrentlyReading") return nil end
+Api.getHomeSummary = function() call("getHomeSummary") return nil end
 Api.getListCount = function() call("getListCount") return nil end
 Api.getGoals = function() call("getGoals") return nil end
 
