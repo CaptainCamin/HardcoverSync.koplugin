@@ -201,7 +201,7 @@ local TOTAL_LABELS = {
   five_star = _("Five-star books"), rereads = _("Rereads"),
 }
 
-function Modules.totalCard(shelf_cache, user_id, kind)
+local function lifetimeTotals(shelf_cache, user_id)
   local history, reason = historyFor(shelf_cache, user_id)
   if not history then return nil, reason end
   local totals = { authors = 0, books = 0, five_star = 0, rereads = 0 }
@@ -227,7 +227,17 @@ function Modules.totalCard(shelf_cache, user_id, kind)
   end
   for _id in pairs(authors) do totals.authors = totals.authors + 1 end
   for _id in pairs(rated) do totals.five_star = totals.five_star + 1 end
+  return totals
+end
+
+local function totalOf(totals, kind)
   return { value = tostring(totals[kind]), sub = TOTAL_LABELS[kind] }
+end
+
+function Modules.totalCard(shelf_cache, user_id, kind)
+  local totals, reason = lifetimeTotals(shelf_cache, user_id)
+  if not totals then return nil, reason end
+  return totalOf(totals, kind)
 end
 
 -- A deterministic daily choice. Fit-search and picker renders never advance
@@ -247,14 +257,19 @@ function Modules.memoryCard(shelf_cache, user_id, today, offset, window, reach)
   -- a seven-day anniversary window crosses New Year and handles leap years.
   local Goals = require("hardcover/lib/goals")
   local anchor, year = Goals.parseDate(today), tonumber(today:sub(1, 4))
+  -- Each window pass asks again for the same dates; parse each one once.
+  local distances = {}
   local function distance(date)
     if #date < 10 then return nil end
-    local nearest
-    for shift = -1, 1 do
-      local stamp = Goals.parseDate(tostring(year + shift) .. date:sub(5, 10))
-      if stamp then nearest = math.min(nearest or math.huge, math.abs(stamp - anchor)) end
+    local nearest = distances[date]
+    if nearest == nil then
+      for shift = -1, 1 do
+        local stamp = Goals.parseDate(tostring(year + shift) .. date:sub(5, 10))
+        if stamp then nearest = math.min(nearest or math.huge, math.abs(stamp - anchor)) end
+      end
+      distances[date] = nearest or false
     end
-    return nearest
+    return nearest or nil
   end
   local windows = window == "day" and { "day", "week", "month" }
     or window == "week" and { "week", "month" } or { "month" }
@@ -875,6 +890,31 @@ end
 -- Render entry points for the pack specs in bookshelf_modules/. The specs find
 -- the plugin instance themselves (Kit.plugin); a nil instance means it is off,
 -- and the card says so rather than sitting empty.
+-- The host re-renders a card repeatedly to fit its cell, changing only the
+-- size. Build each card's data once per fit, not once per font size, in
+-- `a._bookshelf_<slot>`. Short-lived: anything saved meanwhile, even outside
+-- this plugin, appears on the next second's render.
+local function fitMemo(a, slot, key, compute)
+  local field = "_bookshelf_" .. slot
+  local memo, now = a[field], os.time()
+  if not memo or memo.key ~= key or memo.at ~= now then
+    local card, reason = compute()
+    memo = { key = key, at = now, card = card, reason = reason }
+    a[field] = memo
+  end
+  return memo.card, memo.reason
+end
+
+local FIT_MEMOS = { "tbr", "memories", "stats", "totals" }
+
+-- Which saved Stats a memo was built from: a refresh saves a new table and
+-- invalidating a shelf marks the saved one stale.
+local function statsKey(a, user_id)
+  local saved = a.shelf_cache and user_id and a.shelf_cache:stats(user_id)
+  if not saved then return "none" end
+  return tostring(saved) .. ":" .. tostring(saved.saved_at) .. ":" .. tostring(saved.stale)
+end
+
 local function goalsFor(a, ctx, limit)
   local queue = a.goal_queue
   local offline = a.dialog_manager and a.dialog_manager:finishedOffline() or 0
@@ -905,7 +945,9 @@ end
 
 function Modules.statsWidget(a, ctx)
   if not a then return draw(ctx, nil, "no_plugin", { heading = _("Hardcover stats") }) end
-  local card, reason = Modules.statsCard(a.shelf_cache, userId())
+  local id, year = userId(), tonumber(os.date("%Y"))
+  local card, reason = fitMemo(a, "stats", tostring(id) .. ":" .. year .. ":" .. statsKey(a, id),
+    function() return Modules.statsCard(a.shelf_cache, id, year) end)
   if not card then return draw(ctx, nil, reason, { heading = _("Hardcover stats") }) end
   local Kit = require("lib/bookshelf_module_kit")
   local Theme = require("hardcover/lib/ui/theme")
@@ -951,7 +993,16 @@ function Modules.totalWidget(a, ctx, kind)
   local Theme = require("hardcover/lib/ui/theme")
   local roomy = not ctx.height or ctx.height >= Theme.space.xl * 4
   local card, reason
-  if a then card, reason = Modules.totalCard(a.shelf_cache, userId(), kind) else reason = "no_plugin" end
+  if a then
+    -- The four totals cards share one pass over the history.
+    local id = userId()
+    local totals
+    totals, reason = fitMemo(a, "totals", tostring(id) .. ":" .. statsKey(a, id),
+      function() return lifetimeTotals(a.shelf_cache, id) end)
+    card = totals and totalOf(totals, kind)
+  else
+    reason = "no_plugin"
+  end
   if not card then
     local message = reasonText(reason)
     if not roomy then
@@ -1004,27 +1055,40 @@ local function discoveryFor(a, ctx, kind)
   if not a then return nil, "no_plugin" end
   local today, id = os.date("%Y-%m-%d"), userId()
   local offset = choiceOffset(ctx, today)
-  if kind == "memories" then
-    return Modules.memoryCard(a.shelf_cache, id, today, offset,
-      setting(ctx, "memory_window", "month"), setting(ctx, "memory_reach", "all"))
-  end
-  -- The host re-renders repeatedly to fit a cell. Decode the TBR membership
-  -- once per fit, not once per font size. Short-lived: shelf changes appear
-  -- on the next open, even when they were made outside this plugin.
   local key = tostring(id) .. ":" .. today .. ":" .. offset
-  local memo = a._bookshelf_tbr
-  local now = os.time()
-  if not memo or memo.key ~= key or memo.at ~= now then
-    local card, reason = Modules.tbrCard(a.shelf_store, id, today, offset)
-    memo = { key = key, at = now, card = card, reason = reason }
-    a._bookshelf_tbr = memo
+  if kind == "memories" then
+    local window, reach = setting(ctx, "memory_window", "month"), setting(ctx, "memory_reach", "all")
+    return fitMemo(a, "memories", table.concat({ key, tostring(window), tostring(reach), statsKey(a, id) }, ":"),
+      function() return Modules.memoryCard(a.shelf_cache, id, today, offset, window, reach) end)
   end
-  return memo.card, memo.reason
+  -- Decode the TBR membership once per fit, not once per font size.
+  return fitMemo(a, "tbr", key, function() return Modules.tbrCard(a.shelf_store, id, today, offset) end)
+end
+
+-- Covers decoded during the current fit, by path and size. The fit's probes
+-- often ask for the same size, so a cover is read and scaled once; each
+-- widget gets its own copy to dispose of.
+local fit_covers = { images = {} }
+local function decodedCover(path, width, height)
+  local now = os.time()
+  if fit_covers.at ~= now then
+    for _, image in pairs(fit_covers.images) do
+      if image then image:free() end
+    end
+    fit_covers.at, fit_covers.images = now, {}
+  end
+  local key = path .. ":" .. width .. "x" .. height
+  local image = fit_covers.images[key]
+  if image == nil then
+    image = require("ui/renderimage"):renderImageFile(path, false, width, height) or false
+    fit_covers.images[key] = image
+  end
+  return image and image:copy() or nil
 end
 
 -- Uses only a cached image path. Decode by contents (cache files end in .img,
 -- which ImageWidget's file loader cannot recognise). Each widget owns its
--- bitmap; nothing is fetched or shared with another fit render.
+-- bitmap; nothing is fetched, and no bitmap is shared with another render.
 local function discoveryCover(ctx, data, width, required)
   local Kit = require("lib/bookshelf_module_kit")
   local Theme = require("hardcover/lib/ui/theme")
@@ -1033,7 +1097,7 @@ local function discoveryCover(ctx, data, width, required)
   local height = math.floor(width * 3 / 2)
   local url = type(data.image) == "table" and data.image.url
   local path = url and require("hardcover/lib/ui/image_loader"):cachedPath(url)
-  local image = path and require("ui/renderimage"):renderImageFile(path, false, width, height)
+  local image = path and decodedCover(path, width, height)
   if image then
     return require("ui/widget/imagewidget"):new {
       image = image, image_disposable = true, width = width, height = height, scale_factor = 0,
@@ -1266,7 +1330,7 @@ function Modules.refreshDiscovery(a, ctx, kind)
   local function done(ok)
     Status.close(loading)
     if ok then
-      a._bookshelf_tbr = nil
+      for _, slot in ipairs(FIT_MEMOS) do a["_bookshelf_" .. slot] = nil end
       if ctx.refresh then ctx.refresh() end
     end
     Status.info(ok and _("Updated from Hardcover.") or _("Couldn't refresh. Your saved data is unchanged."))

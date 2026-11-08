@@ -979,6 +979,55 @@ check("TBR rediscovery uses only older saved Want to Read members and refuses a 
   assert(why == "incomplete_tbr")
 end)
 
+check("a fit search builds each card and decodes its cover once per second", function()
+  local real_time, now = os.time, 1000
+  os.time = function(t) return t and real_time(t) or now end -- luacheck: ignore 122
+  local names = { "ui/renderimage", "hardcover/lib/ui/image_loader", "ui/widget/imagewidget" }
+  local previous = {}
+  for _, name in ipairs(names) do previous[name] = package.loaded[name] end
+  local decodes, copies = 0, 0
+  package.loaded[names[1]] = { renderImageFile = function()
+    decodes = decodes + 1
+    return { copy = function() copies = copies + 1; return {} end, free = function() end }
+  end }
+  package.loaded[names[2]] = { cachedPath = function() return "/covers/memory.img" end }
+  package.loaded[names[3]] = { new = function(_, o)
+    return { image = o.image, getSize = function() return { w = o.width, h = o.height } end, free = function() end }
+  end }
+  local function memory()
+    return { book_id = 1, title = "Remembered", completions = 1, authors = { { id = 1, name = "A" } },
+      reads = { tostring(tonumber(os.date("%Y")) - 1) .. os.date("-%m-01") },
+      image = { url = "https://example.test/cover.jpg" } }
+  end
+  local saved = { rows = {}, complete = true, history = { memory() } }
+  current_user_id = 7
+  plugin_instance = app(nil, saved)
+  plugin_instance.shelf_cache.stats = function() return saved end
+  local books = loadPack("hardcover_books_read")
+  local total_ctx = { width = 300, height = 150, scale = 100, config = entryConfig() }
+  total_ctx.config:set("show_icon", false)
+  local function total() return treeTexts(books.render(total_ctx)) end
+  assert(total():find("1", 1, true))
+  saved.history[2] = { book_id = 2, title = "Later", completions = 1, authors = {}, reads = {} }
+  assert(total():find("1", 1, true), "a probe in the same fit recounted the history")
+  now = now + 1
+  assert(total():find("2", 1, true), "the memo outlived its fit")
+  saved = { rows = {}, complete = true, history = {} }
+  assert(total():find("0", 1, true), "a Stats refresh kept the old totals")
+
+  saved = { rows = {}, complete = true, history = { memory() } }
+  local memories = loadPack("hardcover_memories")
+  local ctx = { width = 300, height = 150, scale = 100, config = entryConfig() }
+  ctx.config:set("show_cover", true)
+  for _ = 1, 4 do
+    assert(treeTexts(memories.render(ctx)):find("Remembered", 1, true))
+  end
+  assert(decodes == 1 and copies == 4, "decodes " .. decodes .. ", copies " .. copies)
+  for _, name in ipairs(names) do package.loaded[name] = previous[name] end
+  os.time = real_time -- luacheck: ignore 122
+  plugin_instance = nil
+end)
+
 check("the six additions are packs, the totals allow a single cell, and missing data opens its source", function()
   plugin_instance = app(nil, nil)
   plugin_instance.dialog_manager.showShelf = function(_, status) opened = status end
