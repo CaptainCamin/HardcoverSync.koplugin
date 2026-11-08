@@ -47,6 +47,10 @@ local MIGRATIONS = {
     "CREATE TABLE IF NOT EXISTS shelf_books (user_id INTEGER NOT NULL, status_id INTEGER NOT NULL, user_book_id INTEGER, book_id INTEGER NOT NULL, rating REAL, date_added TEXT, position INTEGER NOT NULL, PRIMARY KEY (user_id, book_id))",
     "CREATE INDEX IF NOT EXISTS shelf_books_shelf ON shelf_books (user_id, status_id, position)",
   },
+  -- 2.x: eviction asks "is this book on a shelf?" by book alone
+  {
+    "CREATE INDEX IF NOT EXISTS shelf_books_book ON shelf_books (book_id)",
+  },
 }
 
 SqliteStore.SCHEMA_VERSION = #MIGRATIONS
@@ -178,6 +182,23 @@ local function run(conn, sql, ...)
   if not ok then error(err) end
 end
 
+-- The first column of every row.
+local function column(conn, sql, ...)
+  local out = {}
+  for i, r in ipairs(rows(conn, sql, ...)) do out[i] = r[1] end
+  return out
+end
+
+-- Books that may be held by nothing since the last evict (saved with nothing holding
+-- them yet, or that lost a list, shelf or details), so evict checks only these instead
+-- of every book. `self.suspects` is nil until the first evict, which checks them all:
+-- what an earlier run left behind is not known.
+local function suspect(self, ids)
+  local suspects = self.suspects
+  if not suspects then return end
+  for _, id in ipairs(ids) do suspects[id] = true end
+end
+
 -- ------------------------------------------------------------------ books
 
 -- { [book_id] = row_json } for the ids that are saved.
@@ -196,6 +217,9 @@ end
 -- `books` is { { book_id = n, row = json, partial = bool }, ... }: saved, replacing what
 -- was there.
 function SqliteStore:putRows(books, now)
+  local ids = {}
+  for i, b in ipairs(books) do ids[i] = b.book_id end
+  suspect(self, ids)
   return self:_write(function(conn)
     local stmt = conn:prepare("INSERT OR REPLACE INTO books (book_id, row, saved_at, partial) VALUES (?, ?, ?, ?)")
     local ok, err = pcall(function()
@@ -274,6 +298,7 @@ end
 -- in one transaction. `blob` nil leaves the blob alone.
 function SqliteStore:putOwned(owner, book_ids, blob)
   return self:_write(function(conn)
+    suspect(self, column(conn, "SELECT book_id FROM refs WHERE owner = ?", owner))
     run(conn, "DELETE FROM refs WHERE owner = ?", owner)
     local stmt = conn:prepare("INSERT INTO refs (owner, book_id) VALUES (?, ?)")
     local ok, err = pcall(function()
@@ -293,9 +318,11 @@ function SqliteStore:dropOwned(key)
   return self:_write(function(conn)
     if key:sub(-1) == ":" then
       local pattern = key:gsub("[%%_]", "\\%0") .. "%"
+      suspect(self, column(conn, "SELECT book_id FROM refs WHERE owner LIKE ? ESCAPE '\\'", pattern))
       run(conn, "DELETE FROM refs WHERE owner LIKE ? ESCAPE '\\'", pattern)
       run(conn, "DELETE FROM blobs WHERE key LIKE ? ESCAPE '\\'", pattern)
     else
+      suspect(self, column(conn, "SELECT book_id FROM refs WHERE owner = ?", key))
       run(conn, "DELETE FROM refs WHERE owner = ?", key)
       run(conn, "DELETE FROM blobs WHERE key = ?", key)
     end
@@ -309,6 +336,8 @@ end
 -- transaction. A book that was on another shelf moves (a book is on one shelf at most).
 function SqliteStore:putMembers(user_id, status_id, members, key, blob)
   return self:_write(function(conn)
+    suspect(self, column(conn, "SELECT book_id FROM shelf_books WHERE user_id = ? AND status_id = ?",
+      user_id, status_id))
     run(conn, "DELETE FROM shelf_books WHERE user_id = ? AND status_id = ?", user_id, status_id)
     local stmt = conn:prepare("INSERT OR REPLACE INTO shelf_books (user_id, status_id, user_book_id, book_id, rating, date_added, position) VALUES (?, ?, ?, ?, ?, ?, ?)")
     local ok, err = pcall(function()
@@ -372,6 +401,7 @@ end
 
 -- The book left the library.
 function SqliteStore:deleteMember(user_id, book_id)
+  suspect(self, { book_id })
   return self:_write(function(conn)
     run(conn, "DELETE FROM shelf_books WHERE user_id = ? AND book_id = ?", user_id, book_id)
   end)
@@ -391,12 +421,42 @@ end
 
 -- Keep the `keep_opened` most recently opened details, and the books some list or shelf
 -- holds or that still have details; delete the rest.
+local UNHELD = "NOT EXISTS (SELECT 1 FROM refs WHERE refs.book_id = books.book_id)"
+  .. " AND NOT EXISTS (SELECT 1 FROM details WHERE details.book_id = books.book_id)"
+  .. " AND NOT EXISTS (SELECT 1 FROM shelf_books WHERE shelf_books.book_id = books.book_id)"
+
+-- Only the books that may have lost their hold are checked (see suspect), so a save that
+-- dropped nothing costs a few index lookups rather than a pass over every book. Details
+-- are only dropped when there are more than `keep_opened`.
 function SqliteStore:evict(keep_opened)
-  return self:_write(function(conn)
-    run(conn, "DELETE FROM details WHERE rowid NOT IN (SELECT rowid FROM details ORDER BY opened_at DESC LIMIT ?)",
-      keep_opened)
-    conn:exec("DELETE FROM books WHERE book_id NOT IN (SELECT book_id FROM refs) AND book_id NOT IN (SELECT book_id FROM details) AND book_id NOT IN (SELECT book_id FROM shelf_books);")
+  local suspects = self.suspects
+  local ok = self:_write(function(conn)
+    local opened = rows(conn, "SELECT count(*) FROM details")[1][1]
+    if opened > keep_opened then
+      local old = rows(conn, "SELECT rowid, book_id FROM details ORDER BY opened_at DESC LIMIT -1 OFFSET ?",
+        keep_opened)
+      local rowids = {}
+      for i, r in ipairs(old) do
+        rowids[i] = r[1]
+        if suspects then suspects[r[2]] = true end
+      end
+      for _, chunk in ipairs(chunks(rowids)) do
+        run(conn, "DELETE FROM details WHERE rowid IN (" .. placeholders(#chunk) .. ")", unpack(chunk))
+      end
+    end
+    local ids = {}
+    for id in pairs(suspects or {}) do ids[#ids + 1] = id end
+    -- past a chunk of them, one pass over the books is quicker than a lookup each
+    if not suspects or #ids > CHUNK then
+      conn:exec("DELETE FROM books WHERE " .. UNHELD .. ";")
+      return
+    end
+    for _, chunk in ipairs(chunks(ids)) do
+      run(conn, "DELETE FROM books WHERE book_id IN (" .. placeholders(#chunk) .. ") AND " .. UNHELD, unpack(chunk))
+    end
   end)
+  if ok then self.suspects = {} end
+  return ok
 end
 
 -- Everything, for sign out.
