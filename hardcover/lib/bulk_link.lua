@@ -242,11 +242,11 @@ function BulkLink.new(items, deps)
 end
 
 -- Saves to disk the links stored since the last flush (deps.flush), if there are any. Called after
--- each batch; the caller calls it once more when the scan finishes or is stopped.
+-- each batch; the caller calls it once more when the scan finishes or is stopped. A write that
+-- fails leaves the count, so the next flush tries again.
 function BulkLink.flush(scan)
   if (scan.unflushed or 0) == 0 then return end
-  scan.unflushed = 0
-  if scan.deps.flush then pcall(scan.deps.flush) end
+  if not scan.deps.flush or pcall(scan.deps.flush) then scan.unflushed = 0 end
 end
 
 function BulkLink.total(scan)

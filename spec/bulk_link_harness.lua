@@ -442,6 +442,19 @@ do
   bg.deps.flush = function() bflushes = bflushes + 1 end
   runGuess(bg)
   r.check("a batch of guesses is saved once", #bg.linked == 1 and bflushes == 1, bflushes)
+
+  local attempts, fail = 0, true
+  local wscan = scanOf({ "/a.epub" }, { ["/a.epub"] = "isbn13:9780441172719" },
+    function() return { book_id = 1, title = "X" } end)
+  wscan.deps.flush = function()
+    attempts = attempts + 1
+    if fail then error("disk full") end
+  end
+  runAll(wscan)
+  r.check("a failed write keeps the links to save", attempts == 1 and wscan.unflushed == 1, wscan.unflushed)
+  fail = false
+  BulkLink.flush(wscan)
+  r.check("the end of the scan tries the failed write again", attempts == 2 and wscan.unflushed == 0, attempts)
 end
 
 r.finish()
