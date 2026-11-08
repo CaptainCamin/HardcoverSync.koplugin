@@ -31,6 +31,11 @@ jobs:
       - name: Install LuaJIT
         run: sudo apt-get install -y luajit
 
+      # No token: compares the sign-in's scopes with Hardcover's published scope map, then
+      # starts (and abandons) a device sign-in to see the OAuth app accepts them.
+      - name: Check the sign-in asks for every scope the plugin uses
+        run: luajit spec/live/scope_check.lua .
+
       - name: Check the plugin against the live Hardcover API
         env:
           HARDCOVER_DEV_KEY: ${{ secrets.HARDCOVER_DEV_KEY }}
