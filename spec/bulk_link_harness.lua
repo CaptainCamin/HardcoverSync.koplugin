@@ -52,23 +52,38 @@ r.check("entities in a value are decoded",
 
 -- ------------------------------------------------------------ reading an EPUB
 local commands = {}
-local function fakePopen(listing, content)
+local function fakePopen(content)
   return function(cmd)
     commands[#commands + 1] = cmd
-    local text = cmd:find("unzip %-lqq") and listing or content
+    local text = content
     local lines = {}
     for line in (text or ""):gmatch("[^\n]+") do lines[#lines + 1] = line end
     local i = 0
     return { lines = function() return function() i = i + 1; return lines[i] end end, close = function() end }
   end
 end
-local read = BulkLink.readEpubIdentifiers("/books/it's a book.epub",
-  fakePopen("   2048  2020-01-01 00:00   OEBPS/content.opf", opf))
+local read = BulkLink.readEpubIdentifiers("/books/it's a book.epub", fakePopen(opf))
 r.check("an EPUB's OPF is read through unzip", read and read:find("hardcover:the-hobbit", 1, true) ~= nil, read)
 r.check("a path with a quote is shell-quoted", commands[1]:find("'/books/it'\\''s a book.epub'", 1, true) ~= nil, commands[1])
+r.check("the OPF is read with one unzip process", #commands == 1 and commands[1]:find("unzip -p ", 1, true) == 1
+  and commands[1]:find("'*.opf'", 1, true) ~= nil, table.concat(commands, " | "))
+local first_only = BulkLink.readEpubOpf("/b/two.epub", fakePopen(
+  "<package><dc:identifier>isbn:9780441172719</dc:identifier></package>\n"
+  .. "<package><dc:identifier>isbn:9780000000002</dc:identifier></package>"))
+r.check("only the first OPF in an EPUB is read", first_only and first_only:find("9780441172719", 1, true) ~= nil
+  and first_only:find("9780000000002", 1, true) == nil, first_only)
+local split_close = BulkLink.readEpubOpf("/b/split.epub", fakePopen(
+  "<package><dc:identifier>isbn:9780441172719</dc:identifier></package\n>\n"
+  .. "<package><dc:identifier>isbn:9780000000002</dc:identifier></package>"))
+r.check("a closing tag split over two lines still ends the first OPF", split_close
+  and split_close:find("9780441172719", 1, true) ~= nil and split_close:find("9780000000002", 1, true) == nil, split_close)
+local commented = BulkLink.readEpubIdentifiers("/b/comment.epub", fakePopen(
+  "<package><!-- ends with </package> -->\n<dc:identifier>isbn:9780441172719</dc:identifier></package>"))
+r.check("a closing tag inside a comment does not end the OPF",
+  (commented or ""):find("9780441172719", 1, true) ~= nil, commented)
 r.check("a book that is not an EPUB is not opened",
   BulkLink.readEpubIdentifiers("/books/a.pdf", function() error("opened") end) == nil)
-r.check("an EPUB with no OPF gives nil", BulkLink.readEpubIdentifiers("/b/a.epub", fakePopen("", "")) == nil)
+r.check("an EPUB with no OPF gives nil", BulkLink.readEpubIdentifiers("/b/a.epub", fakePopen("")) == nil)
 
 -- ------------------------------------------------------------ the link settings
 local config = BulkLink.linkConfig({ book_id = 5, edition_id = 9, title = "Dune", pages = 412,
@@ -249,7 +264,7 @@ r.check("an OPF with a title only still gives it",
   (BulkLink.metadataFromOpf("<dc:title>Solo</dc:title>") or {}).title == "Solo")
 r.check("an OPF with neither gives nil", BulkLink.metadataFromOpf("<package></package>") == nil
   and BulkLink.metadataFromOpf(nil) == nil)
-local from_epub = BulkLink.readEpubMetadata("/b/a.epub", fakePopen("  1  2020-01-01 00:00   OEBPS/content.opf", meta_opf))
+local from_epub = BulkLink.readEpubMetadata("/b/a.epub", fakePopen(meta_opf))
 r.check("an EPUB's title and author are read through unzip", from_epub and from_epub.author == "Frank Herbert")
 
 -- ------------------------------------------------------------ choosing a guess
@@ -390,5 +405,87 @@ r.check("confirming keeps the link and drops the mark", right.book_id == 1 and r
 local wrong = applied(BulkLink.undoGuessConfig(), saved["/b/Dune.epub"])
 r.check("undoing forgets the link and the mark", wrong.book_id == nil and wrong.title == nil and wrong.guessed_book_id == nil)
 r.check("no guesses in empty settings", #BulkLink.guessedBooks(nil) == 0)
+
+-- ------------------------------------------------------------ saving to disk once per batch
+do
+  local files, ids = {}, {}
+  for i = 1, 60 do
+    files[i] = "/f" .. i .. ".epub"
+    ids[files[i]] = "isbn13:97800000000" .. string.format("%02d", i)
+  end
+  local flushes, stored_at_flush = 0, {}
+  local fscan, fstored = scanOf(files, ids, function(parsed)
+    return { book_id = tonumber(parsed.isbn_13:sub(-2)), title = "T" }
+  end)
+  fscan.deps.flush = function()
+    flushes = flushes + 1
+    local n = 0
+    for _file in pairs(fstored) do n = n + 1 end
+    stored_at_flush[#stored_at_flush + 1] = n
+  end
+  runAll(fscan)
+  r.check("60 links are saved to disk once per batch, not once per book", flushes == 3, flushes)
+  r.check("each flush saves what its batch stored", stored_at_flush[1] == BulkLink.BATCH
+    and stored_at_flush[3] == 60, table.concat(stored_at_flush, ","))
+  BulkLink.flush(fscan)
+  r.check("a final flush with nothing new does not write again", flushes == 3, flushes)
+
+  local none = 0
+  local nscan = scanOf({ "/a.epub" }, { ["/a.epub"] = "isbn13:9780000000002" }, function() return false end)
+  nscan.deps.flush = function() none = none + 1 end
+  runAll(nscan)
+  r.check("a batch that links nothing does not write", none == 0, none)
+
+  local gfiles, gmetas, gsearches = {}, {}, {}
+  for i = 1, 30 do
+    gfiles[i] = "/g" .. i .. ".epub"
+    gmetas[gfiles[i]] = { title = "Book " .. i }
+    gsearches["Book " .. i] = { book(i, "Book " .. i, "Someone") }
+  end
+  local gflushes = 0
+  local fg = guessScanOf(gfiles, gmetas, gsearches, {})
+  fg.deps.flush = function() gflushes = gflushes + 1 end
+  runGuess(fg)
+  r.check("guesses found one search at a time are saved BATCH at a time", #fg.linked == 30 and gflushes == 1
+    and fg.unflushed == 30 - BulkLink.BATCH, gflushes)
+  BulkLink.flush(fg)
+  r.check("the end of the scan saves what is left", gflushes == 2 and fg.unflushed == 0, gflushes)
+
+  local bflushes = 0
+  local bg = guessScanOf({ "/Dune.epub" }, { ["/Dune.epub"] = { title = "Dune", author = "Frank Herbert" } },
+    {}, { Dune = { dune } })
+  bg.deps.flush = function() bflushes = bflushes + 1 end
+  runGuess(bg)
+  r.check("a batch of guesses is saved once", #bg.linked == 1 and bflushes == 1, bflushes)
+
+  local attempts, fail = 0, true
+  local wscan = scanOf({ "/a.epub" }, { ["/a.epub"] = "isbn13:9780441172719" },
+    function() return { book_id = 1, title = "X" } end)
+  wscan.deps.flush = function()
+    attempts = attempts + 1
+    if fail then error("disk full") end
+  end
+  runAll(wscan)
+  r.check("a failed write keeps the links to save", attempts == 1 and wscan.unflushed == 1, wscan.unflushed)
+  fail = false
+  BulkLink.flush(wscan)
+  r.check("the end of the scan tries the failed write again", attempts == 2 and wscan.unflushed == 0, attempts)
+
+  local gattempts = 0
+  local wfiles, wmetas, wsearches = {}, {}, {}
+  for i = 1, 60 do
+    wfiles[i] = "/w" .. i .. ".epub"
+    wmetas[wfiles[i]] = { title = "Book " .. i }
+    wsearches["Book " .. i] = { book(i, "Book " .. i, "Someone") }
+  end
+  local wg = guessScanOf(wfiles, wmetas, wsearches, {})
+  wg.deps.flush = function()
+    gattempts = gattempts + 1
+    error("disk full")
+  end
+  runGuess(wg)
+  r.check("while writes fail, guesses still try to save only every BATCH links", #wg.linked == 60
+    and gattempts == 2 and wg.unflushed == 60, gattempts)
+end
 
 r.finish()
