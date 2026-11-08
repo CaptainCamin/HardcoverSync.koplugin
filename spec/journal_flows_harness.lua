@@ -649,6 +649,16 @@ check("book journal caches its own pages offline without replacing the library j
   assert(m.journal_store:get(2, 5) == nil)
 end)
 
+check("an empty book-journal cache does not hide the library journal's entries for that book", function()
+  local m = newManager()
+  online = false
+  m.journal_store:put(1, { entry(3), entry(2) }, false)
+  m.journal_store:put(1, {}, false, 5, clock - 10)
+  local screen = m:showBookJournal(5, "Dune", {})
+  assert(#screen.body.entries == 2 and screen.body.entries[1].key == "note:3",
+    "the book journal hid the library journal's saved entries")
+end)
+
 check("an offline journal tab updates when a waiting note is sent", function()
   local m = newManager()
   online = false

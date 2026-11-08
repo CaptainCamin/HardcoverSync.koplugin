@@ -456,7 +456,14 @@ function Flows:showBookJournal(book_id, title, opts)
   local missing_journal = online and AuthScope.missing("read:journal")
   local me_id = User:getId()
   local store = self.journal_store
-  local saved = store and (store:get(me_id, book_id) or store:get(me_id))
+  local book_saved = store and store:get(me_id, book_id)
+  local all_saved = store and store:get(me_id)
+  -- An empty book page is only a cache miss; the library journal may still know this book.
+  local saved = book_saved
+  if book_saved and #book_saved.entries == 0 and all_saved and #all_saved.entries > 0
+    and (tonumber(all_saved.saved_at) or 0) >= (tonumber(book_saved.saved_at) or 0) then
+    saved = all_saved
+  end
 
   local function ofBook(entries)
     local out = {}
