@@ -677,6 +677,14 @@ check("an equally new empty book cache does not revive removed entries", functio
   assert(#screen.body.entries == 0, "an empty book page as new as the library journal should win")
 end)
 
+check("a book journal page of only filtered rows still offers Load more", function()
+  local m = newManager()
+  answer = function() return { entries = {}, count = Journal.PAGE_SIZE, more = true } end
+  local screen = m:showBookJournal(5, "Dune", {})
+  assert(#screen.body.entries == 0 and screen.body.has_more == true,
+    "a filtered page should keep Load more for older entries")
+end)
+
 check("an offline journal tab updates when a waiting note is sent", function()
   local m = newManager()
   online = false
