@@ -7,6 +7,8 @@ package.path = PLUGIN .. "/?.lua;" .. PLUGIN .. "/?/init.lua;" .. package.path
 
 local support = dofile(PLUGIN .. "/spec/support.lua")
 local r = support.reporter()
+-- ASCII logic here; Unicode matching uses the real utf8proc in the search emulator scenario.
+package.preload["ffi/utf8proc"] = function() return { lowercase = string.lower } end
 local LocalSearch = require("hardcover/lib/local_search")
 
 r.test("empty queries leave the local collection unchanged", function()

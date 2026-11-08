@@ -121,7 +121,7 @@ Body.new = function(_, o)
     self.message = nil
     self.loading = false
     self.entries, self.has_more = entries or {}, more == true
-    if #self.entries == 0 then self.message = "Nothing in your journal yet." end
+    if #self.entries == 0 and not self.has_more then self.message = "Nothing in your journal yet." end
   end
   o.setMessage = function(self, m) self.message = m end
   o.setLoading = function(self, loading) self.loading = loading end
@@ -675,6 +675,14 @@ check("an equally new empty book cache does not revive removed entries", functio
   m.journal_store:put(1, {}, false, 5)
   local screen = m:showBookJournal(5, "Dune", {})
   assert(#screen.body.entries == 0, "an empty book page as new as the library journal should win")
+end)
+
+check("a book journal page of only filtered rows still offers Load more", function()
+  local m = newManager()
+  answer = function() return { entries = {}, count = Journal.PAGE_SIZE, more = true } end
+  local screen = m:showBookJournal(5, "Dune", {})
+  assert(#screen.body.entries == 0 and screen.body.has_more == true and screen.body.message == nil,
+    "a filtered page should keep Load more for older entries")
 end)
 
 check("an offline journal tab updates when a waiting note is sent", function()
