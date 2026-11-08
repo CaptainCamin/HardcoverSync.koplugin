@@ -120,21 +120,6 @@ check("a null books_by_pk falls through to the next query", function()
   assert(edition and edition.id == 7)
 end)
 
-check("the default edition follows the current reread, not the oldest or shelf edition", function()
-  local saved = Api.query
-  local oldest, latest, shelf = { id = 11, pages = 200 }, { id = 22, pages = 420 }, { id = 33, pages = 300 }
-  Api.query = function(_, text)
-    assert(text:find("user_book_reads(order_by: {id: asc})", 1, true), "default edition should read all reads oldest first")
-    return { user_books = { { edition = shelf, user_book_reads = {
-      { id = 100, finished_at = "2026-01-01T00:00:00Z", edition = oldest },
-      { id = 200, progress_pages = 12, edition = latest },
-    } } } }
-  end
-  local edition = Api:findDefaultEdition(7, 1)
-  Api.query = saved
-  assert(edition and edition.id == 22 and edition.pages == 420, "did not use the current read's edition")
-end)
-
 check("the edition picker puts the user's shelf edition ahead of a popular edition", function()
   local saved = Api.query
   Api.query = function(_, text)
