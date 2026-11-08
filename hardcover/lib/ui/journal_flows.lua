@@ -564,7 +564,7 @@ function Flows:showBookJournal(book_id, title, opts)
   local function show(more)
     if store then store:put(me_id, state.entries, more, book_id) end
     local all = withWaiting(state.entries)
-    if #all == 0 then
+    if #all == 0 and not more then
       screen:setMessage(_("Nothing in the journal for this book yet. Your progress, ratings, notes, quotes and reviews of it will appear here."))
     else
       screen:setEntries(all, more)
