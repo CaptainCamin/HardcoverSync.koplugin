@@ -33,10 +33,25 @@ ShelfLoader.PAGE_RETRIES = 3
 -- A shelf this long is not being loaded to be read; stop rather than loop.
 ShelfLoader.MAX_PAGES = 200
 
--- Told to slow down (HTTP 429): wait, then ask for the same page again. The
--- bucket refills at one request a second, so a couple of seconds is enough; a
--- load that is still refused after this many waits gives up like any failure.
+-- Told to slow down (HTTP 429): wait as long as Hardcover's Retry-After says (or, without
+-- one, a couple of seconds more each time: the bucket refills at one request a second),
+-- then ask for the same page again. A load still refused after this many waits gives up.
 ShelfLoader.RATE_LIMIT_WAITS = 5
+
+-- A Retry-After longer than this is not sat through (the daily limit is spent, and it
+-- resets at midnight UTC): the load fails like any other failure.
+ShelfLoader.MAX_RATE_WAIT = 30
+
+-- Seconds to wait before the `waits`-th retry after a 429: what Hardcover said
+-- (Retry-After), else longer each time. nil when the wait is too long to sit through.
+function ShelfLoader.rateWait(err, waits)
+  local said = type(err) == "table" and tonumber(err.retry_after) or nil
+  if said then
+    if said > ShelfLoader.MAX_RATE_WAIT then return nil end
+    return math.max(said, 1)
+  end
+  return 2 * waits
+end
 
 --
 -- Load the whole list, a page at a time. `opts`:
@@ -82,9 +97,10 @@ function ShelfLoader.load(opts)
     if entries == nil then
       if type(err) == "table" and err.completed == false and retries < ShelfLoader.PAGE_RETRIES then
         retries = retries + 1
-      elseif type(err) == "table" and err.status == 429 and rate_waits < ShelfLoader.RATE_LIMIT_WAITS then
+      elseif type(err) == "table" and err.status == 429 and rate_waits < ShelfLoader.RATE_LIMIT_WAITS
+          and ShelfLoader.rateWait(err, rate_waits + 1) then
         rate_waits = rate_waits + 1
-        opts.sleep(2 * rate_waits)
+        opts.sleep(ShelfLoader.rateWait(err, rate_waits))
       else
         failure = err
         break
@@ -141,12 +157,12 @@ function ShelfLoader.patient(call, sleep)
   while true do
     local results = { call() }
     local err = results[2]
-    if results[1] ~= nil or not (type(err) == "table" and err.status == 429)
-        or waits >= ShelfLoader.RATE_LIMIT_WAITS then
+    local wait = type(err) == "table" and err.status == 429 and ShelfLoader.rateWait(err, waits + 1)
+    if results[1] ~= nil or not wait or waits >= ShelfLoader.RATE_LIMIT_WAITS then
       return unpack(results, 1, 3)
     end
     waits = waits + 1
-    if sleep then sleep(2 * waits) end
+    if sleep then sleep(wait) end
   end
 end
 

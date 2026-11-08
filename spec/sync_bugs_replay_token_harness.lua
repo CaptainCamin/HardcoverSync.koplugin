@@ -64,6 +64,15 @@ package.preload["socket.http"] = function()
       if body:find("update_user_book_read", 1, true) then
         reply = '{"data":{"update_user_book_read":{"error":null,"user_book_read":{"id":900,"progress_pages":120,'
           .. '"user_book":{"id":500,"book_id":7,"status_id":2,"edition_id":3,"privacy_setting_id":1,"rating":null}}}}}'
+      elseif body:find('"ids":%[') then
+        -- the flush's batched lookup: one record per book asked for
+        local records = {}
+        for id in body:match('"ids":%[([%d,]*)%]'):gmatch("%d+") do
+          records[#records + 1] = '{"id":' .. (493 + tonumber(id)) .. ',"book_id":' .. id
+            .. ',"status_id":2,"edition_id":3,"privacy_setting_id":1,'
+            .. '"user_book_reads":[{"id":900,"progress_pages":1,"edition_id":3,"started_at":"2026-01-01"}]}'
+        end
+        reply = '{"data":{"user_books":[' .. table.concat(records, ",") .. ']}}'
       else
         reply = '{"data":{"user_books":[{"id":500,"book_id":7,"status_id":2,"edition_id":3,"privacy_setting_id":1,'
           .. '"user_book_reads":[{"id":900,"progress_pages":1,"edition_id":3,"started_at":"2026-01-01"}]}]}}'
@@ -133,6 +142,11 @@ check("one refresh serves the whole replay and later requests use the new token"
     assert(req.auth == "Bearer hc_at_new", "request " .. i .. " sent " .. tostring(req.auth))
   end
   assert(queue:hasPending() == false, "queue should be drained")
+  local lookups = 0
+  for _, req in ipairs(requests) do
+    if req.body:find("user_books(where", 1, true) then lookups = lookups + 1 end
+  end
+  assert(lookups == 1, "the three books' records come in one lookup, got " .. lookups)
 end)
 
 check("a refresh with an unknown outcome is not retried by later entries or flushes", function()
@@ -163,10 +177,12 @@ check("a 401 invalidates the token; the next flush refreshes once and drains", f
   local queue, auth, refreshes = setup(function() return "ok", { access_token = "hc_at_new", refresh_token = "hc_rt_2", expires_in = 3600 } end)
   -- start with a token that looks valid locally, but the server rejects it
   auth.tokens.expires_at = os.time() + 3600
-  queue:flush(Api, { user_id = 1 })
+  -- the 401 lands on the batched lookup, so every entry falls back to its own
+  -- lookup with the refreshed token and none is lost to it
+  assert(queue:flush(Api, { user_id = 1 }) == true, "the flush drains after the refresh")
   assert(#refreshes == 1, "the 401 should trigger exactly one refresh, got " .. #refreshes)
-  assert(queue:pendingCount() == 1, "only the entry that hit the 401 should remain, got " .. queue:pendingCount())
-  assert(queue:flush(Api, { user_id = 1 }) == true, "second flush should drain")
+  assert(queue:pendingCount() == 0, "nothing should remain, got " .. queue:pendingCount())
+  assert(queue:flush(Api, { user_id = 1 }) == true, "a second flush has nothing to do")
   assert(#refreshes == 1, "refreshed " .. #refreshes .. " times in total")
 end)
 

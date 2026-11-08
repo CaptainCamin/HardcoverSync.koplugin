@@ -125,6 +125,36 @@ check("a 429 that will not clear fails the load after the allowed waits", functi
   assert(waits == ShelfLoader.RATE_LIMIT_WAITS, "waits: " .. waits)
 end)
 
+check("a 429 waits as long as Hardcover's Retry-After says", function()
+  local slow = { nil, { status = 429, retry_after = 7 } }
+  local api = scripted({ slow, { { book(1) } }, { {} } })
+  local waits = {}
+  local result = run(api, { sleep = function(s) waits[#waits + 1] = s end })
+  assert(result.complete)
+  assert(table.concat(waits, ",") == "7", table.concat(waits, ","))
+end)
+
+check("a Retry-After too long to sit through fails the load at once", function()
+  local spent = { nil, { status = 429, retry_after = 3600 } }
+  local waits = 0
+  local api = scripted({ spent, { { book(1) } } })
+  local result = run(api, { sleep = function() waits = waits + 1 end })
+  assert(not result.complete and result.failure.status == 429 and waits == 0)
+  assert(#api.calls == 1)
+end)
+
+check("one request waits out a 429 for its Retry-After, and not a long one", function()
+  local answers, waits = { { nil, { status = 429, retry_after = 3 } }, { "ok" } }, {}
+  local n = 0
+  local out = ShelfLoader.patient(function() n = n + 1; return unpack(answers[n]) end,
+    function(s) waits[#waits + 1] = s end)
+  assert(out == "ok" and table.concat(waits, ",") == "3", table.concat(waits, ","))
+  n, answers, waits = 0, { { nil, { status = 429, retry_after = 3600 } }, { "ok" } }, {}
+  local none, err = ShelfLoader.patient(function() n = n + 1; return unpack(answers[n]) end,
+    function(s) waits[#waits + 1] = s end)
+  assert(none == nil and err.status == 429 and #waits == 0 and n == 1)
+end)
+
 check("any other failure ends the load at once, keeping what arrived", function()
   local api = scripted({ { { book(1) } }, { nil, "boom" } })
   local result = run(api)
