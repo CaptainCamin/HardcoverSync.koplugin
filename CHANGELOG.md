@@ -44,6 +44,7 @@
 
 ### Fixed
 
+- Opening an old Read book offline no longer replaces its original finish date when a queued Read status is sent. Books genuinely finished offline still keep the day they were finished.
 - **Signing in asks for permission to read your lists and goals.** Hardcover's published permission map puts reading lists and goals under `read:lists` and `read:goals`, which the sign-in did not ask for. Existing sign-ins keep working; signing out and back in picks up the new permissions.
 
 - **Waits as long as Hardcover asks when it is busy, and an oversized request no longer asks you to sign in again.** Shelf loads now wait for the time in Hardcover's `Retry-After` reply instead of a fixed guess, and give up at once when the daily limit is spent. A request Hardcover refuses as too big (`request_exceeds_capacity`) is no longer taken for a missing permission.

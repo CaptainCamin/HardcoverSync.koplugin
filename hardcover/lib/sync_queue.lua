@@ -774,6 +774,14 @@ function SyncQueue:_sendStatus(api, key, entry, op, user_book, status, info)
   end
   local read = latestRead(user_book)
   local attempt = op.status_attempt
+  -- An offline end event may have been queued without a saved shelf. If this
+  -- book was already Read before we sent anything, its finish date belongs to
+  -- the old reading. Only our own attempted transition may correct that date
+  -- on a retry (including a request whose response was lost).
+  if not attempt and status == HARDCOVER.STATUS.FINISHED
+    and hasUserBook(user_book) and user_book.status_id == status then
+    op.finished_date = nil
+  end
   if attempt then
     local same_book = (user_book and user_book.id or 0) == attempt.user_book_id
     local same_read = (read and read.id or 0) == attempt.read_id
