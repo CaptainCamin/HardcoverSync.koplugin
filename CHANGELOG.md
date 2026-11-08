@@ -28,6 +28,8 @@
 
 ### Improved
 
+- **Reviews and Stats redraw faster.** Loading more reviews, revealing a spoiler and switching the Stats period lay the page out once instead of twice, and Stats no longer works the numbers out again when the same period is redrawn. The screens look the same.
+
 - **Totals adapt to taller Bookshelf cards.** Authors read, books read, five-star books and rereads center the icon above the number in portrait cells. Square and wide cells keep the icon beside the number; hiding the icon still works in either layout.
 
 - **Choose the year chart's layout and metric.** Bookshelf's Year in bars card offers Pages or Books, and upright columns or vertically stacked rows with horizontal bars and monthly totals. Pages and upright columns remain the defaults. Each placement keeps its own choices; the chart still uses saved Stats data offline.
