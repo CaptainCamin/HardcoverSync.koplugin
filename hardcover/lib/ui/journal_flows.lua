@@ -458,10 +458,10 @@ function Flows:showBookJournal(book_id, title, opts)
   local store = self.journal_store
   local book_saved = store and store:get(me_id, book_id)
   local all_saved = store and store:get(me_id)
-  -- An empty book page is only a cache miss; the library journal may still know this book.
-  local saved = book_saved
+  -- A book page with no entries is a cache miss only when the library journal is newer.
+  local saved = book_saved or all_saved
   if book_saved and #book_saved.entries == 0 and all_saved and #all_saved.entries > 0
-    and (tonumber(all_saved.saved_at) or 0) >= (tonumber(book_saved.saved_at) or 0) then
+    and (tonumber(all_saved.saved_at) or 0) > (tonumber(book_saved.saved_at) or 0) then
     saved = all_saved
   end
 

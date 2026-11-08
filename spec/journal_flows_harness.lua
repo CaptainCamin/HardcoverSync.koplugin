@@ -659,6 +659,24 @@ check("an empty book-journal cache does not hide the library journal's entries f
     "the book journal hid the library journal's saved entries")
 end)
 
+check("an uncached book journal uses the library journal's saved entries", function()
+  local m = newManager()
+  online = false
+  m.journal_store:put(1, { entry(3), entry(2) }, false)
+  local screen = m:showBookJournal(5, "Dune", {})
+  assert(#screen.body.entries == 2 and screen.body.entries[1].key == "note:3",
+    "a book with no dedicated cache hid the library journal's saved entries")
+end)
+
+check("an equally new empty book cache does not revive removed entries", function()
+  local m = newManager()
+  online = false
+  m.journal_store:put(1, { entry(3), entry(2) }, false)
+  m.journal_store:put(1, {}, false, 5)
+  local screen = m:showBookJournal(5, "Dune", {})
+  assert(#screen.body.entries == 0, "an empty book page as new as the library journal should win")
+end)
+
 check("an offline journal tab updates when a waiting note is sent", function()
   local m = newManager()
   online = false
