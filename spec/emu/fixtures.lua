@@ -736,6 +736,17 @@ function M.install(opts)
     return deepcopy(M.currently_reading)
   end
 
+  -- Home's combined request: the three fixtures above in one answer, recorded once
+  Api.getHomeSummary = function(self, user_id, limit)
+    record("getHomeSummary")
+    local n = #calls
+    local reading = Api.getCurrentlyReading(self, user_id, limit)
+    local list_count, list_marks = Api.getListCount(self)
+    local goals = Api.getGoals(self)
+    for i = #calls, n + 1, -1 do table.remove(calls, i) end
+    return { reading = reading, list_count = list_count, list_marks = list_marks, goals = goals }
+  end
+
   Api.getBookDetail = function(_, book_id, user_id, edition_id)
     record("getBookDetail")
     local b = M.books_by_id[book_id] or M.books[1]

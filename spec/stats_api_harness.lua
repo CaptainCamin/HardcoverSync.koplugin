@@ -128,8 +128,9 @@ check("a failure is nil and the error, and a failure on a later page loses nothi
   assert(stats == nil and e == err, "a partial library must not pass for a whole one")
 end)
 
-check("Home's four requests are not cancelled by a tap (the reader scrolls Home while they run)", function()
+check("Home's requests are not cancelled by a tap (the reader scrolls Home while they run)", function()
   for _, call in ipairs({
+    function() Api:getHomeSummary(1, 5) end,
     function() Api:getGoals() end,
     function() Api:getShelfCounts(1, { 1, 2 }) end,
     function() Api:getCurrentlyReading(1, 5) end,
