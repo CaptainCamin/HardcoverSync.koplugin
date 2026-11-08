@@ -455,6 +455,22 @@ do
   fail = false
   BulkLink.flush(wscan)
   r.check("the end of the scan tries the failed write again", attempts == 2 and wscan.unflushed == 0, attempts)
+
+  local gattempts = 0
+  local wfiles, wmetas, wsearches = {}, {}, {}
+  for i = 1, 60 do
+    wfiles[i] = "/w" .. i .. ".epub"
+    wmetas[wfiles[i]] = { title = "Book " .. i }
+    wsearches["Book " .. i] = { book(i, "Book " .. i, "Someone") }
+  end
+  local wg = guessScanOf(wfiles, wmetas, wsearches, {})
+  wg.deps.flush = function()
+    gattempts = gattempts + 1
+    error("disk full")
+  end
+  runGuess(wg)
+  r.check("while writes fail, guesses still try to save only every BATCH links", #wg.linked == 60
+    and gattempts == 2 and wg.unflushed == 60, gattempts)
 end
 
 r.finish()

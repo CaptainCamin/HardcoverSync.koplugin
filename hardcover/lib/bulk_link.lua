@@ -507,8 +507,9 @@ local function guessOne(scan)
     return
   end
   link(scan, entry.file, book)
-  -- one search per book, so these are saved BATCH links at a time
-  if scan.unflushed >= BulkLink.BATCH then BulkLink.flush(scan) end
+  -- one search per book, so these are saved BATCH links at a time (a failed write is tried again
+  -- BATCH links later, not after every link)
+  if scan.unflushed > 0 and scan.unflushed % BulkLink.BATCH == 0 then BulkLink.flush(scan) end
 end
 
 -- Do the next piece of work: try a full batch of titles, else read the next book's title, else try
