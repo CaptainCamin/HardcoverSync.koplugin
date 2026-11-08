@@ -38,6 +38,8 @@
 
 ### Fixed
 
+- **Signing in asks for permission to read your lists and goals.** Hardcover's published permission map puts reading lists and goals under `read:lists` and `read:goals`, which the sign-in did not ask for. Existing sign-ins keep working; signing out and back in picks up the new permissions.
+
 - **A Bookshelf goal card on a shelf changes goals every time and keeps its style.** The shelf layout editor works on copies of its modules, and saving a whole copy from the goal picker could restore an older style and leave the next pick reading a stale goal. Only the goal is written to the stored shelf module now, the editor's copy is kept in step, and the card is re-fitted so the new goal is drawn.
 
 - **Opening Stats offline for the first time says why it cannot load.** With nothing saved, the screen used to stay on "Loading your stats…" forever; it now says "Stats need an internet connection the first time." The same screen opens when a Bookshelf card has no saved data yet.
