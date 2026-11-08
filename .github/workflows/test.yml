@@ -10,35 +10,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Lua
-        uses: leafo/gh-actions-lua@v10
-        with:
-          luaVersion: "5.1"
-
-      - name: Install LuaRocks and luacheck
-        uses: leafo/gh-actions-luarocks@v4
-
-      - run: luarocks install luacheck
+      # Use Ubuntu's packages so a cold runner does not need to download and
+      # compile Lua from lua.org. Keep the interpreter explicit: KOReader uses 5.1.
+      - name: Install Lua 5.1 and luacheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1 lua-check
 
       # Undefined and accidentally global variables (a typo, a missing require) in code no test reaches.
       # What it ignores, and why, is in .luacheckrc.
       - name: Lint
-        run: luacheck .
+        run: lua5.1 /usr/bin/luacheck .
 
       - name: Syntax-check every Lua file
         run: |
           status=0
           while IFS= read -r f; do
-            if ! lua -e "assert(loadfile([[$f]]))"; then
+            if ! lua5.1 -e "assert(loadfile([[$f]]))"; then
               echo "SYNTAX ERROR: $f"
               status=1
             fi
-          # -type f: the Lua install action puts the interpreter in a `.lua` directory in
-          # the workspace, which `-name '*.lua'` also matches. It is not source.
+          # Exclude local interpreter/tool installations from the source check.
           done < <(find . -name '*.lua' -type f -not -path './.git/*' -not -path './.lua/*' -not -path './.luarocks/*')
           exit $status
 
       - name: Run the harnesses
+        env:
+          LUA: lua5.1
         run: ./spec/run_all.sh
 
       - name: Run Busted

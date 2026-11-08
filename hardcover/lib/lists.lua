@@ -257,12 +257,25 @@ function Lists.listBookId(answer)
   return tonumber(answer.id) or tonumber(nested)
 end
 
+-- 403s that say nothing about the sign-in: a request with more top-level fields than the
+-- rate limit's burst (request_exceeds_capacity), and an operation API tokens may not use.
+local NOT_SCOPE = { request_exceeds_capacity = true, unsupported_operation = true }
+
+local function errorCode(err)
+  if type(err) ~= "table" or type(err.errors) ~= "table" then return nil end
+  local first = err.errors[1]
+  if type(first) == "table" then first = first.error or first.message end
+  return type(first) == "string" and first or nil
+end
+
 --
 -- Did this failure say the sign-in lacks the scope to change lists? Any text in
 -- the error mentioning a scope (insufficient_scope, "missing scope write:lists"),
--- or a 403. Takes what Api:query hands back, or a string, or junk.
+-- or a 403 other than the ones in NOT_SCOPE. Takes what Api:query hands back, or a
+-- string, or junk.
 --
 function Lists.isScopeError(err)
+  if NOT_SCOPE[errorCode(err)] then return false end
   if type(err) == "table" and tonumber(err.status) == 403 then return true end
   local function mentions(value, depth)
     if type(value) == "string" then return value:lower():find("scope", 1, true) ~= nil end

@@ -169,11 +169,15 @@ function HardcoverApi:query(query, parameters, background)
 
   if completed and content then
     local code, response = string.match(content, "^([^:]*):(.*)")
-    if string.find(code, "^%d%d%d") then
+    local status = tonumber(string.match(code, "^(%d%d%d)"))
+    if status then
+      -- seconds Hardcover asked us to wait (Retry-After), with a 429 or 503
+      local retry_after = tonumber(string.match(code, ";retry%-after=(%d+)"))
+
       -- 401 means the token we sent was rejected. With OAuth that is usually
       -- just an expiry we can recover from, so invalidate it and let the next
       -- call refresh rather than failing outright.
-      if code == "401" and self.auth then
+      if status == 401 and self.auth then
         self.auth:invalidateAccessToken()
       end
 
@@ -182,7 +186,7 @@ function HardcoverApi:query(query, parameters, background)
       -- queueing it.
       local decoded, data = pcall(json.decode, response, json.decode.simple)
       if not decoded or type(data) ~= "table" then
-        return nil, { status = tonumber(code) }
+        return nil, { status = status, retry_after = retry_after }
       end
 
       if data.data then
@@ -195,7 +199,7 @@ function HardcoverApi:query(query, parameters, background)
           end
         end
 
-        return nil, { errors = err, status = tonumber(code),
+        return nil, { errors = err, status = status, retry_after = retry_after,
           message = type(data.error_description) == "string" and data.error_description ~= ""
             and data.error_description or nil }
       end
@@ -318,7 +322,7 @@ function HardcoverApi:findEditions(book_id, user_id)
       return nil
     end
     local read_index = {}
-    for _, read in ipairs(read_editions) do
+    for _, read in ipairs(read_editions.user_books) do
       read_index[read.edition_id] = true
     end
 
@@ -570,6 +574,32 @@ function HardcoverApi:findUserBook(book_id, user_id)
   end
 
   return results.user_books[1]
+end
+
+-- One request for several books' library records, keyed by tostring(book_id):
+-- the record, or false when the book is not on the shelf. nil and an error when
+-- the server could not be asked.
+function HardcoverApi:findUserBooks(book_ids, user_id)
+  local read_query = [[
+    query ($ids: [Int!]!, $userId: Int!) {
+      user_books(where: { book_id: { _in: $ids }, user_id: { _eq: $userId }}) {
+        ...UserBookParts
+      }
+    }
+  ]] .. user_book_fragment
+
+  local results, err = self:query(read_query, { ids = book_ids, userId = user_id })
+  if not results or type(results.user_books) ~= "table" then
+    return nil, err or { error = "no_response" }
+  end
+
+  local found = {}
+  for _, id in ipairs(book_ids) do found[tostring(id)] = false end
+  for _, user_book in ipairs(results.user_books) do
+    local key = tostring(user_book.book_id)
+    if found[key] == false then found[key] = user_book end
+  end
+  return found
 end
 
 function HardcoverApi:findDefaultEdition(book_id, user_id)

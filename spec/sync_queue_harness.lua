@@ -860,6 +860,113 @@ check("books the server refuses do not stop the others, and are held after repea
   eq(q:heldCount(), 0, "retry releases them")
 end)
 
+-- What a flush sends, without the lookups, so a batched run can be compared with a per-book one.
+local function sentOps(calls)
+  local out = {}
+  for _, c in ipairs(calls) do
+    if c.op ~= "findUserBook" then
+      out[#out + 1] = c.op .. ":" .. tostring(c.book_id or c.read_id or c.user_book_id) .. ":" .. tostring(c.page or c.status_id)
+    end
+  end
+  return table.concat(out, ",")
+end
+
+local function threeBooks(batched)
+  local q = newQueue()
+  q:enqueuePage("/books/a.epub", { mapped_page = 5, book_id = 1, edition_id = 3 })
+  q:enqueuePage("/books/b.epub", { mapped_page = 6, book_id = 2, edition_id = 3 })
+  q:enqueuePage("/books/c.epub", { mapped_page = 7, book_id = 3, edition_id = 3 })
+  local api = fakeApi()
+  local find = api.findUserBook
+  api.findUserBook = function(self, book_id, user_id)
+    if book_id == 3 then
+      self.calls[#self.calls + 1] = { op = "findUserBook", book_id = book_id }
+      return nil
+    end
+    return find(self, book_id, user_id)
+  end
+  local batches = {}
+  if batched then
+    api.findUserBooks = function(_, ids, user_id)
+      batches[#batches + 1] = { ids = ids, user_id = user_id }
+      local found = {}
+      for _, id in ipairs(ids) do
+        found[tostring(id)] = id ~= 3 and { id = 500, status_id = HARDCOVER.STATUS.READING,
+          user_book_reads = { { id = 900, edition_id = 3, started_at = "2026-01-01" } } } or false
+      end
+      return found
+    end
+  end
+  local result = q:flush(api, { user_id = 1 })
+  return result, api, batches, q
+end
+
+check("a flush asks for every queued book's library record in one request", function()
+  local result, api, batches, q = threeBooks(true)
+  eq(result, true, "flush result")
+  eq(#batches, 1, "one batched lookup")
+  eq(#batches[1].ids, 3, "every queued book is in it")
+  eq(batches[1].user_id, 1, "for the signed-in account")
+  local finds = 0
+  for _, c in ipairs(api.calls) do if c.op == "findUserBook" then finds = finds + 1 end end
+  eq(finds, 0, "no per-book lookups")
+  eq(#q:keys(), 0, "every entry is sent")
+end)
+
+check("a batched lookup sends exactly what per-book lookups send", function()
+  local _, per_book = threeBooks(false)
+  local _, batched = threeBooks(true)
+  local expected = sentOps(per_book.calls)
+  assert(expected ~= "", "the per-book run sent something")
+  eq(sentOps(batched.calls), expected, "the same requests, in the same order")
+end)
+
+check("a failed batched lookup falls back to one lookup per book", function()
+  local q = newQueue()
+  q:enqueuePage("/books/a.epub", { mapped_page = 5, book_id = 1, edition_id = 3 })
+  q:enqueuePage("/books/b.epub", { mapped_page = 6, book_id = 2, edition_id = 3 })
+  local api = fakeApi()
+  api.findUserBooks = function() return nil, { status = 503 } end
+  eq(q:flush(api, { user_id = 1 }), true, "flush result")
+  local finds = 0
+  for _, c in ipairs(api.calls) do if c.op == "findUserBook" then finds = finds + 1 end end
+  eq(finds, 2, "each book asked for its own record")
+end)
+
+check("removals with no library id use the batched records", function()
+  -- a removal made while the book's first send was out has no library id yet
+  local q, settings = newQueue()
+  local pending = {}
+  for _, id in ipairs({ 7, 8, 9 }) do
+    pending[tostring(id)] = { book_id = id, user_id = 1, remove = true, remove_at = 100, updated_at = 100 }
+  end
+  settings:saveSetting("pending", pending)
+  local api = fakeApi()
+  local removed = {}
+  api.removeUserBook = function(_, id) removed[#removed + 1] = id return true end
+  api.findUserBooks = function(_, ids)
+    eq(#ids, 3, "every removal is in the batch")
+    return { ["7"] = { id = 70 }, ["8"] = false, ["9"] = { id = 90 } }
+  end
+  eq(q:flush(api, { user_id = 1 }), true, "flush result")
+  local finds = 0
+  for _, c in ipairs(api.calls) do if c.op == "findUserBook" then finds = finds + 1 end end
+  eq(finds, 0, "no per-book lookups")
+  table.sort(removed)
+  eq(table.concat(removed, ","), "70,90", "only the books on the shelf are removed")
+  eq(#q:keys(), 0, "every removal is done")
+end)
+
+check("a single queued book keeps its one lookup and sends no batch", function()
+  local q = newQueue()
+  q:enqueuePage("/books/a.epub", { mapped_page = 5, book_id = 1, edition_id = 3 })
+  local api = fakeApi()
+  local batched = false
+  api.findUserBooks = function() batched = true return {} end
+  eq(q:flush(api, { user_id = 1 }), true, "flush result")
+  eq(batched, false, "no batch for one book")
+end)
+
 check("an API call that throws releases the flushing flag", function()
   local q = newQueue()
   q:enqueuePage("/books/a.epub", { mapped_page = 5, book_id = 1, edition_id = 3 })

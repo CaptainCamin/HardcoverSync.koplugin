@@ -27,7 +27,6 @@ local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local LeftContainer = require("ui/widget/container/leftcontainer")
-local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
 local TopContainer = require("ui/widget/container/topcontainer")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local UIManager = require("ui/uimanager")
@@ -37,7 +36,7 @@ local _ = require("gettext")
 local Button = require("hardcover/lib/ui/components/button")
 local Clamp = require("hardcover/lib/ui/clamp")
 local Reviews = require("hardcover/lib/reviews")
-local ScrollControl = require("hardcover/lib/ui/components/scroll_control")
+local ScrollBody = require("hardcover/lib/ui/scroll_body")
 local Theme = require("hardcover/lib/ui/theme")
 local TopBar = require("hardcover/lib/ui/components/top_bar")
 
@@ -278,6 +277,20 @@ function ReviewsDialog:buildContent(width)
   return content
 end
 
+-- How tall buildContent(width) comes out, without building the cards: each is cardMetrics' height.
+-- Past `limit` the summary and footer are not built to be counted.
+function ReviewsDialog:contentHeight(width, limit)
+  local h = Theme.space.m + #self.reviews * self:cardMetrics(width).height
+  if limit and h > limit then return h end
+  for _i, block in ipairs({ self:buildSummary(width) or false, self:buildFooter(width) }) do
+    if block then
+      h = h + block:getSize().h
+      if type(block.free) == "function" then pcall(block.free, block) end
+    end
+  end
+  return h
+end
+
 -- Build the screen from the current state: a message, or the list (scrolling when it is longer
 -- than the screen).
 function ReviewsDialog:build()
@@ -294,19 +307,11 @@ function ReviewsDialog:build()
         face = Theme.face("body"), fgcolor = Theme.secondary(), width = self.width - 2 * M,
       } }
   else
-    local width = self.width - 2 * M
-    local content = self:buildContent(width)
-    if content:getSize().h > room then
-      width = self.width - 2 * M - ScrollControl.gutter()
-      content = self:buildContent(width)
-      self.scroll = ScrollableContainer:new {
-        dimen = Geom:new { x = 0, y = 0, w = self.width, h = room }, show_parent = self,
-      }
-      self.scroll[1] = HorizontalGroup:new { Theme.hspan(M), content }
-      body = ScrollControl.wrap(self.scroll, content)
-    else
-      body = HorizontalGroup:new { Theme.hspan(M), content }
-    end
+    body, self.scroll = ScrollBody.layout {
+      width = self.width, room = room, margin = M, show_parent = self,
+      build = function(width) return self:buildContent(width) end,
+      height = function(width, limit) return self:contentHeight(width, limit) end,
+    }
   end
   self.frame = FrameContainer:new {
     width = self.width, height = self.height, background = Blitbuffer.COLOR_WHITE,

@@ -158,6 +158,29 @@ check("a call that raises still reaches the callback, with no results", function
   assert(called and first == nil)
 end)
 
+check("findUserBooks asks once for every book and answers each, false when not on the shelf", function()
+  local original = Api.query
+  local seen_query, seen, asked = nil, nil, 0
+  Api.query = function(_, query, vars)
+    asked = asked + 1
+    seen_query, seen = query, vars
+    return { user_books = { { id = 70, book_id = 7, status_id = 2 }, { id = 90, book_id = 9, status_id = 3 } } }
+  end
+  local found = Api:findUserBooks({ 7, 8, 9 }, 1)
+  assert(asked == 1, "one request")
+  assert(seen.userId == 1 and #seen.ids == 3, "the user and every id are sent")
+  assert(seen_query:find("_in", 1, true) and seen_query:find("UserBookParts", 1, true))
+  assert(found["7"].id == 70 and found["9"].id == 90, "records keyed by book id")
+  assert(found["8"] == false, "a book not on the shelf is false, not missing")
+  Api.query = function() return nil, { status = 503 } end
+  local none, err = Api:findUserBooks({ 7, 8 }, 1)
+  assert(none == nil and err.status == 503, "a failure is told apart from an empty shelf")
+  Api.query = function() return nil end
+  none, err = Api:findUserBooks({ 7 }, 1)
+  Api.query = original
+  assert(none == nil and err, "offline still answers an error")
+end)
+
 check("createJournalEntry says why it failed, and answers the entry when it worked", function()
   local original = Api.query
   Api.query = function() return nil, { status = 503 } end
