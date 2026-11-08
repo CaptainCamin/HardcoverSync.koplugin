@@ -918,7 +918,8 @@ function HardcoverMenu:linkAllBooks()
   local scan = BulkLink.new(items, {
     read_identifiers = function(file) return BulkLink.readEpubIdentifiers(file) end,
     lookup_batch = function(list) return Api:findBooksByIdentifiers(list, User:getId()) end,
-    store = function(file, config) self.settings:updateBookSetting(file, config, true) end,
+    store = function(file, config) self.settings:updateBookSetting(file, config, true, { defer_flush = true }) end,
+    flush = function() self.settings:flush() end,
   })
 
   -- the existing Library sync: saves the shelves so the linked books show offline
@@ -939,6 +940,7 @@ function HardcoverMenu:linkAllBooks()
   end
 
   local function finishGuesses(guess_scan)
+    BulkLink.flush(guess_scan)
     saveLinked(guess_scan, function(details)
       saveShelves(guess_scan)
       local text = BulkLink.guessSummary(guess_scan)
@@ -963,7 +965,8 @@ function HardcoverMenu:linkAllBooks()
       search_titles = function(titles) return Api:findBooksByTitles(titles, User:getId()) end,
       -- the whole title, subtitle included: findBooks cuts it at the colon, which a series needs kept
       search = function(title, author) return Api:search(title, author, User:getId()) end,
-      store = function(file, config) self.settings:updateBookSetting(file, config, true) end,
+      store = function(file, config) self.settings:updateBookSetting(file, config, true, { defer_flush = true }) end,
+      flush = function() self.settings:flush() end,
     })
     self:runScan(guess_scan, {
       heading = _("Guessing books by title and author..."),
@@ -983,6 +986,7 @@ function HardcoverMenu:linkAllBooks()
   end
 
   local function finish()
+    BulkLink.flush(scan)
     saveLinked(scan, function(details)
       saveShelves(scan)
       local text = BulkLink.summary(scan)

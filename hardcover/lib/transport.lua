@@ -4,7 +4,7 @@
 -- anything the parent needs afterwards: the headers, token included, are resolved by the
 -- caller and passed in. The answer is a string, "<code>:<body>", because a subprocess can
 -- only hand back text: code is the HTTP status, or a socketutil code when the request was
--- cut short (then the body is empty).
+-- cut short (then the body is empty). A 429 or 503 may carry ";retry-after=N" after the code.
 
 local http = require("socket.http")
 local ltn12 = require("ltn12")
@@ -17,6 +17,14 @@ local Transport = {}
 local MAX_TIME = 12
 local TIMEOUT = 6
 
+-- How long Hardcover said to wait (Retry-After) with a 429 or 503, passed on after the code
+-- ("429;retry-after=7") because the answer is one string.
+local function retryAfter(code, headers)
+  if (code ~= 429 and code ~= 503) or type(headers) ~= "table" then return "" end
+  local seconds = tonumber(headers["retry-after"])
+  return seconds and (";retry-after=" .. math.floor(seconds)) or ""
+end
+
 function Transport.post(url, headers, body)
   local sink = {}
   socketutil:set_timeout(TIMEOUT, MAX_TIME)
@@ -28,7 +36,7 @@ function Transport.post(url, headers, body)
     sink = socketutil.table_sink(sink),
   }
 
-  local _, code, _headers, _status = http.request(request)
+  local _, code, response_headers, _status = http.request(request)
   socketutil:reset_timeout()
 
   local content = table.concat(sink) -- empty or content accumulated till now
@@ -48,7 +56,7 @@ function Transport.post(url, headers, body)
     logger.dbg("Request error", code, content)
   end
 
-  return code .. ':' .. content
+  return code .. retryAfter(code, response_headers) .. ':' .. content
 end
 
 return Transport
