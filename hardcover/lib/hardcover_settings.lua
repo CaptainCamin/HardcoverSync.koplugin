@@ -29,6 +29,10 @@ function HardcoverSettings:new(path, ui)
   return o
 end
 
+function HardcoverSettings:flush()
+  self.settings:flush()
+end
+
 function HardcoverSettings:readSetting(key)
   return self.settings:readSetting(key)
 end
@@ -57,7 +61,9 @@ end
 -- where what they do for the open book (highlight menu, queued progress) has nothing to act on.
 -- The book that is open in the reader is the exception: it is always announced, so a link made
 -- from outside it reaches its state at once.
-function HardcoverSettings:updateBookSetting(filename, config, silent)
+-- `opts.defer_flush` changes the settings in memory only: a pass over many books calls flush() once
+-- per batch instead of rewriting the whole file for each book.
+function HardcoverSettings:updateBookSetting(filename, config, silent, opts)
   local books = self.settings:readSetting("books", {})
   if not books[filename] then
     books[filename] = {}
@@ -76,7 +82,7 @@ function HardcoverSettings:updateBookSetting(filename, config, silent)
     end
   end
 
-  self.settings:flush()
+  if not (opts and opts.defer_flush) then self.settings:flush() end
 
   if silent and not (self.ui and self.ui.document and self.ui.document.file == filename) then return end
   self:notify(SETTING.BOOKS, { filename = filename, config = config }, original_value)
