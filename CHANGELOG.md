@@ -28,6 +28,8 @@
 
 ### Improved
 
+- **Opening a book's details saves faster with a big library.** Clearing out books nothing holds now checks only the books that may have lost their place, instead of reading every saved book each time.
+- **Home refreshes faster.** Opening Home online now makes two requests instead of four: after the shelf counts, the books you are reading, your lists and your goals come back together in one request, so the whole screen is up to date sooner and the Wi-Fi radio is on for less time.
 - **Reviews and Stats redraw faster.** Loading more reviews, revealing a spoiler and switching the Stats period lay the page out once instead of twice, and Stats no longer works the numbers out again when the same period is redrawn. The screens look the same.
 - **Offline changes send faster after reconnecting.** When several books have changes waiting, their library records are fetched in one request instead of one per book before the changes are sent.
 - **Linking all books writes less to the device.** "Link all books on this device" used to rewrite the plugin's whole settings file once for every book it linked; it now saves once per batch of 25 and once when the scan ends or is stopped, so a large library links faster and with far fewer writes to flash.
@@ -43,6 +45,7 @@
 ### Fixed
 
 - Opening an old Read book offline no longer replaces its original finish date when a queued Read status is sent. Books genuinely finished offline still keep the day they were finished.
+- **Signing in asks for permission to read your lists and goals.** Hardcover's published permission map puts reading lists and goals under `read:lists` and `read:goals`, which the sign-in did not ask for. Existing sign-ins keep working; signing out and back in picks up the new permissions.
 
 - **Waits as long as Hardcover asks when it is busy, and an oversized request no longer asks you to sign in again.** Shelf loads now wait for the time in Hardcover's `Retry-After` reply instead of a fixed guess, and give up at once when the daily limit is spent. A request Hardcover refuses as too big (`request_exceeds_capacity`) is no longer taken for a missing permission.
 

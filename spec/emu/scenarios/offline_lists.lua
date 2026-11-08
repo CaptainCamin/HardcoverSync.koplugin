@@ -84,6 +84,38 @@ return {
     assert(db:evict(500), "evict")
     assert(db:getRows({ 2 })[2] == nil and db:getRows({ 1 })[1], "evict kept a book nothing holds, or dropped a held one")
     assert(db:dropOwned("list:1:") and db:getBlob("list:1:7") == nil and db:getBlob("lists:1") == "index", "dropOwned")
+    -- after the first (whole) evict, only books that may have lost their hold are checked
+    local function has(id) return db:getRows({ id })[id] ~= nil end
+    assert(db:evict(500) and has(1), "the book its details hold went")
+    db:putRows({ { book_id = 3, row = "{}" } }, 1)
+    assert(db:evict(500) and not has(3), "a book saved with nothing holding it stayed")
+    db:putRows({ { book_id = 4, row = "{}" }, { book_id = 5, row = "{}" } }, 1)
+    db:putOwned("list:1:8", { 4, 5 })
+    assert(db:evict(500) and has(4) and has(5), "a held book went")
+    db:putOwned("list:1:8", { 4 })
+    assert(db:evict(500) and has(4) and not has(5), "a book the list dropped stayed")
+    db:dropOwned("list:1:")
+    assert(db:evict(500) and not has(4), "a book of a forgotten list stayed")
+    db:putRows({ { book_id = 6, row = "{}" }, { book_id = 7, row = "{}" } }, 1)
+    db:putMembers(1, 3, { { book_id = 6 }, { book_id = 7 } })
+    db:putMembers(1, 3, { { book_id = 6 } })
+    assert(db:evict(500) and has(6) and not has(7), "a book that left the shelf stayed")
+    db:deleteMember(1, 6)
+    assert(db:evict(500) and not has(6), "a book that left the library stayed")
+    db:putRows({ { book_id = 8, row = "{}" }, { book_id = 9, row = "{}" } }, 1)
+    db:putDetail(8, 0, "old", 1)
+    db:putDetail(9, 0, "new", 2)
+    assert(db:evict(500) and has(8) and has(9), "details under the cap went")
+    assert(db:evict(3) and not has(8) and db:getDetail(8) == nil and has(9) and db:getDetail(9) == "new",
+      "the oldest details over the cap were not the ones dropped")
+    db:close()
+    -- what an earlier run left behind goes on the first evict
+    local SQ3 = require("lua-ljsqlite3/init")
+    local raw = SQ3.open(path)
+    raw:exec([[INSERT INTO books (book_id, row, saved_at) VALUES (10, '{}', 1)]])
+    raw:close()
+    db = SqliteStore:new { path = path }
+    assert(db:evict(500) and not has(10) and has(9), "the first evict left an unheld book, or dropped a held one")
     -- more ids than SQLite binds in one statement
     local many, ids = {}, {}
     for i = 1, 1000 do many[i] = { book_id = 1000 + i, row = "{}" }; ids[i] = 1000 + i end

@@ -137,5 +137,30 @@ return {
     emu:shot("edition_picker_long")
 
     print("  edition picker marks edition " .. linked .. " as the current choice; long title " .. longest.title)
+
+    -- Local search uses KOReader's real Unicode case-folding, not a test's ASCII stand-in.
+    emu:closeAll()
+    local shelf = require("hardcover/lib/ui/shelf_dialog"):new {
+      title = "Local search", local_searchable = true,
+      entries = {
+        { book_id = 1, title = "École", authors = "Иван Петров" },
+        { book_id = 2, title = "Économie", authors = "Сергей" },
+      },
+    }
+    UIManager:show(shelf)
+    for _, query in ipairs({ "école иван", "ÉCOLE ИВАН" }) do
+      shelf:setLocalSearch(query)
+      assert(#shelf.visible_entries == 1 and shelf.visible_entries[1].book_id == 1,
+        "Unicode title/author search missed: " .. query)
+    end
+    shelf:setLocalSearch("école сергей")
+    assert(#shelf.visible_entries == 0, "a missing author word should reject the book")
+    shelf:setLocalSearch("école иван")
+    emu:pump()
+    emu:expectText("École")
+    emu:expectText("Иван Петров")
+    emu:expectText("1 matches")
+    emu:shot("search_unicode")
+    emu:closeAll()
   end,
 }

@@ -120,6 +120,39 @@ check("a null books_by_pk falls through to the next query", function()
   assert(edition and edition.id == 7)
 end)
 
+check("findDefaultEdition uses the current reread's edition over the shelf edition", function()
+  local saved = Api.query
+  local oldest, latest, shelf = { id = 11, pages = 200 }, { id = 22, pages = 420 }, { id = 33, pages = 300 }
+  Api.query = function(_, text)
+    assert(text:find("user_book_reads(order_by: {id: asc})", 1, true), "default edition should read all reads oldest first")
+    return { user_books = { { edition = shelf, user_book_reads = {
+      { id = 100, finished_at = "2026-01-01T00:00:00Z", edition = oldest },
+      { id = 200, progress_pages = 12, edition = latest },
+    } } } }
+  end
+  local ok, edition = pcall(Api.findDefaultEdition, Api, 7, 1)
+  Api.query = saved
+  assert(ok, edition)
+  assert(edition and edition.id == 22 and edition.pages == 420, "did not use the current read's edition")
+end)
+
+check("the edition picker puts the user's shelf edition ahead of a popular edition", function()
+  local saved = Api.query
+  Api.query = function(_, text)
+    if text:find("query ($ids:", 1, true) then
+      return { user_books = { { edition_id = 22 } } }
+    end
+    return { editions = {
+      { id = 11, reading_format_id = 4, users_count = 900, title = "Popular", book = { id = 7 } },
+      { id = 22, reading_format_id = 4, users_count = 2, title = "My edition", book = { id = 7 } },
+    } }
+  end
+  local editions = Api:findEditions(7, 1)
+  Api.query = saved
+  assert(#editions == 2 and editions[1].edition_id == 22 and editions[2].edition_id == 11,
+    "the user's edition was not first")
+end)
+
 print("\n== a file with both ISBNs ==")
 
 check("the ISBN-10 is tried when the ISBN-13 finds nothing", function()

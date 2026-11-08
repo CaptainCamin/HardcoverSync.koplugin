@@ -81,7 +81,7 @@ for _, name in ipairs({
   "me", "search", "findBooks", "findEditions", "getBookDetail", "getBooksByIds", "getReviews",
   "getSimilarBooks", "getBookLists", "getLists", "getListCount", "getListBooks", "getListMembers",
   "getShelf", "getShelfCounts", "getCurrentlyReading", "getStats", "getForYou", "getVibes",
-  "getGoals", "updateUserBook", "updateRating", "updatePage", "createRead", "createJournalEntry",
+  "getGoals", "getHomeSummary", "updateUserBook", "updateRating", "updatePage", "createRead", "createJournalEntry",
   "addToList",
 }) do
   local original = Api[name]
@@ -842,6 +842,13 @@ end)
 step("getShelfMembers and getCurrentlyReading", function()
   is_table(Api:getShelfMembers(ctx.user_id, 2, 0, 10), "shelf members")
   is_table(Api:getCurrentlyReading(ctx.user_id, 5), "currently reading")
+end)
+
+step("getHomeSummary", function()
+  local summary = is_table(Api:getHomeSummary(ctx.user_id, 5), "home summary")
+  is_table(summary.reading, "home summary reading")
+  is_table(summary.list_marks, "home summary list marks")
+  is_table(summary.goals, "home summary goals")
 end)
 
 step("getStats", function()
