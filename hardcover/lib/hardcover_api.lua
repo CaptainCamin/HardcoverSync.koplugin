@@ -169,11 +169,15 @@ function HardcoverApi:query(query, parameters, background)
 
   if completed and content then
     local code, response = string.match(content, "^([^:]*):(.*)")
-    if string.find(code, "^%d%d%d") then
+    local status = tonumber(string.match(code, "^(%d%d%d)"))
+    if status then
+      -- seconds Hardcover asked us to wait (Retry-After), with a 429 or 503
+      local retry_after = tonumber(string.match(code, ";retry%-after=(%d+)"))
+
       -- 401 means the token we sent was rejected. With OAuth that is usually
       -- just an expiry we can recover from, so invalidate it and let the next
       -- call refresh rather than failing outright.
-      if code == "401" and self.auth then
+      if status == 401 and self.auth then
         self.auth:invalidateAccessToken()
       end
 
@@ -182,7 +186,7 @@ function HardcoverApi:query(query, parameters, background)
       -- queueing it.
       local decoded, data = pcall(json.decode, response, json.decode.simple)
       if not decoded or type(data) ~= "table" then
-        return nil, { status = tonumber(code) }
+        return nil, { status = status, retry_after = retry_after }
       end
 
       if data.data then
@@ -195,7 +199,7 @@ function HardcoverApi:query(query, parameters, background)
           end
         end
 
-        return nil, { errors = err, status = tonumber(code),
+        return nil, { errors = err, status = status, retry_after = retry_after,
           message = type(data.error_description) == "string" and data.error_description ~= ""
             and data.error_description or nil }
       end
