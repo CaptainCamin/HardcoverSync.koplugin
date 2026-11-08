@@ -28,6 +28,8 @@
 
 ### Improved
 
+- **Home refreshes faster.** Opening Home online now makes two requests instead of four: after the shelf counts, the books you are reading, your lists and your goals come back together in one request, so the whole screen is up to date sooner and the Wi-Fi radio is on for less time.
+
 - **Totals adapt to taller Bookshelf cards.** Authors read, books read, five-star books and rereads center the icon above the number in portrait cells. Square and wide cells keep the icon beside the number; hiding the icon still works in either layout.
 
 - **Choose the year chart's layout and metric.** Bookshelf's Year in bars card offers Pages or Books, and upright columns or vertically stacked rows with horizontal bars and monthly totals. Pages and upright columns remain the defaults. Each placement keeps its own choices; the chart still uses saved Stats data offline.

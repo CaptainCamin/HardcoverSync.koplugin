@@ -124,14 +124,24 @@ Api.getLists = function()
   if server.fail_index then return nil, { completed = false } end
   return index()
 end
-Api.getListCount = function()
-  call("getListCount")
+local function serverMarks()
   local marks = {}
   for _, id in ipairs(server.order) do
     local row = listOf(id)
     marks[#marks + 1] = { id = id, source = row.source, fingerprint = row.fingerprint }
   end
+  return marks
+end
+Api.getListCount = function()
+  call("getListCount")
+  local marks = serverMarks()
   return #marks, marks
+end
+-- Home's second request: the lists' marks come back, the reading and goals do not
+Api.getHomeSummary = function()
+  call("getHomeSummary")
+  local marks = serverMarks()
+  return { list_count = #marks, list_marks = marks }
 end
 Api.getListBooks = function(_, id, _, ranked, offset)
   call("getListBooks")
@@ -468,7 +478,7 @@ check("opening Home runs the check after Home's own requests", function()
   m:showHomeBody(homeHost())
   local last_home = 0
   for i, c in ipairs(calls) do
-    if c == "getListCount" or c == "getGoals" then last_home = i end
+    if c == "getHomeSummary" or c == "getGoals" then last_home = i end
   end
   assert(named("getLists") == 1 and calls[last_home + 1] == "getLists",
     "the lists were not checked after Home: " .. table.concat(calls, ","))
