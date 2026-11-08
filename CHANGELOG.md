@@ -28,6 +28,7 @@
 
 ### Improved
 
+- **Opening a book's details saves faster with a big library.** Clearing out books nothing holds now checks only the books that may have lost their place, instead of reading every saved book each time.
 - **Home refreshes faster.** Opening Home online now makes two requests instead of four: after the shelf counts, the books you are reading, your lists and your goals come back together in one request, so the whole screen is up to date sooner and the Wi-Fi radio is on for less time.
 - **Reviews and Stats redraw faster.** Loading more reviews, revealing a spoiler and switching the Stats period lay the page out once instead of twice, and Stats no longer works the numbers out again when the same period is redrawn. The screens look the same.
 - **Offline changes send faster after reconnecting.** When several books have changes waiting, their library records are fetched in one request instead of one per book before the changes are sent.
