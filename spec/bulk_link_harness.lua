@@ -391,4 +391,57 @@ local wrong = applied(BulkLink.undoGuessConfig(), saved["/b/Dune.epub"])
 r.check("undoing forgets the link and the mark", wrong.book_id == nil and wrong.title == nil and wrong.guessed_book_id == nil)
 r.check("no guesses in empty settings", #BulkLink.guessedBooks(nil) == 0)
 
+-- ------------------------------------------------------------ saving to disk once per batch
+do
+  local files, ids = {}, {}
+  for i = 1, 60 do
+    files[i] = "/f" .. i .. ".epub"
+    ids[files[i]] = "isbn13:97800000000" .. string.format("%02d", i)
+  end
+  local flushes, stored_at_flush = 0, {}
+  local fscan, fstored = scanOf(files, ids, function(parsed)
+    return { book_id = tonumber(parsed.isbn_13:sub(-2)), title = "T" }
+  end)
+  fscan.deps.flush = function()
+    flushes = flushes + 1
+    local n = 0
+    for _file in pairs(fstored) do n = n + 1 end
+    stored_at_flush[#stored_at_flush + 1] = n
+  end
+  runAll(fscan)
+  r.check("60 links are saved to disk once per batch, not once per book", flushes == 3, flushes)
+  r.check("each flush saves what its batch stored", stored_at_flush[1] == BulkLink.BATCH
+    and stored_at_flush[3] == 60, table.concat(stored_at_flush, ","))
+  BulkLink.flush(fscan)
+  r.check("a final flush with nothing new does not write again", flushes == 3, flushes)
+
+  local none = 0
+  local nscan = scanOf({ "/a.epub" }, { ["/a.epub"] = "isbn13:9780000000002" }, function() return false end)
+  nscan.deps.flush = function() none = none + 1 end
+  runAll(nscan)
+  r.check("a batch that links nothing does not write", none == 0, none)
+
+  local gfiles, gmetas, gsearches = {}, {}, {}
+  for i = 1, 30 do
+    gfiles[i] = "/g" .. i .. ".epub"
+    gmetas[gfiles[i]] = { title = "Book " .. i }
+    gsearches["Book " .. i] = { book(i, "Book " .. i, "Someone") }
+  end
+  local gflushes = 0
+  local fg = guessScanOf(gfiles, gmetas, gsearches, {})
+  fg.deps.flush = function() gflushes = gflushes + 1 end
+  runGuess(fg)
+  r.check("guesses found one search at a time are saved BATCH at a time", #fg.linked == 30 and gflushes == 1
+    and fg.unflushed == 30 - BulkLink.BATCH, gflushes)
+  BulkLink.flush(fg)
+  r.check("the end of the scan saves what is left", gflushes == 2 and fg.unflushed == 0, gflushes)
+
+  local bflushes = 0
+  local bg = guessScanOf({ "/Dune.epub" }, { ["/Dune.epub"] = { title = "Dune", author = "Frank Herbert" } },
+    {}, { Dune = { dune } })
+  bg.deps.flush = function() bflushes = bflushes + 1 end
+  runGuess(bg)
+  r.check("a batch of guesses is saved once", #bg.linked == 1 and bflushes == 1, bflushes)
+end
+
 r.finish()

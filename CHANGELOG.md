@@ -28,6 +28,8 @@
 
 ### Improved
 
+- **Linking all books writes less to the device.** "Link all books on this device" used to rewrite the plugin's whole settings file once for every book it linked; it now saves once per batch of 25 and once when the scan ends or is stopped, so a large library links faster and with far fewer writes to flash.
+
 - **Totals adapt to taller Bookshelf cards.** Authors read, books read, five-star books and rereads center the icon above the number in portrait cells. Square and wide cells keep the icon beside the number; hiding the icon still works in either layout.
 
 - **Choose the year chart's layout and metric.** Bookshelf's Year in bars card offers Pages or Books, and upright columns or vertically stacked rows with horizontal bars and monthly totals. Pages and upright columns remain the defaults. Each placement keeps its own choices; the chart still uses saved Stats data offline.
