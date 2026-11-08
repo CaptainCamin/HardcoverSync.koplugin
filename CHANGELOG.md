@@ -42,6 +42,8 @@
 
 ### Fixed
 
+- Opening an old Read book offline no longer replaces its original finish date when a queued Read status is sent. Books genuinely finished offline still keep the day they were finished.
+
 - **Waits as long as Hardcover asks when it is busy, and an oversized request no longer asks you to sign in again.** Shelf loads now wait for the time in Hardcover's `Retry-After` reply instead of a fixed guess, and give up at once when the daily limit is spent. A request Hardcover refuses as too big (`request_exceeds_capacity`) is no longer taken for a missing permission.
 
 - **A Bookshelf goal card on a shelf changes goals every time and keeps its style.** The shelf layout editor works on copies of its modules, and saving a whole copy from the goal picker could restore an older style and leave the next pick reading a stale goal. Only the goal is written to the stored shelf module now, the editor's copy is kept in step, and the card is re-fitted so the new goal is drawn.
