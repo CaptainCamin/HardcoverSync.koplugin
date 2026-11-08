@@ -982,14 +982,15 @@ end)
 check("a fit search builds each card and decodes its cover once per second", function()
   local real_time, now = os.time, 1000
   os.time = function(t) return t and real_time(t) or now end -- luacheck: ignore 122
-  local names = { "ui/renderimage", "hardcover/lib/ui/image_loader", "ui/widget/imagewidget" }
+  local names = { "ui/renderimage", "hardcover/lib/ui/image_loader", "ui/widget/imagewidget", "ui/uimanager" }
   local previous = {}
   for _, name in ipairs(names) do previous[name] = package.loaded[name] end
-  local decodes, copies = 0, 0
+  local decodes, copies, freed, ticks = 0, 0, 0, {}
   package.loaded[names[1]] = { renderImageFile = function()
     decodes = decodes + 1
-    return { copy = function() copies = copies + 1; return {} end, free = function() end }
+    return { copy = function() copies = copies + 1; return {} end, free = function() freed = freed + 1 end }
   end }
+  package.loaded[names[4]] = { nextTick = function(_, fn) ticks[#ticks + 1] = fn end }
   package.loaded[names[2]] = { cachedPath = function() return "/covers/memory.img" end }
   package.loaded[names[3]] = { new = function(_, o)
     return { image = o.image, getSize = function() return { w = o.width, h = o.height } end, free = function() end }
@@ -1023,6 +1024,9 @@ check("a fit search builds each card and decodes its cover once per second", fun
     assert(treeTexts(memories.render(ctx)):find("Remembered", 1, true))
   end
   assert(decodes == 1 and copies == 4, "decodes " .. decodes .. ", copies " .. copies)
+  assert(#ticks == 1 and freed == 0, "released the cover during the fit")
+  ticks[1]()
+  assert(freed == 1, "kept the decoded cover after the fit")
   for _, name in ipairs(names) do package.loaded[name] = previous[name] end
   os.time = real_time -- luacheck: ignore 122
   plugin_instance = nil

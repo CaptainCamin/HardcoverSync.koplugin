@@ -1067,15 +1067,23 @@ end
 
 -- Covers decoded during the current fit, by path and size. The fit's probes
 -- often ask for the same size, so a cover is read and scaled once; each
--- widget gets its own copy to dispose of.
+-- widget gets its own copy to dispose of. The fit runs within one UI tick, so
+-- the decoded originals are released on the next one.
 local fit_covers = { images = {} }
+local function releaseCovers()
+  for _, image in pairs(fit_covers.images) do
+    if image then image:free() end
+  end
+  fit_covers.at, fit_covers.images = nil, {}
+end
+
 local function decodedCover(path, width, height)
   local now = os.time()
   if fit_covers.at ~= now then
-    for _, image in pairs(fit_covers.images) do
-      if image then image:free() end
-    end
-    fit_covers.at, fit_covers.images = now, {}
+    releaseCovers()
+    fit_covers.at = now
+    local UIManager = require("ui/uimanager")
+    if UIManager.nextTick then UIManager:nextTick(releaseCovers) end
   end
   local key = path .. ":" .. width .. "x" .. height
   local image = fit_covers.images[key]
