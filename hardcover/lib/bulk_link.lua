@@ -94,23 +94,14 @@ function BulkLink.identifiersFromOpf(opf)
   return #tokens > 0 and table.concat(tokens, "\n") or nil
 end
 
--- The text of an EPUB's OPF, read by the system `unzip`. nil for any other format, a book without
--- an OPF, or a device without unzip.
+-- The text of an EPUB's OPF, read by the system `unzip` in one process. nil for any other format,
+-- a book without an OPF, or a device without unzip. Only the first OPF is kept: reading stops at
+-- its closing </package>.
 function BulkLink.readEpubOpf(filepath, popen)
   popen = popen or io.popen
   if type(filepath) ~= "string" or not filepath:lower():match("%.epub$") then return nil end
 
-  local list = popen("unzip -lqq " .. shellQuote(filepath) .. " '*.opf' 2>/dev/null", "r")
-  if not list then return nil end
-  local opf_path
-  for line in list:lines() do
-    opf_path = line:match("%s+%d+%s+%S+%s+%S+%s+(.+%.opf)$") or line:match("([^%s].-%.opf)$")
-    if opf_path then break end
-  end
-  list:close()
-  if not opf_path then return nil end
-
-  local read = popen("unzip -p " .. shellQuote(filepath) .. " " .. shellQuote(opf_path) .. " 2>/dev/null", "r")
+  local read = popen("unzip -p " .. shellQuote(filepath) .. " '*.opf' 2>/dev/null", "r")
   if not read then return nil end
   local chunks, total = {}, 0
   for chunk in read:lines() do
@@ -119,7 +110,12 @@ function BulkLink.readEpubOpf(filepath, popen)
     chunks[#chunks + 1] = chunk
   end
   read:close()
-  return table.concat(chunks, "\n")
+  if #chunks == 0 then return nil end
+  local text = table.concat(chunks, "\n")
+  -- Comments are blanked out only to find the end, so a "</package>" inside one does not count.
+  local masked = text:gsub("<!%-%-.-%-%->", function(comment) return (" "):rep(#comment) end)
+  local package_end = select(2, masked:find("</%s*[%w_%-]*:?package%s*>"))
+  return package_end and text:sub(1, package_end) or text
 end
 
 -- The identifiers inside an EPUB, one per line, or nil.

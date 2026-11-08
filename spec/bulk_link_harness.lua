@@ -52,23 +52,38 @@ r.check("entities in a value are decoded",
 
 -- ------------------------------------------------------------ reading an EPUB
 local commands = {}
-local function fakePopen(listing, content)
+local function fakePopen(content)
   return function(cmd)
     commands[#commands + 1] = cmd
-    local text = cmd:find("unzip %-lqq") and listing or content
+    local text = content
     local lines = {}
     for line in (text or ""):gmatch("[^\n]+") do lines[#lines + 1] = line end
     local i = 0
     return { lines = function() return function() i = i + 1; return lines[i] end end, close = function() end }
   end
 end
-local read = BulkLink.readEpubIdentifiers("/books/it's a book.epub",
-  fakePopen("   2048  2020-01-01 00:00   OEBPS/content.opf", opf))
+local read = BulkLink.readEpubIdentifiers("/books/it's a book.epub", fakePopen(opf))
 r.check("an EPUB's OPF is read through unzip", read and read:find("hardcover:the-hobbit", 1, true) ~= nil, read)
 r.check("a path with a quote is shell-quoted", commands[1]:find("'/books/it'\\''s a book.epub'", 1, true) ~= nil, commands[1])
+r.check("the OPF is read with one unzip process", #commands == 1 and commands[1]:find("unzip -p ", 1, true) == 1
+  and commands[1]:find("'*.opf'", 1, true) ~= nil, table.concat(commands, " | "))
+local first_only = BulkLink.readEpubOpf("/b/two.epub", fakePopen(
+  "<package><dc:identifier>isbn:9780441172719</dc:identifier></package>\n"
+  .. "<package><dc:identifier>isbn:9780000000002</dc:identifier></package>"))
+r.check("only the first OPF in an EPUB is read", first_only and first_only:find("9780441172719", 1, true) ~= nil
+  and first_only:find("9780000000002", 1, true) == nil, first_only)
+local split_close = BulkLink.readEpubOpf("/b/split.epub", fakePopen(
+  "<package><dc:identifier>isbn:9780441172719</dc:identifier></package\n>\n"
+  .. "<package><dc:identifier>isbn:9780000000002</dc:identifier></package>"))
+r.check("a closing tag split over two lines still ends the first OPF", split_close
+  and split_close:find("9780441172719", 1, true) ~= nil and split_close:find("9780000000002", 1, true) == nil, split_close)
+local commented = BulkLink.readEpubIdentifiers("/b/comment.epub", fakePopen(
+  "<package><!-- ends with </package> -->\n<dc:identifier>isbn:9780441172719</dc:identifier></package>"))
+r.check("a closing tag inside a comment does not end the OPF",
+  (commented or ""):find("9780441172719", 1, true) ~= nil, commented)
 r.check("a book that is not an EPUB is not opened",
   BulkLink.readEpubIdentifiers("/books/a.pdf", function() error("opened") end) == nil)
-r.check("an EPUB with no OPF gives nil", BulkLink.readEpubIdentifiers("/b/a.epub", fakePopen("", "")) == nil)
+r.check("an EPUB with no OPF gives nil", BulkLink.readEpubIdentifiers("/b/a.epub", fakePopen("")) == nil)
 
 -- ------------------------------------------------------------ the link settings
 local config = BulkLink.linkConfig({ book_id = 5, edition_id = 9, title = "Dune", pages = 412,
@@ -249,7 +264,7 @@ r.check("an OPF with a title only still gives it",
   (BulkLink.metadataFromOpf("<dc:title>Solo</dc:title>") or {}).title == "Solo")
 r.check("an OPF with neither gives nil", BulkLink.metadataFromOpf("<package></package>") == nil
   and BulkLink.metadataFromOpf(nil) == nil)
-local from_epub = BulkLink.readEpubMetadata("/b/a.epub", fakePopen("  1  2020-01-01 00:00   OEBPS/content.opf", meta_opf))
+local from_epub = BulkLink.readEpubMetadata("/b/a.epub", fakePopen(meta_opf))
 r.check("an EPUB's title and author are read through unzip", from_epub and from_epub.author == "Frank Herbert")
 
 -- ------------------------------------------------------------ choosing a guess
