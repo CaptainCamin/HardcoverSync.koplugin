@@ -458,6 +458,34 @@ check("local search can load more books when no downloaded entry matches yet", f
     "the new downloaded match was not found")
 end)
 
+check("turning a page of a local search does not search the shelf again", function()
+  local source = {}
+  for i = 1, 30 do
+    source[i] = entry({ book_id = i, title = (i % 2 == 0) and ("Even book " .. i) or ("Odd book " .. i) })
+  end
+  local d = build(source, { local_searchable = true })
+  d:setLocalSearch("even")
+  assert(#d.visible_entries == 15, "the search did not filter the shelf")
+  local LocalSearch = require("hardcover/lib/local_search")
+  local real, calls = LocalSearch.matches, 0
+  LocalSearch.matches = function(...) calls = calls + 1; return real(...) end
+  local ok, err = pcall(function()
+    local items = d.items_cache.items
+    d:rebuild()
+    d:rebuild()
+    assert(calls == 0, "a page turn searched " .. calls .. " entries again")
+    assert(d.items_cache.items == items and #d.visible_entries == 15, "the filtered rows changed")
+    source[#source + 1] = entry({ book_id = 31, title = "Even later" })
+    d:rebuild()
+    assert(calls == #source and #d.visible_entries == 16, "a new book was not searched")
+    calls = 0
+    d:setLocalSearch("odd")
+    assert(calls == #source and #d.visible_entries == 15, "a new query did not search again")
+  end)
+  LocalSearch.matches = real
+  assert(ok, err)
+end)
+
 check("it opens in the arrival order by default", function()
   assert(titles(shelf()) == "The Zebra|Apple|Mango", titles(shelf()))
 end)
