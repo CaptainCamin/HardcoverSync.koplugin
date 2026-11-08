@@ -10,7 +10,6 @@ local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local InputContainer = require("ui/widget/container/inputcontainer")
-local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
@@ -20,7 +19,7 @@ local Chip = require("hardcover/lib/ui/components/chip")
 local ChartWidgets = require("hardcover/lib/ui/chart_widgets")
 local Charts = require("hardcover/lib/charts")
 local Hosted = require("hardcover/lib/ui/hosted")
-local ScrollControl = require("hardcover/lib/ui/components/scroll_control")
+local ScrollBody = require("hardcover/lib/ui/scroll_body")
 local Section = require("hardcover/lib/ui/components/section")
 local Stats = require("hardcover/lib/stats")
 local Theme = require("hardcover/lib/ui/theme")
@@ -184,6 +183,23 @@ function StatsDialog:chooseMonth()
   UIManager:show(picker)
 end
 
+-- Stats.compute for the chosen period, kept per period until other rows arrive: a redraw of the same
+-- period (a rebuild, or back to a period already seen) does not walk the books again.
+function StatsDialog:computed()
+  local memo = self.computed_memo
+  if not memo or memo.rows ~= self.rows then
+    memo = { rows = self.rows, by_period = {} }
+    self.computed_memo = memo
+  end
+  local key = tostring(self.year) .. "/" .. tostring(self.month)
+  local s = memo.by_period[key]
+  if not s then
+    s = Stats.compute(self.rows, { year = self.year, month = self.month })
+    memo.by_period[key] = s
+  end
+  return s
+end
+
 function StatsDialog:buildContent(width)
   local content = VerticalGroup:new { align = "left" }
   table.insert(content, Theme.span("m"))
@@ -202,7 +218,7 @@ function StatsDialog:buildContent(width)
     return content
   end
 
-  local s = Stats.compute(self.rows, { year = self.year, month = self.month })
+  local s = self:computed()
 
   if s.books == 0 then
     local period = self.month and (_(MONTHS[self.month]) .. " " .. tostring(self.year)) or tostring(self.year)
@@ -408,24 +424,11 @@ function StatsDialog:build()
   if self.tabs then table.insert(head, self.tabs) end
   local room = screen_h - head:getSize().h
 
-  local width = screen_w - 2 * M
-  local content = self:buildContent(width)
   local body
-  self.scroll = nil
-  if content:getSize().h + Theme.space.m > room then
-    local gutter = ScrollControl.gutter()
-    width = screen_w - 2 * M - gutter
-    self.scroll = ScrollableContainer:new {
-      dimen = Geom:new { x = 0, y = 0, w = screen_w, h = room },
-      show_parent = Hosted.window(self),
-    }
-    local scroll = self.scroll
-    content = self:buildContent(width)
-    scroll[1] = HorizontalGroup:new { Theme.hspan(M), content }
-    body = ScrollControl.wrap(scroll, content)
-  else
-    body = HorizontalGroup:new { Theme.hspan(M), content }
-  end
+  body, self.scroll = ScrollBody.layout {
+    width = screen_w, room = room, margin = M, slack = Theme.space.m, show_parent = Hosted.window(self),
+    build = function(width) return self:buildContent(width) end,
+  }
 
   self.title_bar = bar
   self.close_button = bar and bar.back_button or nil

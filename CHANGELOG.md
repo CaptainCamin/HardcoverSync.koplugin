@@ -28,6 +28,7 @@
 
 ### Improved
 
+- **Reviews and Stats redraw faster.** Loading more reviews, revealing a spoiler and switching the Stats period lay the page out once instead of twice, and Stats no longer works the numbers out again when the same period is redrawn. The screens look the same.
 - **Offline changes send faster after reconnecting.** When several books have changes waiting, their library records are fetched in one request instead of one per book before the changes are sent.
 - **Linking all books writes less to the device.** "Link all books on this device" used to rewrite the plugin's whole settings file once for every book it linked; it now saves once per batch of 25 and once when the scan ends or is stopped, so a large library links faster and with far fewer writes to flash.
 
