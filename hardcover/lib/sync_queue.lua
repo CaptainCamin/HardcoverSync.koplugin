@@ -816,7 +816,19 @@ end
 -- fully sent, false when it should be kept for another attempt; the second
 -- value is "transient" when the server could not be reached or asked, so the
 -- caller can tell an outage from a refusal.
-function SyncQueue:_flushEntry(api, filepath, opts)
+-- The record flush fetched for this book before the loop, used once: a later
+-- entry for the same book must see what this one sent, so it asks again.
+local function findUserBook(api, book_id, opts, prefetched)
+  local key = tostring(book_id)
+  local record = prefetched and prefetched[key]
+  if record ~= nil then
+    prefetched[key] = nil
+    return record or nil
+  end
+  return api:findUserBook(book_id, opts.user_id)
+end
+
+function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
   local entry = self:get(filepath)
   if self:isEmpty(entry) then
     return true
@@ -830,7 +842,7 @@ function SyncQueue:_flushEntry(api, filepath, opts)
   if entry.remove then
     local id = entry.user_book_id
     if not id then
-      local found, lookup_err = api:findUserBook(book_id, opts.user_id)
+      local found, lookup_err = findUserBook(api, book_id, opts, prefetched)
       if lookup_err ~= nil then return false, "transient" end
       id = found and found.id -- not in the library: nothing to remove
     end
@@ -850,7 +862,7 @@ function SyncQueue:_flushEntry(api, filepath, opts)
 
   -- A failed lookup looks like an empty one; an error means we do not know, so
   -- send nothing rather than create a user book over a real one.
-  local user_book, lookup_err = api:findUserBook(book_id, opts.user_id)
+  local user_book, lookup_err = findUserBook(api, book_id, opts, prefetched)
   if lookup_err ~= nil then
     return false, "transient"
   end
@@ -1075,6 +1087,27 @@ function SyncQueue.ownedBy(entry, user_id)
   return type(entry) ~= "table" or entry.user_id == nil or tostring(entry.user_id) == tostring(user_id)
 end
 
+-- Every queued book's library record in one request instead of one per book.
+-- nil (each entry asks for its own) when one lookup is all there is, or the
+-- batch could not be asked.
+function SyncQueue:_prefetchUserBooks(api, paths, user_id)
+  if type(api.findUserBooks) ~= "function" then return nil end
+  local ids, seen = {}, {}
+  for _, key in ipairs(paths) do
+    local entry = self:get(key)
+    local book_id = type(entry) == "table" and entry.book_id
+    if book_id and not self:isEmpty(entry) and not (entry.remove and entry.user_book_id)
+      and not seen[tostring(book_id)] then
+      seen[tostring(book_id)] = true
+      ids[#ids + 1] = tonumber(book_id) or book_id
+    end
+  end
+  if #ids < 2 then return nil end
+  local ok, found = pcall(api.findUserBooks, api, ids, user_id)
+  if ok and type(found) == "table" then return found end
+  return nil
+end
+
 function SyncQueue:flush(api, opts)
   opts = opts or {}
   if self.flushing then
@@ -1111,12 +1144,13 @@ function SyncQueue:flush(api, opts)
   return self:withFlushLock(false, function()
     local all_sent = true
     local consecutive_failures = 0
+    local prefetched = self:_prefetchUserBooks(api, paths, opts.user_id)
 
     for _, filepath in ipairs(paths) do
       -- An API call that throws must not leave `flushing` set, or every later
       -- flush is refused until KOReader restarts.
       self.sending_key = filepath
-      local ok, sent, reason = pcall(self._flushEntry, self, api, filepath, opts)
+      local ok, sent, reason = pcall(self._flushEntry, self, api, filepath, opts, prefetched)
       self.sending_key = nil
       if ok and sent then
         consecutive_failures = 0

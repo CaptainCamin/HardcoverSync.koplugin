@@ -29,6 +29,8 @@
 ### Improved
 
 - **Reviews and Stats redraw faster.** Loading more reviews, revealing a spoiler and switching the Stats period lay the page out once instead of twice, and Stats no longer works the numbers out again when the same period is redrawn. The screens look the same.
+- **Offline changes send faster after reconnecting.** When several books have changes waiting, their library records are fetched in one request instead of one per book before the changes are sent.
+- **Linking all books writes less to the device.** "Link all books on this device" used to rewrite the plugin's whole settings file once for every book it linked; it now saves once per batch of 25 and once when the scan ends or is stopped, so a large library links faster and with far fewer writes to flash.
 
 - **Totals adapt to taller Bookshelf cards.** Authors read, books read, five-star books and rereads center the icon above the number in portrait cells. Square and wide cells keep the icon beside the number; hiding the icon still works in either layout.
 
@@ -39,6 +41,8 @@
 - **Bookshelf cards have distinct layouts.** Lifetime totals scale their icons with their numbers and no longer show a refresh footer over saved totals; the goal bar marks today's pace; square goal-ring cards put the ring beside the count. Annual Stats is an aligned ledger of books, pages and average pages, and the year chart has single-letter month labels. Reading memories keeps its prominent year; TBR rediscovery puts the cover beside the book and uses an internal dotted ticket footer. Another stays compact and finger-sized. Smaller cells drop decoration and supporting facts before their essential numbers, and the cards still read only saved Hardcover data.
 
 ### Fixed
+
+- **Waits as long as Hardcover asks when it is busy, and an oversized request no longer asks you to sign in again.** Shelf loads now wait for the time in Hardcover's `Retry-After` reply instead of a fixed guess, and give up at once when the daily limit is spent. A request Hardcover refuses as too big (`request_exceeds_capacity`) is no longer taken for a missing permission.
 
 - **A Bookshelf goal card on a shelf changes goals every time and keeps its style.** The shelf layout editor works on copies of its modules, and saving a whole copy from the goal picker could restore an older style and leave the next pick reading a stale goal. Only the goal is written to the stored shelf module now, the editor's copy is kept in step, and the card is re-fitted so the new goal is drawn.
 

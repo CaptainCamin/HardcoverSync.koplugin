@@ -152,6 +152,18 @@ check("an OAuth refusal keeps its description and code", function()
   assert(err.message == "Missing permission for this operation")
 end)
 
+check("a 429 passes on how long Hardcover said to wait", function()
+  setup('429;retry-after=7:{"error":"Too Many Requests","message":"slow down"}')
+  local data, err = Api:query("{ x }")
+  assert(data == nil and err.status == 429 and err.retry_after == 7, tostring(err.retry_after))
+end)
+
+check("a 429 with no Retry-After and an HTML body keeps its status", function()
+  setup("429:<html>slow down</html>")
+  local data, err = Api:query("{ x }")
+  assert(data == nil and err.status == 429 and err.retry_after == nil)
+end)
+
 check("a request cut short comes back as not completed", function()
   setup('408:')
   local data, err = Api:query("{ x }")
