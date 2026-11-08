@@ -145,15 +145,23 @@ function ShelfDialog:displayTitle()
 end
 
 -- Entries that match every query word in their title or author, keeping the shelf's saved order.
+-- Kept until the entries or the query change, so turning a page does not search the shelf again
+-- (a page only ever adds books at the end, which changes the count).
 function ShelfDialog:visibleEntries()
   local entries = self.entries or {}
-  if not self.local_searchable or not self.local_search_query:match("%S") then return entries end
+  local query = self.local_search_query
+  if not self.local_searchable or not query:match("%S") then return entries end
+  local memo = self.visible_memo
+  if memo and memo.entries == entries and memo.count == #entries and memo.query == query then
+    return memo.matching
+  end
   local matching = {}
   for _, entry in ipairs(entries) do
-    if LocalSearch.matches(self.local_search_query, { entry.title, entry.authors }) then
+    if LocalSearch.matches(query, { entry.title, entry.authors }) then
       matching[#matching + 1] = entry
     end
   end
+  self.visible_memo = { entries = entries, count = #entries, query = query, matching = matching }
   return matching
 end
 
