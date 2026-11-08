@@ -53,11 +53,10 @@ function AutoWifi:withWifi(callback)
       self.connection_pending = false
       --logger.warn("HARDCOVER wifi enabled")
 
-      callback(true)
-
       -- switched off a while later (not now: the work the callback started is still running),
-      -- and not at all if more work asks for wifi meanwhile
+      -- unless the work cancels it before yielding to a request
       self:scheduleDisable()
+      callback(true)
     end)
 
     return
