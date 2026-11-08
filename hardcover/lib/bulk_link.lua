@@ -11,7 +11,9 @@
 --
 -- Everything that touches KOReader or the network is passed in, so the scan can be driven
 -- from a spec: `read_identifiers` reads a file's identifiers, `lookup_batch` finds the
--- Hardcover books for a list of parsed identifiers, `store` writes the link.
+-- Hardcover books for a list of parsed identifiers, `store` writes the link, and the optional
+-- `flush` saves to disk what `store` wrote (BulkLink.flush: once per batch and at the end, not
+-- once per book).
 
 local Book = require("hardcover/lib/book")
 
@@ -94,23 +96,14 @@ function BulkLink.identifiersFromOpf(opf)
   return #tokens > 0 and table.concat(tokens, "\n") or nil
 end
 
--- The text of an EPUB's OPF, read by the system `unzip`. nil for any other format, a book without
--- an OPF, or a device without unzip.
+-- The text of an EPUB's OPF, read by the system `unzip` in one process. nil for any other format,
+-- a book without an OPF, or a device without unzip. Only the first OPF is kept: reading stops at
+-- its closing </package>.
 function BulkLink.readEpubOpf(filepath, popen)
   popen = popen or io.popen
   if type(filepath) ~= "string" or not filepath:lower():match("%.epub$") then return nil end
 
-  local list = popen("unzip -lqq " .. shellQuote(filepath) .. " '*.opf' 2>/dev/null", "r")
-  if not list then return nil end
-  local opf_path
-  for line in list:lines() do
-    opf_path = line:match("%s+%d+%s+%S+%s+%S+%s+(.+%.opf)$") or line:match("([^%s].-%.opf)$")
-    if opf_path then break end
-  end
-  list:close()
-  if not opf_path then return nil end
-
-  local read = popen("unzip -p " .. shellQuote(filepath) .. " " .. shellQuote(opf_path) .. " 2>/dev/null", "r")
+  local read = popen("unzip -p " .. shellQuote(filepath) .. " '*.opf' 2>/dev/null", "r")
   if not read then return nil end
   local chunks, total = {}, 0
   for chunk in read:lines() do
@@ -119,7 +112,12 @@ function BulkLink.readEpubOpf(filepath, popen)
     chunks[#chunks + 1] = chunk
   end
   read:close()
-  return table.concat(chunks, "\n")
+  if #chunks == 0 then return nil end
+  local text = table.concat(chunks, "\n")
+  -- Comments are blanked out only to find the end, so a "</package>" inside one does not count.
+  local masked = text:gsub("<!%-%-.-%-%->", function(comment) return (" "):rep(#comment) end)
+  local package_end = select(2, masked:find("</%s*[%w_%-]*:?package%s*>"))
+  return package_end and text:sub(1, package_end) or text
 end
 
 -- The identifiers inside an EPUB, one per line, or nil.
@@ -234,7 +232,17 @@ function BulkLink.new(items, deps)
     -- the books a guess pass can try
     unmatched = {},
     errors = 0,
+    -- links stored since the last flush
+    unflushed = 0,
   }
+end
+
+-- Saves to disk the links stored since the last flush (deps.flush), if there are any. Called after
+-- each batch; the caller calls it once more when the scan finishes or is stopped. A write that
+-- fails leaves the count, so the next flush tries again.
+function BulkLink.flush(scan)
+  if (scan.unflushed or 0) == 0 then return end
+  if not scan.deps.flush or pcall(scan.deps.flush) then scan.unflushed = 0 end
 end
 
 function BulkLink.total(scan)
@@ -279,12 +287,14 @@ local function lookup(scan)
       scan.no_match[#scan.no_match + 1] = { name = nameOf(entry.file) }
       scan.unmatched[#scan.unmatched + 1] = entry.file
     elseif pcall(scan.deps.store, entry.file, BulkLink.linkConfig(book)) then
+      scan.unflushed = scan.unflushed + 1
       scan.linked[#scan.linked + 1] = { name = nameOf(entry.file), matched = book.title,
         file = entry.file, book_id = book.book_id, edition_id = book.edition_id }
     else
       scan.errors = scan.errors + 1
     end
   end
+  BulkLink.flush(scan)
 end
 
 -- Do the next piece of work: look up a full batch, else read the next file, else look up what is
@@ -441,6 +451,7 @@ local function link(scan, file, book)
   local config = BulkLink.linkConfig(book)
   config.guessed_book_id = book.book_id
   if pcall(scan.deps.store, file, config) then
+    scan.unflushed = scan.unflushed + 1
     scan.linked[#scan.linked + 1] = { name = nameOf(file), matched = book.title,
       authors = table.concat(authorNames(book), ", "),
       file = file, book_id = book.book_id, edition_id = book.edition_id }
@@ -473,6 +484,7 @@ local function guessBatch(scan)
       scan.fallback[#scan.fallback + 1] = entry
     end
   end
+  BulkLink.flush(scan)
 end
 
 -- Search for one book the batch could not settle.
@@ -491,6 +503,9 @@ local function guessOne(scan)
     return
   end
   link(scan, entry.file, book)
+  -- one search per book, so these are saved BATCH links at a time (a failed write is tried again
+  -- BATCH links later, not after every link)
+  if scan.unflushed > 0 and scan.unflushed % BulkLink.BATCH == 0 then BulkLink.flush(scan) end
 end
 
 -- Do the next piece of work: try a full batch of titles, else read the next book's title, else try

@@ -49,7 +49,10 @@ container_stub("ui/widget/verticalgroup")
 container_stub("ui/widget/container/inputcontainer")
 support.preload_theme_stubs()
 package.preload["ui/widget/container/topcontainer"] = package.preload["ui/widget/linewidget"]
-container_stub("ui/widget/container/scrollablecontainer")
+-- a long list scrolls: the dialog keeps the scroll position across a rebuild
+local Scrollable = container_stub("ui/widget/container/scrollablecontainer")
+function Scrollable:getScrolledOffset() return self.offset or { x = 0, y = 0 } end
+function Scrollable:setScrolledOffset(offset) self.offset = offset end
 container_stub("ui/widget/container/leftcontainer")
 -- the new screens and components are drawn on a real KOReader (spec/emu/scenarios/reviews.lua); here
 -- they are stand-ins that keep what they were given, so the dialog's state handling can be checked
