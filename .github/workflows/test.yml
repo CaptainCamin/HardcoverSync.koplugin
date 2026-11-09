@@ -78,8 +78,12 @@ jobs:
           fi
 
           if [ "$emu" = "false" ]; then
-            changed_files=$(git diff --name-only "$range")
-            if printf '%s\n' "$changed_files" | grep -Eq '(\.lua$|^fonts/|^icons/|^spec/emu/|^_meta\.lua$|^\.github/workflows/test\.yml$)'; then
+            if changed_files=$(git diff --name-only "$range"); then
+              if printf '%s\n' "$changed_files" | grep -Eq '(\.lua$|^fonts/|^icons/|^spec/emu/|^_meta\.lua$|^\.github/workflows/test\.yml$)'; then
+                emu=true
+              fi
+            else
+              echo "git diff ${range} failed; defaulting to emulator checks" >&2
               emu=true
             fi
           fi
