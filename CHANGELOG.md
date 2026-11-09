@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.4.0
+
 ### Added
 
 - **Pages read offline show in the Journal.** Each day you read a book offline appears as "Updated progress to page N" with the day and "Waiting to send", until it is sent.
