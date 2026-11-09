@@ -46,12 +46,60 @@ jobs:
       - name: Check the release notes script
         run: python3 spec/release_notes_test.py
 
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      emu: ${{ steps.emulator_changes.outputs.emu }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for emulator-relevant changes
+        id: emulator_changes
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          emu=false
+          range=""
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+            range="origin/${BASE_REF}...HEAD"
+          elif [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            emu=true
+          else
+            range="${BEFORE}..${SHA}"
+          fi
+
+          if [ "$emu" = "false" ]; then
+            changed_files=$(git diff --name-only "$range")
+            if printf '%s\n' "$changed_files" | grep -Eq '(\.lua$|^fonts/|^icons/|^spec/emu/|^_meta\.lua$|^\.github/workflows/test\.yml$)'; then
+              emu=true
+            fi
+          fi
+
+          echo "emu=${emu}" >> "${GITHUB_OUTPUT}"
+
   # Renders the plugin's screens with the real KOReader frontend, headless (spec/emu/README.md).
   # Scenarios that fail today are listed with their reasons in spec/emu/parked.txt.
   # It runs at three screen sizes with the same aspect as the Kindle Paperwhite and Kobo/Kindle 6"-7"
   # readers (spec/emu/README.md, "Screen sizes"); the first is the owner's Paperwhite 7". Narrow or
   # wide-and-short panels such as the Boox Palma are not covered yet.
+  # Skipped when no emulator-relevant paths changed, or when [skip emu] is in the commit message or PR title/body.
   emulator:
+    needs: changes
+    if: >-
+      always() &&
+      needs.changes.outputs.emu == 'true' &&
+      !contains(github.event.head_commit.message || '', '[skip emu]') &&
+      !contains(github.event.pull_request.title || '', '[skip emu]') &&
+      !contains(github.event.pull_request.body || '', '[skip emu]')
     name: emulator ${{ matrix.size }}
     runs-on: ubuntu-latest
     strategy:

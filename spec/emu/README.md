@@ -12,7 +12,9 @@ spec/emu/run.sh --list       # what is available
 
 `spec/emu/run.sh --ci` skips the scenarios listed in `parked.txt` (known failures, each with its
 reason) and is what the `emulator` job in `.github/workflows/test.yml` runs, on a pinned KOReader
-release. Fix a parked scenario and delete its line.
+release. CI skips the emulator job when `[skip emu]` appears in the commit message or PR title, or
+when no emulator-relevant files changed. After a full local `--ci` run at all three CI screen sizes,
+use `[skip emu]`. Fix a parked scenario and delete its line.
 
 Output lands in `spec/emu/.out/`: a `.png` per screen plus a `.txt` of
 everything drawn, with coordinates.
