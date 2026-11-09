@@ -1,0 +1,160 @@
+{
+  "repo_notes": [],
+  "pages": [
+    {
+      "title": "Overview",
+      "purpose": "High-level introduction to HardcoverSync.koplugin, its purpose, repository layout, and major subsystems.",
+      "parent": null
+    },
+    {
+      "title": "Installation and Configuration",
+      "purpose": "Plugin installation, packaging, configuration precedence, authentication setup, fonts and assets.",
+      "parent": "Overview"
+    },
+    {
+      "title": "Plugin Lifecycle and Entry Points",
+      "purpose": "main.lua bootstrapping, lifecycle hooks, dispatcher actions, menu registration, scheduling, and network orchestration.",
+      "parent": "Overview"
+    },
+    {
+      "title": "Settings and Preferences",
+      "purpose": "Settings storage, schema constants, preferences dialogs, tracking modes, snapshots, and user preferences.",
+      "parent": "Overview"
+    },
+    {
+      "title": "Hardcover API Layer",
+      "purpose": "Overview of communication with the Hardcover GraphQL backend, including transport, authentication, and contract verification.",
+      "parent": null
+    },
+    {
+      "title": "GraphQL Client and Transport",
+      "purpose": "GraphQL request construction, subprocess and network transport, retries, asynchronous execution, and error handling.",
+      "parent": "Hardcover API Layer"
+    },
+    {
+      "title": "Authentication and User Identity",
+      "purpose": "OAuth and personal-access-token authentication, token lifecycle, sign-in dialogs, credential checks, and user identity.",
+      "parent": "Hardcover API Layer"
+    },
+    {
+      "title": "Live API Contract Verification",
+      "purpose": "Live API schema and contract checks, documentation, verification harnesses, and safeguards against API drift.",
+      "parent": "Hardcover API Layer"
+    },
+    {
+      "title": "Sync Engine and Offline-First Data",
+      "purpose": "Offline-first synchronization architecture, queues, progress tracking, local persistence, and offline content operations.",
+      "parent": null
+    },
+    {
+      "title": "Sync Queue and Conflict Resolution",
+      "purpose": "SyncQueue storage and migrations, queue flushing, conflict detection and resolution, retries, and offline replay.",
+      "parent": "Sync Engine and Offline-First Data"
+    },
+    {
+      "title": "Progress Tracking and Page Mapping",
+      "purpose": "Reading progress tracking, page mapping across editions, status transitions, and book close or end-of-book flows.",
+      "parent": "Sync Engine and Offline-First Data"
+    },
+    {
+      "title": "Local Stores and Caches",
+      "purpose": "SQLite and local stores or caches for books, shelves, lists, ratings, user state, and cache eviction.",
+      "parent": "Sync Engine and Offline-First Data"
+    },
+    {
+      "title": "Offline Queues for Content and Metadata",
+      "purpose": "Offline queues for notes, quotes, reviews, ratings, goals, list operations, and other user-generated metadata.",
+      "parent": "Sync Engine and Offline-First Data"
+    },
+    {
+      "title": "User Interface",
+      "purpose": "Overview of the KOReader widget-based UI architecture, navigation, dialogs, and e-reader design constraints.",
+      "parent": null
+    },
+    {
+      "title": "Design System and Component Library",
+      "purpose": "Theme tokens, e-ink design rules, reusable UI components, typography, icons, and visual conventions.",
+      "parent": "User Interface"
+    },
+    {
+      "title": "Menus, Shell and Navigation",
+      "purpose": "Main menu, application shell, navigation flows, dialog management, and plugin entry points in the UI.",
+      "parent": "User Interface"
+    },
+    {
+      "title": "Reader Panel",
+      "purpose": "Reader panel widget, status and rating controls, progress display, gestures, and open-book integration.",
+      "parent": "User Interface"
+    },
+    {
+      "title": "Book Detail and Book Flows",
+      "purpose": "Book detail dialog, metadata presentation, book actions, linking flows, status changes, and related orchestrators.",
+      "parent": "User Interface"
+    },
+    {
+      "title": "Shelves, Lists and Search",
+      "purpose": "Shelf and list management UI, search, sorting, pickers, library flows, and bulk linking.",
+      "parent": "User Interface"
+    },
+    {
+      "title": "Journal, Notes and Reviews UI",
+      "purpose": "Journal and activity screens, note, quote, and review forms, offline pending states, and content editing.",
+      "parent": "User Interface"
+    },
+    {
+      "title": "Goals, Stats and Charts",
+      "purpose": "Reading goals, statistics, charts, progress visualizations, and their dialogs and data flows.",
+      "parent": "User Interface"
+    },
+    {
+      "title": "Bookshelf Integration",
+      "purpose": "Overview of HardcoverSync's integration with KOReader Bookshelf, distinguishing shelf sources from micro-module cards.",
+      "parent": null
+    },
+    {
+      "title": "Bookshelf Sources",
+      "purpose": "Detailed implementation of optional Bookshelf shelf and list sources, including registration, lazy fetching, refresh behavior, change notification, remote book routing, caching, covers, and offline behavior.",
+      "parent": "Bookshelf Integration",
+      "page_notes": [
+        {
+          "content": "Preserve the page's existing structure and Mermaid-diagram style while making the architectural fit explicit. Cover these implementation details from hardcover/lib/bookshelf_sources.lua and main.lua: (1) Registration lifecycle — Sources.register(app) is called during plugin init in main.lua around lines 313-316 and retried with UIManager:nextTick if Bookshelf is not loaded yet; Sources.register returns false cleanly when app.ui.bookshelf is absent or bookshelf.SOURCE_API < 1 (bookshelf_sources.lua around lines 652-659), making the integration optional. (2) Refresh pipeline — startLoad (around lines 390-415) deduplicates in-flight loads by key, applies a 30-second retry_after backoff after failures, and runs loaders through UIManager:nextTick plus Background.run so network work does not block the UI tick. (3) Change notification — changed()/changedShelf() (around lines 376-388) call bookshelf:sourceChanged(id) so Bookshelf re-renders; sign-out in main.lua (around lines 303-310) clears account caches/stores and calls BookshelfSources.changed(self). (4) Remote book routing — remoteSpec (around lines 634-650) declares remote_prefix \"hardcover://\", owns() matching ^hardcover://book/, and open/info handlers that route through bookDetail (around lines 627-632) to app.dialog_manager:showBookDetail(book_id). (5) Architectural position — present bookshelf_sources.lua as a presentation-layer bridge: it reads cached/shared state from shelf_store, shelf_cache, and list_store, converts records for Bookshelf, and pushes sourceChanged notifications into Bookshelf, while network requests and persistence remain in the shared Api/ShelfLoader/store infrastructure. Mention that the related but separate bookshelf_modules/ micro-module pack is covered on page 5.2, not here. Keep coverage of registration, lazy fetching, fingerprints, covers, and offline behavior, and cite source files and lines in the wiki's usual style."
+        }
+      ]
+    },
+    {
+      "title": "Bookshelf Micro-Modules",
+      "purpose": "Bookshelf micro-module card pack in bookshelf_modules/, card specifications, data sources, settings, rendering, and tests.",
+      "parent": "Bookshelf Integration"
+    },
+    {
+      "title": "Testing and Development Workflow",
+      "purpose": "Testing strategy across Lua harnesses, KOReader emulator scenarios, sync regression suites, CI, and release workflows.",
+      "parent": null
+    },
+    {
+      "title": "Harnesses and Unit Specs",
+      "purpose": "spec/ harness conventions, mocks, support libraries, standalone Lua tests, and unit-style verification.",
+      "parent": "Testing and Development Workflow"
+    },
+    {
+      "title": "KOReader Emulator Scenarios",
+      "purpose": "Headless KOReader emulator setup, scenario structure, screenshots, and UI regression checks.",
+      "parent": "Testing and Development Workflow"
+    },
+    {
+      "title": "Sync Regression Suite",
+      "purpose": "spec/sync_regressions tests for offline synchronization bugs, race conditions, queue behavior, and data corruption.",
+      "parent": "Testing and Development Workflow"
+    },
+    {
+      "title": "CI, Release and Updates",
+      "purpose": "GitHub Actions CI, release workflow, versioning, update checks, packaging, and release notes.",
+      "parent": "Testing and Development Workflow"
+    },
+    {
+      "title": "Glossary",
+      "purpose": "Definitions of core terms, modules, data structures, statuses, queues, stores, and architectural concepts.",
+      "parent": null
+    }
+  ]
+}
