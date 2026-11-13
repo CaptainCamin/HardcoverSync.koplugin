@@ -30,6 +30,7 @@ local Screen = Device.screen
 local Overlay = InputContainer:extend {
   name = "hardcover_overlay",
   anchor = "bottom",
+  bottom = 0, -- px to lift a bottom-anchored child above the screen's bottom edge (e.g. over a nav bar)
   modal = true,
   x = 0,
   y = 0,
@@ -45,7 +46,7 @@ function Overlay:init()
   local size = child:getSize()
   local x, y
   if self.anchor == "bottom" then
-    x, y = math.floor((sw - size.w) / 2), sh - size.h
+    x, y = math.floor((sw - size.w) / 2), sh - size.h - self.bottom
   elseif self.anchor == "center" then
     x, y = math.floor((sw - size.w) / 2), math.floor((sh - size.h) / 2)
   else

@@ -90,7 +90,7 @@ function SyncProgress:_show()
       HorizontalGroup:new { Theme.hspan("m"), bar, Theme.hspan("m") },
       Theme.span("s") } }
 
-  local overlay = Overlay:new { anchor = "bottom", toast = true, body }
+  local overlay = Overlay:new { anchor = "bottom", toast = true, bottom = self.bottom, body }
   overlay:show()
   self.overlay = overlay
   if old then old:close(overlay) end
@@ -103,6 +103,8 @@ function SyncProgress.show(opts)
     phase = nil,
     title = nil,
     kind = nil,
+    -- lift above the shell's bottom nav bar so it never covers Home/Library/Goals/Stats
+    bottom = (opts and opts.above_nav) and Theme.mmd.nav_bar.h or 0,
   }, SyncProgress)
   self:_show()
   return self

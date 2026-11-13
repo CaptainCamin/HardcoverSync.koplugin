@@ -1238,23 +1238,53 @@ function HardcoverApp:_noticeHeld(kind, held)
   self.noticed_held[kind] = held
 end
 
+-- The screen the user is on, ignoring toasts: a snackbar or the bar itself floats over whatever is
+-- underneath and must not decide whether a flush may show the bar. Walks UIManager's window stack
+-- from the top, skipping invisible windows and toasts, to the first real one. Falls back to
+-- getTopmostVisibleWidget where the stack is not available (the stock-Lua specs).
+function HardcoverApp:_syncScreenWidget()
+  local stack = UIManager._window_stack
+  if type(stack) == "table" then
+    for i = #stack, 1, -1 do
+      local widget = stack[i] and stack[i].widget
+      if widget and not widget.invisible and not widget.toast then return widget end
+    end
+    return nil
+  end
+  if UIManager.getTopmostVisibleWidget then return UIManager:getTopmostVisibleWidget() end
+  return nil
+end
+
 -- The bar is drawn only on the plugin's own screens. A flush can run while a book is open (after a
 -- reconnect, on resume), and there the reading surface gets only the result snackbar: the page, the
 -- book's panel and KOReader's own menus are never covered by a persistent bar. Plugin screens carry
 -- a "hardcover_" name; the reader panel is the reading surface's one plugin window, so it is out too.
-function HardcoverApp:_syncProgressAllowed()
-  local top = UIManager.getTopmostVisibleWidget and UIManager:getTopmostVisibleWidget()
-  if not top then return false end
-  local name = top.name
+function HardcoverApp:_syncScreenIsPlugin(top)
+  local name = top and top.name
   if type(name) ~= "string" or name:sub(1, #"hardcover_") ~= "hardcover_" then return false end
   return name ~= "hardcover_reader_panel"
+end
+
+function HardcoverApp:_syncProgressAllowed()
+  return self:_syncScreenIsPlugin(self:_syncScreenWidget())
+end
+
+-- Keep the bar only while the user stays on a plugin screen: closing the plugin mid-flush must not
+-- leave it over the reading surface. Re-checked on a timer; the syncing state is the flush's own.
+function HardcoverApp:_guardSyncProgress(progress)
+  if not progress or progress.closed then return end
+  if self:_syncProgressAllowed() then
+    UIManager:scheduleIn(1, function() self:_guardSyncProgress(progress) end)
+  else
+    progress:close()
+  end
 end
 
 -- The non-modal bar along the bottom edge while queued changes go out, updated as each entry is
 -- verified and sent and closed before the "Progress synced" / "Sync failed" snackbar. Returns nil
 -- when nothing will be sent (no bar for a flush that has only held changes) or while reading (see
 -- _syncProgressAllowed); the Home sync box's "Syncing…" is set either way, so a screen that is not
--- up yet still finds it right when it opens.
+-- up yet still finds it right when it opens. On the shell it rides above the bottom nav bar.
 function HardcoverApp:_beginSyncProgress(user_id)
   local queues = { self.sync_queue, self.goal_queue, self.rating_queue,
     self.list_queue, self.journal_queue, self.review_queue }
@@ -1264,10 +1294,13 @@ function HardcoverApp:_beginSyncProgress(user_id)
   end
   if total <= 0 then return nil end
   if self.dialog_manager and self.dialog_manager.syncingChanged then self.dialog_manager:syncingChanged(true) end
-  if not self:_syncProgressAllowed() then return nil end
+  local top = self:_syncScreenWidget()
+  if not self:_syncScreenIsPlugin(top) then return nil end
   -- required here, not at the top: it pulls in the theme, which startup keeps out
   local SyncProgress = require("hardcover/lib/ui/components/sync_progress")
-  return SyncProgress.show { total = total }
+  local progress = SyncProgress.show { total = total, above_nav = top.name == "hardcover_shell" }
+  self:_guardSyncProgress(progress)
+  return progress
 end
 
 function HardcoverApp:_endSyncProgress(progress)

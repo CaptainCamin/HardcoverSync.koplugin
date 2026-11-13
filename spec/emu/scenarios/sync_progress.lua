@@ -49,7 +49,7 @@ return {
     manager:syncingChanged(true)
     emu:pump()
     local SyncProgress = require("hardcover/lib/ui/components/sync_progress")
-    local progress = SyncProgress.show { total = pending }
+    local progress = SyncProgress.show { total = pending, above_nav = true }
     emu:pump()
     emu:expectText("Your changes are on their way.")
     emu:expectText("Syncing 0 of 12")

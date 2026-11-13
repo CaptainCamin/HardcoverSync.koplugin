@@ -35,10 +35,19 @@ package.preload["hardcover/lib/ui/components/sync_progress"] = function()
 end
 
 local function set_top(widget)
+  UIManager._window_stack = nil
   UIManager.getTopmostVisibleWidget = function() return widget end
 end
 
+-- widgets bottom-to-top; the last is on top. Exercises the toast-skipping walk.
+local function set_stack(widgets)
+  UIManager._window_stack = {}
+  for i, w in ipairs(widgets) do UIManager._window_stack[i] = { widget = w } end
+  UIManager.getTopmostVisibleWidget = function() return widgets[#widgets] end
+end
+
 local function make_app()
+  for k in pairs(shown) do shown[k] = nil end
   local syncing = {}
   local app = KB.new_app {
     ui = {}, -- the reader / file browser stand-in
@@ -98,7 +107,53 @@ check("a plugin screen on top: the bar shows with the total", function()
   assert(bar ~= nil, "no bar on a plugin screen")
   eq(#shown, 1, "shown")
   eq(shown[1].opts.total, 3, "total")
+  eq(shown[1].opts.above_nav, true, "lifts over the shell's nav")
   eq(syncing[1], true, "syncing started")
+end)
+
+check("a non-shell plugin screen does not lift over a nav", function()
+  local app = make_app()
+  set_top({ name = "hardcover_book_detail" })
+  app:_beginSyncProgress(1)
+  eq(shown[#shown].opts.above_nav, false, "above_nav")
+end)
+
+check("a snackbar over the reader does not start the bar", function()
+  local app, syncing = make_app()
+  set_stack({ { name = "reader" }, { name = "hardcover_overlay", toast = true } })
+  eq(app:_beginSyncProgress(1), nil, "bar")
+  eq(#shown, 0, "shown")
+  eq(syncing[1], true, "syncing started")
+end)
+
+check("a snackbar over Home still shows the bar", function()
+  local app = make_app()
+  set_stack({ { name = "hardcover_shell" }, { name = "hardcover_overlay", toast = true } })
+  local bar = app:_beginSyncProgress(1)
+  assert(bar ~= nil, "no bar under a snackbar on a plugin screen")
+  eq(shown[#shown].opts.above_nav, true, "lifts over the shell's nav")
+end)
+
+check("the guard closes the bar once the plugin is closed mid-flush", function()
+  local app = make_app()
+  set_top({ name = "hardcover_shell" })
+  local bar = app:_beginSyncProgress(1)
+  assert(bar and not bar.closed, "bar not shown")
+  local guard = KB.sched.scheduled[#KB.sched.scheduled]
+  assert(guard, "no guard scheduled")
+  set_top(app.ui) -- the user backed out to the reader
+  guard.fn()
+  eq(bar.closed, true, "bar closed")
+end)
+
+check("the guard keeps the bar while the user stays on a plugin screen", function()
+  local app = make_app()
+  set_top({ name = "hardcover_shell" })
+  local bar = app:_beginSyncProgress(1)
+  local before = #KB.sched.scheduled
+  KB.sched.scheduled[before].fn()
+  eq(bar.closed, false, "bar still open")
+  eq(#KB.sched.scheduled, before + 1, "guard rescheduled")
 end)
 
 check("_endSyncProgress closes the bar and clears the syncing state", function()
