@@ -1239,15 +1239,15 @@ function HardcoverApp:_noticeHeld(kind, held)
 end
 
 -- The bar is drawn only on the plugin's own screens. A flush can run while a book is open (after a
--- reconnect, on resume), and there the reading surface gets only the result snackbar: the page and
--- the book's panel are never covered by a persistent bar. `self.ui` is the reader or file browser
--- itself; the reader panel is the reading surface's one plugin window, so both count as reading.
+-- reconnect, on resume), and there the reading surface gets only the result snackbar: the page, the
+-- book's panel and KOReader's own menus are never covered by a persistent bar. Plugin screens carry
+-- a "hardcover_" name; the reader panel is the reading surface's one plugin window, so it is out too.
 function HardcoverApp:_syncProgressAllowed()
   local top = UIManager.getTopmostVisibleWidget and UIManager:getTopmostVisibleWidget()
   if not top then return false end
-  if top == self.ui then return false end
-  if top.name == "hardcover_reader_panel" then return false end
-  return true
+  local name = top.name
+  if type(name) ~= "string" or name:sub(1, #"hardcover_") ~= "hardcover_" then return false end
+  return name ~= "hardcover_reader_panel"
 end
 
 -- The non-modal bar along the bottom edge while queued changes go out, updated as each entry is
