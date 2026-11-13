@@ -1238,10 +1238,23 @@ function HardcoverApp:_noticeHeld(kind, held)
   self.noticed_held[kind] = held
 end
 
--- The non-modal bar along the bottom edge while queued changes go out. It is shown for the whole
--- flush (which may run after a reconnect, with the reader still reading), updated as each entry is
--- verified and sent, and closed before the "Progress synced" / "Sync failed" snackbar. Returns nil
--- when nothing will be sent, so there is no bar for a flush that has only held changes.
+-- The bar is drawn only on the plugin's own screens. A flush can run while a book is open (after a
+-- reconnect, on resume), and there the reading surface gets only the result snackbar: the page and
+-- the book's panel are never covered by a persistent bar. `self.ui` is the reader or file browser
+-- itself; the reader panel is the reading surface's one plugin window, so both count as reading.
+function HardcoverApp:_syncProgressAllowed()
+  local top = UIManager.getTopmostVisibleWidget and UIManager:getTopmostVisibleWidget()
+  if not top then return false end
+  if top == self.ui then return false end
+  if top.name == "hardcover_reader_panel" then return false end
+  return true
+end
+
+-- The non-modal bar along the bottom edge while queued changes go out, updated as each entry is
+-- verified and sent and closed before the "Progress synced" / "Sync failed" snackbar. Returns nil
+-- when nothing will be sent (no bar for a flush that has only held changes) or while reading (see
+-- _syncProgressAllowed); the Home sync box's "Syncing…" is set either way, so a screen that is not
+-- up yet still finds it right when it opens.
 function HardcoverApp:_beginSyncProgress(user_id)
   local queues = { self.sync_queue, self.goal_queue, self.rating_queue,
     self.list_queue, self.journal_queue, self.review_queue }
@@ -1250,11 +1263,11 @@ function HardcoverApp:_beginSyncProgress(user_id)
     if queue and queue.flushableCount then total = total + queue:flushableCount(user_id) end
   end
   if total <= 0 then return nil end
+  if self.dialog_manager and self.dialog_manager.syncingChanged then self.dialog_manager:syncingChanged(true) end
+  if not self:_syncProgressAllowed() then return nil end
   -- required here, not at the top: it pulls in the theme, which startup keeps out
   local SyncProgress = require("hardcover/lib/ui/components/sync_progress")
-  local progress = SyncProgress.show { total = total }
-  if self.dialog_manager and self.dialog_manager.syncingChanged then self.dialog_manager:syncingChanged(true) end
-  return progress
+  return SyncProgress.show { total = total }
 end
 
 function HardcoverApp:_endSyncProgress(progress)
