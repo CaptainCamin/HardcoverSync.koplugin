@@ -85,7 +85,11 @@ function ReviewQueue:flush(api, opts)
     for _, key in ipairs(keys) do
       local op = ops[key]
       if op and not op.held and OfflineQueue.bookOpForUser(op, opts.user_id) then
+        if not op.user_book_id then
+          OfflineQueue.report(opts, { phase = "verify", title = op.title, kind = "review" })
+        end
         local id, err = self:resolveUserBook(api, op, opts.user_id)
+        OfflineQueue.report(opts, { phase = "send", title = op.title, kind = "review" })
         local user_book
         if id and ops[key] == op then user_book, err = api:updateReview(id, op.text, op.spoilers == true, opts.json, op.at) end
         if user_book then
@@ -102,6 +106,15 @@ function ReviewQueue:flush(api, opts)
     end
     return #self:list(opts.user_id)
   end)
+end
+
+-- the entries a flush would send (valid, not held, this user's)
+function ReviewQueue:flushableCount(user_id)
+  local n = 0
+  for _, op in pairs(self:ops()) do
+    if valid(op) and not self:isHeld(op) and OfflineQueue.bookOpForUser(op, user_id) then n = n + 1 end
+  end
+  return n
 end
 
 -- Let held reviews try again (pressing Sync).

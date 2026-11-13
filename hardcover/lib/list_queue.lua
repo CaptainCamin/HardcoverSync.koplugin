@@ -148,21 +148,25 @@ function ListQueue:flush(api, opts)
   return self:withFlushLock(busy, function() return self:_flush(api, opts) end)
 end
 
--- One op's request. Returns result (truthy when done), err.
-local function send(api, op)
+-- One op's request. Returns result (truthy when done), err. `report(phase)` tells the flush's
+-- listener where the op is: "verify" before its lookup of the book's lists, "send" before the change.
+local function send(api, op, report)
   if op.kind == "add" then
+    report("send")
     return api:addToList(op.book_id, op.list_id, op.position)
   end
   local list_book_id = op.list_book_id
   if not list_book_id then
+    report("verify")
     local fresh, err = api:getBookLists(op.book_id)
     if not fresh then return nil, err end
     local outcome, found = Lists.resolveLookup(fresh, op.list_id)
     -- off it already, or the list is gone: nothing left to take off
-    if outcome == "already_off" or outcome == "not_found" then return { id = false } end
+    if outcome == "already_off" or outcome == "not_found" then report("send") return { id = false } end
     if outcome ~= "remove" then return nil, "Hardcover did not say which row to remove" end
     list_book_id = found
   end
+  report("send")
   return api:removeFromList(list_book_id)
 end
 
@@ -187,7 +191,9 @@ function ListQueue:_flush(api, opts)
     local op = ops[key]
     if op and not op.held then
       self.sending_op = op
-      local ok, result, err = pcall(send, api, op)
+      local ok, result, err = pcall(send, api, op, function(phase)
+        OfflineQueue.report(opts, { phase = phase, title = op.title, kind = "list" })
+      end)
       self.sending_op = nil
       if not ok then result, err = nil, nil end
 

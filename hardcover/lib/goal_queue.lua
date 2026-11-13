@@ -204,6 +204,7 @@ function GoalQueue:_flush(api, opts)
   for _, op in ipairs(snapshot) do
     -- a change cancelled or replaced while an earlier request was out is no longer in the queue
     if valid(op) and not op.held and self:find(op.key) == op then
+      OfflineQueue.report(opts, { phase = "send", title = op.form and op.form.name, kind = "goal" })
       local ok, result, err = pcall(function()
         if op.kind == "archive" then
           local goal = {}

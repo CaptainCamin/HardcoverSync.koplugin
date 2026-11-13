@@ -1141,7 +1141,7 @@ end
 
 -- Send the goal changes made offline. Returns false when something is still
 -- waiting for another try (nothing is lost; held ones wait for the user).
-function HardcoverApp:_flushGoals()
+function HardcoverApp:_flushGoals(on_progress)
   local queue = self.goal_queue
   if not queue or queue:isEmpty() then
     return true
@@ -1152,6 +1152,7 @@ function HardcoverApp:_flushGoals()
     user_id = User:getId(),
     on_saved = function(key, goal) sent[#sent + 1] = { key = key, goal = goal } end,
     on_archived = function(key) archived[#archived + 1] = key end,
+    on_progress = on_progress,
   })
   self.dialog_manager:goalsFlushed(sent, archived)
 
@@ -1163,7 +1164,7 @@ function HardcoverApp:_flushGoals()
 end
 
 -- Send the ratings set offline. Returns false while any is still waiting.
-function HardcoverApp:_flushRatings()
+function HardcoverApp:_flushRatings(on_progress)
   local queue = self.rating_queue
   if not queue or queue:isEmpty() then
     return true
@@ -1176,13 +1177,13 @@ function HardcoverApp:_flushRatings()
       status.rating = user_book.rating
     end
     self.dialog_manager:ratingSent(user_book_id, user_book)
-  end, User:getId())
+  end, User:getId(), on_progress)
   -- (held ones wait for the user, as shelf and list changes do)
   return waiting <= queue:heldCount(User:getId())
 end
 
 -- Send the list changes made offline (as _flushReviews).
-function HardcoverApp:_flushLists()
+function HardcoverApp:_flushLists(on_progress)
   local queue = self.list_queue
   if not queue or queue:isEmpty() then
     return true
@@ -1190,30 +1191,33 @@ function HardcoverApp:_flushLists()
   local result = queue:flush(Api, {
     user_id = User:getId(),
     on_sent = function(op, answer) self.dialog_manager:listChangeSent(op, answer) end,
+    on_progress = on_progress,
   })
   self:_noticeHeld("list", result.held)
   return not result.stopped and result.waiting == result.held
 end
 
 -- Send the notes and quotes written offline (as _flushLists).
-function HardcoverApp:_flushJournals()
+function HardcoverApp:_flushJournals(on_progress)
   local queue = self.journal_queue
   if not queue or queue:isEmpty() then
     return true
   end
   local result = queue:flush(Api, { user_id = User:getId(), json = json,
-    on_sent = function(op, entry) self.dialog_manager:journalChangeSent(op, entry) end })
+    on_sent = function(op, entry) self.dialog_manager:journalChangeSent(op, entry) end,
+    on_progress = on_progress })
   self:_noticeHeld("journal", result.held)
   return not result.stopped and result.waiting == result.held
 end
 
 -- Send reviews after shelf changes, resolving the library record for a newly added book.
-function HardcoverApp:_flushReviews()
+function HardcoverApp:_flushReviews(on_progress)
   local queue = self.review_queue
   if not queue or queue:isEmpty() then
     return true
   end
   local waiting = queue:flush(Api, { json = json, user_id = User:getId(),
+    on_progress = on_progress,
     on_sent = function(user_book_id, user_book, book_id)
       local has = type(user_book) == "table" and user_book.has_review ~= false
       self.dialog_manager:reviewChangeSent(user_book_id, has and user_book.review_raw or nil,
@@ -1232,6 +1236,30 @@ function HardcoverApp:_noticeHeld(kind, held)
       or _("A shelf or list change could not be sent. Sync shows which."), 5)
   end
   self.noticed_held[kind] = held
+end
+
+-- The non-modal bar along the bottom edge while queued changes go out. It is shown for the whole
+-- flush (which may run after a reconnect, with the reader still reading), updated as each entry is
+-- verified and sent, and closed before the "Progress synced" / "Sync failed" snackbar. Returns nil
+-- when nothing will be sent, so there is no bar for a flush that has only held changes.
+function HardcoverApp:_beginSyncProgress(user_id)
+  local queues = { self.sync_queue, self.goal_queue, self.rating_queue,
+    self.list_queue, self.journal_queue, self.review_queue }
+  local total = 0
+  for _, queue in ipairs(queues) do
+    if queue and queue.flushableCount then total = total + queue:flushableCount(user_id) end
+  end
+  if total <= 0 then return nil end
+  -- required here, not at the top: it pulls in the theme, which startup keeps out
+  local SyncProgress = require("hardcover/lib/ui/components/sync_progress")
+  local progress = SyncProgress.show { total = total }
+  if self.dialog_manager and self.dialog_manager.syncingChanged then self.dialog_manager:syncingChanged(true) end
+  return progress
+end
+
+function HardcoverApp:_endSyncProgress(progress)
+  if progress then progress:close() end
+  if self.dialog_manager and self.dialog_manager.syncingChanged then self.dialog_manager:syncingChanged(false) end
 end
 
 function HardcoverApp:flushSyncQueue(use_wifi, callback)
@@ -1259,6 +1287,10 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
       return
     end
     self.flush_running = true
+    local progress = self:_beginSyncProgress(User:getId())
+    local on_progress = function(event)
+      if progress then progress:update(event) end
+    end
     Trapper:wrap(function()
       local flushed, success = pcall(function()
         local success = self.sync_queue:flush(Api, {
@@ -1267,6 +1299,7 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
           on_status_sent = function(op, user_book) self.dialog_manager:shelfSent(op, user_book) end,
           current_file = self.ui.document and self.ui.document.file,
           state = self.state,
+          on_progress = on_progress,
         })
         -- a change Hardcover refused is held in the progress queue: say so (a page that waits for the
         -- reader's answer is not one)
@@ -1275,15 +1308,17 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
         end
         -- an empty progress queue flushes to true; a queue with nothing to send for
         -- want of a user id says false, which must not hide the goals
-        success = self:_flushGoals() and success
+        success = self:_flushGoals(on_progress) and success
         -- Create/update library records before reviews and ratings look them up.
-        success = self:_flushLists() and success
-        success = self:_flushJournals() and success
-        success = self:_flushReviews() and success
-        success = self:_flushRatings() and success
+        success = self:_flushLists(on_progress) and success
+        success = self:_flushJournals(on_progress) and success
+        success = self:_flushReviews(on_progress) and success
+        success = self:_flushRatings(on_progress) and success
 
         return success
       end)
+      -- close the bar before the result snackbar, and even if the flush raised
+      self:_endSyncProgress(progress)
       self.flush_running = false -- also after a raise: it must not block every later flush
       if not flushed then error(success, 0) end
 

@@ -826,6 +826,13 @@ end
 -- caller can tell an outage from a refusal.
 -- The record flush fetched for this book before the loop, used once: a later
 -- entry for the same book must see what this one sent, so it asks again.
+-- Tell the flush's listener where this entry is: "verify" before its lookup against Hardcover (the
+-- slow part), "send" before its changes go out. `kind" is a plain word the listener translates.
+local function report(opts, phase, entry)
+  OfflineQueue.report(opts, { phase = phase, title = entry.title,
+    kind = entry.mapped_page ~= nil and "page" or "status" })
+end
+
 local function findUserBook(api, book_id, opts, prefetched)
   local key = tostring(book_id)
   local record = prefetched and prefetched[key]
@@ -850,10 +857,12 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
   if entry.remove then
     local id = entry.user_book_id
     if not id then
+      report(opts, "verify", entry)
       local found, lookup_err = findUserBook(api, book_id, opts, prefetched)
       if lookup_err ~= nil then return false, "transient" end
       id = found and found.id -- not in the library: nothing to remove
     end
+    report(opts, "send", entry)
     local removed, err = true, nil
     if id then removed, err = api:removeUserBook(id) end
     if not removed then return failed(self, filepath, err) end
@@ -870,10 +879,12 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
 
   -- A failed lookup looks like an empty one; an error means we do not know, so
   -- send nothing rather than create a user book over a real one.
+  report(opts, "verify", entry)
   local user_book, lookup_err = findUserBook(api, book_id, opts, prefetched)
   if lookup_err ~= nil then
     return false, "transient"
   end
+  report(opts, "send", entry)
 
   local ops = {}
   for _, action in ipairs(Actions.list(entry)) do ops[#ops + 1] = action end

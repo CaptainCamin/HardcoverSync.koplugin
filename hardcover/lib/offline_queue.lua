@@ -122,6 +122,35 @@ function OfflineQueue:resolveUserBook(api, op, user_id)
   return book.id
 end
 
+-- Tell the flush's progress listener about one entry. The listener is a UI callback, so a mistake
+-- in it must not turn into a flush failure: it is swallowed here (the sync goes on regardless).
+-- `event`: { phase = "verify" | "send", title = string|nil, kind = string|nil }. "verify" is the
+-- entry's lookup against Hardcover (the slow part), "send" the changes themselves.
+function OfflineQueue.report(opts, event)
+  local on_progress = opts and opts.on_progress
+  if on_progress then pcall(on_progress, event) end
+end
+
+--
+-- How many entries a flush will attempt, so a progress line can say "N of M". Only what the flush
+-- would actually send counts: well formed, not held, and this user's.
+--
+function OfflineQueue:flushableCount(user_id)
+  local n = 0
+  for _, entry in self.iterate(self:store()) do
+    if self:valid(entry) and not self:isHeld(entry) and self:flushOwnedBy(entry, user_id) then
+      n = n + 1
+    end
+  end
+  return n
+end
+
+-- A queue says which account an entry belongs to by defining this; the default keeps everything
+-- (the sync flush always passes the signed-in user, and each queue narrows it itself).
+function OfflineQueue:flushOwnedBy(entry, user_id)
+  return entry.user_id == nil or tostring(entry.user_id) == tostring(user_id)
+end
+
 function OfflineQueue:isHeld(entry)
   return type(entry) == "table" and entry.held and true or false
 end
