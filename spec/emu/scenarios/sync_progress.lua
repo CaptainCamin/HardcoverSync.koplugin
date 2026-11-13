@@ -73,6 +73,8 @@ return {
     progress:close()
     manager:syncingChanged(false)
     emu:pump()
+    emu:expectText("12 changes waiting")
+    assert(UIManager:getTopmostVisibleWidget() == shell, "Home did not stay on top")
 
     emu:closeAll()
     emu:pump()
