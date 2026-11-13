@@ -153,6 +153,21 @@ check("the edition picker puts the user's shelf edition ahead of a popular editi
     "the user's edition was not first")
 end)
 
+check("findEditions fails cleanly when the reads answer has no user_books list", function()
+  local saved = Api.query
+  Api.query = function(_, text)
+    if text:find("query ($ids:", 1, true) then return {} end
+    return { editions = {
+      { id = 11, reading_format_id = 4, users_count = 900, title = "Popular", book = { id = 7 } },
+      { id = 22, reading_format_id = 4, users_count = 2, title = "My edition", book = { id = 7 } },
+    } }
+  end
+  local ok, editions = pcall(Api.findEditions, Api, 7, 1)
+  Api.query = saved
+  assert(ok, editions)
+  assert(editions == nil, "a malformed reads answer must fail the lookup, not crash it")
+end)
+
 print("\n== a file with both ISBNs ==")
 
 check("the ISBN-10 is tried when the ISBN-13 finds nothing", function()

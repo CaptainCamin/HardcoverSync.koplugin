@@ -318,7 +318,7 @@ function HardcoverApi:findEditions(book_id, user_id)
     ]]
 
     local read_editions = self:query(read_search, { ids = edition_ids, userId = user_id })
-    if not read_editions then
+    if not read_editions or type(read_editions.user_books) ~= "table" then
       return nil
     end
     local read_index = {}
