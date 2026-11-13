@@ -71,9 +71,12 @@ end
 -- rest go on; the third refusal in a row holds it until the user presses Sync (retryHeld).
 -- `on_sent(user_book_id, user_book)` is called for each one that went through. Returns
 -- the number still waiting (held ones included).
-function RatingQueue:flush(api, on_sent, user_id)
+function RatingQueue:flush(api, on_sent, user_id, on_progress)
   -- a second flush while one is out waits for the first (each rating is sent once)
   return self:withFlushLock(function() return #self:list(user_id) end, function()
+    local report = function(event)
+      if on_progress then pcall(on_progress, event) end
+    end
     local ops = self:ops()
     local keys = {}
     for key, op in pairs(ops) do
@@ -84,7 +87,11 @@ function RatingQueue:flush(api, on_sent, user_id)
     for _, key in ipairs(keys) do
       local op = ops[key]
       if op and not op.held and OfflineQueue.bookOpForUser(op, user_id) then
+        if not op.user_book_id then
+          report({ phase = "verify", title = op.title, kind = "rating" })
+        end
         local id, err = self:resolveUserBook(api, op, user_id)
+        report({ phase = "send", title = op.title, kind = "rating" })
         local user_book
         if id and ops[key] == op then user_book, err = api:updateRating(id, tonumber(op.rating), op.at) end
         if user_book then
@@ -101,6 +108,15 @@ function RatingQueue:flush(api, on_sent, user_id)
     end
     return #self:list(user_id)
   end)
+end
+
+-- the entries a flush would send (valid, not held, this user's)
+function RatingQueue:flushableCount(user_id)
+  local n = 0
+  for _, op in pairs(self:ops()) do
+    if valid(op) and not self:isHeld(op) and OfflineQueue.bookOpForUser(op, user_id) then n = n + 1 end
+  end
+  return n
 end
 
 -- Let held ratings try again (pressing Sync).

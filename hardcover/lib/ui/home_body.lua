@@ -44,6 +44,7 @@ local HomeBody = InputContainer:extend {
   select_cb = nil,    -- called with a shelf's row when it is tapped
   open_book_cb = nil, -- called with the book id when Open book is tapped
   pending_fn = nil, -- returns how many changes are waiting to sync
+  syncing_fn = nil, -- returns true while a sync is running
   sync_cb = nil,    -- Sync now
   pending_cb = nil, -- a tap on the sync box: what is waiting
   empty_message = nil, -- why Currently Reading is empty before its first successful load
@@ -126,9 +127,14 @@ end
 -- and are built at the taller one's height so switching between them moves nothing below.
 function HomeBody:syncNote(width)
   local waiting = self.pending_fn and self.pending_fn() or 0
+  local syncing = self.syncing_fn and self.syncing_fn() or false
   local action = { label = _("Sync now"), callback = function() if self.sync_cb then self.sync_cb() end end }
   local on_tap = function() if self.pending_cb then self.pending_cb() end end
-  local function make(count, h)
+  local function make(count, h, is_syncing)
+    if is_syncing then
+      return Note.new { width = width, h = h, dotted = true, icon_name = "sync", action = action, on_tap = on_tap,
+        title = _("Syncing\u{2026}"), text = _("Your changes are on their way.") }
+    end
     if count > 0 then
       return Note.new { width = width, h = h, dotted = true, icon_name = "sync", action = action, on_tap = on_tap,
         title = count == 1 and _("1 change waiting") or string.format(_("%d changes waiting"), count),
@@ -137,10 +143,13 @@ function HomeBody:syncNote(width)
     return Note.new { width = width, h = h, dotted = true, icon_name = "check", action = action, on_tap = on_tap,
       title = _("All synced"), text = _("Nothing is waiting to send.") }
   end
+  -- all three states are built at the tallest one's height so switching between them moves nothing below
   local probe = make(waiting > 0 and 0 or 1)
-  local h = math.max(probe:getSize().h, make(waiting):getSize().h)
+  local sync_probe = make(0, nil, true)
+  local h = math.max(probe:getSize().h, make(waiting):getSize().h, sync_probe:getSize().h)
   probe:free()
-  return make(waiting, h)
+  sync_probe:free()
+  return make(waiting, h, syncing)
 end
 
 -- One shelf as a list row: its name, how many books, a chevron.

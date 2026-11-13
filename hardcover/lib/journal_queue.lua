@@ -218,6 +218,8 @@ function JournalQueue:flush(api, opts)
         local entry, err
         local sent_text = op.text
         self.sending_op = op
+        OfflineQueue.report(opts, { phase = "send", title = op.title,
+          kind = op.event == "note" and "note" or "quote" })
         if op.action == "update" then
           entry, err = api:updateJournalEntry(op.journal_id, op.text)
         elseif op.action == "delete" then

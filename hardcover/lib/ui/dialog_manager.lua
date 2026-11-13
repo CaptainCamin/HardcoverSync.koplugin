@@ -572,6 +572,13 @@ function DialogManager:queueChanged()
   if home and home.rebuild then home:rebuild() end
 end
 
+-- A sync started or finished: Home's box says "Syncing…" while it runs.
+function DialogManager:syncingChanged(running)
+  self.syncing = running and true or false
+  local home = self:screens():open("home")
+  if home and home.rebuild then home:rebuild() end
+end
+
 -- The one way a plugin screen goes up. A full-screen screen shown with no refresh mode is
 -- drawn by a partial refresh over whatever was beneath, which ghosts on e-ink, so it is shown
 -- with a flashing "full" one here instead of every caller having to remember. A screen
@@ -639,6 +646,7 @@ function DialogManager:showHomeBody(host)
         + (self.journal_queue and self.journal_queue:count() or 0)
         + (self.review_queue and self.review_queue:count() or 0)
     end,
+    syncing_fn = function() return self.syncing == true end,
     -- the sync box's Sync now sends; tapping the rest of the box opens what is waiting
     sync_cb = function() self:syncNow() end,
     pending_cb = function() self:showPendingChanges() end,
