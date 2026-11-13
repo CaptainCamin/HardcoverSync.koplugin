@@ -14,11 +14,18 @@ return {
     fixtures.install({ settings = fixtures.real_settings(emu) })
     local Theme = require("hardcover/lib/ui/theme")
     local FrameContainer = require("ui/widget/container/framecontainer")
+    local TextBoxWidget = require("ui/widget/textboxwidget")
+    local VerticalGroup = require("ui/widget/verticalgroup")
     local SyncProgress = require("hardcover/lib/ui/components/sync_progress")
 
     local SW, SH = Device.screen:getWidth(), Device.screen:getHeight()
+    -- a page for the bar to sit over
+    local face = Theme.mmdFace("text", 18)
     local page = FrameContainer:new { width = SW, height = SH, background = Theme.WHITE,
-      bordersize = 0, padding = 0, margin = 0 }
+      bordersize = 0, padding = 0, margin = 0,
+      VerticalGroup:new { align = "left",
+        TextBoxWidget:new { text = "Still reading", face = face, width = SW, height = SH,
+          fgcolor = Theme.BLACK } } }
     UIManager:show(page)
     emu:pump()
 

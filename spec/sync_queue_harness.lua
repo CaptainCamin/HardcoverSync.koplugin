@@ -386,11 +386,13 @@ check("a flush reports verify then send for each entry, with its title and kind"
   q:enqueueStatus("/books/b.epub", { status_id = HARDCOVER.STATUS.FINISHED, book_id = 8, title = "Neverending Story" })
   local events = {}
   eq(q:flush(fakeApi(), { user_id = 1, on_progress = function(e) events[#events + 1] = e end }), true, "flush result")
-  eq(#events, 4, "one verify and one send per entry")
-  eq(events[1].phase, "verify"); eq(events[1].title, "Dune"); eq(events[1].kind, "page")
-  eq(events[2].phase, "send"); eq(events[2].title, "Dune"); eq(events[2].kind, "page")
-  eq(events[3].phase, "verify"); eq(events[3].title, "Neverending Story"); eq(events[3].kind, "status")
-  eq(events[4].phase, "send"); eq(events[4].title, "Neverending Story"); eq(events[4].kind, "status")
+  -- a generic verify for the batch lookup, then verify+send per entry
+  eq(#events, 5, "the batch verify plus one verify and one send per entry")
+  eq(events[1].phase, "verify"); eq(events[1].title, nil)
+  eq(events[2].phase, "verify"); eq(events[2].title, "Dune"); eq(events[2].kind, "page")
+  eq(events[3].phase, "send"); eq(events[3].title, "Dune"); eq(events[3].kind, "page")
+  eq(events[4].phase, "verify"); eq(events[4].title, "Neverending Story"); eq(events[4].kind, "status")
+  eq(events[5].phase, "send"); eq(events[5].title, "Neverending Story"); eq(events[5].kind, "status")
 end)
 
 check("flushableCount counts the entries a flush would send", function()

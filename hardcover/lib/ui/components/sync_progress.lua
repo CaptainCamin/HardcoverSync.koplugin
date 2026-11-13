@@ -27,8 +27,6 @@ local Overlay = require("hardcover/lib/ui/components/overlay")
 local ProgressBar = require("hardcover/lib/ui/components/progress_bar")
 local Theme = require("hardcover/lib/ui/theme")
 
-local px = Theme.px
-
 local SyncProgress = {}
 SyncProgress.__index = SyncProgress
 
@@ -72,9 +70,9 @@ end
 function SyncProgress:_show()
   local old = self.overlay
   local sw = Device.screen:getWidth()
-  local side = Theme.px(16)
+  local side = Theme.space.m
   local w = sw - 2 * side
-  local face, bold = Theme.mmdFace("strong", 21)
+  local face, bold = Theme.mmdFace("strong", Theme.type.title)
   -- one fixed-height row of text, clipped with an ellipsis, so an update never reflows the bar
   local line_h = math.ceil(face.size * 1.3)
   local text = TextBoxWidget:new {
@@ -83,15 +81,14 @@ function SyncProgress:_show()
     fgcolor = Theme.BLACK,
   }
   local bar = ProgressBar.new { width = w, fraction = self:_fraction() }
-  local pad = px(10)
   -- the text and the bar share the same side inset, so they line up
   local body = FrameContainer:new { width = sw, bordersize = 0, padding = 0, margin = 0,
     background = Theme.WHITE,
-    VerticalGroup:new { align = "left", Overlay.top_rule(sw), Theme.span(pad),
-      HorizontalGroup:new { Theme.hspan(side), text, Theme.hspan(side) },
-      Theme.span(px(6)),
-      HorizontalGroup:new { Theme.hspan(side), bar, Theme.hspan(side) },
-      Theme.span(pad) } }
+    VerticalGroup:new { align = "left", Overlay.top_rule(sw), Theme.span("s"),
+      HorizontalGroup:new { Theme.hspan("m"), text, Theme.hspan("m") },
+      Theme.span("xs"),
+      HorizontalGroup:new { Theme.hspan("m"), bar, Theme.hspan("m") },
+      Theme.span("s") } }
 
   local overlay = Overlay:new { anchor = "bottom", toast = true, body }
   overlay:show()

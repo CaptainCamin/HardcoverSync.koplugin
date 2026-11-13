@@ -1163,6 +1163,8 @@ function SyncQueue:flush(api, opts)
   return self:withFlushLock(false, function()
     local all_sent = true
     local consecutive_failures = 0
+    -- the batch lookup below is the slow part for several books; show it before the per-entry events
+    OfflineQueue.report(opts, { phase = "verify" })
     local prefetched = self:_prefetchUserBooks(api, paths, opts.user_id)
 
     for _, filepath in ipairs(paths) do

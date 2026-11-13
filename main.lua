@@ -1287,12 +1287,14 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
       return
     end
     self.flush_running = true
-    local progress = self:_beginSyncProgress(User:getId())
-    local on_progress = function(event)
-      if progress then progress:update(event) end
-    end
     Trapper:wrap(function()
+      -- the bar and its listener live inside the trap, so a raise here cannot leave flush_running set
+      local progress
+      local on_progress = function(event)
+        if progress then progress:update(event) end
+      end
       local flushed, success = pcall(function()
+        progress = self:_beginSyncProgress(User:getId())
         local success = self.sync_queue:flush(Api, {
           user_id = User:getId(),
           settings = self.settings,
