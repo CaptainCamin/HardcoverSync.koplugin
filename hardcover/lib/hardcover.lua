@@ -10,6 +10,7 @@ local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
 local Book = require("hardcover/lib/book")
+local ReadHistory = require("hardcover/lib/read_history")
 local User = require("hardcover/lib/user")
 
 local SETTING = require("hardcover/lib/constants/settings")
@@ -154,20 +155,12 @@ function Hardcover:linkBook(book)
   return true
 end
 
--- A position in a book is a share of its pages, so the same place in another edition is the
--- same share of that edition's pages: page 120 of 300 is page 160 of 400.
-local function movedPage(page, old_pages, new_pages)
-  if not (page and old_pages and new_pages and old_pages > 0 and new_pages > 0) then
-    return page
-  end
-  return math.min(math.max(1, math.floor(page * new_pages / old_pages + 0.5)), new_pages)
-end
-
 -- Moves the book to another edition. A shelved book is moved on Hardcover first: the edition is on
 -- the shelf entry and on the current read, and the read's progress is in the old edition's pages,
--- so the read moves first, with its progress. Returns false, having changed nothing on this device,
--- when Hardcover does not answer; trying again is then safe, because it works from what was saved.
--- linkBook blocks this operation while changes in the old edition are pending.
+-- so the read moves first, with its progress (converted by ReadHistory.convertPage, the one rule
+-- the read editor uses too). Returns false, having changed nothing on this device, when Hardcover
+-- does not answer; trying again is then safe, because it works from what was saved. linkBook
+-- blocks this operation while changes in the old edition are pending.
 function Hardcover:moveEdition(filename, book, edition_id, old_pages)
   local status = self.state.book_status
   if status.id then
@@ -177,7 +170,7 @@ function Hardcover:moveEdition(filename, book, edition_id, old_pages)
     local moved_read
     if read and read.id then
       -- updatePage answers with the library record, which holds the moved read
-      local moved = Api:updatePage(read.id, edition_id, movedPage(read.progress_pages, old_pages, book.pages), read.started_at)
+      local moved = Api:updatePage(read.id, edition_id, ReadHistory.convertPage(read.progress_pages, old_pages, book.pages), read.started_at)
       moved_read = moved and moved.user_book_reads and moved.user_book_reads[1]
       if not (moved_read and moved_read.id) then
         return false

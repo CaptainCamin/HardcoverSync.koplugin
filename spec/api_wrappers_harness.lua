@@ -322,14 +322,115 @@ check("a date correction targets one read without sending stale progress or edit
   Api.query = function() return nil, { status = 503 } end
   local failed, err = Api:updateReadDates(7, { finished_at = "2026-10-25" })
   Api.query = original
-  assert(seen.query:find("object: $dates", 1, true) and seen.vars.id == 7)
+  assert(seen.query:find("object: $fields", 1, true) and seen.vars.id == 7)
   local fields = 0
-  for field in pairs(seen.vars.dates) do
+  for field in pairs(seen.vars.fields) do
     fields = fields + 1
     assert(field == "started_at", "a date correction resent " .. field)
   end
   assert(fields == 1 and result.user_book_reads[1].progress_pages == 89, "newer progress must be preserved")
   assert(failed == nil and err.status == 503, "a date failure must remain retryable")
+end)
+
+check("updateRead sends exactly the fields it was given, a clear included", function()
+  local original = Api.query
+  local json = require("json")
+  local original_util = json.util
+  local null = {}
+  json.util = { null = null }
+  local seen
+  Api.query = function(_, query, vars)
+    seen = { query = query, vars = vars }
+    return { update_user_book_read = { user_book_read = { id = 7, started_at = "2026-10-01",
+      finished_at = nil, finished_at_precision = 2, edition_id = 3, progress_pages = 89,
+      user_book = { id = 91, status_id = 2 } } } }
+  end
+  local result = Api:updateRead(7, { finished_at = null, finished_at_precision = 2 })
+  Api.query = original
+  json.util = original_util
+  assert(seen.query:find("object: $fields", 1, true) and seen.vars.id == 7)
+  assert(seen.vars.fields.finished_at == null and seen.vars.fields.finished_at_precision == 2)
+  local fields = 0
+  for _ in pairs(seen.vars.fields) do fields = fields + 1 end
+  assert(fields == 2, "a broad payload would reset progress set on another device")
+  assert(result.user_book_reads[1].progress_pages == 89, "the read's progress must come back")
+end)
+
+check("addRead inserts one read on the library record, and says why it failed", function()
+  local original = Api.query
+  local seen
+  Api.query = function(_, query, vars)
+    seen = { query = query, vars = vars }
+    return { insert_user_book_read = { id = 77, user_book_read = { id = 77,
+      started_at = "2019-03-01", finished_at = "2019-03-31", finished_at_precision = 2,
+      edition_id = 3, progress_pages = 300, user_book = { id = 91, status_id = 3 } } } }
+  end
+  local result = Api:addRead(91, { started_at = "2019-03-01", finished_at = "2019-03-31",
+    finished_at_precision = 2 })
+  Api.query = function() return { insert_user_book_read = { error = "not allowed" } } end
+  local refused, reason = Api:addRead(91, { started_at = "2019-03-01" })
+  Api.query = original
+  assert(seen.query:find("insert_user_book_read", 1, true) and seen.vars.id == 91)
+  assert(seen.vars.read.finished_at_precision == 2 and seen.vars.read.started_at == "2019-03-01")
+  local fields = 0
+  for _ in pairs(seen.vars.read) do fields = fields + 1 end
+  assert(fields == 3, "only the fields the form set")
+  assert(result and result.user_book_reads[1].id == 77, "the new read comes back with its id")
+  assert(refused == nil and reason == "not allowed")
+end)
+
+check("deleteRead removes one read, never the whole library record", function()
+  local original = Api.query
+  local original_remove = Api.removeRead
+  local removed = 0
+  Api.removeRead = function() removed = removed + 1 end
+  local seen_query, seen
+  Api.query = function(_, query, vars)
+    seen_query, seen = query, vars
+    return { delete_user_book_read = { id = 77 } }
+  end
+  local deleted = Api:deleteRead(77)
+  assert(deleted and deleted.id == 77)
+  assert(seen_query:find("delete_user_book_read", 1, true) and seen.id == 77)
+  assert(not seen_query:find("delete_user_book(", 1, true), "the whole library record must not be deleted")
+  Api.query = function() return { delete_user_book_read = { error = "not yours" } } end
+  local refused, reason = Api:deleteRead(77)
+  Api.query = function() return nil, { status = 503 } end
+  local failed, err = Api:deleteRead(77)
+  Api.query = original
+  Api.removeRead = original_remove
+  assert(removed == 0, "removeRead deletes the library record and must never be used for a read")
+  assert(refused == nil and reason == "not yours")
+  assert(failed == nil and err.status == 503, "an outage must remain retryable")
+end)
+
+check("getBookDetail brings the book's reads in Hardcover's order, and nil off the shelf", function()
+  local original = Api.query
+  local seen_query
+  Api.query = function(_, query)
+    seen_query = query
+    return { books = { { book_id = 7, title = "Dune", user_books = { { id = 91, status_id = 2,
+      user_book_reads = {
+        { id = 10, started_at = "2019-03-01", finished_at = "2019-03-31", finished_at_precision = 2,
+          progress_pages = 300, edition_id = 3,
+          edition = { id = 3, pages = 304, edition_format = "Paperback", reading_format_id = 1 } },
+        { id = 11, started_at = "2026-11-03", progress_pages = 40, edition_id = 3,
+          edition = { id = 3, pages = 304, edition_format = "Paperback", reading_format_id = 1 } },
+      } } } } } }
+  end
+  local detail = Api:getBookDetail(7, 1)
+  assert(seen_query:find("user_book_reads(order_by: {id: asc})", 1, true))
+  assert(seen_query:find("finished_at_precision", 1, true) and seen_query:find("audio_seconds", 1, true),
+    "the query must ask for precision and the edition's own fields")
+  assert(detail.reads and #detail.reads == 2, "reads missing from the detail")
+  assert(detail.reads[1].id == 10 and detail.reads[2].id == 11, "Hardcover's order was changed")
+  assert(detail.reads[1].finished_at_precision == 2)
+  assert(detail.reads[1].edition.pages == 304 and detail.reads[1].edition.edition_format == "Paperback")
+
+  Api.query = function() return { books = { { book_id = 8, title = "Not shelved" } } } end
+  local unshelved = Api:getBookDetail(8, 1)
+  Api.query = original
+  assert(unshelved.reads == nil, "a book not on a shelf has no history, not an empty one")
 end)
 
 r.finish()

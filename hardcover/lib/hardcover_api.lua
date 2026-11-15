@@ -122,6 +122,7 @@ fragment UserBookParts on user_books {
     id
     started_at
     finished_at
+    finished_at_precision
     progress_pages
     edition_id
   }
@@ -767,6 +768,21 @@ local BOOK_DETAIL_FIELDS = [[
     rating
     review_raw
     review_has_spoilers
+    user_book_reads(order_by: {id: asc}) {
+      id
+      started_at
+      finished_at
+      finished_at_precision
+      progress_pages
+      edition_id
+      edition {
+        id
+        pages
+        edition_format
+        reading_format_id
+        audio_seconds
+      }
+    }
   }
 ]]
 
@@ -818,6 +834,9 @@ local function overlayEdition(edition)
 end
 
 -- What getBookDetail answers for a book row: the book, and your status and rating on it.
+-- `reads` is the book's whole reading history, oldest first, or nil when the book is not on one
+-- of your shelves. It is not part of `book`, so BookStore:saveDetail (which keeps the book alone
+-- and drops its user data) cannot save a stale history by accident.
 local function detailOf(row)
   local user_book = _t.dig(row, "user_books", 1)
   return {
@@ -828,6 +847,7 @@ local function detailOf(row)
     user_review = user_book and user_book.review_raw,
     review_spoilers = user_book and user_book.review_has_spoilers,
     review_known = true, -- the review above is Hardcover's own answer, not a saved copy that left it out
+    reads = user_book and (user_book.user_book_reads or {}) or nil,
   }
 end
 
@@ -1367,25 +1387,78 @@ function HardcoverApi:updatePage(user_read_id, edition_id, page, started_at, act
   return nil, err
 end
 
--- Correct dates on an identified read without resending stale progress or edition data.
--- Callers omit unchanged dates; a retry must first check the same read and its shelf context.
-function HardcoverApi:updateReadDates(read_id, dates)
+-- Correct one identified read without resending anything the reader did not change. `fields`
+-- takes any of started_at, finished_at, finished_at_precision, edition_id and progress_pages; a
+-- field to clear is passed as json.util.null, as updateRating clears a rating. Sparse on
+-- purpose: a broad payload that includes stale progress resets another client's page.
+function HardcoverApi:updateRead(read_id, fields)
   local result, err = self:query([[
-    mutation CorrectReadDates($id: Int!, $dates: DatesReadInput!) {
-      update_user_book_read(id: $id, object: $dates) {
+    mutation CorrectRead($id: Int!, $fields: DatesReadInput!) {
+      update_user_book_read(id: $id, object: $fields) {
         error
         user_book_read {
-          id started_at finished_at edition_id progress_pages
+          id started_at finished_at finished_at_precision edition_id progress_pages
           user_book { id book_id status_id edition_id privacy_setting_id rating }
         }
       }
     }
-  ]], { id = read_id, dates = dates })
+  ]], { id = read_id, fields = fields })
   if result and result.update_user_book_read then
     local updated = result.update_user_book_read
     local user_book = self:normalizeUserBookRead(updated.user_book_read)
     if user_book then return user_book end
     return nil, updated.error
+  end
+  return nil, err
+end
+
+-- The date-only correction, kept as its own name for existing callers.
+function HardcoverApi:updateReadDates(read_id, dates)
+  return self:updateRead(read_id, dates)
+end
+
+-- Add a past read to a library record. `fields` is a DatesReadInput: started_at, finished_at,
+-- finished_at_precision, edition_id and progress_pages. Returns the library record with the new
+-- read (as normalizeUserBookRead shapes it), or nil and the reason.
+function HardcoverApi:addRead(user_book_id, fields)
+  local result, err = self:query([[
+    mutation AddRead($id: Int!, $read: DatesReadInput!) {
+      insert_user_book_read(user_book_id: $id, user_book_read: $read) {
+        error
+        id
+        user_book_read {
+          id started_at finished_at finished_at_precision edition_id progress_pages
+          user_book { id book_id status_id edition_id privacy_setting_id rating }
+        }
+      }
+    }
+  ]], { id = user_book_id, read = fields })
+  if result and result.insert_user_book_read then
+    local inserted = result.insert_user_book_read
+    local user_book = self:normalizeUserBookRead(inserted.user_book_read)
+    if user_book then return user_book end
+    return nil, inserted.error
+  end
+  return nil, err
+end
+
+-- Remove one read from a book's history. Hardcover removes the journal entries the read wrote
+-- with it. Returns the deleted read's id when the API accepted the removal, or nil and the
+-- reason. The answer cannot tell a deleted read from one already gone, so the queue verifies by
+-- reading the history again.
+function HardcoverApi:deleteRead(read_id)
+  local result, err = self:query([[
+    mutation DeleteRead($id: Int!) {
+      delete_user_book_read(id: $id) {
+        error
+        id
+      }
+    }
+  ]], { id = read_id })
+  if result and result.delete_user_book_read then
+    local deleted = result.delete_user_book_read
+    if deleted.error then return nil, deleted.error end
+    return deleted
   end
   return nil, err
 end

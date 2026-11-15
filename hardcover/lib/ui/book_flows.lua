@@ -182,6 +182,8 @@ function Flows:showBookDetail(book_id, edition_id, opts)
 
     -- kept, so the book opens offline with all of this next time
     if self.book_store then self.book_store:saveDetail(book_id, edition_id, detail) end
+    -- reads are user data, so they live in their own store rather than in the book's details
+    if self.read_store and detail.reads then self.read_store:put(user_id, book_id, detail.reads) end
 
     -- the "Similar to" strip is there at once, empty and saying it is loading, so it is
     -- no surprise when the books arrive (and the page does not jump when they do)
@@ -896,6 +898,9 @@ function Flows:writeReview(dialog, on_kept)
       end
       detail.user_review, detail.review_spoilers = fresh.user_review, fresh.review_spoilers
       detail.review_known = true
+      if self.read_store and fresh.reads then
+        self.read_store:put(User:getId(), detail.book.book_id, fresh.reads)
+      end
       self:editReview(dialog, on_kept)
     end)
     return
