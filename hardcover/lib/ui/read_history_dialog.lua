@@ -34,6 +34,7 @@ local Screen = Device.screen
 local ReadHistoryDialog = InputContainer:extend {
   name = "hardcover_read_history",
   book = nil,
+  book_id = nil,
   reads = nil,       -- nil: no saved copy; {}: known to have no reads
   states = nil,      -- [read id] = { text, kind }
   checked_at = nil,  -- when Hardcover last confirmed these reads (os.time)
@@ -222,6 +223,23 @@ function ReadHistoryDialog:build()
     VerticalGroup:new { align = "left", title_bar, body },
   }
   self[1] = self.frame
+end
+
+-- The reads or their queued states changed while the screen is up: draw it again, keeping the
+-- reader's place when the page still scrolls.
+function ReadHistoryDialog:setData(reads, states, checked_at)
+  local offset = self.scroll and self.scroll.getScrolledOffset and self.scroll:getScrolledOffset()
+  if self[1] and type(self[1].free) == "function" then
+    pcall(function() self[1]:free() end)
+  end
+  self[1] = nil
+  self.reads, self.states = reads, states
+  if checked_at ~= nil then self.checked_at = checked_at end
+  self:build()
+  if offset and self.scroll and self.scroll.setScrolledOffset then
+    self.scroll:setScrolledOffset(offset)
+  end
+  UIManager:setDirty(self, "ui")
 end
 
 function ReadHistoryDialog:close()

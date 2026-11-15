@@ -25,13 +25,19 @@ local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
+local T = require("ffi/util").template
 
+local BookSyncState = require("hardcover/lib/book_sync_state")
 local Button = require("hardcover/lib/ui/components/button")
+local Chip = require("hardcover/lib/ui/components/chip")
 local Clamp = require("hardcover/lib/ui/clamp")
 local DetailsScreen = require("hardcover/lib/ui/details_screen")
 local Draw = require("hardcover/lib/ui/components/draw")
 local Section = require("hardcover/lib/ui/components/section")
 local Lists = require("hardcover/lib/lists")
+local Note = require("hardcover/lib/ui/components/note")
+local PendingStatus = require("hardcover/lib/pending_status")
+local ReadHistory = require("hardcover/lib/read_history")
 local Refresh = require("hardcover/lib/ui/refresh")
 local Shelf = require("hardcover/lib/shelf")
 local SeriesCarousel = require("hardcover/lib/ui/series_carousel")
@@ -44,7 +50,7 @@ local Screen = Device.screen
 
 -- the page is the same size for every book: About is cut to this many lines, the genres to this
 -- many names, and Details lists this many rows, with a Read more / +N more / All details for the rest
-local ABOUT_LINES = 5
+local ABOUT_LINES = 3
 local TAGS_SHOWN = 3
 local DETAIL_ROWS = 5
 
@@ -73,19 +79,22 @@ local BookDetailDialog = FocusManager:extend {
   name = "hardcover_book_detail",
   title = _("Book details"),
   detail = nil,
-  -- called with no arguments when Reviews is tapped; no callback, no button
+  -- called with no arguments when the Reviews heading is tapped; no callback, no heading action
   on_reviews = nil,
   -- called with the dialog when "Your review" is tapped (write, change or remove your own review);
   -- no callback, no button
   on_review = nil,
-  -- called with the dialog when a sync question about this book is waiting; no callback, no button
+  -- called with the dialog when the sync note's Review button is tapped
   on_decision = nil,
+  -- called with the dialog when the reading row is tapped; no callback, no reading row action
+  on_reads = nil,
+  -- { queues = { sync_queue, rating_queue, review_queue }, book_id, user_id } for BookSyncState
+  state_opts = nil,
+  sync_state = nil,
   -- called with no arguments when "Lists" is chosen in the Add sheet (the lists to put the book on);
   -- no callback, no Lists row
   on_lists = nil,
-  -- called with the dialog when Edition is tapped (the link's list: change edition, link a different
-  -- book, unlink);
-  -- no callback, no button. Only offered for the book that is open in the reader.
+  -- kept for the reader panel's link actions; the details page no longer offers an Edition button
   on_edition = nil,
   on_refresh = nil, -- the title bar's reload icon; nil hides it
   -- called with the dialog when Open is tapped (the book is on this device: a file the plugin linked
@@ -117,6 +126,127 @@ BookDetailDialog.COVER_SHARE = 0.27
 function BookDetailDialog.coverBox(screen_w, reserve)
   local cover_width = math.floor(contentWidth(screen_w, reserve) * BookDetailDialog.COVER_SHARE)
   return cover_width, math.floor(cover_width * 1.5)
+end
+
+
+-- The reading row: where the reader is, in one fixed 96 px tap row that opens Reading history.
+function BookDetailDialog:buildReadingRow(summary, width, viewport)
+  local chevron = Draw.chevron("right")
+  local side = Theme.space.m
+  local inner = width - 2 * side
+  local text_w = inner - chevron:getSize().w - Theme.space.s
+  local pct_text = summary.pct and Theme.mmdText(tostring(summary.pct) .. "%", "strong", 18) or nil
+  local label_w = text_w - (pct_text and (pct_text:getSize().w + Theme.space.s) or 0)
+  local label = Theme.mmdText(summary.label, "strong", 21, { width = math.max(0, label_w) })
+  local line1 = HorizontalGroup:new { align = "center", label }
+  if pct_text then
+    line1[#line1 + 1] = HorizontalSpan:new { width = math.max(0, text_w - label:getSize().w - pct_text:getSize().w) }
+    line1[#line1 + 1] = pct_text
+  end
+  local bar = Theme.progress { width = text_w, height = Theme.px(12),
+    percentage = (summary.pct or 0) / 100 }
+  local support = Theme.mmdText(summary.support or "", "text", 18, { secondary = true, width = text_w })
+  local line3 = HorizontalGroup:new { align = "center", support,
+    HorizontalSpan:new { width = math.max(0, text_w - support:getSize().w) },
+    Theme.hspan(Theme.space.s), chevron }
+  local inner_group = VerticalGroup:new { align = "left",
+    line1, Theme.span(Theme.px(6)), bar, Theme.span(Theme.px(6)), line3 }
+  local pad = math.max(0, Theme.px(96) - inner_group:getSize().h)
+  local row = VerticalGroup:new { align = "left",
+    Theme.span(math.floor(pad / 2)),
+    HorizontalGroup:new { Theme.hspan(side), inner_group },
+    Theme.span(pad - math.floor(pad / 2)),
+  }
+  self.reading_label, self.reading_bar, self.reading_support = label, bar, support
+  local tap = TapRow:new {
+    callback = function() if self.on_reads then self.on_reads(self) end end,
+    viewport = viewport, text = _("Reading"), row,
+  }
+  if not self.on_reads then tap.ges_events = {} end
+  return tap
+end
+
+-- A dotted note when this book has a question, with one solid Review button into the one list.
+function BookDetailDialog:buildSyncNote(width)
+  local state = self.sync_state
+  if not (state and state.decision and self.on_decision) then return nil end
+  self.sync_note_title = _("Needs your decision")
+  return Note.new {
+    width = width,
+    icon = Draw.icon("warning", Theme.px(26)),
+    title = self.sync_note_title,
+    text = table.concat(state.note_lines, "\n"),
+    text_wrap = true,
+    dotted = true,
+    action = { label = _("Review"), callback = function()
+      if self.on_decision then self.on_decision(self) end
+    end },
+  }
+end
+
+-- The compact reviews section: a heading row that opens the reviews page, one line with the
+-- average and both counts, and one Write/Edit button. No chart and no individual reviews here.
+function BookDetailDialog:reviewsBlock(width, viewport, book)
+  local reviews_count = tonumber(book.reviews_count) or 0
+  local ratings_count = tonumber(book.ratings_count) or 0
+  local average = tonumber(book.rating)
+  local row_h = Theme.px(48)
+  local chevron = Draw.chevron("right")
+  local all_text = reviews_count > 0 and Theme.mmdText(T(_("All %1 reviews"), reviews_count), "text", 18,
+    { secondary = true }) or nil
+  local all_w = all_text and all_text:getSize().w or 0
+  local label = Theme.mmdText(_("Reviews"), "strong", 21,
+    { width = math.max(0, width - all_w - (all_text and Theme.space.s or 0) - chevron:getSize().w) })
+  local line = HorizontalGroup:new { align = "center", label }
+  if all_text then
+    line[#line + 1] = HorizontalSpan:new { width = math.max(0,
+      width - label:getSize().w - all_w - chevron:getSize().w) }
+    line[#line + 1] = all_text
+    line[#line + 1] = Theme.hspan(Theme.space.s)
+  end
+  line[#line + 1] = chevron
+  local heading = TapRow:new {
+    callback = function() if self.on_reviews then self.on_reviews(self) end end,
+    viewport = viewport, text = _("Reviews"),
+    LeftContainer:new { dimen = Geom:new { w = width, h = row_h }, line },
+  }
+  if not self.on_reviews then heading.ges_events = {} end
+  self.reviews_heading = heading
+
+  local average_part = average and ratings_count > 0 and Theme.mmdText(string.format("%.1f", average), "strong", 21)
+    or nil
+  local stars = HorizontalGroup:new { align = "center" }
+  if average and ratings_count > 0 then
+    for i = 1, 5 do
+      local name = average >= i and "star-filled" or (average >= i - 0.5 and "star-half" or "star")
+      stars[#stars + 1] = Theme.icon(name, Theme.px(16))
+      if i < 5 then stars[#stars + 1] = Theme.hspan(Theme.px(2)) end
+    end
+  end
+  self.reviews_average = average_part
+  self.reviews_counts = Theme.mmdText(T(_("%1 ratings · %2 reviews"), ratings_count, reviews_count),
+    "text", 18, { secondary = true })
+  local average_line = HorizontalGroup:new { align = "center" }
+  if average_part then
+    average_line[#average_line + 1] = average_part
+    average_line[#average_line + 1] = Theme.hspan(Theme.space.s)
+    average_line[#average_line + 1] = stars
+    average_line[#average_line + 1] = Theme.hspan(Theme.space.s)
+  end
+  average_line[#average_line + 1] = self.reviews_counts
+
+  local has_review = type((self.detail or {}).user_review) == "string" and self.detail.user_review ~= ""
+  self.review_button = self.on_review and Button.new {
+    label = has_review and _("Edit your review") or _("Write your review"),
+    w = width, h = Theme.TOUCH_MIN, viewport = viewport,
+    callback = function() if self.on_review then self.on_review(self) end end,
+  } or nil
+  local block = VerticalGroup:new { align = "left", Theme.span("m"), heading, Theme.dottedRule(width),
+    Theme.span(Theme.space.s), average_line, Theme.span(Theme.space.m) }
+  if self.review_button then block[#block + 1] = self.review_button end
+  block[#block + 1] = Theme.span("m")
+  self.reviews_section = block
+  return block
 end
 
 function BookDetailDialog:init()
@@ -185,6 +315,11 @@ function BookDetailDialog:init()
 
   local summary = Shelf.detailSummary(self.detail)
   local book = (self.detail or {}).book or {}
+  self.sync_state = nil
+  if self.state_opts then
+    self.sync_state = BookSyncState.forBook(self.state_opts.queues, self.state_opts.book_id or book.book_id,
+      (self.detail or {}).user_book_id, self.state_opts.user_id)
+  end
 
   -- everything below is laid out in this width (see contentWidth above)
   -- The strip at the right is kept for the scroll control only when the page scrolls. That is not
@@ -239,7 +374,10 @@ function BookDetailDialog:init()
   -- viewport.lua)
   local viewport = function() return self.scroll and self.scroll.dimen end
 
-  self.title_text = wrapped(summary.title, "display", true, false, "title")
+  local title_face, title_bold = Theme.title("display")
+  self.title_text = Clamp.text {
+    text = summary.title, face = title_face, bold = title_bold, width = text_width, lines = 2,
+  }
   addTo(column, self.title_text)
   if summary.subtitle then
     self.subtitle_text = wrapped(summary.subtitle, "body", false, true)
@@ -265,13 +403,23 @@ function BookDetailDialog:init()
   -- where the book is on your shelves: a filled pill with the status, or an outlined "Not on a shelf"
   -- so the line is there for every book (not tappable; the Shelf button below is how it changes)
   local status_id = (self.detail or {}).status_id
-  self.status_text = require("hardcover/lib/ui/components/chip").new {
+  local chevron_down = Draw.chevron("down")
+  local chip_width = math.max(0, text_width - chevron_down:getSize().w - Theme.space.s)
+  self.status_text = Chip.new {
     label = status_id and Shelf.statusLabel(status_id) or _("Not on a shelf"),
-    selected = status_id ~= nil, size = 15, width = text_width,
+    selected = status_id ~= nil, size = 15, width = chip_width,
   }
+  local shelf_line = HorizontalGroup:new { align = "center", self.status_text,
+    Theme.hspan(Theme.space.s), chevron_down }
+  self.shelf_tap = Theme.touchable(shelf_line, text_width, function()
+    if self.on_shelf then self.on_shelf(self) end
+  end, viewport)
+  if not self.on_shelf then self.shelf_tap.ges_events = {} end
   addTo(column, Theme.span("s"))
-  addTo(column, self.status_text)
-  if summary.facts then
+  addTo(column, self.shelf_tap)
+  -- The edition is on the reading row; the facts line is only for a book with no reading history
+  local known_reads = self.detail and type(self.detail.reads) == "table" and #self.detail.reads > 0
+  if summary.facts and not known_reads then
     self.facts_text = wrapped(summary.facts, "small", false, true)
     addTo(column, Theme.span("s"))
     addTo(column, self.facts_text)
@@ -311,18 +459,36 @@ function BookDetailDialog:init()
   -- what you make of it: five visible stars (half ones too), the whole row a tap to rate
   local mine = tonumber((self.detail or {}).user_rating) or 0
   local star_cell = Theme.TOUCH_MIN
-  -- a star opens the rating at that star; the label opens it at the rating there is
-  self.rating_tap = nil
-  local label = LeftContainer:new {
-    dimen = Geom:new { w = width - 5 * star_cell, h = star_cell },
-    Theme.mmdText(_("Your rating"), "strong", 21, { width = width - 5 * star_cell }),
+  local star_total = 5 * star_cell
+  local rating_label_w = math.max(0, text_width - star_total)
+  local rating_state = self.sync_state and self.sync_state.rating_state
+    or (mine > 0 and _("Tap to change") or _("Tap a star"))
+  self.rating_label_text = mine > 0 and _("Your rating") or _("Rate it")
+  self.rating_state_text = rating_state
+
+  -- The label is two lines and the stars are five TOUCH_MIN cells. On a narrow page they do not
+  -- share a line without cutting the state ("Waiting to s…"), so the stars move under the label
+  -- rather than shrink below the touch target.
+  local label_probe = Theme.mmdText(self.rating_label_text, "strong", 21)
+  local state_probe = Theme.mmdText(rating_state, "text", 18)
+  local label_needed = math.max(label_probe:getSize().w, state_probe:getSize().w)
+  label_probe:free()
+  state_probe:free()
+  local stacked = rating_label_w < label_needed
+  local label_w = stacked and text_width or rating_label_w
+  local rating_label = VerticalGroup:new { align = "left",
+    Theme.mmdText(self.rating_label_text, "strong", 21, { width = label_w }),
+    Theme.span(Theme.px(2)),
+    Theme.mmdText(rating_state, "text", 18, { secondary = true, width = label_w }),
   }
-  local rating_row = HorizontalGroup:new { align = "center" }
+  self.rating_tap = nil
   if self.on_rating then
-    label = TapRow:new { callback = function() self:on_rating() end, viewport = viewport, label }
-    self.rating_tap = label
+    local label_h = math.max(star_cell, rating_label:getSize().h)
+    rating_label = TapRow:new { callback = function() self.on_rating(self) end, viewport = viewport,
+      LeftContainer:new { dimen = Geom:new { w = label_w, h = label_h }, rating_label } }
+    self.rating_tap = rating_label
   end
-  table.insert(rating_row, label)
+  local stars_row = HorizontalGroup:new { align = "center" }
   for i = 1, 5 do
     local name = mine >= i and "star-filled" or (mine >= i - 0.5 and "star-half" or "star")
     local star = CenterContainer:new {
@@ -330,88 +496,110 @@ function BookDetailDialog:init()
       Theme.icon(name, Theme.px(28)),
     }
     if self.on_rating then
-      star = TapRow:new { callback = function() self:on_rating(i) end, viewport = viewport, star }
+      star = TapRow:new { callback = function() self.on_rating(self, i) end, viewport = viewport, star }
     end
-    table.insert(rating_row, star)
+    table.insert(stars_row, star)
+  end
+  if stacked then
+    self.rating_row = VerticalGroup:new { align = "left", rating_label, stars_row }
+    addTo(column, Theme.span("s"))
+    addTo(column, rating_label)
+    addTo(column, Theme.span(Theme.px(4)))
+    addTo(column, stars_row)
+  else
+    local rating_row = HorizontalGroup:new { align = "center", rating_label }
+    if rating_label_w == 0 then table.remove(rating_row) end
+    for _, star in ipairs(stars_row) do table.insert(rating_row, star) end
+    self.rating_row = rating_row
+    addTo(column, Theme.span("s"))
+    addTo(column, rating_row)
   end
 
-  -- the buttons: one filled primary, full width: Open when the book is on this device, else Find on
-  -- device (the file may be there without the plugin knowing); then a row of round buttons with their
-  -- names under them, every other action on the page and none behind another: Download (only for a book
-  -- not on the device), Shelf, Lists, Reviews, Your review and Edition (only for the book open in the
-  -- reader), spread evenly over the row. They scroll with the page, so each tap is cut to the visible
-  -- area (see viewport.lua) or one scrolled away could catch a tap meant for what is over it.
+  -- one row of actions: the filled way to read it (Open, else Find on device), then the outlined
+  -- Download when it applies and Lists when that can open. The round buttons are gone: Shelf is the
+  -- chip beside the cover, Reviews is its section, and reading history is the reading row below.
   self.open_button, self.find_button, self.zlibrary_button = nil, nil, nil
-  self.reviews_button, self.review_button, self.add_button, self.edition_button, self.lists_button =
-    nil, nil, nil, nil, nil
+  self.lists_button = nil
+  self.add_button, self.reviews_button, self.review_button, self.edition_button = nil, nil, nil, nil
   self.decision_button = nil
   local action_bar = VerticalGroup:new { align = "left" }
-  local action_rows = {} -- the buttons of each row, for the focus order
+  local action_fields = {}
   local primary_field, primary_label, primary_handler
   if self.on_open then
     primary_field, primary_label, primary_handler = "open_button", _("Open"), "on_open"
   elseif self.on_find then
     primary_field, primary_label, primary_handler = "find_button", _("Find on device"), "on_find"
   end
+  local download = self.on_zlibrary and not self.on_open
+  local count = (primary_field and 1 or 0) + (download and 1 or 0) + (self.on_lists and 1 or 0)
+  local gap = Theme.space.s
+  local button_w = count > 0 and math.floor((width - gap * (count - 1)) / count) or width
+  local buttons = {}
   if primary_field then
     self[primary_field] = Button.new {
-      label = primary_label, w = width, h = Theme.TOUCH_MIN, size = 19, primary = true, viewport = viewport,
+      label = primary_label, w = button_w, h = Theme.TOUCH_MIN, size = 19, primary = true,
+      viewport = viewport,
       callback = function()
         local fn = self[primary_handler]
         if fn then fn(self) end
       end,
     }
-    table.insert(action_bar, self[primary_field])
-    table.insert(action_rows, { primary_field })
+    buttons[#buttons + 1] = self[primary_field]
+    action_fields[#action_fields + 1] = primary_field
   end
-  local round, fields = {}, {}
-  local function add_round(field, icon, text, handler, available)
-    if not available then return end
-    self[field] = Button.round {
-      icon = icon, label = text, label_size = 18,
-      label_width = width, viewport = viewport,
-      callback = function()
-        local fn = self[handler]
-        if fn then fn(self) end
-      end,
+  if download then
+    self.zlibrary_button = Button.new {
+      label = _("Download"), w = button_w, h = Theme.TOUCH_MIN, size = 19, viewport = viewport,
+      callback = function() if self.on_zlibrary then self.on_zlibrary(self) end end,
     }
-    round[#round + 1] = self[field]
-    fields[#fields + 1] = field
+    buttons[#buttons + 1] = self.zlibrary_button
+    action_fields[#action_fields + 1] = "zlibrary_button"
   end
-  add_round("zlibrary_button", "download", _("Download"), "on_zlibrary", self.on_zlibrary and not self.on_open)
-  add_round("add_button", "shelf", _("Shelf"), "on_shelf", true)
-  add_round("decision_button", "sync", _("Decide"), "on_decision", self.on_decision)
-  add_round("lists_button", "bookmark", _("Lists"), "on_lists", self.on_lists)
-  add_round("reviews_button", "chat", _("Reviews"), "on_reviews", self.on_reviews)
-  add_round("review_button", "edit", _("Your review"), "on_review", self.on_review)
-  add_round("edition_button", "link", _("Edition"), "on_edition", self.on_edition)
-  if #round > 0 then
-    -- More actions take another row instead of shrinking the controls or clipping a label
-    -- such as "Your review".
-    local min_slot = 0
-    for _, b in ipairs(round) do min_slot = math.max(min_slot, b:getSize().w + Theme.space.s) end
-    local max_cols = math.max(1, math.floor(width / min_slot))
-    local rows = math.ceil(#round / max_cols)
-    local cols = math.ceil(#round / rows)
-    for first = 1, #round, cols do
-      local count = math.min(cols, #round - first + 1)
-      local slot_w = math.floor(width / count)
-      local round_row = HorizontalGroup:new { align = "top" }
-      local row_fields = {}
-      for i = first, first + count - 1 do
-        local b = round[i]
-        table.insert(round_row, CenterContainer:new { dimen = Geom:new { w = slot_w, h = b:getSize().h }, b })
-        row_fields[#row_fields + 1] = fields[i]
-      end
-      if #action_bar > 0 then table.insert(action_bar, Theme.span("m")) end
-      table.insert(action_bar, round_row)
-      table.insert(action_rows, row_fields)
+  if self.on_lists then
+    self.lists_button = Button.new {
+      label = _("Lists"), w = button_w, h = Theme.TOUCH_MIN, size = 19, viewport = viewport,
+      callback = function() if self.on_lists then self.on_lists(self) end end,
+    }
+    buttons[#buttons + 1] = self.lists_button
+    action_fields[#action_fields + 1] = "lists_button"
+  end
+  if #buttons > 0 then
+    local row = HorizontalGroup:new { align = "top" }
+    for index, button in ipairs(buttons) do
+      if index > 1 then row[#row + 1] = Theme.hspan(gap) end
+      row[#row + 1] = button
     end
+    action_bar[#action_bar + 1] = row
   end
   self.action_bar = action_bar
+  self.action_rows = { action_fields }
 
-  -- About: five lines at most, so the block is the same height for every book; a Read more opens
-  -- the whole synopsis on a screen of its own
+  -- The reading row opens Reading history. Its page comes from the newest queued page first, so
+  -- offline reading shows at once; otherwise the current read's page. A read edit waiting in the
+  -- queue is laid over the saved history too.
+  self.reading_row, self.reading_summary = nil, nil
+  if (self.detail or {}).user_book_id then
+    local queue = self.state_opts and self.state_opts.queues and self.state_opts.queues.sync_queue
+    local user_id = self.state_opts and self.state_opts.user_id
+    local reads = self.detail.reads or {}
+    if queue and queue.readActions then
+      local actions = queue:readActions(book.book_id)
+      if #actions > 0 then reads = ReadHistory.project(reads, actions) end
+    end
+    local page
+    for _, checkpoint in ipairs(PendingStatus.pages(queue, user_id)) do
+      if tostring(checkpoint.book_id) == tostring(book.book_id) then page = checkpoint.page end
+    end
+    self.reading_summary = ReadHistory.summary(reads, {
+      pages = book.pages, format = book.edition_format,
+      state = self.sync_state and self.sync_state.read_state, page = page,
+    })
+    self.reading_row = self:buildReadingRow(self.reading_summary, width, viewport)
+  end
+  self.sync_note = self:buildSyncNote(width)
+
+  -- About: three lines at most, so the block is the same height for every book; Read more sits on
+  -- the heading line and opens the whole synopsis on a screen of its own
   self.description_text, self.about_more = nil, nil
   local about
   if summary.description then
@@ -419,8 +607,6 @@ function BookDetailDialog:init()
       text = summary.description, face = Theme.face("small"), width = width, lines = ABOUT_LINES,
     }
     self.description_text = clamped
-    about = section(_("About"), width)
-    table.insert(about, clamped)
     if cut then
       local more_w = Screen:scaleBySize(140)
       self.about_more = Button.new {
@@ -429,13 +615,14 @@ function BookDetailDialog:init()
           UIManager:show(TextScreen:new { title = _("About"), heading = summary.title, text = summary.description }, "full")
         end,
       }
-      table.insert(about, Theme.span("s"))
-      table.insert(about, HorizontalGroup:new { HorizontalSpan:new { width = width - more_w }, self.about_more })
     end
+    about = section(_("About"), width, { right = self.about_more })
+    table.insert(about, clamped)
   end
 
   -- the genres, one line, with "+N more" for the rest (and the moods and content warnings)
   local tags = self:tagsBlock(width, viewport, summary.title)
+  local reviews = self:reviewsBlock(width, viewport, book)
 
   -- Built by appending, never as one table constructor: most things here are
   -- optional, and a nil in the middle of a constructor is a hole that
@@ -450,9 +637,11 @@ function BookDetailDialog:init()
 
   add(VerticalGroup:new { align = "left", Theme.span("s"), header })
   add(VerticalGroup:new { align = "left", Theme.span("s"), action_bar })
-  add(VerticalGroup:new { align = "left", Theme.span("xs"), rating_row })
+  if self.reading_row then add(VerticalGroup:new { align = "left", Theme.span("s"), self.reading_row }) end
+  if self.sync_note then add(VerticalGroup:new { align = "left", Theme.span("s"), self.sync_note }) end
   add(about)
   add(tags)
+  add(reviews)
 
   -- Strips of covers, paged with arrows; tapping one opens that book. Below About, so
   -- the book itself comes first: "More in this series", then "Similar to <title>".
@@ -582,11 +771,13 @@ function BookDetailDialog:init()
 
   -- keyboard / d-pad focus: the buttons, the carousel's arrows (when it pages), then Close
   self.layout = {}
-  for _i, fields in ipairs(action_rows) do
+  for _i, fields in ipairs(self.action_rows or {}) do
     local row = {}
     for _j, field in ipairs(fields) do row[#row + 1] = self[field] end
-    table.insert(self.layout, row)
+    if #row > 0 then table.insert(self.layout, row) end
   end
+  if self.reading_row then table.insert(self.layout, { self.reading_row }) end
+  if self.reviews_heading then table.insert(self.layout, { self.reviews_heading }) end
   for _i, strip in ipairs({ self.carousel or false, self.similar_carousel or false }) do
     if strip and strip.paged then
       table.insert(self.layout, { strip.prev, strip.next })
@@ -831,6 +1022,17 @@ function BookDetailDialog:rebuild(keep_cover)
   self:init()
 
   UIManager:setDirty(self, "ui")
+end
+
+--
+-- What waits in the queues changed (an edit was kept, sent, or decided): draw the page again from
+-- the same detail, keeping the cover and where the reader had scrolled to.
+function BookDetailDialog:refreshState()
+  local offset = self.scroll and self.scroll.getScrolledOffset and self.scroll:getScrolledOffset()
+  self:rebuild(true)
+  if offset and self.scroll and self.scroll.setScrolledOffset then
+    self.scroll:setScrolledOffset(offset)
+  end
 end
 
 --

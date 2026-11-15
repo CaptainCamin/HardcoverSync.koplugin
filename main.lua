@@ -1333,6 +1333,9 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
           on_status_sent = function(op, user_book)
             self.dialog_manager:shelfSent(op, user_book)
           end,
+          on_read_sent = function(book_id, user_book, op)
+            self.dialog_manager:readSent(book_id, user_book, op)
+          end,
           current_file = self.ui.document and self.ui.document.file,
           state = self.state,
         })

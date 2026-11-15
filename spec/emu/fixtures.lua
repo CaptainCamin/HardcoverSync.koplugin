@@ -768,6 +768,14 @@ function M.install(opts)
       user_book_id = 9000 + b.book_id,
       status_id = 2,
       user_rating = 4,
+      -- the real query carries the library record's reads; the details page's reading row and
+      -- its Reading history both read this list.
+      reads = { {
+        id = 6000 + b.book_id, started_at = "2026-11-03",
+        progress_pages = math.min(120, b.pages or 120), edition_id = b.book_id * 100 + 1,
+        edition = { id = b.book_id * 100 + 1, pages = b.pages or 300, edition_format = "Paperback",
+          reading_format_id = 1 },
+      } },
     }
   end
 

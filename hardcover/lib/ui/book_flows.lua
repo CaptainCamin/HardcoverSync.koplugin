@@ -23,6 +23,7 @@ local Home = require("hardcover/lib/home")
 local Lists = require("hardcover/lib/lists")
 local Network = require("hardcover/lib/network")
 local PendingStatus = require("hardcover/lib/pending_status")
+local ReadHistory = require("hardcover/lib/read_history")
 local OnDevice = require("hardcover/lib/on_device")
 local Recommendations = require("hardcover/lib/recommendations")
 local Reviews = require("hardcover/lib/reviews")
@@ -52,15 +53,24 @@ function Flows:showBookDetail(book_id, edition_id, opts)
   opts = opts or {}
   local dialog
   local on_device_file = self:deviceFile(book_id)
-  local decision = self.sync_queue and self.sync_queue.decisionForBook
-    and self.sync_queue:decisionForBook(book_id, User:getId())
   dialog = require("hardcover/lib/ui/book_detail_dialog"):new {
     detail = nil,
     loading = true,
     -- the details on screen go along, so the reviews can say which book and how it is rated
     on_reviews = function(d) self:showReviews(book_id, Reviews.summary(d and d.detail)) end,
-    -- this book has a question waiting: one visible way to answer it here
-    on_decision = decision and function(d) self:reviewDecision(decision) end or nil,
+    -- this book has a question waiting: one visible way to answer it here. The question is looked
+    -- up when the note is tapped, so a decision that arrives with the details is the one shown.
+    on_decision = function()
+      local decision = self.sync_queue and self.sync_queue.decisionForBook
+        and self.sync_queue:decisionForBook(book_id, User:getId())
+      if decision then self:reviewDecision(decision) end
+    end,
+    -- the reading row opens the history; the shelf chip changes the shelf, and the stars rate it
+    on_reads = function(d) self:showReadHistory(d) end,
+    state_opts = {
+      queues = { sync_queue = self.sync_queue, rating_queue = self.rating_queue, review_queue = self.review_queue },
+      book_id = book_id, user_id = User:getId(),
+    },
     -- the book is on this device (a file the plugin linked to it): Open. Otherwise the file search
     -- below, which is for looking further.
     on_open = on_device_file and function(d) self:openOnDevice(d, on_device_file) end or nil,
@@ -77,8 +87,6 @@ function Flows:showBookDetail(book_id, edition_id, opts)
     on_rating = function(d, stars) self:rateBook(d, stars) end,
     -- only when signed in with OAuth (the write scope is an OAuth thing)
     on_lists = self:canChooseLists() and function(d) self:chooseLists(d) end or nil,
-    -- only for the book that is open in the reader: its link is what changes
-    on_edition = self:canChangeEdition(book_id) and function(d) self:chooseEdition(d, book_id) end or nil,
     -- the reload icon: everything fetched again, the escape hatch for anything kept that
     -- has gone out of date
     on_refresh = function()
@@ -207,6 +215,7 @@ function Flows:reviewDecision(decision)
       if resolved == 0 then return end
       if outcome and outcome.kind == "shelf" then self:removalKept(outcome) end
       StatusDialogs.info(_("Choice saved."), 2)
+      self:refreshBookState(decision.book_id)
       if self.flush_goals then self.flush_goals() end
     end,
   }
@@ -424,6 +433,213 @@ function Flows:showReviews(book_id, summary)
     end
     dialog:addPage(rows, raw_count, 0)
   end)
+end
+
+-- The words for one queued read edit, at the start of its row: what will change and that it is
+-- waiting. A question, a request in flight and a held older read keep the queue's own words.
+local function readStateText(action)
+  if action.kind == "remove_read" then return _("Removal waiting to send") end
+  if action.kind == "add_read" then return _("Read waiting to send") end
+  local fields = {}
+  if (action.change and action.change.started_at) or (action.clear and action.clear.started_at) then
+    fields[#fields + 1] = _("Start date")
+  end
+  if (action.change and (action.change.finished_at or action.change.finished_at_precision))
+    or (action.clear and (action.clear.finished_at or action.clear.finished_at_precision)) then
+    fields[#fields + 1] = _("Finish date")
+  end
+  if (action.change and action.change.edition_id) or (action.clear and action.clear.edition_id) then
+    fields[#fields + 1] = _("Edition")
+  end
+  if (action.change and action.change.progress_pages) or (action.clear and action.clear.progress_pages) then
+    fields[#fields + 1] = _("Page")
+  end
+  if #fields == 1 then return T(_("%1 waiting to send"), fields[1]) end
+  if #fields > 1 then return _("Changes waiting to send") end
+  return _("Change waiting to send")
+end
+
+-- [read id] = { text, kind } for the history rows: a state replaces the row's format and pages.
+function Flows:readStates(actions)
+  local states = {}
+  for _i, action in ipairs(actions or {}) do
+    local id = action.read_id or action.local_id
+    if id ~= nil then
+      local state
+      if action.conflict then
+        state = { text = _("Needs your decision"), kind = "decision" }
+      elseif action.checking then
+        state = { text = _("Checking what synced"), kind = "checking" }
+      elseif action.wait then
+        state = { text = _("Waiting for the current read to finish"), kind = "waiting" }
+      else
+        state = { text = readStateText(action), kind = "waiting" }
+      end
+      states[id] = state
+      states[tostring(id)] = state
+    end
+  end
+  return states
+end
+
+local function readBase(read)
+  local base = {}
+  for _i, field in ipairs({ "started_at", "finished_at", "finished_at_precision", "edition_id",
+    "progress_pages" }) do
+    base[field] = read and read[field] or nil
+  end
+  return base
+end
+
+-- The saved reads with the queued edits laid over them, and each queued read's words.
+function Flows:readHistoryProjection(context)
+  local actions = self.sync_queue and self.sync_queue.readActions
+    and self.sync_queue:readActions(context.book_id) or {}
+  local reads = context.reads
+  if reads ~= nil then reads = ReadHistory.project(reads, actions) end
+  return reads, self:readStates(actions)
+end
+
+function Flows:refreshReadHistory(history)
+  if not (history and history.context) then return end
+  local reads, states = self:readHistoryProjection(history.context)
+  history:setData(reads, states, history.context.checked_at)
+end
+
+-- Recompute everything the book's page says comes from the queues: a waiting rating or review,
+-- a read in flight, and the one decision. Keeps the cover and scroll position.
+function Flows:refreshBookState(book_id)
+  local screen = self:screens():open("book")
+  local on = screen and screen.detail and screen.detail.book and screen.detail.book.book_id
+  if on and tonumber(on) == tonumber(book_id) and screen.refreshState then screen:refreshState() end
+  local history = self:screens():open("reads")
+  if history and tonumber(history.book_id) == tonumber(book_id) then self:refreshReadHistory(history) end
+end
+
+-- The reading history screen, from the details page. Its rows are the saved reads with this
+-- device's queued edits laid over them; offline the saved copy is all there is. With no saved copy
+-- and a connection, ask once before showing the screen.
+function Flows:showReadHistory(dialog)
+  local detail = dialog and dialog.detail
+  local book = detail and detail.book
+  if not (book and book.book_id) then return end
+  local user_id, book_id = User:getId(), tonumber(book.book_id)
+  local saved = self.read_store and self.read_store:get(user_id, book_id)
+  self:openReadHistoryWhenAvailable {
+    book = book, book_id = book_id, user_book_id = detail.user_book_id, detail = detail, screen = dialog,
+    reads = detail.reads or (saved and saved.reads), checked_at = saved and saved.checked_at,
+  }
+end
+
+-- Reading history from the reader panel's gear, for the book open on the device. The panel's
+-- cached record is enough to draw the rows; a fresh copy arrives when the panel next checks.
+function Flows:showLinkedReadHistory()
+  local book_id = tonumber(self.settings and self.settings:getLinkedBookId())
+  if not book_id then return end
+  local user_id = User:getId()
+  local status = self.state and self.state.book_status or {}
+  local saved = self.read_store and self.read_store:get(user_id, book_id)
+  self:openReadHistoryWhenAvailable {
+    book = { book_id = book_id, title = self.settings:getLinkedTitle() or tostring(book_id),
+      pages = self.settings.pages and self.settings:pages() or nil,
+      edition_format = self.settings.getLinkedEditionFormat and self.settings:getLinkedEditionFormat() or nil },
+    book_id = book_id, user_book_id = status.id,
+    reads = status.user_book_reads or (saved and saved.reads), checked_at = saved and saved.checked_at,
+  }
+end
+
+function Flows:openReadHistoryWhenAvailable(context)
+  if context.reads ~= nil or not Network.connected() then
+    self:openReadHistory(context)
+    return
+  end
+  local loading = StatusDialogs.loading(_("Loading reading history…"))
+  Api:getBookDetailAsync(context.book_id, User:getId(), nil, function(detail)
+    StatusDialogs.close(loading)
+    if not (detail and detail.reads) then
+      StatusDialogs.info(_("Couldn't load this book's reading history. Try again."))
+      return
+    end
+    context.reads = detail.reads
+    context.checked_at = os.time()
+    context.user_book_id = context.user_book_id or detail.user_book_id
+    if context.detail then
+      context.detail.reads = detail.reads
+      context.detail.user_book_id = context.detail.user_book_id or detail.user_book_id
+    end
+    if self.read_store then self.read_store:put(User:getId(), context.book_id, detail.reads) end
+    self:openReadHistory(context)
+  end)
+end
+
+function Flows:openReadHistory(context)
+  self:screens():discard("reads")
+  local reads, states = self:readHistoryProjection(context)
+  local history
+  history = require("hardcover/lib/ui/read_history_dialog"):new {
+    book = context.book, book_id = context.book_id, reads = reads, states = states,
+    checked_at = context.checked_at,
+    on_open_read = function(read)
+      self:editRead(context, history, read)
+    end,
+  }
+  history.context = context
+  self:openScreen("reads", history)
+  return history
+end
+
+-- The form for one read. Save queues a sparse date edit and leaves the history showing it at once;
+-- offline the edit waits with the rest of the book's changes.
+function Flows:editRead(context, history, read)
+  local book_id, user_id = tonumber(context.book_id), User:getId()
+  local form
+  local function on_save(change, clear)
+    local entry = self.sync_queue and self.sync_queue.enqueueReadEdit and self.sync_queue:enqueueReadEdit(
+      self:deviceFile(book_id) or book_id, {
+        kind = "read_dates", user_id = user_id, book_id = book_id,
+        user_book_id = context.user_book_id or (context.detail and context.detail.user_book_id),
+        title = context.book and context.book.title,
+        edition_id = context.book and context.book.edition_id,
+        read_id = read.id, base = readBase(read), change = change, clear = clear,
+      })
+    if not entry then
+      StatusDialogs.info(_("Could not keep this change. Try again."))
+      return
+    end
+    form:close()
+    if history then self:refreshReadHistory(history) end
+    if context.screen then context.screen:refreshState() end
+    if Network.connected() then
+      if self.flush_goals then self.flush_goals() end
+    else
+      StatusDialogs.info(_("You're offline. This change is kept and will be sent when you're connected."))
+    end
+  end
+  form = require("hardcover/lib/ui/read_edit_dialog"):new {
+    book = context.book, read = read, on_save = on_save,
+  }
+  UIManager:show(form, "full")
+end
+
+-- A read edit reached Hardcover: save what it answered, and refresh the open history and page.
+function Flows:readSent(book_id, user_book, _op)
+  local user_id = User:getId()
+  local reads = type(user_book) == "table" and user_book.user_book_reads or nil
+  if reads and self.read_store then self.read_store:put(user_id, tonumber(book_id), reads) end
+
+  local screen = self:screens():open("book")
+  local on = screen and screen.detail and screen.detail.book and screen.detail.book.book_id
+  if on and tonumber(on) == tonumber(book_id) then
+    if reads then screen.detail.reads = reads end
+    if screen.refreshState then screen:refreshState() end
+  end
+
+  local history = self:screens():open("reads")
+  if history and tonumber(history.book_id) == tonumber(book_id) and history.context then
+    if reads then history.context.reads = reads end
+    history.context.checked_at = os.time()
+    self:refreshReadHistory(history)
+  end
 end
 
 -- Put the book on the details screen on a shelf, or take it off.

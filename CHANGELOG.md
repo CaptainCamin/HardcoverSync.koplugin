@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Improved
+
+- **Book details now leads with your reading.** The cover's column holds the shelf chip and your stars, one action row holds the ways to open, download or list the book, and a reading row with progress and the current read's edition opens Reading history. About is three lines, and the Reviews section opens the full reviews page.
+
 ## 2.4.0
 
 ### Added

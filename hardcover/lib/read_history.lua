@@ -175,6 +175,15 @@ end
 ReadHistory.formatName = formatName
 ReadHistory.editionPages = editionPages
 
+local FIELD_LABELS = {
+  started_at = "start date", finished_at = "finish date",
+  finished_at_precision = "finish precision", edition_id = "edition",
+  progress_pages = "page",
+}
+function ReadHistory.fieldLabel(field)
+  return FIELD_LABELS[field] or tostring(field)
+end
+
 local function join(pieces)
   local kept = {}
   for _, piece in ipairs(pieces) do
@@ -208,16 +217,21 @@ function ReadHistory.summary(reads, opts)
   local support
 
   if not current.finished_at then
-    local pages = editionPages(current) or number(opts.pages)
-    local page = number(current.progress_pages) or 0
+    local edition = type(current.edition) == "table" and current.edition or nil
+    local audiobook = edition and number(edition.reading_format_id) == 2
+    local pages = not audiobook and editionPages(current) or number(opts.pages)
+    local page = opts.page ~= nil and number(opts.page) or number(current.progress_pages) or 0
     local label, pct
-    if pages and pages > 0 then
+    if audiobook then
+      label = formatName(current, opts.format) or "Audiobook"
+      format = nil
+    elseif pages and pages > 0 then
       label = string.format("Page %d of %d", page, pages)
       pct = math.floor(page * 100 / pages + 0.5)
       pct = math.max(0, math.min(100, pct))
     elseif page > 0 then
       label = string.format("Page %d", page)
-    else
+    elseif not audiobook then
       label = "Reading"
     end
 

@@ -24,21 +24,22 @@ local Note = {}
 
 Note.MIN_H = px(62)
 
--- opts { width, icon_name (an SVG in icons/), title, text, text_wrap (the text may take more than
--- one line), dotted, action = { label, callback }, h, on_tap }
+-- opts { width, icon_name (an SVG in icons/) or icon (a widget), title, text, text_wrap (the text
+-- may take more than one line), dotted, action = { label, callback }, h, on_tap }
 -- `h` makes the box at least that tall (give both looks the taller one's height). `on_tap` makes the
 -- whole box a touch target too; the action's button still takes the taps on it.
 function Note.new(opts)
   local pad_x, pad_y, radius = px(14), px(12), px(10)
   local w = opts.width
-  local icon = Theme.icon(opts.icon_name, px(26))
+  local icon = opts.icon or Theme.icon(opts.icon_name, px(26))
 
   local button
   if opts.action then
     local label = Theme.mmdText(opts.action.label, "strong", 18)
     local bw = label:getSize().w + px(32)
     label:free()
-    button = Button.new { label = opts.action.label, w = bw, h = px(40), size = 18, callback = opts.action.callback }
+    button = Button.new { label = opts.action.label, w = bw,
+      h = math.max(px(40), Theme.TOUCH_MIN), size = 18, callback = opts.action.callback }
   end
 
   local text_w = w - 2 * pad_x - icon:getSize().w - px(12) - (button and (button:getSize().w + px(12)) or 0)

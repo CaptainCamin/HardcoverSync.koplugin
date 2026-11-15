@@ -308,6 +308,11 @@ function HardcoverMenu:showReaderPanel()
     if linked then
       menu_rows[#menu_rows + 1] = { text = _("Change edition"), enabled = enabled(edition_item),
         run = function() run(edition_item) end }
+      menu_rows[#menu_rows + 1] = { text = _("Reading history"), enabled = self.enabled,
+        run = function()
+          if panel and UIManager:isWidgetShown(panel) then panel:onClose() end
+          self.dialog_manager:showLinkedReadHistory()
+        end }
     end
     menu_rows[#menu_rows + 1] = { text = _("All Hardcover settings"),
       run = function() self.dialog_manager:showSettings() end }
