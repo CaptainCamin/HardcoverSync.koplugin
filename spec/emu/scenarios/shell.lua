@@ -76,7 +76,7 @@ return {
         decisions = function()
           return decisions > 0 and { { id = "d", kind = "page", resolve = function() return true end } } or {}
         end,
-        shelfOp = function() return nil end },
+        shelfOp = function() return nil end, keys = function() return {} end },
       shelf_cache = ShelfCache:new { path = path, open = function(p) return LuaSettings:open(p) end },
       send_now = function() sent_now = sent_now + 1 end,
       show_pending = function() opened_list = opened_list + 1 end }

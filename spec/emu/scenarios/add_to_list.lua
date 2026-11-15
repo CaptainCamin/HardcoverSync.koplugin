@@ -59,9 +59,9 @@ return {
       emu:tapExpecting(d.x + math.floor(d.w / 2), d.y + math.floor(d.h / 2))
       emu:pump()
     end
-    -- Shelf and Lists are buttons of their own: `row` is "Lists", or a shelf row's text for Shelf
+    -- Shelf is the chip beside the cover; Lists is still its own button.
     local function tapAdd(dialog, row)
-      tapButton(row == "Lists" and dialog.lists_button or dialog.add_button)
+      tapButton(row == "Lists" and dialog.lists_button or dialog.shelf_tap)
     end
     local function count(name)
       local n = 0
@@ -97,22 +97,21 @@ return {
     end
     emu:expectText("The Left Hand of Darkness")
 
-    -- the buttons: round buttons in reading order (Download, Shelf, Lists,
-    -- Reviews), inside the margins, none on another
-    assert(dialog.add_button and dialog.lists_button and dialog.on_lists, "no Lists to add to for an OAuth sign-in")
-    emu:expectText("Shelf")
+    -- Layout A keeps Shelf as the chip, and Download and Lists in the action row.
+    assert(dialog.shelf_tap and dialog.lists_button and dialog.on_lists, "no Lists to add to for an OAuth sign-in")
+    emu:expectText("Currently Reading")
     emu:expectText("Lists")
     local M = require("hardcover/lib/ui/theme").margin
     UIManager:_repaint()
     local at = function(name) return dialog[name].dimen end
     local previous
-    for _, name in ipairs({ "zlibrary_button", "add_button", "lists_button", "reviews_button" }) do
+    for _, name in ipairs({ "zlibrary_button", "lists_button" }) do
       local d = at(name)
       assert(not previous or d.y > previous.y or (d.y == previous.y and d.x > previous.x),
-        "Download, Shelf, Lists, Reviews are not in reading order")
+        "Download and Lists are not in reading order")
       previous = d
     end
-    for _, name in ipairs({ "add_button", "lists_button", "reviews_button", "zlibrary_button" }) do
+    for _, name in ipairs({ "lists_button", "zlibrary_button" }) do
       local d = dialog[name].dimen
       assert(d and d.x >= M and d.x + d.w <= emu.Screen:getWidth() - M, name .. " is outside the margins")
     end
@@ -270,9 +269,9 @@ return {
     manager:showBookDetail(103, 10301)
     emu:pump()
     dialog = topmost()
-    assert(dialog.add_button and dialog.zlibrary_button, "the bar lost a button in compatibility mode")
+    assert(dialog.shelf_tap and dialog.zlibrary_button, "the bar lost a button in compatibility mode")
     UIManager:_repaint()
-    for _, name in ipairs({ "add_button", "lists_button", "reviews_button", "zlibrary_button" }) do
+    for _, name in ipairs({ "lists_button", "zlibrary_button" }) do
       local d = dialog[name].dimen
       assert(d and d.x >= M and d.x + d.w <= emu.Screen:getWidth() - M, name .. " is outside the margins (compat)")
     end
@@ -286,7 +285,7 @@ return {
     manager:showBookDetail(103, 10301)
     emu:pump()
     dialog = topmost()
-    assert(dialog.add_button and dialog.on_lists == nil, "Lists offered without an OAuth sign-in")
+    assert(dialog.shelf_tap and dialog.on_lists == nil, "Lists offered without an OAuth sign-in")
     assert(dialog.lists_button == nil, "a Lists button without an OAuth sign-in")
     emu:closeAll()
   end,

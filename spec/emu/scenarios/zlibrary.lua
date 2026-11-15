@@ -26,8 +26,8 @@ return {
     emu:pump()
     local dialog = UIManager:getTopmostVisibleWidget()
     assert(dialog and dialog.zlibrary_button == nil, "a Z-library button without the plugin")
-    -- without the plugin the round row is Shelf, Reviews
-    assert(dialog.reviews_button and dialog.add_button, "the bar lost Reviews or Shelf")
+    -- without the plugin the shelf chip and the Reviews heading are still there
+    assert(dialog.reviews_heading and dialog.shelf_tap, "the page lost Reviews or Shelf")
     emu:shot("zlibrary_absent")
     emu:closeAll()
 
@@ -44,18 +44,23 @@ return {
     emu:expectText("Reviews")
     emu:shot("zlibrary_button")
 
-    -- Download leads the round row (Find on device, the filled button above it, needs KOReader's file
-    -- search, which this scenario does not have)
+    -- Download leads the action row (Find on device, the filled button above it, needs KOReader's
+    -- file search, which this scenario does not have); Lists follows it when offered.
     emu:screenNodes()
     local at = function(name) return dialog[name].dimen end
-    assert(at("zlibrary_button").x < at("add_button").x and at("zlibrary_button").y == at("reviews_button").y,
-      "Download is not first in the round row")
+    assert(not dialog.lists_button or at("zlibrary_button").x < at("lists_button").x,
+      "Download is not first in the action row")
+    if dialog.lists_button then
+      assert(at("zlibrary_button").y == at("lists_button").y, "Download and Lists are not on one row")
+    end
 
     -- all of them are inside the margins
     local M = require("hardcover/lib/ui/theme").margin
-    for _, name in ipairs({ "add_button", "reviews_button", "zlibrary_button" }) do
-      local d = dialog[name].dimen
-      assert(d and d.x >= M and d.x + d.w <= emu.Screen:getWidth() - M, name .. " is outside the margins")
+    for _, name in ipairs({ "zlibrary_button", "lists_button" }) do
+      if dialog[name] then
+        local d = dialog[name].dimen
+        assert(d and d.x >= M and d.x + d.w <= emu.Screen:getWidth() - M, name .. " is outside the margins")
+      end
     end
     local b = dialog.zlibrary_button.dimen
     emu:tapExpecting(b.x + math.floor(b.w / 2), b.y + math.floor(b.h / 2))

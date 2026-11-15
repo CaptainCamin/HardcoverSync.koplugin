@@ -53,9 +53,9 @@ return {
       emu:tapExpecting(d.x + math.floor(d.w / 2), d.y + math.floor(d.h / 2))
       emu:pump()
     end
-    -- Shelf and Lists are buttons of their own: `row` is "Lists", or a shelf row's text for Shelf
+    -- Shelf is the chip beside the cover; Lists is still its own button.
     local function tapAdd(dialog, row)
-      tapButton(row == "Lists" and dialog.lists_button or dialog.add_button)
+      tapButton(row == "Lists" and dialog.lists_button or dialog.shelf_tap)
     end
     local function count(name)
       local n = 0
@@ -83,7 +83,6 @@ return {
     local dialog = topmost()
     assert(dialog and dialog.name == "hardcover_book_detail", "the details did not open")
     emu:expectText("The Obelisk Gate")
-    emu:expectText("Shelf")
     emu:expectText("Not on a shelf")
     assert(not screenHas("Currently Reading"), "a book not in the library shows a status")
     assert(not dialog.detail.user_book_id, "a book not in the library has a library record")
