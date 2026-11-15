@@ -39,4 +39,21 @@ r.test("query punctuation is matched literally", function()
   assert(not LocalSearch.matches("a.b", { "axb" }))
 end)
 
+r.test("clean trims string queries and rejects other values", function()
+  assert(LocalSearch.clean("  earthsea  ") == "earthsea")
+  assert(LocalSearch.clean("   ") == "")
+  assert(LocalSearch.clean(nil) == "" and LocalSearch.clean(4) == "")
+end)
+
+r.test("filter keeps the rows whose named fields match", function()
+  local rows = {
+    { name = "A Wizard of Earthsea", owner = "Ursula K. Le Guin" },
+    { name = "Dune", owner = "Frank Herbert" },
+    { name = "Earthsea", owner = "Someone Else" },
+  }
+  local found = LocalSearch.filter(rows, "earthsea le guin", { "name", "owner" })
+  assert(#found == 1 and found[1].name == "A Wizard of Earthsea")
+  assert(#LocalSearch.filter(nil, "earthsea", { "name" }) == 0)
+end)
+
 r.finish()

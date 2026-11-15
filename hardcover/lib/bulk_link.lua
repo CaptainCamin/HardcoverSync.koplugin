@@ -16,6 +16,7 @@
 -- once per book).
 
 local Book = require("hardcover/lib/book")
+local TextUtil = require("hardcover/lib/text_util")
 
 local BulkLink = {}
 
@@ -29,13 +30,12 @@ end
 
 local function xmlDecode(s)
   if not s then return "" end
-  return (s:gsub("&lt;", "<")
-           :gsub("&gt;", ">")
-           :gsub("&quot;", "\"")
-           :gsub("&apos;", "'")
-           :gsub("&amp;", "&")
-           :gsub("^%s+", "")
-           :gsub("%s+$", ""))
+  s = (s:gsub("&lt;", "<")
+       :gsub("&gt;", ">")
+       :gsub("&quot;", "\"")
+       :gsub("&apos;", "'")
+       :gsub("&amp;", "&"))
+  return TextUtil.trim(s)
 end
 
 local function attr(attrs, name)
@@ -338,7 +338,8 @@ local function normalizeWith(text, keep_subtitle)
   text = text:gsub("%b()", " "):gsub("%b[]", " ")
   if not keep_subtitle then text = text:gsub(":.*$", "") end
   text = text:gsub("[^%w%s]", " ")
-  text = text:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+  text = text:gsub("%s+", " ")
+  text = TextUtil.trim(text)
   text = text:gsub("^the ", ""):gsub("^an? ", "")
   return text
 end

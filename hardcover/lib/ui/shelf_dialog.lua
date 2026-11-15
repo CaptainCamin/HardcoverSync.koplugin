@@ -155,12 +155,7 @@ function ShelfDialog:visibleEntries()
   if memo and memo.entries == entries and memo.count == #entries and memo.query == query then
     return memo.matching
   end
-  local matching = {}
-  for _, entry in ipairs(entries) do
-    if LocalSearch.matches(query, { entry.title, entry.authors }) then
-      matching[#matching + 1] = entry
-    end
-  end
+  local matching = LocalSearch.filter(entries, query, { "title", "authors" })
   self.visible_memo = { entries = entries, count = #entries, query = query, matching = matching }
   return matching
 end
@@ -168,7 +163,7 @@ end
 -- Search the downloaded copy in place. The screen's entries remain untouched so clearing the query
 -- restores the original list and its paging, sort and Load more behaviour.
 function ShelfDialog:setLocalSearch(query)
-  self.local_search_query = type(query) == "string" and query:gsub("^%s+", ""):gsub("%s+$", "") or ""
+  self.local_search_query = LocalSearch.clean(query)
   self.local_search_active = true
   self.page = 1
   self.items_cache = nil

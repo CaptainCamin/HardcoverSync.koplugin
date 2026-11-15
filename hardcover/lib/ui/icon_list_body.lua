@@ -91,16 +91,8 @@ function IconListBody:rows(width)
       }
     end
   end
-  local function matches(rows)
-    local found = {}
-    for _, row in ipairs(rows or {}) do
-      if LocalSearch.matches(self.search_query, { row.name, row.owner }) then
-        found[#found + 1] = row
-      end
-    end
-    return found
-  end
-  local system, mine = matches(self.system), matches(self.mine)
+  local system = LocalSearch.filter(self.system, self.search_query, { "name", "owner" })
+  local mine = LocalSearch.filter(self.mine, self.search_query, { "name", "owner" })
   self.visible_count = #system + #mine
   -- For you is the first row, with no heading of its own
   local first = system[1] and system[1].for_you and { system[1] } or {}
@@ -123,7 +115,7 @@ function IconListBody:promptSearch(initial)
     input = initial or self.search_query,
     hint = _("Search lists"),
     on_submit = function(query)
-      self.search_query = type(query) == "string" and query:gsub("^%s+", ""):gsub("%s+$", "") or ""
+      self.search_query = LocalSearch.clean(query)
       self:rebuild(true)
       return true
     end,
