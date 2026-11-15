@@ -62,6 +62,57 @@ check("a re-read question says what Hardcover has and asks plainly", function()
   has(dnf.title, "Did not finish")
 end)
 
+check("a removal question offers keep first, remove anyway, and later", function()
+  local d = SyncConflicts.describe("/b/x.epub", { title = "Dune",
+    conflict = { kind = "remove", changes = { "a rating", "reading progress" } } })
+  has(d.title, "Dune")
+  has(d.title, "remove this book")
+  has(d.title, "a rating and reading progress")
+  has(d.title, "status, rating and reading history")
+  eq(#d.rows, 3, "rows")
+  eq(d.rows[1].id, "keep", "keep first"); eq(d.rows[1].text, "Keep the book")
+  eq(d.rows[2].id, "remove", "then remove"); has(d.rows[2].text, "anyway")
+  eq(d.rows[3].id, "later", "then later"); eq(d.rows[3].text, "Decide later")
+end)
+
+check("a replaced library entry is named as that, not as a field change", function()
+  local d = SyncConflicts.describe("/b/x.epub", { title = "Dune",
+    conflict = { kind = "remove", replaced = true, changes = { "a change" } } })
+  has(d.title, "different library entry")
+  local row = { entry = { conflict = { kind = "remove", replaced = true, changes = { "a change" } } } }
+  has(SyncConflicts.decisionNote(row), "Changed on Hardcover")
+end)
+
+check("a decision line names the consequence, and a removal says what it would take", function()
+  local page = { entry = { conflict = { kind = "page", local_page = 100, cloud_page = 240 } } }
+  has(SyncConflicts.decisionText("Dune", page), "100")
+  has(SyncConflicts.decisionText("Dune", page), "240")
+  local remove = { entry = { conflict = { kind = "remove", changes = { "a rating", "a review" } } } }
+  has(SyncConflicts.decisionText("Dune", remove), "remove")
+  has(SyncConflicts.decisionNote(remove), "Changed on Hardcover")
+  eq(SyncConflicts.decisionNote(page), nil, "a page question needs no note")
+  local reread = { entry = { conflict = { kind = "reread", cloud_status = HARDCOVER.STATUS.FINISHED } } }
+  eq(SyncConflicts.decisionText("Dune", reread), "Dune: read again?")
+  has(SyncConflicts.decisionNote(reread), "Read")
+end)
+
+check("a sync result separates sending, decisions, waiting and failure", function()
+  local text = SyncConflicts.outcomeText({ ok = true, sent = true, decisions = 1, waiting = 0, failed = false })
+  has(text, "Ready changes sent")
+  has(text, "1 book needs your decision")
+  text = SyncConflicts.outcomeText({ ok = true, sent = false, decisions = 2, waiting = 0, failed = false })
+  has(text, "2 books need your decision")
+  has(text, "Other changes are saved")
+  text = SyncConflicts.outcomeText({ ok = true, sent = true, decisions = 0, waiting = 2, failed = false })
+  has(text, "waiting for an earlier one")
+  text = SyncConflicts.outcomeText({ ok = false, sent = true, decisions = 1, waiting = 0, failed = true })
+  has(text, "Some changes were sent")
+  has(text, "rest will retry")
+  eq(select(2, SyncConflicts.outcomeText({ failed = true })), "error", "failure is an error")
+  text = SyncConflicts.outcomeText(true)
+  eq(text, "Progress synced", "a plain true still reads as before")
+end)
+
 check("no conflict, no question", function()
   eq(SyncConflicts.describe("/b/x.epub", { mapped_page = 3 }), nil, "describe")
 end)

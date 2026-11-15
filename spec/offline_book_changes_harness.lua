@@ -140,6 +140,10 @@ local function serverApi()
       user_book_reads = status_id == 3 and { { id = 900, finished_at = "2026-01-05" } } or {} }
   end
   function api:findUserBook() return nil end
+  function api:findUserBookForRemoval(book_id)
+    -- the record a removal compares against: the shelved book it knows
+    return { id = 51, book_id = book_id, status_id = 1, rating = 4, has_review = false, user_book_reads = {} }
+  end
   function api:updateReadDates(id, dates)
     server_calls[#server_calls + 1] = { name = "updateReadDates", date = dates.finished_at }
     return { id = 800, status_id = 3, user_book_reads = { { id = id, finished_at = dates.finished_at } } }

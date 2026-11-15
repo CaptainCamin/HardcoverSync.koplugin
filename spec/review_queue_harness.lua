@@ -345,5 +345,27 @@ check("old persisted library-only reviews still send without a lookup", function
   eq(api.sent[1].spoilers, true)
 end)
 
+check("a review waits for its book's removal without counting as a failure", function()
+  local q, settings = newQueue()
+  q:queue(907, "Dune words", false, "Dune", 101, 42)
+  q:queue(908, "Emma words", false, "Emma", 202, 42)
+  local api = fakeApi()
+  local held = { [101] = "remove" }
+  local barrier = function(op) return held[op.book_id] end
+  eq(q:flush(api, { user_id = 42, barrier = barrier }), 1, "the other review is not held")
+  eq(#api.sent, 1, "the independent review went")
+  eq(api.sent[1].text, "Emma words")
+  eq(q:blockedCount(42), 1, "blocked")
+  local blocked
+  for _, op in ipairs(q:list(42)) do if op.book_id == 101 then blocked = op end end
+  eq(blocked and blocked.blocked, true, "listed as blocked")
+  eq(blocked and blocked.blocked_reason, "remove")
+  q = ReviewQueue:new { settings = settings }
+  eq(q:blockedCount(42), 1, "block persists")
+  held[101] = nil
+  eq(q:flush(api, { user_id = 42, barrier = barrier }), 0, "barrier gone")
+  eq(#api.sent, 2, "both sent")
+end)
+
 print(string.format("\n%d passed, %d failed", results.passed, results.failed))
 os.exit(results.failed == 0 and 0 or 1)

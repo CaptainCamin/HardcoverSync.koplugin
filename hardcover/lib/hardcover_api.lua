@@ -576,6 +576,39 @@ function HardcoverApi:findUserBook(book_id, user_id)
   return results.user_books[1]
 end
 
+-- What a removal needs: the record plus what a delete takes with it. A book that is not in
+-- the library is nil (no error); a lookup that could not be made is nil and an error.
+function HardcoverApi:findUserBookForRemoval(book_id, user_id)
+  local read_query = [[
+    query ($id: Int!, $userId: Int!) {
+      user_books(where: { book_id: { _eq: $id }, user_id: { _eq: $userId }}) {
+        id
+        book_id
+        status_id
+        edition_id
+        rating
+        updated_at
+        has_review
+        review_raw
+        review_has_spoilers
+        user_book_reads(order_by: { id: asc }) {
+          id
+          started_at
+          finished_at
+          progress_pages
+          edition_id
+        }
+      }
+    }
+  ]]
+
+  local results, err = self:query(read_query, { id = book_id, userId = user_id })
+  if not results or type(results.user_books) ~= "table" then
+    return nil, err or { error = "no_response" }
+  end
+  return results.user_books[1]
+end
+
 -- One request for several books' library records, keyed by tostring(book_id):
 -- the record, or false when the book is not on the shelf. nil and an error when
 -- the server could not be asked.

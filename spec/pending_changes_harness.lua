@@ -109,8 +109,10 @@ check("a change that is stuck says why", function()
   q.sync_queue:enqueuePage("/b/b.epub", { mapped_page = 5, book_id = 2, title = "B" })
   q.sync_queue:get("/b/b.epub").failures = 3
   local rows = PendingChanges.list(q)
-  assert(PendingChanges.line(rows[1]):find("waiting for your answer", 1, true), PendingChanges.line(rows[1]))
-  assert(PendingChanges.line(rows[2]):find("Hardcover refused it", 1, true), PendingChanges.line(rows[2]))
+  assert(#rows == 1, #rows) -- the page question is in the decision group, not here
+  assert(PendingChanges.line(rows[1]):find("Hardcover refused it", 1, true), PendingChanges.line(rows[1]))
+  local decisions = PendingChanges.decisions(q)
+  assert(#decisions == 1 and decisions[1].text:find("A", 1, true), decisions[1] and decisions[1].text)
 end)
 
 print("\n== cancelling one ==")
@@ -131,13 +133,15 @@ check("cancelling a page leaves the book's status waiting, and the other way rou
   assert(not q.sync_queue:hasPending())
 end)
 
-check("cancelling a page also drops the question it was waiting on", function()
+check("a page question is answered, not offered as ordinary cancellation", function()
   local q = queues()
   q.sync_queue:enqueuePage("/b/a.epub", { mapped_page = 50, book_id = 1, title = "A" })
   q.sync_queue:get("/b/a.epub").conflict = { kind = "page", local_page = 50, cloud_page = 200 }
   assert(q.sync_queue:conflictCount() == 1)
-  PendingChanges.list(q)[1].cancel()
-  assert(q.sync_queue:conflictCount() == 0, "still asking about a page that was cancelled")
+  assert(#PendingChanges.list(q) == 0, "the question is duplicated as a cancellable row")
+  local decisions = PendingChanges.decisions(q)
+  assert(decisions[1].decision.resolve("cloud"))
+  assert(q.sync_queue:conflictCount() == 0, "still asking about an answered page")
 end)
 
 check("cancelling the status leaves a question about the page, and the answer given, alone", function()
@@ -284,6 +288,60 @@ check("pending ratings and reviews show and cancel only the signed-in account's 
   q.user_id = 84
   assert(#PendingChanges.list(q) == 2)
   assert(q.rating_queue:get(nil, 101, 84) == 4.5 and q.review_queue:get(nil, 101, 84).text == "Draft")
+end)
+
+print("\n== needs your decision ==")
+
+check("a page conflict is a decision row, not an ordinary queued change", function()
+  local q = queues()
+  q.sync_queue:enqueuePage("/b/dune.epub", { mapped_page = 100, book_id = 7, title = "Dune" })
+  q.sync_queue:get("/b/dune.epub").conflict = { kind = "page", local_page = 100, cloud_page = 240, seq = 1 }
+  local decisions = PendingChanges.decisions(q)
+  assert(#decisions == 1, #decisions)
+  assert(decisions[1].section == "Needs your decision", tostring(decisions[1].section))
+  assert(decisions[1].text:find("Dune", 1, true) and decisions[1].text:find("100", 1, true)
+    and decisions[1].text:find("240", 1, true), decisions[1].text)
+  -- the conflicted page is not also offered as ordinary cancellable work
+  assert(#PendingChanges.list(q) == 0, #PendingChanges.list(q))
+end)
+
+check("a removal question says what a removal would take with it", function()
+  local q = queues()
+  q.sync_queue:queueRemove(1, 7, 70, "Dune", HARDCOVER.STATUS.READING)
+  local entry = q.sync_queue:get(7)
+  entry.conflict = { kind = "remove", current_user_book_id = 70,
+    changes = { "a rating", "reading progress" }, online = { id = 70 } }
+  local decisions = PendingChanges.decisions(q)
+  assert(#decisions == 1, #decisions)
+  assert(decisions[1].text:find("remove", 1, true), decisions[1].text)
+  assert(decisions[1].note:find("Changed on Hardcover", 1, true), decisions[1].note)
+  -- the pending removal itself is not repeated as a shelf row
+  assert(#PendingChanges.list(q) == 0, #PendingChanges.list(q))
+end)
+
+check("a page waiting behind a removal says so, even while the removal is a question", function()
+  local q = queues()
+  q.sync_queue:queueRemove(1, 7, 70, "Dune", HARDCOVER.STATUS.READING)
+  q.sync_queue:enqueuePage("/b/dune.epub", { mapped_page = 42, book_id = 7, title = "Dune" })
+  local listed = PendingChanges.list(q)
+  local page
+  for _, row in ipairs(listed) do if row.kind == "page" then page = row end end
+  assert(page and page.note and page.note:find("removal", 1, true), page and tostring(page.note))
+  q.sync_queue:get(7).conflict = { kind = "remove", changes = { "a rating" }, online = { id = 70 } }
+  listed = PendingChanges.list(q)
+  assert(#listed == 1 and listed[1].kind == "page", #listed)
+  assert(listed[1].note:find("removal", 1, true), listed[1].note)
+  assert(#PendingChanges.decisions(q) == 1)
+end)
+
+check("a rating blocked by an earlier change is still listed, with the reason", function()
+  local q = queues()
+  q.rating_queue:queue(907, 4.5, "Dune", 101, 42)
+  q.rating_queue:flush({ findUserBook = function() return { id = 907 } end, updateRating = function() return nil end },
+    nil, 42, { barrier = function() return "status" end })
+  local listed = PendingChanges.list(q)
+  assert(#listed == 1 and listed[1].kind == "rating")
+  assert(listed[1].note and listed[1].note:find("earlier change", 1, true), tostring(listed[1].note))
 end)
 
 r.finish()

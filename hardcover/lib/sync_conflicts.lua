@@ -1,11 +1,14 @@
 -- The words for the "your progress differs from Hardcover" questions, kept
 -- apart from the dialog so they can be tested without a screen.
 --
--- Two kinds of question come out of the offline queue (see SyncQueue):
+-- The questions that come out of the offline queue (see SyncQueue):
 --   page    this device read to one page, Hardcover already holds a page well
 --           past it (read on another device)
 --   reread  Hardcover has the book as Read / Did Not Finish, but this device has
 --           new progress: is the book being read again?
+--   remove  this device asked to take the book out of the library, but
+--           Hardcover's record gained work since then (or cannot be checked):
+--           keep it, or remove it anyway?
 
 local _ = require("gettext")
 local T = require("ffi/util").template
@@ -34,6 +37,35 @@ function SyncConflicts.statusName(status_id)
   return _("not being read")
 end
 
+-- "a rating", "a rating and reading progress", ...
+function SyncConflicts.changesText(changes)
+  if type(changes) ~= "table" or #changes == 0 then return nil end
+  if #changes == 1 then return changes[1] end
+  return table.concat(changes, ", ", 1, #changes - 1) .. " and " .. changes[#changes]
+end
+
+-- The one-line description of a decision in the review list.
+function SyncConflicts.decisionText(title, decision)
+  local conflict = decision and (decision.entry and decision.entry.conflict or decision.conflict)
+  if not conflict then return T(_("%1: needs your decision"), title) end
+  if conflict.kind == "remove" then
+    return T(_("%1: remove anyway?"), title)
+  elseif conflict.kind == "reread" then
+    return T(_("%1: read again?"), title)
+  end
+  return T(_("%1: page %2 here, page %3 on Hardcover"), title, conflict.local_page, conflict.cloud_page)
+end
+
+-- Why a removal is being asked about, under its line. The full detail is in the question.
+function SyncConflicts.decisionNote(decision)
+  local conflict = decision and (decision.entry and decision.entry.conflict or decision.conflict)
+  if not conflict then return nil end
+  if conflict.kind == "remove" then return _("Changed on Hardcover since you asked.") end
+  if conflict.kind == "reread" then
+    return T(_("Hardcover has it as %1."), SyncConflicts.statusName(conflict.cloud_status))
+  end
+end
+
 -- { title, rows = { { id, text }... } } for one conflict. The ids are what
 -- SyncQueue:resolve takes, plus "later".
 function SyncConflicts.describe(filepath, entry)
@@ -42,6 +74,26 @@ function SyncConflicts.describe(filepath, entry)
     return nil
   end
   local name = SyncConflicts.title(filepath, entry)
+
+  if conflict.kind == "remove" then
+    local why
+    if conflict.replaced then
+      why = _("Hardcover now has a different library entry for this book.")
+    else
+      local changes = SyncConflicts.changesText(conflict.changes)
+      why = changes and T(_("Hardcover has %1 that this device did not have when you asked to remove it."), changes)
+        or _("This device could not check what changed on Hardcover.")
+    end
+    return {
+      title = T(_("%1\n\nYou asked to remove this book from your library while offline. %2\n\nRemoving it also removes its status, rating and reading history.\n\nWhat should happen?"),
+        name, why),
+      rows = {
+        { id = "keep", text = _("Keep the book") },
+        { id = "remove", text = _("Remove the book anyway") },
+        { id = "later", text = _("Decide later") },
+      },
+    }
+  end
 
   if conflict.kind == "reread" then
     return {
@@ -68,15 +120,46 @@ end
 
 -- The menu row's words.
 function SyncConflicts.menuText(count)
-  return T(_("Resolve sync conflicts (%1)"), count)
+  return T(_("Needs your decision (%1)"), count)
 end
 
 -- What to say after a sync that left questions unanswered.
 function SyncConflicts.notice(count)
   if count == 1 then
-    return _("1 book needs your decision: Settings > Sync > Resolve sync conflicts.")
+    return _("1 book needs your decision. Open Sync to review it.")
   end
-  return T(_("%1 books need your decision: Settings > Sync > Resolve sync conflicts."), count)
+  return T(_("%1 books need your decision. Open Sync to review them."), count)
+end
+
+-- What a sync pass should say: what was sent, what still needs the reader, what
+-- is waiting, and whether anything failed. `result` is from flushSyncQueue.
+function SyncConflicts.outcomeText(result)
+  result = type(result) == "table" and result or { failed = not result }
+  local decisions = tonumber(result.decisions) or 0
+  local waiting = tonumber(result.waiting) or 0
+  local failed = result.failed == true
+  local sent = result.sent == true
+
+  local need = decisions == 1 and _("1 book needs your decision")
+    or T(_("%1 books need your decision"), decisions)
+
+  if failed and decisions > 0 then
+    if sent then
+      return T(_("Some changes were sent. %1; the rest will retry."), need), "error"
+    end
+    return T(_("%1. Other changes will retry."), need), "error"
+  elseif failed then
+    return _("Sync failed. Changes are saved and will retry."), "error"
+  elseif decisions > 0 then
+    if sent then
+      return T(_("Ready changes sent. %1."), need), "info"
+    end
+    return T(_("%1. Other changes are saved."), need), "info"
+  elseif waiting > 0 then
+    return sent and _("Ready changes sent. Some changes are waiting for an earlier one.")
+      or _("Some changes are waiting for an earlier one."), "info"
+  end
+  return _("Progress synced"), "info"
 end
 
 -- A page a conversion from an edition page to a position in this file. `unmap` (optional) is

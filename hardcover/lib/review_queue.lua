@@ -50,11 +50,23 @@ function ReviewQueue:list(user_id)
     if valid(op) and (user_id == nil or OfflineQueue.bookOpForUser(op, user_id)) then
       out[#out + 1] = { user_book_id = op.user_book_id, book_id = op.book_id, user_id = op.user_id,
         text = op.text, spoilers = op.spoilers == true,
-        title = op.title, held = op.held, reason = op.reason }
+        title = op.title, held = op.held, reason = op.reason,
+        blocked = op.blocked, blocked_reason = op.blocked_reason }
     end
   end
   table.sort(out, function(a, b) return tostring(a.book_id or a.user_book_id) < tostring(b.book_id or b.user_book_id) end)
   return out
+end
+
+-- Reviews waiting for an earlier change (a library removal not settled).
+function ReviewQueue:blockedCount(user_id)
+  local n = 0
+  for _, op in pairs(self:ops()) do
+    if valid(op) and op.blocked and (user_id == nil or OfflineQueue.bookOpForUser(op, user_id)) then
+      n = n + 1
+    end
+  end
+  return n
 end
 
 -- Cancel the review waiting for one book.
@@ -69,9 +81,11 @@ end
 
 -- Send what is waiting, one request each. A review Hardcover did not answer for stays queued for
 -- the next try and stops the flush. One it refused is counted and the rest go on; the third
--- refusal in a row holds it until the user presses Sync (retryHeld).
--- `opts`: { json (KOReader's), on_sent(user_book_id, user_book, book_id) for each one that went through }.
--- Returns the number still waiting (held ones included).
+-- refusal in a row holds it until the user presses Sync (retryHeld). `opts.barrier(op)` (optional)
+-- makes a review wait for an earlier change, such as a library removal, without counting it as a
+-- failure.
+-- `opts`: { json (KOReader's), barrier(op), on_sent(user_book_id, user_book, book_id) for each one
+-- that went through }. Returns the number still waiting (held and blocked included).
 function ReviewQueue:flush(api, opts)
   opts = opts or {}
   return self:withFlushLock(function() return #self:list(opts.user_id) end, function()
@@ -84,7 +98,13 @@ function ReviewQueue:flush(api, opts)
 
     for _, key in ipairs(keys) do
       local op = ops[key]
-      if op and not op.held and OfflineQueue.bookOpForUser(op, opts.user_id) then
+      local mine = op and OfflineQueue.bookOpForUser(op, opts.user_id)
+      local barrier = mine and opts.barrier and opts.barrier(op) or nil
+      if op and barrier then
+        op.blocked, op.blocked_reason = true, barrier
+        self:persist()
+      elseif op and not op.held and OfflineQueue.bookOpForUser(op, opts.user_id) then
+        op.blocked, op.blocked_reason = nil, nil
         local id, err = self:resolveUserBook(api, op, opts.user_id)
         local user_book
         if id and ops[key] == op then user_book, err = api:updateReview(id, op.text, op.spoilers == true, opts.json, op.at) end

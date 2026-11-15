@@ -47,7 +47,7 @@ local function build_detail(emu, opts)
 
   local DialogManager = require("hardcover/lib/ui/dialog_manager")
 
-  local manager = DialogManager:new{ settings = settings }
+  local manager = DialogManager:new{ settings = settings, sync_queue = opts.sync_queue }
   manager:showBookDetail(opts.book_id, opts.edition_id)
   emu:pump()
 
@@ -393,6 +393,28 @@ return {
       end
       targets[#targets + 1] = d
     end
+
+    -- A book with a sync question has one visible way to answer it here.
+    emu:closeAll()
+    local SyncQueue = require("hardcover/lib/sync_queue")
+    local store = {}
+    local queue = SyncQueue:new { settings = {
+      readSetting = function(_, k) return store[k] end,
+      saveSetting = function(_, k, v) store[k] = v end,
+      flush = function() end,
+    } }
+    queue:enqueuePage("/books/decision.epub", { title = "The Dispossessed", mapped_page = 40,
+      book_id = 101, edition_id = 3 })
+    queue:get("/books/decision.epub").conflict = { kind = "page", local_page = 40, cloud_page = 120, seq = 1 }
+    local _, decision_detail = build_detail(emu, { book_id = 101, sync_queue = queue })
+    emu:pump()
+    emu:expectText("Decide")
+    emu:shot("book_detail_decide")
+    local d = decision_detail.decision_button.dimen
+    emu:tapExpecting(d.x + math.floor(d.w / 2), d.y + math.floor(d.h / 2))
+    emu:pump()
+    emu:expectText("Use Hardcover (page 120)")
+    emu:shot("book_detail_decision_question")
 
     print(string.format("  detail rendered in both menu modes"))
   end,

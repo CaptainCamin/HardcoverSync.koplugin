@@ -6,6 +6,7 @@
 shell_home            # "Sync now" is 80px tall at 300 dpi, TOUCH_MIN is 96
 shell_home_waiting    # same button
 shell_home_cards      # same button
+shell_home_decision   # same button
 reviews_first         # "Read more" is 80px tall
 reviews_more
 reviews_scrolled

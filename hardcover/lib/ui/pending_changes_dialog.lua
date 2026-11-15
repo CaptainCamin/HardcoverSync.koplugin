@@ -5,7 +5,10 @@
 -- opts: queues ({ sync_queue, goal_queue, rating_queue, list_queue, journal_queue, review_queue }),
 -- on_cancel(row) after a change was cancelled (so the screens that showed it can show
 -- Hardcover's version again), on_send() after the list is closed, on_discard() after the
--- queued changes were discarded.
+-- queued changes were discarded, on_resolved(decision) after an answer was saved.
+--
+-- Open questions come first, in their own "Needs your decision" group. Each opens one
+-- question; Back, the X and "Decide later" leave it waiting and do not open another.
 
 local UIManager = require("ui/uimanager")
 local _ = require("gettext")
@@ -21,15 +24,39 @@ function PendingChangesDialog.show(opts)
   local screen
 
   local function open()
+    local decisions = PendingChanges.decisions(opts.queues)
     local rows = PendingChanges.list(opts.queues)
-    if #rows == 0 then
+    if #decisions == 0 and #rows == 0 then
       StatusDialogs.info(_("Nothing is waiting to be sent."))
       return
     end
 
     local items = {}
+    for _i, row in ipairs(decisions) do
+      items[#items + 1] = {
+        section = row.section,
+        -- the consequence on the label, the reason on its own line: neither is cut off
+        text = row.text,
+        help = row.note,
+        callback = function()
+          require("hardcover/lib/ui/sync_conflict_dialog").show {
+            decision = row.decision,
+            on_done = function(resolved)
+              if resolved == 0 then return end
+              if screen then UIManager:close(screen) end
+              if opts.on_resolved then
+                opts.on_resolved(row.decision)
+              else
+                open() -- the list again, without the answered question
+              end
+            end,
+          }
+        end,
+      }
+    end
     for _i, row in ipairs(rows) do
       items[#items + 1] = {
+        section = row.section,
         text = PendingChanges.line(row),
         callback = function()
           if row.started then

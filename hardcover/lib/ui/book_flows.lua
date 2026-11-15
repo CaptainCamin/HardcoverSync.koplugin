@@ -52,11 +52,15 @@ function Flows:showBookDetail(book_id, edition_id, opts)
   opts = opts or {}
   local dialog
   local on_device_file = self:deviceFile(book_id)
+  local decision = self.sync_queue and self.sync_queue.decisionForBook
+    and self.sync_queue:decisionForBook(book_id, User:getId())
   dialog = require("hardcover/lib/ui/book_detail_dialog"):new {
     detail = nil,
     loading = true,
     -- the details on screen go along, so the reviews can say which book and how it is rated
     on_reviews = function(d) self:showReviews(book_id, Reviews.summary(d and d.detail)) end,
+    -- this book has a question waiting: one visible way to answer it here
+    on_decision = decision and function(d) self:reviewDecision(decision) end or nil,
     -- the book is on this device (a file the plugin linked to it): Open. Otherwise the file search
     -- below, which is for looking further.
     on_open = on_device_file and function(d) self:openOnDevice(d, on_device_file) end or nil,
@@ -190,6 +194,19 @@ function Flows:showBookDetail(book_id, edition_id, opts)
   end)
 
   return dialog
+end
+
+-- Answer the question about this book from its details screen: one question, and
+-- Back or "Decide later" leaves it waiting.
+function Flows:reviewDecision(decision)
+  require("hardcover/lib/ui/sync_conflict_dialog").show {
+    decision = decision,
+    on_done = function(resolved)
+      if resolved == 0 then return end
+      StatusDialogs.info(_("Choice saved."), 2)
+      if self.flush_goals then self.flush_goals() end
+    end,
+  }
 end
 
 function Flows:bookSourceChoice()
@@ -957,12 +974,35 @@ function Flows:removeFromShelf(dialog)
   local book_id = detail.book and detail.book.book_id
 
   local waiting = self.sync_queue and book_id and self.sync_queue:shelfOp(book_id, User:getId())
+  -- What this device last knew of the record, so a later replay can tell whether Hardcover
+  -- gained work the reader never saw. Unknown review/progress still count as a question then.
+  local status = self.state and self.state.book_status or {}
+  -- The reader's open book is not necessarily this one; only use its reads when it is.
+  if status.book_id ~= nil and detail.book and tonumber(status.book_id) ~= tonumber(detail.book.book_id) then
+    status = {}
+  end
+  if status.id ~= nil and user_book_id ~= nil and tonumber(status.id) ~= tonumber(user_book_id) then
+    status = {}
+  end
+  local base = {
+    status_id = detail.status_id or status.status_id,
+    status_known = detail.status_id ~= nil or status.status_id ~= nil,
+    rating = detail.user_rating,
+    rating_known = true,
+    review_raw = detail.user_review,
+    review_has_spoilers = detail.review_spoilers,
+    review_known = detail.review_known == true,
+    reads = self.sync_queue and self.sync_queue.readSignature
+      and self.sync_queue.readSignature(status.user_book_reads) or nil,
+    reads_known = type(status.user_book_reads) == "table"
+      and self.sync_queue and self.sync_queue.readSignature ~= nil,
+  }
   -- offline, or a book that only went on a shelf offline (the connection may be back, but
   -- Hardcover has no record of it yet): kept, not sent
   if self.sync_queue and book_id and (not Network.connected() or (not user_book_id and waiting)) then
     if not (user_book_id or waiting) then return end
     -- a book that only went on a shelf offline has nothing on Hardcover to remove
-    local outcome = self.sync_queue:queueRemove(User:getId(), book_id, user_book_id, detail.book.title, old_status_id)
+    local outcome = self.sync_queue:queueRemove(User:getId(), book_id, user_book_id, detail.book.title, old_status_id, base)
     self:shelfChanged(book_id, old_status_id, nil, nil, true)
     if Live.shown(dialog) then dialog:setStatus(nil, nil) end
     if outcome == "dropped" then

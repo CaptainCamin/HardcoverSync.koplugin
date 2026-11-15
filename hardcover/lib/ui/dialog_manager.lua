@@ -21,6 +21,7 @@ local ScreenRegistry = require("hardcover/lib/screen_registry")
 local ShelfLoader = require("hardcover/lib/shelf_loader")
 local ShelvesSync = require("hardcover/lib/shelves_sync")
 local User = require("hardcover/lib/user")
+local Decisions = require("hardcover/lib/decisions")
 
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local SETTING = require("hardcover/lib/constants/settings")
@@ -638,6 +639,13 @@ function DialogManager:showHomeBody(host)
         + (self.list_queue and self.list_queue:count() or 0)
         + (self.journal_queue and self.journal_queue:count() or 0)
         + (self.review_queue and self.review_queue:count() or 0)
+    end,
+    decision_fn = function()
+      return Decisions.count({
+        user_id = User.settings and User:getId() or nil,
+        sync_queue = self.sync_queue, goal_queue = self.goal_queue, rating_queue = self.rating_queue,
+        list_queue = self.list_queue, journal_queue = self.journal_queue, review_queue = self.review_queue,
+      })
     end,
     -- the sync box's Sync now sends; tapping the rest of the box opens what is waiting
     sync_cb = function() self:syncNow() end,

@@ -293,6 +293,10 @@ local function fakeApi(opts)
         user_book_reads = { { id = 900, edition_id = 3, started_at = "2026-01-01" } },
       }
     end,
+    -- a removal asks with more fields; older cases answer through findUserBook
+    findUserBookForRemoval = function(self, book_id, user_id)
+      return self.findUserBook(self, book_id, user_id)
+    end,
     updateUserBook = function(_, book_id, status_id, privacy, edition_id, at)
       calls[#calls + 1] = { op = "updateUserBook", book_id = book_id, status_id = status_id, at = at }
       if opts.update_fails then return nil end
@@ -790,14 +794,17 @@ check("cloud far ahead: choosing Hardcover drops ours and remembers where to res
   eq(q:get("/books/a.epub"), nil, "entry cleaned up")
 end)
 
-check("Decide later and reading on both leave things sensible", function()
+check("Decide later and reading on both leave the question waiting", function()
   local q = newQueue()
   q:enqueuePage("/books/a.epub", { mapped_page = 100, book_id = 1, edition_id = 3 })
   q:flush(cloudAhead(200), { user_id = 1 })
   eq(q:resolve("/books/a.epub", "later"), false, "later changes nothing")
   eq(q:conflictCount(), 1, "still waiting")
   q:enqueuePage("/books/a.epub", { mapped_page = 130, book_id = 1, edition_id = 3 })
-  eq(q:conflictCount(), 0, "reading on asks the question afresh")
+  -- A later page turn is saved behind the question; it is not an answer, and it must not
+  -- erase the barrier that keeps the conflicting page from being sent.
+  eq(q:conflictCount(), 1, "reading on keeps the barrier")
+  eq(q:get("/books/a.epub").conflict.seq, 1, "the question is still about the first page")
 end)
 
 check("one book that always fails does not block the others", function()
@@ -933,28 +940,217 @@ check("a failed batched lookup falls back to one lookup per book", function()
   eq(finds, 2, "each book asked for its own record")
 end)
 
-check("removals with no library id use the batched records", function()
-  -- a removal made while the book's first send was out has no library id yet
-  local q, settings = newQueue()
-  local pending = {}
-  for _, id in ipairs({ 7, 8, 9 }) do
-    pending[tostring(id)] = { book_id = id, user_id = 1, remove = true, remove_at = 100, updated_at = 100 }
-  end
-  settings:saveSetting("pending", pending)
+-- A removal and the record it expects: the base is what this device knew when the
+-- reader asked to remove the book.
+local function removalBase(overrides)
+  local base = {
+    status_known = true, status_id = HARDCOVER.STATUS.READING,
+    rating_known = true, rating = nil,
+    reads_known = true, reads = nil,
+    review_known = false,
+    updated_at = "2026-01-01T00:00:00Z",
+  }
+  for key, value in pairs(overrides or {}) do base[key] = value end
+  return base
+end
+
+local function removalRecord(overrides)
+  local record = {
+    id = 70, book_id = 7, status_id = HARDCOVER.STATUS.READING, rating = nil,
+    updated_at = "2026-01-01T00:00:00Z", has_review = false, user_book_reads = {},
+  }
+  for key, value in pairs(overrides or {}) do record[key] = value end
+  return record
+end
+
+local function removalQueue(book_id, record_id, base)
+  local q = newQueue()
+  q:queueRemove(1, book_id, record_id, "Dune", HARDCOVER.STATUS.READING, base or removalBase())
+  return q
+end
+
+check("an unchanged removal deletes the record", function()
+  local q = removalQueue(7, 70, removalBase({ review_known = true, review_raw = nil }))
   local api = fakeApi()
+  api.findUserBookForRemoval = function() return removalRecord() end
   local removed = {}
-  api.removeUserBook = function(_, id) removed[#removed + 1] = id return true end
-  api.findUserBooks = function(_, ids)
-    eq(#ids, 3, "every removal is in the batch")
-    return { ["7"] = { id = 70 }, ["8"] = false, ["9"] = { id = 90 } }
-  end
+  api.removeUserBook = function(_, id) removed[#removed + 1] = id return { id = id } end
   eq(q:flush(api, { user_id = 1 }), true, "flush result")
-  local finds = 0
-  for _, c in ipairs(api.calls) do if c.op == "findUserBook" then finds = finds + 1 end end
-  eq(finds, 0, "no per-book lookups")
-  table.sort(removed)
-  eq(table.concat(removed, ","), "70,90", "only the books on the shelf are removed")
-  eq(#q:keys(), 0, "every removal is done")
+  eq(#removed, 1, "removed once"); eq(removed[1], 70, "the saved record")
+  eq(#q:keys(), 0, "nothing left")
+end)
+
+check("a removal no longer in the library finishes quietly", function()
+  local q = removalQueue(7, 70)
+  local api = fakeApi()
+  api.findUserBookForRemoval = function() return nil end
+  local removed = 0
+  api.removeUserBook = function() removed = removed + 1 return true end
+  eq(q:flush(api, { user_id = 1 }), true, "flush result")
+  eq(removed, 0, "nothing to delete")
+  eq(#q:keys(), 0, "nothing left")
+end)
+
+check("a book that gained work online keeps both the book and the removal", function()
+  local q = removalQueue(7, 70, removalBase({ rating = 4, reads = "1:10:3::" }))
+  local api = fakeApi()
+  api.findUserBookForRemoval = function()
+    return removalRecord({ rating = 5, user_book_reads = { { id = 1, progress_pages = 240, edition_id = 3 } },
+      has_review = true, review_raw = "new words" })
+  end
+  local removed = 0
+  api.removeUserBook = function() removed = removed + 1 return true end
+  eq(q:flush(api, { user_id = 1 }), false, "a question is not a successful send")
+  eq(removed, 0, "the book is kept")
+  local entry = q:get(7)
+  eq(entry.remove, true, "the removal is kept")
+  eq(entry.conflict.kind, "remove", "a decision")
+  local changes = entry.conflict.changes
+  local text = table.concat(changes, ",")
+  for _, want in ipairs({ "a rating", "reading progress", "a review" }) do
+    if not text:find(want, 1, true) then error("missing " .. want .. " in " .. text) end
+  end
+  eq(q:conflictCount(), 1, "one question")
+end)
+
+check("one removal's question does not stop another book's removal", function()
+  local q = removalQueue(7, 70, removalBase({ rating = 4 }))
+  -- a second book with an unchanged record
+  q:queueRemove(1, 8, 80, "Emma", HARDCOVER.STATUS.READING, removalBase())
+  local api = fakeApi()
+  api.findUserBookForRemoval = function(book_id)
+    if tonumber(book_id) == 7 then return removalRecord({ rating = 5 }) end
+    return removalRecord({ id = 80, book_id = 8 })
+  end
+  local removed = {}
+  api.removeUserBook = function(_, id) removed[#removed + 1] = id return { id = id } end
+  eq(q:flush(api, { user_id = 1 }), false, "the pass reports the unanswered question")
+  eq(table.concat(removed, ","), "80", "the other removal went through")
+  eq(q:get(7).conflict.kind, "remove")
+  eq(q:get(8), nil)
+end)
+
+check("a replacement record is a question even when its fields match", function()
+  local q = removalQueue(7, 70)
+  local api = fakeApi()
+  api.findUserBookForRemoval = function() return removalRecord({ id = 71 }) end
+  local removed = 0
+  api.removeUserBook = function() removed = removed + 1 return true end
+  q:flush(api, { user_id = 1 })
+  eq(removed, 0, "the replacement is kept")
+  eq(q:get(7).conflict.replaced, true, "reported as a replacement")
+end)
+
+check("keeping the book releases what waited behind the removal", function()
+  local q = removalQueue(7, 70, removalBase({ rating = 4 }))
+  local api = fakeApi()
+  api.findUserBookForRemoval = function() return removalRecord({ rating = 5 }) end
+  q:flush(api, { user_id = 1 })
+  q:enqueuePage("/books/dune.epub", { mapped_page = 42, book_id = 7, edition_id = 3, title = "Dune" })
+  eq(q:conflictCount(), 1, "reading on does not answer the removal")
+  eq(q:resolve("/books/dune.epub", "keep"), true, "kept the book")
+  local entry = q:get("/books/dune.epub")
+  eq(entry.remove, nil, "no removal left")
+  eq(entry.mapped_page, 42, "the page behind it is still saved")
+  eq(q:flush(api, { user_id = 1 }), true, "the page goes")
+  eq(q:hasPending("/books/dune.epub"), false)
+end)
+
+check("removing anyway rechecks once more before deleting", function()
+  local q = removalQueue(7, 70, removalBase({ rating = 4 }))
+  local api = fakeApi()
+  api.findUserBookForRemoval = function() return removalRecord({ rating = 5 }) end
+  local removed = 0
+  api.removeUserBook = function() removed = removed + 1 return true end
+  q:flush(api, { user_id = 1 })
+  eq(q:resolve(7, "remove"), true, "accepted the online record")
+  eq(q:get(7).conflict, nil, "the question is gone")
+  -- Hardcover changes again before the next pass: ask again rather than delete unseen work
+  api.findUserBookForRemoval = function() return removalRecord({ rating = 3 }) end
+  q:flush(api, { user_id = 1 })
+  eq(removed, 0, "not deleted")
+  eq(q:get(7).conflict.kind, "remove", "asked again")
+  eq(q:resolve(7, "remove"), true, "accepted the newer record")
+  -- the same record as the accepted one can go
+  api.findUserBookForRemoval = function() return removalRecord({ rating = 3 }) end
+  eq(q:flush(api, { user_id = 1 }), true, "flush result")
+  eq(removed, 1, "deleted")
+  eq(#q:keys(), 0)
+end)
+
+check("a waiting conflict is a decision that can be answered through one interface", function()
+  local q = newQueue()
+  q:enqueuePage("/books/a.epub", { mapped_page = 100, book_id = 1, edition_id = 3 })
+  q:flush(cloudAhead(200), { user_id = 1 })
+  local decisions = q:decisions(1)
+  eq(#decisions, 1, "one decision")
+  eq(decisions[1].kind, "page", "kind")
+  eq(decisions[1].book_id, 1, "book")
+  local by_book = q:decisionForBook(1, 1)
+  eq(by_book and by_book.id, decisions[1].id, "found by book")
+  eq(q:decisionForBook(2, 1), nil, "not another book's")
+  eq(decisions[1].resolve("cloud"), true, "answered")
+  eq(q:conflictCount(), 0, "no question left")
+  eq(q:takeResumePage("/books/a.epub"), 200, "the answer took effect")
+end)
+
+check("waiting counts separate questions from failures", function()
+  local q = newQueue()
+  q:enqueuePage("/books/a.epub", { mapped_page = 100, book_id = 1, edition_id = 3 })
+  q:flush(cloudAhead(200), { user_id = 1 })
+  q:enqueuePage("/books/b.epub", { mapped_page = 5, book_id = 2, edition_id = 3 })
+  local counts = q:waitingCounts(1)
+  eq(counts.decisions, 1, "the question")
+  eq(counts.failed, 1, "work that has not had a turn")
+  eq(counts.waiting, 0, "nothing held")
+  -- a changed reading is a dependant; a refusal is a failed send
+  q:get("/books/b.epub").held, q:get("/books/b.epub").reason = true, "reading_changed"
+  local again = q:waitingCounts(1)
+  eq(again.waiting, 1, "the changed reading")
+  eq(again.failed, 0, "not a failure")
+  q:get("/books/b.epub").reason = "refused"
+  eq(q:waitingCounts(1).failed, 1, "a refusal")
+end)
+
+check("a shelf or removal barrier holds a rating but a page question does not", function()
+  local q = newQueue()
+  q:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.FINISHED, book_id = 1 })
+  eq(q:bookBarrier(1, nil, 1, "rating"), "status", "a shelf change")
+  eq(q:bookBarrier(1, nil, 1, "review"), nil, "a review can still go")
+  q:queueRemove(1, 1, 50, "Dune", HARDCOVER.STATUS.READING, removalBase())
+  eq(q:bookBarrier(1, nil, 1, "rating"), "remove", "a removal holds the rating")
+  eq(q:bookBarrier(1, nil, 1, "review"), "remove", "and the review")
+  -- a page question on a stable record does not stop either
+  local q2 = newQueue()
+  q2:enqueuePage("/books/a.epub", { mapped_page = 100, book_id = 1, edition_id = 3 })
+  q2:flush(cloudAhead(200), { user_id = 1 })
+  eq(q2:bookBarrier(1, nil, 1, "rating"), nil, "rating on a stable record")
+  eq(q2:bookBarrier(1, nil, 1, "review"), nil, "review on a stable record")
+  -- a reread question changes a shelf, so a rating waits for it
+  q2:get("/books/a.epub").conflict = { kind = "reread", local_page = 100, cloud_status = HARDCOVER.STATUS.FINISHED }
+  eq(q2:bookBarrier(1, nil, 1, "rating"), "reading", "a reread question")
+end)
+
+check("a removal keeps the work already waiting and does not send it before the delete", function()
+  local q = newQueue()
+  q:enqueuePage("/books/a.epub", { mapped_page = 42, book_id = 7, edition_id = 3 })
+  q:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.FINISHED, book_id = 7 })
+  eq(q:queueRemove(1, 7, 70, "Dune", HARDCOVER.STATUS.READING, removalBase()), "queued")
+  local entry = q:get(7)
+  eq(entry.mapped_page, 42, "the page is kept with the removal")
+  eq(entry.status_id, HARDCOVER.STATUS.FINISHED, "the status is kept")
+  eq(entry.remove_seq, 2, "the boundary is where the removal was asked for")
+  -- a page read after asking to remove waits behind it
+  q:enqueuePage("/books/a.epub", { mapped_page = 50, book_id = 7, edition_id = 3 })
+  eq(q:get(7).remove_seq, 2, "the boundary does not move")
+  local api = fakeApi()
+  api.findUserBookForRemoval = function() return removalRecord() end
+  local sent, removed = 0, 0
+  api.updatePage = function() sent = sent + 1 return nil end
+  api.removeUserBook = function() removed = removed + 1 return { id = 70 } end
+  eq(q:flush(api, { user_id = 1 }), true, "flush result")
+  eq(sent, 0, "no page went out before the delete")
+  eq(removed, 1, "the record was deleted")
 end)
 
 check("a single queued book keeps its one lookup and sends no batch", function()

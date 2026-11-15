@@ -30,6 +30,7 @@ local VERSION = require("hardcover_version")
 local EndOfBook = require("hardcover/lib/end_of_book")
 local Shelf = require("hardcover/lib/shelf")
 local SyncConflicts = require("hardcover/lib/sync_conflicts")
+local Decisions = require("hardcover/lib/decisions")
 
 local HardcoverMenu = {}
 HardcoverMenu.__index = HardcoverMenu
@@ -707,7 +708,11 @@ function HardcoverMenu:pendingTotal()
 end
 
 function HardcoverMenu:conflictCount()
-  return self.sync_queue and self.sync_queue.conflictCount and self.sync_queue:conflictCount() or 0
+  return Decisions.count({
+    user_id = User.settings and User:getId() or nil,
+    sync_queue = self.sync_queue, goal_queue = self.goal_queue, rating_queue = self.rating_queue,
+    list_queue = self.list_queue, journal_queue = self.journal_queue, review_queue = self.review_queue,
+  })
 end
 
 -- Every change waiting to be sent, each with a way to cancel just that one, a way to discard
@@ -728,6 +733,15 @@ function HardcoverMenu:showPendingChanges(menu_instance)
     end,
     on_discard = function() self:queueChanged() end,
     on_send = function() self:sendPending() end,
+    -- an answer is only useful once it is sent; this sends whatever may now be ready
+    on_resolved = function()
+      self:queueChanged()
+      if self:pendingTotal() > 0 then
+        self:sendPending()
+      else
+        StatusDialogs.info(_("Choice saved."), 2)
+      end
+    end,
   }
   if menu_instance and menu_instance.updateItems then menu_instance:updateItems() end
 end
@@ -763,26 +777,17 @@ end
 function HardcoverMenu:getSyncConflictsMenuItem()
   return {
     text_func = function()
-      return SyncConflicts.menuText(self.sync_queue:conflictCount())
+      return SyncConflicts.menuText(self:conflictCount())
     end,
     enabled_func = function()
-      return self.enabled and self.sync_queue:conflictCount() > 0
+      return self.enabled and self:conflictCount() > 0
     end,
     callback = function(menu_instance)
-      -- loaded here, not at the top: the dialog pulls in the whole picker and theme
-      require("hardcover/lib/ui/sync_conflict_dialog").show {
-        queue = self.sync_queue,
-        on_done = function(resolved)
-          if menu_instance and menu_instance.updateItems then menu_instance:updateItems() end
-          -- answers are only useful once they are sent
-          if resolved > 0 then
-            self:sendPending()
-          end
-        end,
-      }
+      -- one home for every open question: the same group Pending changes shows
+      self:showPendingChanges(menu_instance)
     end,
     keep_menu_open = true,
-    tile = _("Conflicts"),
+    tile = _("Decisions"),
   }
 end
 
