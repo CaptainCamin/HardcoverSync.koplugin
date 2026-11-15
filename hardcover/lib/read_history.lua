@@ -336,6 +336,12 @@ end
 local function applyAction(read, action)
   for key, value in pairs(action.change or {}) do read[key] = value end
   for key in pairs(action.clear or {}) do read[key] = nil end
+  -- an edition change carries the chosen edition's format and page count too, so the row says
+  -- what the reader chose before the queue reaches Hardcover
+  if action.edition then
+    read.edition = copyRead({ edition = action.edition }).edition
+    read.edition_id = read.edition.id or read.edition.edition_id or read.edition_id
+  end
 end
 
 function ReadHistory.project(reads, actions)

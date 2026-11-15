@@ -67,6 +67,20 @@ check("a newer save replaces the old one", function()
   clock = 5000
 end)
 
+check("editions are kept with the reads, and a reads-only save keeps them", function()
+  local reads = store()
+  local editions = { { edition_id = 7, pages = 304, edition_format = "Paperback" },
+    { edition_id = 8, pages = 608, edition_format = "E-book" } }
+  reads:put(1, 10, { read(1) }, editions)
+  local saved = reads:get(1, 10)
+  assert(saved.editions and #saved.editions == 2 and saved.editions[2].pages == 608)
+  reads:put(1, 10, { read(2) })
+  assert(#reads:get(1, 10).editions == 2, "a reads refresh threw away the editions")
+  assert(reads:putEditions(1, 10, { editions[1] }))
+  local one = reads:get(1, 10)
+  assert(#one.editions == 1 and #one.reads == 1, "putEditions changed the reads")
+end)
+
 check("a store that cannot be opened keeps nothing and does not raise", function()
   local reads, db = store()
   db.fail = true

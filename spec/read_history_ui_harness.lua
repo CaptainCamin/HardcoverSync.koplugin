@@ -211,16 +211,48 @@ end)
 
 print("\n== edit read ==")
 
-check("the form shows both dates, the precision and the edition, and starts with no changes", function()
-  local dialog = ReadEditDialog:new { book = { title = "Dune", pages = 304 }, read = read(1), today = today }
+check("the form shows both dates, the precision and a tappable edition, and starts with no changes", function()
+  local dialog = ReadEditDialog:new { book = { title = "Dune", pages = 304 }, read = read(1), today = today,
+    editions = { { edition_id = 8, pages = 608, edition_format = "E-book", reading_format_id = 1 } } }
   local keys = {}
   for _, row in ipairs(dialog:rows()) do keys[#keys + 1] = row.key end
   assert(table.concat(keys, ",") == "started_at,finished_at,finished_at_precision,edition",
     table.concat(keys, ","))
   assert(dialog:rows()[4].value == "Paperback · 304 pages", dialog:rows()[4].value)
-  assert(dialog.row_taps.edition == nil, "the edition is shown, not yet tappable")
+  assert(dialog.row_taps.edition ~= nil, "the edition is not tappable")
   assert(dialog.summary[1] == "No changes yet", dialog.summary[1])
   assert(dialog.save_enabled == false and dialog.save_button.callback == nil)
+end)
+
+check("choosing an edition converts the page and shows the page reached", function()
+  local dialog = ReadEditDialog:new { book = { title = "Dune", pages = 304 }, read = read(1), today = today,
+    editions = { { edition_id = 8, pages = 608, edition_format = "E-book", reading_format_id = 1 } } }
+  dialog:setEdition({ edition_id = 8, pages = 608, edition_format = "E-book", reading_format_id = 1 })
+  assert(dialog.row_taps.progress_pages ~= nil, "no page reached row")
+  assert(dialog:pageText() == "300 of 304 → 600 of 608", dialog:pageText())
+  assert(dialog:preview().edition_id == 8 and dialog:preview().progress_pages == 600)
+  -- a corrected page is what the row and the sparse change show
+  dialog:change("progress_pages", 590)
+  assert(dialog:pageText() == "300 of 304 → 590 of 608", dialog:pageText())
+  assert(dialog:preview().progress_pages == 590)
+end)
+
+check("an edition with no page count cannot invent a page", function()
+  local dialog = ReadEditDialog:new { book = { title = "Dune", pages = 304 }, read = read(1), today = today,
+    editions = { { edition_id = 9, edition_format = "Audiobook", reading_format_id = 2 } } }
+  dialog:setEdition({ edition_id = 9, edition_format = "Audiobook", reading_format_id = 2 })
+  assert(dialog:pageText() == "The page could not be converted", dialog:pageText())
+  assert(dialog.form.progress_pages == 300 and dialog:preview().progress_pages == nil,
+    "the page was changed without a page count")
+end)
+
+check("the chosen edition is handed to the caller with the change", function()
+  local chosen
+  local dialog = ReadEditDialog:new { book = { title = "Dune" }, read = read(1), today = today,
+    on_save = function(_change, _clear, edition) chosen = edition end }
+  dialog:setEdition({ edition_id = 8, pages = 608, edition_format = "E-book", reading_format_id = 1 })
+  dialog:save()
+  assert(chosen and chosen.edition_id == 8 and chosen.pages == 608)
 end)
 
 check("a date change is summarised and sent sparse", function()

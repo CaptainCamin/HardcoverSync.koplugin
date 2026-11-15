@@ -66,9 +66,9 @@ local calls, answers
 local function resetApi(answer)
   calls = {}
   answers = answer or {}
-  Api.updatePage = function(_, read_id, edition_id, page, started_at)
-    calls[#calls + 1] = { "updatePage", read_id, edition_id, page, started_at }
-    return answers.updatePage
+  Api.updateRead = function(_, read_id, fields)
+    calls[#calls + 1] = { "updateRead", read_id, fields.edition_id, fields.progress_pages, fields.started_at }
+    return answers.updateRead
   end
   Api.updateUserBook = function(_, book_id, status_id, privacy_setting_id, edition_id)
     calls[#calls + 1] = { "updateUserBook", book_id, status_id, privacy_setting_id, edition_id }
@@ -132,8 +132,10 @@ end
 local check = r.test
 
 check("an edition change cannot publish still-cancellable progress", function()
-  resetApi({ updatePage = { id = 5, user_book_reads = { { id = 77, progress_pages = 160, edition_id = 20 } } },
-    updateUserBook = { id = 5, status_id = 3, edition_id = 20, privacy_setting_id = 1 } })
+  resetApi({ updateRead = { id = 5, status_id = 3, edition_id = 20, privacy_setting_id = 1,
+      user_book_reads = { { id = 77, progress_pages = 160, edition_id = 20, started_at = "2026-01-01" } } },
+    updateUserBook = { id = 5, status_id = 3, edition_id = 20, privacy_setting_id = 1,
+      user_book_reads = { { id = 77, progress_pages = 160, edition_id = 20, started_at = "2026-01-01" } } } })
   local status = shelvedStatus()
   status.user_book_reads[1].progress_pages = 210 -- local pending overlay, not confirmed server progress
   local h, store, queue = newLink({ status = status,
@@ -146,15 +148,17 @@ check("an edition change cannot publish still-cancellable progress", function()
 end)
 
 check("a shelved book without pending changes moves its read to the new edition", function()
-  resetApi({ updatePage = { id = 5, user_book_reads = { { id = 77, progress_pages = 160, edition_id = 20 } } },
-    updateUserBook = { id = 5, status_id = 3, edition_id = 20, privacy_setting_id = 1 } })
+  resetApi({ updateRead = { id = 5, status_id = 3, edition_id = 20, privacy_setting_id = 1,
+      user_book_reads = { { id = 77, progress_pages = 160, edition_id = 20, started_at = "2026-01-01" } } },
+    updateUserBook = { id = 5, status_id = 3, edition_id = 20, privacy_setting_id = 1,
+      user_book_reads = { { id = 77, progress_pages = 160, edition_id = 20, started_at = "2026-01-01" } } } })
   local h, store, queue, saved = newLink({ status = shelvedStatus() })
   shown = {}
 
   assert(h:linkBook(newBook()) == true, "linkBook did not succeed")
-  assert(#calls == 2 and calls[1][1] == "updatePage" and calls[2][1] == "updateUserBook",
+  assert(#calls == 2 and calls[1][1] == "updateRead" and calls[2][1] == "updateUserBook",
     "server calls out of order or missing: " .. #calls)
-  assert(calls[1][2] == 77 and calls[1][3] == 20 and calls[1][4] == 160 and calls[1][5] == "2026-01-01",
+  assert(calls[1][2] == 77 and calls[1][3] == 20 and calls[1][4] == 160,
     "the read was not moved to the new edition with its progress")
   assert(calls[2][2] == 7 and calls[2][3] == 3 and calls[2][4] == 1 and calls[2][5] == 20,
     "the shelf entry was not moved to the new edition")
@@ -168,7 +172,7 @@ check("a shelved book without pending changes moves its read to the new edition"
 end)
 
 check("a failed read move changes nothing here, and a retry gives the same result", function()
-  resetApi({ updatePage = nil })
+  resetApi({ updateRead = nil })
   local h, store, queue = newLink({ status = shelvedStatus() })
   shown = {}
 
@@ -180,14 +184,18 @@ check("a failed read move changes nothing here, and a retry gives the same resul
     "the saved status changed")
   assert(#shown == 1, "the failure was not shown")
 
-  resetApi({ updatePage = { id = 5, user_book_reads = { { id = 77, progress_pages = 160, edition_id = 20 } } },
-    updateUserBook = { id = 5, status_id = 3, edition_id = 20, privacy_setting_id = 1 } })
+  resetApi({ updateRead = { id = 5, status_id = 3, edition_id = 20, privacy_setting_id = 1,
+      user_book_reads = { { id = 77, progress_pages = 160, edition_id = 20, started_at = "2026-01-01" } } },
+    updateUserBook = { id = 5, status_id = 3, edition_id = 20, privacy_setting_id = 1,
+      user_book_reads = { { id = 77, progress_pages = 160, edition_id = 20, started_at = "2026-01-01" } } } })
   assert(h:linkBook(newBook()) == true, "the retry did not succeed")
   assert(calls[1][4] == 160, "the retry moved the progress from a different starting point")
 end)
 
 check("a failed shelf update changes nothing here", function()
-  resetApi({ updatePage = { id = 5, user_book_reads = { { id = 77, progress_pages = 160, edition_id = 20 } } }, updateUserBook = nil })
+  resetApi({ updateRead = { id = 5, status_id = 3, edition_id = 20, privacy_setting_id = 1,
+      user_book_reads = { { id = 77, progress_pages = 160, edition_id = 20, started_at = "2026-01-01" } } },
+    updateUserBook = nil })
   local h, store, queue = newLink({ status = shelvedStatus() })
   shown = {}
 

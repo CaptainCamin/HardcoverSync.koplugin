@@ -89,6 +89,31 @@ local function fakeApi()
     end
     return { id = read_id }
   end
+  function api:updatePage(read_id, edition_id, page, started_at)
+    self.calls[#self.calls + 1] = { op = "updatePage", read_id = read_id, edition_id = edition_id,
+      page = page, started_at = started_at }
+    for _, record in pairs(self.records) do
+      for _, row in ipairs(record.user_book_reads or {}) do
+        if tostring(row.id) == tostring(read_id) then
+          row.progress_pages, row.edition_id = page, edition_id
+          return record
+        end
+      end
+    end
+  end
+  function api:updateUserBook(book_id, status_id, privacy_setting_id, edition_id)
+    self.calls[#self.calls + 1] = { op = "updateUserBook", book_id = book_id,
+      status_id = status_id, privacy_setting_id = privacy_setting_id, edition_id = edition_id }
+    if self.fail_user_book then
+      self.fail_user_book = false
+      return nil, { completed = false }
+    end
+    local user_book = self.records[tonumber(book_id)]
+    if not user_book then return nil, "not found" end
+    user_book.status_id, user_book.edition_id = status_id, edition_id
+    user_book.privacy_setting_id = privacy_setting_id
+    return user_book
+  end
   return api
 end
 
@@ -271,6 +296,84 @@ check("send_anyway sends an older read, wait leaves it waiting", function()
   newer.finished_at = "2025-02-01"
   q:flush(api, { user_id = 1 })
   assert(#api.calls == 1 and api.calls[1].fields.started_at == "2024-03-14")
+end)
+
+print("\n== edition changes ==")
+
+local function editionSettings()
+  local books, snaps = {}, {}
+  return {
+    updateBookSetting = function(_, file, update) books[file] = update end,
+    saveBookSnapshot = function(_, file, user_book) snaps[file] = user_book end,
+  }, books, snaps
+end
+
+check("the current read moves first, then its library record, with the converted page", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { read() }, 2)
+  local settings, books, snaps = editionSettings()
+  local state = { book_status = { id = 507, book_id = 7, status_id = 2, privacy_setting_id = 1,
+    edition_id = 7, user_book_reads = { read() } } }
+  enqueue(q, 7, { kind = "read_edition", read_id = 10, current = true, target_edition_id = 8,
+    target_page = 200, old_edition_id = 7, old_pages = 304, old_format = "Paperback",
+    new_pages = 608, edition_format = "E-book", file = "/books/7.epub",
+    base = { edition_id = 7, progress_pages = 100 },
+    change = { edition_id = 8, progress_pages = 200 } })
+  assert(q:flush(api, { user_id = 1, settings = settings, state = state, file = "/books/7.epub" }) == true)
+  assert(#api.calls == 2 and api.calls[1].op == "updateRead" and api.calls[2].op == "updateUserBook",
+    "the read and the library record were not written in order")
+  assert(api.calls[1].fields.edition_id == 8 and api.calls[1].fields.progress_pages == 200)
+  assert(api.records[7].edition_id == 8, "the library record still has the old edition")
+  assert(api.records[7].user_book_reads[1].edition_id == 8
+    and api.records[7].user_book_reads[1].progress_pages == 200)
+  assert(books["/books/7.epub"].edition_id == 8 and books["/books/7.epub"].pages == 608,
+    "the linked file was not moved")
+  assert(snaps["/books/7.epub"] and state.book_status.edition_id == 8, "the snapshot and state were not moved")
+  assert(#q:readActions(7) == 0)
+end)
+
+check("a library update that did not land is retried without losing the read", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { read() }, 2)
+  api.records[7].edition_id = 7
+  api.fail_user_book = true
+  enqueue(q, 7, { kind = "read_edition", read_id = 10, current = true, target_edition_id = 8,
+    target_page = 200, base = { edition_id = 7, progress_pages = 100 },
+    change = { edition_id = 8, progress_pages = 200 } })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(api.records[7].user_book_reads[1].edition_id == 8, "the read did not move first")
+  assert(api.records[7].edition_id == 7, "the failed library update changed the record")
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(api.records[7].edition_id == 8, "the library update was not retried")
+  assert(#q:readActions(7) == 0)
+end)
+
+check("a page queued before an edition change is sent in the old units first", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { read() }, 2)
+  q:enqueuePage("/books/7.epub", { book_id = 7, mapped_page = 150, edition_id = 7 })
+  enqueue(q, 7, { kind = "read_edition", read_id = 10, current = true, target_edition_id = 8,
+    target_page = 300, base = { edition_id = 7, progress_pages = 150 },
+    change = { edition_id = 8, progress_pages = 300 } })
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(api.calls[1].op == "updatePage" and api.calls[1].edition_id == 7
+    and api.calls[1].page == 150, "the old page was not sent in the old units")
+  assert(api.calls[2].op == "updateRead" and api.calls[2].fields.edition_id == 8,
+    "the edition change did not follow the page")
+end)
+
+check("a past read's edition changes only that read", function()
+  local q, api = queue(), fakeApi()
+  local older, newer = read { id = 10 }, read { id = 11, started_at = "2025-01-01" }
+  api.records[7] = record(7, { older, newer }, 2)
+  api.records[7].edition_id = 7
+  enqueue(q, 7, { kind = "read_edition", read_id = 10, current = false, force = true,
+    target_edition_id = 8, target_page = 200, base = { edition_id = 7, progress_pages = 100 },
+    change = { edition_id = 8, progress_pages = 200 } })
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(#api.calls == 1 and api.calls[1].op == "updateRead", "a past read touched the library record")
+  assert(api.calls[1].read_id == 10 and api.calls[1].fields.edition_id == 8)
+  assert(api.records[7].edition_id == 7, "the library record's edition changed")
 end)
 
 r.finish()

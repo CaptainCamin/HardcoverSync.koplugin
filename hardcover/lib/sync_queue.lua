@@ -336,6 +336,19 @@ function SyncQueue:enqueueReadEdit(file_or_book, payload)
   else
     return nil
   end
+  if payload.force then action.force = true end
+  if payload.kind == "read_edition" then
+    action.current = payload.current == true
+    action.target_edition_id = tonumber(payload.target_edition_id or action.change.edition_id)
+    action.target_page = tonumber(payload.target_page or action.change.progress_pages)
+    action.old_edition_id = tonumber(payload.old_edition_id)
+    action.old_pages = tonumber(payload.old_pages)
+    action.old_format = payload.old_format
+    action.new_pages = tonumber(payload.new_pages)
+    action.edition_format = payload.edition_format
+    action.edition = payload.edition
+    action.file = payload.file or (type(file_or_book) == "string" and file_or_book)
+  end
   entry.failures, entry.held, entry.reason = nil, nil, nil
   self:persist()
   return entry, action
@@ -845,6 +858,9 @@ function SyncQueue:resolveRead(key, seq, choice)
       for _, field in ipairs(conflict.fields or {}) do
         if action.change then action.change[field.field] = nil end
         if action.clear then action.clear[field.field] = nil end
+        -- a kept Hardcover value must not be sent again through the edition move's stored target
+        if field.field == "edition_id" then action.target_edition_id = nil end
+        if field.field == "progress_pages" then action.target_page = nil end
       end
       action.conflict = nil
       if empty() then remove() end
@@ -1375,6 +1391,8 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
         local status, detail = ReadSender.send(api, entry, op, {
           user_id = opts.user_id,
           persist = function() self:persist() end,
+          settings = opts.settings, cache = opts.cache, state = opts.state,
+          file = op.file or entry.file,
         })
         entry.sending_seq = nil
         if status == "sent" then

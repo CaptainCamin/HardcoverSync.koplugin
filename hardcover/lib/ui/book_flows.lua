@@ -491,6 +491,88 @@ local function readBase(read)
   return base
 end
 
+-- The edition rows the saved reads already name, for the picker when there is no connection.
+local function editionsFromReads(reads)
+  local out, seen = {}, {}
+  for _i, read in ipairs(reads or {}) do
+    local edition = read.edition
+    local id = edition and (edition.edition_id or edition.id)
+    if id and not seen[tostring(id)] then
+      seen[tostring(id)] = true
+      out[#out + 1] = {
+        edition_id = tonumber(id), pages = tonumber(edition.pages),
+        edition_format = ReadHistory.formatName({ edition = edition }),
+        reading_format_id = tonumber(edition.reading_format_id),
+        audio_seconds = tonumber(edition.audio_seconds),
+        title = read.title,
+      }
+    end
+  end
+  return out
+end
+
+-- Put a current read's chosen edition on the link at once, so pages turned from now on are in
+-- the new edition's units and wait behind the edition action. Cancelling puts the old one back.
+function Flows:applyEditionLink(file, edition, edition_id)
+  if not (file and self.settings and self.settings.updateBookSetting) then return end
+  local pages = type(edition) == "table" and tonumber(edition.pages) or nil
+  local format = type(edition) == "table" and ReadHistory.formatName({ edition = edition }) or nil
+  local update = { edition_id = edition_id, pages = pages, edition_format = format }
+  local delete = {}
+  for _, key in ipairs({ "edition_id", "pages", "edition_format" }) do
+    if update[key] == nil then delete[#delete + 1] = key end
+  end
+  if #delete > 0 then update._delete = delete end
+  self.settings:updateBookSetting(file, update)
+  if self.state and self.state.book_status then self.state.book_status.edition_id = edition_id end
+end
+
+function Flows:restoreEditionLink(op)
+  local file = op.file or (op.book_id and self:deviceFile(op.book_id))
+  if not (file and self.settings and self.settings.updateBookSetting) then return end
+  local update = { edition_id = op.old_edition_id, pages = op.old_pages, edition_format = op.old_format }
+  local delete = {}
+  for _, key in ipairs({ "edition_id", "pages", "edition_format" }) do
+    if update[key] == nil then delete[#delete + 1] = key end
+  end
+  if #delete > 0 then update._delete = delete end
+  self.settings:updateBookSetting(file, update)
+  if self.state and self.state.book_status and self.settings.getLinkedBookId
+    and tonumber(self.settings:getLinkedBookId()) == tonumber(op.book_id) then
+    self.state.book_status.edition_id = op.old_edition_id
+  end
+end
+
+-- One read's edition picker. Online it asks Hardcover (audiobooks included) and keeps the rows
+-- for offline; offline it lists the editions saved with the reads. No rows means no picker.
+function Flows:chooseReadEdition(context, read, on_choose)
+  local book_id, user_id = tonumber(context.book_id), User:getId()
+  local saved = self.read_store and self.read_store:get(user_id, book_id)
+  local offline_editions = saved and saved.editions
+  if type(offline_editions) ~= "table" or #offline_editions == 0 then
+    offline_editions = editionsFromReads(saved and saved.reads or context.reads)
+  end
+  if not Network.connected() and #offline_editions == 0 then
+    StatusDialogs.info(_("Connect once to choose a different edition."))
+    return
+  end
+
+  self:buildLoadingSearchDialog(_("Select edition"), function(done)
+    if Network.connected() then
+      Api:findEditionsAsync(book_id, user_id, true, function(editions, err)
+        if editions and self.read_store then
+          self.read_store:putEditions(user_id, book_id, editions)
+        end
+        done(editions, err)
+      end)
+    else
+      done(offline_editions, nil)
+    end
+  end, { edition_id = read.edition_id }, function(row)
+    on_choose(row.book or row)
+  end, nil, read.title, true)
+end
+
 -- The saved reads with the queued edits laid over them, and each queued read's words.
 function Flows:readHistoryProjection(context)
   local actions = self.sync_queue and self.sync_queue.readActions
@@ -533,25 +615,26 @@ end
 
 -- Reading history from the reader panel's gear, for the book open on the device. The panel's
 -- cached record is enough to draw the rows; a fresh copy arrives when the panel next checks.
-function Flows:showLinkedReadHistory()
+function Flows:showLinkedReadHistory(opts)
+  opts = opts or {}
   local book_id = tonumber(self.settings and self.settings:getLinkedBookId())
   if not book_id then return end
   local user_id = User:getId()
   local status = self.state and self.state.book_status or {}
   local saved = self.read_store and self.read_store:get(user_id, book_id)
-  self:openReadHistoryWhenAvailable {
+  local context = {
     book = { book_id = book_id, title = self.settings:getLinkedTitle() or tostring(book_id),
       pages = self.settings.pages and self.settings:pages() or nil,
       edition_format = self.settings.getLinkedEditionFormat and self.settings:getLinkedEditionFormat() or nil },
-    book_id = book_id, user_book_id = status.id,
+    book_id = book_id, user_book_id = status.id, edit_current = opts.edit_current == true,
     reads = status.user_book_reads or (saved and saved.reads), checked_at = saved and saved.checked_at,
   }
+  self:openReadHistoryWhenAvailable(context)
 end
 
 function Flows:openReadHistoryWhenAvailable(context)
   if context.reads ~= nil or not Network.connected() then
-    self:openReadHistory(context)
-    return
+    return self:openReadHistory(context)
   end
   local loading = StatusDialogs.loading(_("Loading reading history…"))
   Api:getBookDetailAsync(context.book_id, User:getId(), nil, function(detail)
@@ -585,6 +668,10 @@ function Flows:openReadHistory(context)
   }
   history.context = context
   self:openScreen("reads", history)
+  if context.edit_current then
+    local current = ReadHistory.current(history.reads)
+    if current then self:editRead(context, history, current) end
+  end
   return history
 end
 
@@ -592,19 +679,44 @@ end
 -- offline the edit waits with the rest of the book's changes.
 function Flows:editRead(context, history, read)
   local book_id, user_id = tonumber(context.book_id), User:getId()
+  local current = context.reads and ReadHistory.current(context.reads)
+  local is_current = current and tostring(current.id) == tostring(read.id)
   local form
-  local function on_save(change, clear)
+  local function on_save(change, clear, chosen_edition)
+    local file = self:deviceFile(book_id)
+    local edition_change = tonumber(change.edition_id)
+    local old_pages = ReadHistory.editionPages(read) or tonumber(context.book and context.book.pages)
+    local old_format = ReadHistory.formatName(read, context.book and context.book.edition_format)
+    local new_pages = chosen_edition and tonumber(chosen_edition.pages) or nil
+    local new_format = chosen_edition and ReadHistory.formatName({ edition = chosen_edition }) or nil
+    local payload = {
+      kind = edition_change and "read_edition" or "read_dates",
+      user_id = user_id, book_id = book_id,
+      user_book_id = context.user_book_id or (context.detail and context.detail.user_book_id),
+      title = context.book and context.book.title,
+      edition_id = context.book and context.book.edition_id,
+      read_id = read.id, base = readBase(read), change = change, clear = clear,
+      file = file,
+    }
+    if edition_change then
+      payload.current = is_current == true
+      payload.target_edition_id = edition_change
+      payload.target_page = tonumber(change.progress_pages)
+      payload.old_edition_id = tonumber(read.edition_id or (read.edition and read.edition.id))
+      payload.old_pages = old_pages
+      payload.old_format = old_format
+      payload.new_pages = new_pages
+      payload.edition_format = new_format
+      payload.edition = chosen_edition
+    end
     local entry = self.sync_queue and self.sync_queue.enqueueReadEdit and self.sync_queue:enqueueReadEdit(
-      self:deviceFile(book_id) or book_id, {
-        kind = "read_dates", user_id = user_id, book_id = book_id,
-        user_book_id = context.user_book_id or (context.detail and context.detail.user_book_id),
-        title = context.book and context.book.title,
-        edition_id = context.book and context.book.edition_id,
-        read_id = read.id, base = readBase(read), change = change, clear = clear,
-      })
+      file or book_id, payload)
     if not entry then
       StatusDialogs.info(_("Could not keep this change. Try again."))
       return
+    end
+    if edition_change and is_current and chosen_edition then
+      self:applyEditionLink(file, chosen_edition, edition_change)
     end
     form:close()
     if history then self:refreshReadHistory(history) end
@@ -617,6 +729,9 @@ function Flows:editRead(context, history, read)
   end
   form = require("hardcover/lib/ui/read_edit_dialog"):new {
     book = context.book, read = read, on_save = on_save,
+    choose_edition = function(edition_id, callback)
+      self:chooseReadEdition(context, read, callback)
+    end,
   }
   UIManager:show(form, "full")
 end
@@ -1374,6 +1489,13 @@ function Flows:pendingUndone(row)
   -- a status set or a re-read started from the reader waits in the sync queue, with the shelf
   -- the book was on; a change queued before that was recorded cannot be put back
   if row.shelf_op and row.shelf_op.known == false then return end
+
+  -- An edition change puts the new edition on the link at once (pages turned afterwards are in
+  -- its units); cancelling before it is sent puts the old edition and page count back.
+  if row.kind == "read" and op.kind == "read_edition" and op.current then
+    self:restoreEditionLink(op)
+    return
+  end
 
   if row.kind == "shelf" or row.shelf_op then
     local now = op.kind == "status" and op.status_id or nil

@@ -31,6 +31,7 @@ local Draw = require("hardcover/lib/ui/components/draw")
 local ListItem = require("hardcover/lib/ui/components/list_item")
 local Picker = require("hardcover/lib/ui/picker")
 local ReadHistory = require("hardcover/lib/read_history")
+local StepperDialog = require("hardcover/lib/ui/components/stepper_dialog")
 local Theme = require("hardcover/lib/ui/theme")
 local TopBar = require("hardcover/lib/ui/components/top_bar")
 
@@ -41,7 +42,12 @@ local ReadEditDialog = InputContainer:extend {
   book = nil,
   read = nil,
   today = nil,     -- YYYY-MM-DD, for a test; the device's day otherwise
-  on_save = nil,   -- function(change, clear)
+  -- function(current_edition_id, callback) that shows the edition picker and calls back with the
+  -- chosen edition (the normalized row: edition_id, pages, edition_format, reading_format_id)
+  choose_edition = nil,
+  -- an offline fallback: editions already saved on the device
+  editions = nil,
+  on_save = nil,   -- function(change, clear, chosen_edition)
   on_close = nil,
 }
 
@@ -76,6 +82,7 @@ function ReadEditDialog:init()
     finished_at_precision = read.finished_at_precision,
     edition_id = read.edition_id,
     progress_pages = read.progress_pages,
+    edition = read.edition,
   }
   self.form = copyFields(self.original)
   if self.form.finished_at and not self.form.finished_at_precision then
@@ -93,15 +100,32 @@ function ReadEditDialog:inProgress()
   return self.read ~= nil and self.original.finished_at == nil
 end
 
+function ReadEditDialog:editionPages()
+  local edition = self.form and self.form.edition
+  return (type(edition) == "table" and tonumber(edition.pages)) or tonumber((self.book or {}).pages)
+end
+
 function ReadEditDialog:editionText()
-  local read = self.read or {}
   local book = self.book or {}
-  local format = ReadHistory.formatName(read, book.edition_format)
-  local pages = ReadHistory.editionPages(read) or tonumber(book.pages)
+  local edition = self.form and self.form.edition
+  local format = ReadHistory.formatName({ edition = edition }, book.edition_format)
+  local pages = (type(edition) == "table" and tonumber(edition.pages)) or tonumber(book.pages)
   if format and pages then return string.format(_("%s · %d pages"), format, pages) end
   if format then return format end
   if pages then return string.format(_("%d pages"), pages) end
   return _("Edition not recorded")
+end
+
+function ReadEditDialog:canChooseEdition()
+  return self.choose_edition ~= nil or (type(self.editions) == "table" and #self.editions > 0)
+end
+
+function ReadEditDialog:pageText()
+  local conversion = self.page_conversion
+  if not conversion then return nil end
+  if conversion.unknown then return _("The page could not be converted") end
+  return string.format(_("%d of %d → %d of %d"), conversion.from, conversion.old_pages,
+    tonumber(self.form.progress_pages) or conversion.to, conversion.new_pages)
 end
 
 function ReadEditDialog:rows()
@@ -121,8 +145,13 @@ function ReadEditDialog:rows()
       value = precisionLabel(self.form.finished_at_precision),
       edit = function() self:pickPrecision() end }
   end
-  -- Until slice 5 the edition is shown, not chosen: no chevron and no tap.
-  rows[#rows + 1] = { key = "edition", label = _("Edition"), value = self:editionText(), static = true }
+  rows[#rows + 1] = { key = "edition", label = _("Edition"), value = self:editionText(),
+    static = not self:canChooseEdition(),
+    edit = function() self:pickEdition() end }
+  if self.page_conversion then
+    rows[#rows + 1] = { key = "progress_pages", label = _("Page reached"),
+      value = self:pageText(), edit = function() self:pickPage() end }
+  end
   return rows
 end
 
@@ -159,12 +188,25 @@ function ReadEditDialog:summaryLines()
       precisionLabel(self.original.finished_at_precision), precisionLabel(change.finished_at_precision))
   end
 
+  local edition_line
   if change.edition_id or clear.edition_id then
-    lines[#lines + 1] = clear.edition_id and _("Edition cleared") or _("Edition changed")
+    local old_name = ReadHistory.formatName({ edition = self.original.edition })
+    local new_name = ReadHistory.formatName({ edition = self.form.edition })
+    if clear.edition_id then
+      edition_line = _("Edition cleared")
+    elseif old_name and new_name and old_name ~= new_name then
+      edition_line = string.format(_("Edition %s → %s"), old_name, new_name)
+    else
+      edition_line = _("Edition changed")
+    end
+    lines[#lines + 1] = edition_line
   end
   if change.progress_pages or clear.progress_pages then
-    lines[#lines + 1] = string.format(_("Page %s → %s"), tostring(self.original.progress_pages or 0),
+    local page_line = string.format(_("Page %s → %s"), tostring(self.original.progress_pages or 0),
       tostring(self.form.progress_pages or 0))
+    -- an edition move and its converted page are one change
+    if edition_line then lines[#lines] = edition_line .. " · " .. page_line
+    else lines[#lines + 1] = page_line end
   end
 
   if #lines == 0 then return { _("No changes yet") } end
@@ -319,6 +361,76 @@ function ReadEditDialog:setDate(key, year, month, day)
   self:rebuild()
 end
 
+function ReadEditDialog:editionLabel(edition)
+  local format = ReadHistory.formatName({ edition = edition }, self.book and self.book.edition_format)
+  local pages = type(edition) == "table" and tonumber(edition.pages) or nil
+  if format and pages then return string.format(_("%s · %d pages"), format, pages) end
+  if format then return format end
+  if pages then return string.format(_("%d pages"), pages) end
+  return _("Edition not recorded")
+end
+
+function ReadEditDialog:setEdition(edition)
+  local edition_id = type(edition) == "table" and tonumber(edition.edition_id or edition.id) or nil
+  if not edition_id or edition_id == tonumber(self.form.edition_id) then return end
+  if edition_id == tonumber(self.original.edition_id) then
+    self.form.edition_id, self.form.edition = self.original.edition_id, self.original.edition
+    self.form.progress_pages = self.original.progress_pages
+    self.page_conversion = nil
+    self:rebuild()
+    return
+  end
+  local from, old_pages = tonumber(self.form.progress_pages), self:editionPages()
+  local new_pages = tonumber(edition.pages)
+  self.form.edition_id, self.form.edition = edition_id, edition
+  if from ~= nil then
+    self.form.progress_pages = ReadHistory.convertPage(from, old_pages, new_pages)
+    self.page_conversion = {
+      from = from, to = self.form.progress_pages, old_pages = old_pages, new_pages = new_pages,
+      unknown = not old_pages or old_pages <= 0 or not new_pages or new_pages <= 0,
+    }
+  end
+  self:rebuild()
+end
+
+function ReadEditDialog:pickEdition()
+  if self.busy then return end
+  if self.choose_edition then
+    self.choose_edition(tonumber(self.form.edition_id), function(edition)
+      if edition then self:setEdition(edition) end
+    end)
+    return
+  end
+  local picker
+  local rows = {}
+  for _i, edition in ipairs(self.editions or {}) do
+    rows[#rows + 1] = {
+      text = self:editionLabel(edition),
+      current = tonumber(edition.edition_id or edition.id) == tonumber(self.form.edition_id),
+      callback = function()
+        UIManager:close(picker)
+        self:setEdition(edition)
+      end,
+    }
+  end
+  picker = Picker.new { title = _("Select edition"), rows = rows }
+  UIManager:show(picker)
+  return picker
+end
+
+function ReadEditDialog:pickPage()
+  if self.busy then return end
+  local max = self:editionPages() or 100000
+  StepperDialog.show {
+    title = _("Page reached"),
+    text = _("The page in the edition you chose."),
+    value = tonumber(self.form.progress_pages) or 0,
+    min = 0, max = max, step = 1, big_step = 10,
+    save_label = _("Save"),
+    on_save = function(value) self:change("progress_pages", value) end,
+  }
+end
+
 function ReadEditDialog:pickDate(key, title)
   local year, month, day = dateParts(self.form[key])
   if not (year and month and day) then
@@ -361,7 +473,7 @@ function ReadEditDialog:save()
   if ReadHistory.validate(self.form, self.today) then return end
   local change, clear = self:preview()
   if next(change) == nil and next(clear) == nil then return end
-  if self.on_save then self.on_save(change, clear) end
+  if self.on_save then self.on_save(change, clear, self.form.edition) end
 end
 
 function ReadEditDialog:cancel()

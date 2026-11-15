@@ -201,13 +201,17 @@ check("an edition move remaps a page timer firing " .. (during_move and "during"
   app:_handlePageUpdate("/book.epub", 119, false)
   local old = KB.sched.scheduled[#KB.sched.scheduled].fn
   local api = require("hardcover/lib/hardcover_api")
-  local update_page, update_book = api.updatePage, api.updateUserBook
-  api.updatePage = function()
+  local update_read, update_page, update_book = api.updateRead, api.updatePage, api.updateUserBook
+  api.updateRead = function()
     if during_move then
       old()
       app:_handlePageUpdate("/book.epub", 123, true)
       app:updatePageNowForced("/book.epub")
     end
+    assert(#sent == 0, "progress escaped while the edition request yielded")
+    return { id = 500, user_book_reads = { { id = 800, edition_id = 20, progress_pages = 160 } } }
+  end
+  api.updatePage = function()
     assert(#sent == 0, "progress escaped while the edition request yielded")
     return { id = 500, user_book_reads = { { id = 800, edition_id = 20, progress_pages = 160 } } }
   end
@@ -221,7 +225,7 @@ check("an edition move remaps a page timer firing " .. (during_move and "during"
     old() -- an old-unit timer firing after the move must also be harmless
     assert(#sent == 1 and sent[1].page == 164 and sent[1].edition == 20, "wrong page or edition after move")
   end)
-  api.updatePage, api.updateUserBook = update_page, update_book
+  api.updateRead, api.updatePage, api.updateUserBook = update_read, update_page, update_book
   assert(ok, err)
 end)
 end

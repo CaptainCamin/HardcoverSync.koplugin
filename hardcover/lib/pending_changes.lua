@@ -166,7 +166,8 @@ function PendingChanges.list(queues)
         end
         local seq = action.seq
         rows[#rows + 1] = {
-          kind = "read", title = title, note = read_note,
+          kind = "read", title = title, note = read_note, op = action,
+          file = entry.file, book_id = tonumber(entry.book_id),
           text = T(_("%1: %2"), title, readActionText(action)),
           cancel = function()
             return sync:cancelReadEdit(entry.book_id, seq, entry.user_id or queues.user_id, entry)

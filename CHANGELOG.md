@@ -6,6 +6,8 @@
 
 - **Book details now leads with your reading.** The cover's column holds the shelf chip and your stars, one action row holds the ways to open, download or list the book, and a reading row with progress and the current read's edition opens Reading history. About is three lines, and the Reviews section opens the full reviews page.
 
+- **Change the edition of any read.** Reading history's Edition row opens the edition picker, audiobooks included, and converts the page to the chosen edition's numbering. The current read also moves the book's linked edition and page count at once, so pages turned afterwards are sent in the right units. Cancelling the change in Pending changes puts the old edition back.
+
 ## 2.4.0
 
 ### Added

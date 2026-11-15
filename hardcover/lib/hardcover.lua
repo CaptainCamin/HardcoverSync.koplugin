@@ -11,6 +11,7 @@ local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
 local Book = require("hardcover/lib/book")
 local ReadHistory = require("hardcover/lib/read_history")
+local ReadSender = require("hardcover/lib/read_sender")
 local User = require("hardcover/lib/user")
 
 local SETTING = require("hardcover/lib/constants/settings")
@@ -164,33 +165,24 @@ end
 function Hardcover:moveEdition(filename, book, edition_id, old_pages)
   local status = self.state.book_status
   if status.id then
-    local reads = status.user_book_reads
-    local read = Book:currentRead(reads)
-
-    local moved_read
+    local read = Book:currentRead(status.user_book_reads)
     if read and read.id then
-      -- updatePage answers with the library record, which holds the moved read
-      local moved = Api:updatePage(read.id, edition_id, ReadHistory.convertPage(read.progress_pages, old_pages, book.pages), read.started_at)
-      moved_read = moved and moved.user_book_reads and moved.user_book_reads[1]
-      if not (moved_read and moved_read.id) then
+      local user_book = ReadSender.moveEdition(Api, {
+        read_id = read.id, book_id = book.book_id, edition_id = edition_id,
+        fields = {}, page = ReadHistory.convertPage(read.progress_pages, old_pages, book.pages),
+        status_id = status.status_id, privacy_setting_id = status.privacy_setting_id,
+        settings = self.settings, filename = filename, cache = self.cache,
+        edition_format = book.edition_format, pages = book.pages, state = self.state,
+      })
+      if not user_book then return false end
+    else
+      local user_book = Api:updateUserBook(book.book_id, status.status_id, status.privacy_setting_id, edition_id)
+      if not (user_book and user_book.id) then
         return false
       end
+      for key, value in pairs(user_book) do status[key] = value end
+      self.cache:saveSnapshot(filename, status)
     end
-
-    local user_book = Api:updateUserBook(book.book_id, status.status_id, status.privacy_setting_id, edition_id)
-    if not (user_book and user_book.id) then
-      return false
-    end
-
-    for key, value in pairs(user_book) do
-      status[key] = value
-    end
-    if moved_read and status.user_book_reads then
-      for i, item in ipairs(status.user_book_reads) do
-        if item.id == moved_read.id then status.user_book_reads[i] = moved_read; break end
-      end
-    end
-    self.cache:saveSnapshot(filename, status)
   end
 
   return true

@@ -4,7 +4,8 @@
 --   * re-read the library record first; a correction is never based on a stale prefetch;
 --   * compare each field with what the form started from: a field already equal to the proposal
 --     is dropped, a field changed on Hardcover since then parks a question, anything else is sent;
---   * send one sparse write (a broad payload would reset another device's progress);
+--   * send one sparse write (a broad payload would reset another device's progress); a current
+--     read's edition change then moves the library record too, as Hardcover:moveEdition does;
 --   * read again to verify. A lost response leaves the action in "checking", never a blind retry.
 --
 -- Returns a status and the library record (or the conflict/reason):
@@ -176,6 +177,65 @@ local function park(action, conflict)
   return "parked", conflict
 end
 
+-- The one edition move: the read first (its page converted to the new edition), then the library
+-- record. `opts` is { read_id, book_id, edition_id, fields, status_id, privacy_setting_id,
+-- optional settings, filename, edition_format, pages, state }. Returns the library record (with
+-- the moved read), or nil and the reason. Used by the read queue and by Hardcover:moveEdition.
+function ReadSender.moveEdition(api, opts)
+  opts = opts or {}
+  local fields = copyFields(opts.fields)
+  fields.edition_id = opts.edition_id
+  if opts.page ~= nil then fields.progress_pages = opts.page end
+
+  local moved, read_err = api:updateRead(opts.read_id, fields)
+  if not moved then return nil, read_err end
+  local moved_read = moved.user_book_reads and moved.user_book_reads[1]
+  if not (moved_read and moved_read.id) then return nil, "read" end
+
+  local user_book, book_err = api:updateUserBook(opts.book_id, opts.status_id,
+    opts.privacy_setting_id, opts.edition_id)
+  if not (user_book and user_book.id) then return nil, book_err or { completed = false } end
+
+  -- updateRead's answer and the library record both carry the moved read; keep the library
+  -- record's full list, with the moved one in it.
+  local found = false
+  for i, read in ipairs(user_book.user_book_reads or {}) do
+    if tostring(read.id) == tostring(moved_read.id) then
+      user_book.user_book_reads[i] = moved_read
+      found = true
+      break
+    end
+  end
+  if not found then
+    user_book.user_book_reads = user_book.user_book_reads or {}
+    table.insert(user_book.user_book_reads, moved_read)
+  end
+
+  if opts.settings and opts.settings.updateBookSetting and opts.filename then
+    local update = { edition_id = opts.edition_id, pages = opts.pages,
+      edition_format = opts.edition_format }
+    local delete = {}
+    for _, key in ipairs({ "edition_id", "pages", "edition_format" }) do
+      if update[key] == nil then delete[#delete + 1] = key end
+    end
+    if #delete > 0 then update._delete = delete end
+    opts.settings:updateBookSetting(opts.filename, update)
+  end
+  if opts.filename then
+    if opts.cache and opts.cache.saveSnapshot then
+      opts.cache:saveSnapshot(opts.filename, user_book)
+    elseif opts.settings and opts.settings.saveBookSnapshot then
+      opts.settings:saveBookSnapshot(opts.filename, user_book)
+    end
+  end
+  if opts.state and opts.state.book_status and user_book.id
+    and tonumber(opts.state.book_status.id) == tonumber(user_book.id) then
+    for key, value in pairs(user_book) do opts.state.book_status[key] = value end
+  end
+
+  return user_book, nil, moved_read
+end
+
 -- Send one action. `opts` is { user_id } (the account) and may carry `persist` (called after a
 -- durable change to the action, so a crash cannot turn a sent write into a second one).
 function ReadSender.send(api, entry, action, opts)
@@ -212,9 +272,17 @@ function ReadSender.send(api, entry, action, opts)
       local proposal, check = attempt.proposal or {}, attempt.check or {}
       local ok, fresh, found = verified(api, entry, opts.user_id, user_book, action.read_id, proposal, check)
       if ok then
+        local library_pending = action.kind == "read_edition" and action.current
+          and action.target_edition_id and fresh
+          and tonumber(fresh.edition_id) ~= tonumber(action.target_edition_id)
+        if not library_pending then
+          action.checking, action.read_sent, action.read_attempt = nil, nil, nil
+          action.conflict = nil
+          return "sent", fresh
+        end
+        -- The read reached Hardcover, the library record did not. Send the record on this pass.
+        user_book, target = fresh, found or target
         action.checking, action.read_sent, action.read_attempt = nil, nil, nil
-        action.conflict = nil
-        return "sent", fresh
       elseif found then
         local fields = conflictFields(action, found)
         if #fields > 0 then
@@ -270,13 +338,23 @@ function ReadSender.send(api, entry, action, opts)
     if #fields > 0 then
       return park(action, { kind = "read_changed", read_id = action.read_id, read = target, fields = fields })
     end
-    if not hasFields(action) then
+    local target_edition = action.kind == "read_edition" and action.target_edition_id or nil
+    local needs_library = target_edition and action.current
+      and tonumber(user_book.edition_id) ~= tonumber(target_edition)
+    if not hasFields(action) and not needs_library then
       -- every field already held the proposed value
       return "sent", user_book
     end
   end
 
+  local target_edition = action.kind == "read_edition" and action.target_edition_id or nil
+  local needs_library = target_edition and action.current
+    and tonumber(user_book.edition_id) ~= tonumber(target_edition)
   local fields = writeFields(action)
+  if needs_library then
+    fields.edition_id = target_edition
+    if action.target_page ~= nil then fields.progress_pages = action.target_page end
+  end
   local proposal, check = {}, {}
   for field in pairs(action.change or {}) do
     proposal[field] = valueOf(action.change, field)
@@ -285,13 +363,25 @@ function ReadSender.send(api, entry, action, opts)
   for field, clear in pairs(action.clear or {}) do
     if clear then proposal[field], check[field] = nil, true end
   end
+  if needs_library then
+    proposal.edition_id, check.edition_id = target_edition, true
+    if action.target_page ~= nil then proposal.progress_pages, check.progress_pages = action.target_page, true end
+  end
   action.read_attempt = { kind = action.kind, read_id = action.read_id, proposal = proposal, check = check }
   action.checking = true
   action.read_sent = nil
   if opts.persist then opts.persist() end
 
   local result, err
-  if action.kind == "read_dates" or action.kind == "read_edition" then
+  if action.kind == "read_edition" and needs_library then
+    result, err = ReadSender.moveEdition(api, {
+      read_id = action.read_id, book_id = entry.book_id, edition_id = target_edition,
+      fields = fields, page = fields.progress_pages,
+      status_id = user_book.status_id, privacy_setting_id = user_book.privacy_setting_id,
+      settings = opts.settings, filename = action.file or entry.file, cache = opts.cache,
+      edition_format = action.edition_format, pages = action.new_pages, state = opts.state,
+    })
+  elseif action.kind == "read_dates" or action.kind == "read_edition" then
     result, err = api:updateRead(action.read_id, fields)
   elseif action.kind == "add_read" then
     result, err = api:addRead(user_book.id, fields)

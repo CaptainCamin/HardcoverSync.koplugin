@@ -1329,7 +1329,7 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
         self._flush_sent = false
         local sync_flushed = self.sync_queue:flush(Api, {
           user_id = User:getId(),
-          settings = self.settings,
+          settings = self.settings, cache = self.cache,
           on_status_sent = function(op, user_book)
             self.dialog_manager:shelfSent(op, user_book)
           end,

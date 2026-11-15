@@ -106,6 +106,7 @@ fragment EditionParts on editions {
   }
   release_date
   reading_format_id
+  audio_seconds
   title
   users_count
 }]]
@@ -290,10 +291,14 @@ function HardcoverApi:findBookBySlug(slug, user_id)
   if not books then return nil, err or { completed = false } end
 end
 
-function HardcoverApi:findEditions(book_id, user_id)
+-- `include_audio` lets the read editor list audiobook editions too; the link picker keeps them
+-- out, as it always has.
+function HardcoverApi:findEditions(book_id, user_id, include_audio)
+  local audio_filter = include_audio and "" or
+    ", _or: [{reading_format_id: { _is_null: true }}, {reading_format_id: { _neq: 2 }} ]"
   local edition_search = [[
     query ($id: Int!, $userId: Int!) {
-      editions(where: { book_id: { _eq: $id }, _or: [{reading_format_id: { _is_null: true }}, {reading_format_id: { _neq: 2 }} ]},
+      editions(where: { book_id: { _eq: $id }]] .. audio_filter .. [[},
       order_by: { users_count: desc_nulls_last }) {
         ...EditionParts
       }
@@ -532,6 +537,8 @@ function HardcoverApi:normalizedEdition(edition)
   result.title = edition.title
   result.reads = edition.reads
   result.pages = edition.pages
+  result.audio_seconds = edition.audio_seconds
+  result.reading_format_id = edition.reading_format_id
   result.filetype = result.edition_format or "Physical Book"
   result.users_count = edition.users_count
 

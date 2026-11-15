@@ -31,11 +31,23 @@ function ReadStore:get(user_id, book_id)
   end
 end
 
--- Save what Hardcover said this book's reads are. Returns whether it was saved.
-function ReadStore:put(user_id, book_id, reads)
+-- Save what Hardcover said this book's reads are. `editions` (optional) is the picker's list,
+-- kept so a read's edition can be changed offline. Omitting it keeps the editions already saved.
+function ReadStore:put(user_id, book_id, reads, editions)
   if not self.db or type(reads) ~= "table" then return false end
-  local text = Codec.encode({ reads = reads, checked_at = self.now() })
+  if editions == nil then
+    local saved = self:get(user_id, book_id)
+    editions = saved and saved.editions
+  end
+  local text = Codec.encode({ reads = reads, checked_at = self.now(), editions = editions })
   return text and self.db:putBlob(key(user_id, book_id), text) or false
+end
+
+-- The edition picker's rows changed. The reads and their checked time stay as they were.
+function ReadStore:putEditions(user_id, book_id, editions)
+  if type(editions) ~= "table" then return false end
+  local saved = self:get(user_id, book_id)
+  return self:put(user_id, book_id, saved and saved.reads or {}, editions)
 end
 
 -- Signing out forgets every account's saved reads, like the rest of the library cache. A store

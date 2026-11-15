@@ -236,6 +236,19 @@ check("actions apply in queue order", function()
   assert(projected[1].started_at == "2024-03-16", projected[1].started_at)
 end)
 
+check("an edition change carries its format and page count before it is sent", function()
+  local projected = ReadHistory.project({ read { id = 20, progress_pages = 300, finished_at = "2026-11-12",
+    edition = { id = 7, pages = 304, edition_format = "Paperback" } } }, {
+    { kind = "read_edition", seq = 1, read_id = 20,
+      change = { edition_id = 8, progress_pages = 600 },
+      edition = { edition_id = 8, pages = 608, edition_format = "E-book" } },
+  })
+  assert(projected[1].edition_id == 8 and projected[1].edition.pages == 608)
+  assert(projected[1].edition.edition_format == "E-book")
+  local summary = ReadHistory.summary(projected, { pages = 608 })
+  assert(summary.support == "E-book", summary.support)
+end)
+
 print("\n== order and numbers ==")
 
 check("newest first, with numbers as numbers", function()

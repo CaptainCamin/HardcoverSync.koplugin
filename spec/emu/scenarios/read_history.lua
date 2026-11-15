@@ -57,6 +57,10 @@ return {
     fixtures.install({ settings = settings })
 
     local book = { title = "The Dispossessed", pages = 341, edition_format = "Paperback" }
+    local editions = {
+      { edition_id = 12, pages = 400, edition_format = "E-book", reading_format_id = 1 },
+      { edition_id = 11, pages = 341, edition_format = "Paperback", reading_format_id = 1 },
+    }
     local reads = {
       { id = 1, started_at = "2020-01-01", finished_at = "2020-01-10", finished_at_precision = 1,
         progress_pages = 341, edition_id = 11,
@@ -82,6 +86,7 @@ return {
           book = book,
           read = read,
           today = "2026-11-15",
+          editions = editions,
           on_save = function(change, clear) saved = { change = change, clear = clear } end,
         }
         UIManager:show(form, "full")
@@ -118,6 +123,14 @@ return {
     emu:expectNoButtonOverlap()
     emu:shot("read_history_edit")
 
+    -- the edition picker converts the page in the same step
+    tap_widget(emu, form.row_taps.edition, "Edition")
+    emu:expectText("Select edition")
+    tap_button(emu, "E-book · 400 pages")
+    emu:expectText("Page reached")
+    emu:expectText("120 of 341 → 141 of 400")
+    emu:shot("read_history_edition")
+
     -- change the start date through the real date picker
     tap_widget(emu, form.row_taps.started_at, "Started")
     emu:expectText("Start date")
@@ -129,8 +142,9 @@ return {
     tap_button(emu, "Save")
     assert(saved and saved.change and saved.change.started_at == "2026-11-04",
       "Save did not hand over the new start date")
-    assert(saved.change.finished_at == nil and saved.change.progress_pages == nil,
-      "Save sent fields the reader did not change")
+    assert(saved.change.edition_id == 12 and saved.change.progress_pages == 141,
+      "the chosen edition was not in the saved change")
+    assert(saved.change.finished_at == nil, "Save sent a finish the reader did not set")
     UIManager:close(form)
     emu:pump()
 

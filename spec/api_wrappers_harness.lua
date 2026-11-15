@@ -404,6 +404,21 @@ check("deleteRead removes one read, never the whole library record", function()
   assert(failed == nil and err.status == 503, "an outage must remain retryable")
 end)
 
+check("findEditions can include audiobooks, with their length", function()
+  local original = Api.query
+  local seen
+  Api.query = function(_, query)
+    seen = query
+    return { editions = { { id = 3, book = { book_id = 7, title = "Dune" }, pages = 300,
+      edition_format = "Audiobook", reading_format_id = 2, audio_seconds = 31288 } } }
+  end
+  local editions = Api:findEditions(7, 1, true)
+  Api.query = original
+  assert(seen:find("_neq: 2", 1, true) == nil, "the audiobook filter was kept")
+  assert(editions[1].audio_seconds == 31288 and editions[1].reading_format_id == 2)
+  assert(editions[1].edition_format == "Audiobook")
+end)
+
 check("getBookDetail brings the book's reads in Hardcover's order, and nil off the shelf", function()
   local original = Api.query
   local seen_query

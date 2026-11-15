@@ -439,33 +439,9 @@ function HardcoverMenu:getSubMenuItems(book_view)
       enabled_func = function()
         return self.enabled and self.settings:bookLinked()
       end,
-      callback = function(menu_instance)
-        -- Show the dialog before listing editions. This fetch used to run here,
-        -- so tapping "Change edition" did nothing for the length of a request
-        -- (up to six seconds with no route to the API), which on e-ink is
-        -- indistinguishable from a crash. The dialog opens on a loading list and
-        -- fills in from the callback.
-        self.dialog_manager:buildLoadingSearchDialog(
-          _("Select edition"),
-          function(callback)
-            Api:findEditionsAsync(self.settings:getLinkedBookId(), User:getId(), callback)
-          end,
-          {
-            edition_id = self.settings:getLinkedEditionId()
-          },
-          function(book)
-            Background.run(function()
-              local changed = book.edition_id ~= self.settings:getLinkedEditionId()
-              if self.hardcover:linkBook(book) and changed then
-                StatusDialogs.info(_("Edition changed. Page numbers and progress may have moved."))
-              end
-              menu_instance:updateItems()
-            end)
-          end,
-          nil,
-          nil,
-          true
-        )
+      callback = function(_menu_instance)
+        -- The edition belongs to one read now, so the history opens on the current read's form.
+        self.dialog_manager:showLinkedReadHistory { edit_current = true }
       end,
       keep_menu_open = true,
       separator = true
