@@ -69,7 +69,13 @@ stand_in("ui/widget/iconwidget", function(m) m.getSize = function() return { w =
 stand_in("hardcover/lib/ui/text_screen")
 stand_in("hardcover/lib/ui/components/scroll_control", function(m) m.wrap = function(scroll) return scroll end; m.gutter = function() return 0 end end)
 stand_in("hardcover/lib/ui/components/top_bar", function(m) m.new = function() return { getSize = function() return { w = 1, h = 1 } end } end end)
-stand_in("hardcover/lib/ui/components/button", function(m) m.new = function(o) return { getSize = function() return { w = o.w or 1, h = o.h or 1 } end } end end)
+stand_in("hardcover/lib/ui/components/button", function(m)
+  m.new = function(o)
+    o = o or {}
+    o.getSize = function() return { w = o.w or 1, h = o.h or 1 } end
+    return o
+  end
+end)
 stand_in("hardcover/lib/ui/clamp", function(m) m.text = function(o) return { getSize = function() return { w = 1, h = 1 } end }, false end end)
 
 package.preload["device"] = function()
@@ -357,6 +363,40 @@ local function build(opts)
   local d = ReviewsDialog:new(opts or {})
   return d
 end
+
+check("your review and rating come before the community list, and your row is not repeated", function()
+  local own = Reviews.normalize(row({ id = 1, review_raw = "My own words" }))
+  local other = Reviews.normalize(row({ id = 2, review_raw = "Someone else" }))
+  local d = build { mine = { rating = 4, text = "My own words", rating_state = "Waiting to send",
+    review_state = "Saved on this device" } }
+  d:addPage({ own, other }, 2, 0)
+  assert(d.your_review_block and d.your_review_button.label == "Edit your review")
+  assert(#d.items == 1 and d.items[1].review.id == 2, "your own review was repeated")
+  assert(d.your_review_text == "My own words")
+  assert(d.your_review_state == "Saved on this device")
+  assert(d.your_rating_state == "Waiting to send")
+  -- the heading carries the saved state, and the stars call back with the tapped value
+  local rated
+  d.on_rating = function(stars) rated = stars end
+  d:refresh()
+  d.your_rating_stars[4].callback()
+  assert(rated == 4, "star 4 rated " .. tostring(rated))
+end)
+
+check("a conflict state reaches both the rating row and the review heading", function()
+  local d = build { mine = { rating = 4, text = "My own words",
+    rating_state = "Needs your decision", review_state = "Needs your decision" } }
+  d:addPage(reviews(1), 1, 0)
+  assert(d.your_rating_state == "Needs your decision")
+  assert(d.your_review_state == "Needs your decision")
+end)
+
+check("with no written review the own block says so and offers Write", function()
+  local d = build { mine = { rating = 4, text = "" }, on_review = function() end }
+  d:addPage(reviews(1), 1, 0)
+  assert(d.your_review_button.label == "Write your review")
+  assert(d:communityReviews()[1].text == "Review 1")
+end)
 
 check("an empty list says there are no reviews yet, and is not tappable", function()
   local d = build({ message = "Loading reviews" })

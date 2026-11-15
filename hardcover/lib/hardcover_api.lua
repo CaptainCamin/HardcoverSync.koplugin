@@ -775,6 +775,7 @@ local BOOK_DETAIL_FIELDS = [[
     rating
     review_raw
     review_has_spoilers
+    reviewed_at
     user_book_reads(order_by: {id: asc}) {
       id
       started_at
@@ -853,7 +854,10 @@ local function detailOf(row)
     user_rating = user_book and user_book.rating,
     user_review = user_book and user_book.review_raw,
     review_spoilers = user_book and user_book.review_has_spoilers,
+    review_posted_at = user_book and user_book.reviewed_at,
+    review_id = user_book and user_book.id,
     review_known = true, -- the review above is Hardcover's own answer, not a saved copy that left it out
+    rating_known = true, -- and the rating, including an empty one
     reads = user_book and (user_book.user_book_reads or {}) or nil,
   }
 end

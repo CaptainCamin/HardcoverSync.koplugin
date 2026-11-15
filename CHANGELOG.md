@@ -10,6 +10,8 @@
 
 - **Add or remove a read.** Add a past read from Reading history, with its dates and edition; the finish date is required. A finished read can be removed while the book stays on its shelf. Both changes are kept offline and can be cancelled before they are sent.
 
+- **Your review sits at the top of the reviews page.** Your rating and review now come before other readers', with a state line when the rating or review is waiting to send, and Write/Edit opens the same editor as before. Your review no longer appears twice in the community list, and the page opens offline with your own block even when no community reviews are saved.
+
 ## 2.4.0
 
 ### Added

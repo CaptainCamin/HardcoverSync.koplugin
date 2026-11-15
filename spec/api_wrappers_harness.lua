@@ -425,6 +425,7 @@ check("getBookDetail brings the book's reads in Hardcover's order, and nil off t
   Api.query = function(_, query)
     seen_query = query
     return { books = { { book_id = 7, title = "Dune", user_books = { { id = 91, status_id = 2,
+      rating = 4, review_raw = "My review", review_has_spoilers = true, reviewed_at = "2026-03-01T09:12:00Z",
       user_book_reads = {
         { id = 10, started_at = "2019-03-01", finished_at = "2019-03-31", finished_at_precision = 2,
           progress_pages = 300, edition_id = 3,
@@ -437,10 +438,14 @@ check("getBookDetail brings the book's reads in Hardcover's order, and nil off t
   assert(seen_query:find("user_book_reads(order_by: {id: asc})", 1, true))
   assert(seen_query:find("finished_at_precision", 1, true) and seen_query:find("audio_seconds", 1, true),
     "the query must ask for precision and the edition's own fields")
+  assert(seen_query:find("reviewed_at", 1, true), "the query must ask when the review was posted")
   assert(detail.reads and #detail.reads == 2, "reads missing from the detail")
   assert(detail.reads[1].id == 10 and detail.reads[2].id == 11, "Hardcover's order was changed")
   assert(detail.reads[1].finished_at_precision == 2)
   assert(detail.reads[1].edition.pages == 304 and detail.reads[1].edition.edition_format == "Paperback")
+  assert(detail.user_review == "My review" and detail.review_spoilers == true)
+  assert(detail.review_posted_at == "2026-03-01T09:12:00Z" and detail.review_id == 91)
+  assert(detail.rating_known == true and detail.review_known == true)
 
   Api.query = function() return { books = { { book_id = 8, title = "Not shelved" } } } end
   local unshelved = Api:getBookDetail(8, 1)

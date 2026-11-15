@@ -18,6 +18,7 @@ local Live = require("hardcover/lib/ui/live")
 local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
 local BookActions = require("hardcover/lib/book_actions")
+local BookSyncState = require("hardcover/lib/book_sync_state")
 local DeviceSearch = require("hardcover/lib/device_search")
 local Home = require("hardcover/lib/home")
 local Lists = require("hardcover/lib/lists")
@@ -57,7 +58,10 @@ function Flows:showBookDetail(book_id, edition_id, opts)
     detail = nil,
     loading = true,
     -- the details on screen go along, so the reviews can say which book and how it is rated
-    on_reviews = function(d) self:showReviews(book_id, Reviews.summary(d and d.detail)) end,
+    on_reviews = function(d)
+      self:showReviews(book_id, Reviews.summary(d and d.detail),
+        d and d.detail and self:reviewMine(d.detail, book_id) or nil, d)
+    end,
     -- this book has a question waiting: one visible way to answer it here. The question is looked
     -- up when the note is tapped, so a decision that arrives with the details is the one shown.
     on_decision = function()
@@ -324,17 +328,33 @@ function Flows:findOnDevice(dialog)
   end
 end
 
--- Other readers' reviews of a book, opened from its details screen.
+-- The reader's own rating and review, for the combined reviews page: the details are already
+-- overlaid with this device's pending rating and review, and the queue supplies their state.
+function Flows:reviewMine(detail, book_id)
+  local state = BookSyncState.forBook({
+    sync_queue = self.sync_queue, rating_queue = self.rating_queue, review_queue = self.review_queue,
+  }, book_id, detail.user_book_id, User:getId())
+  local mine = {
+    rating = detail.user_rating, text = detail.user_review, spoilers = detail.review_spoilers,
+    posted_at = detail.review_posted_at and ReadHistory.dateText(detail.review_posted_at, 1) or nil,
+    review_id = detail.review_id or detail.user_book_id,
+    rating_state = state.rating_state, review_state = state.review_state,
+  }
+  if mine.review_state == _("Waiting to send") then mine.review_state = _("Saved on this device") end
+  return mine
+end
+
+-- Other readers' reviews of a book, opened from its details screen. The top of the page is the
+-- reader's own rating and review, then the community list. Saved pages open immediately, offline
+-- too. Online, replace them with a fresh first page, then save each page the reader asks for.
+-- Never mix old offsets with a refreshed ordering. A failed refresh leaves the saved copy; a
+-- failed later page offers a retry.
 --
--- Saved pages open immediately, offline too. Online, replace them with a fresh first page,
--- then save each page the reader asks for. Never mix old offsets with a refreshed ordering.
--- A failed refresh leaves the saved copy; a failed later page offers a retry.
---
-function Flows:showReviews(book_id, summary)
+function Flows:showReviews(book_id, summary, mine, detail_dialog)
   local store, user_id = self.review_store, User:getId()
   local saved = store and store:get(user_id, book_id)
   local online = Network.connected()
-  if not online and not saved then
+  if not online and not saved and not mine then
     StatusDialogs.info(_("No reviews saved for this book. Connect and open Reviews to save them."))
     return
   end
@@ -405,7 +425,7 @@ function Flows:showReviews(book_id, summary)
 
   local message
   if not saved then
-    message = _("Loading reviews\226\128\166")
+    message = online and _("Loading reviews\226\128\166") or _("No community reviews saved.")
   elseif #held == 0 and not saved.more then
     message = _("No reviews yet")
   end
@@ -420,6 +440,22 @@ function Flows:showReviews(book_id, summary)
       .. T(_("Saved %1."), os.date("%Y-%m-%d %H:%M", saved.saved_at))) or nil,
     summary = summary,
     hint = hint,
+    mine = mine,
+    on_rating = detail_dialog and function(stars)
+      self:rateBook(detail_dialog, stars, function(value)
+        if dialog then
+          dialog:setMine({ rating = value, rating_state = _("Waiting to send") })
+        end
+      end)
+    end or nil,
+    on_review = detail_dialog and function()
+      self:writeReview(detail_dialog, function(text, spoilers)
+        if dialog then
+          dialog:setMine({ text = text, spoilers = spoilers,
+            review_state = text ~= "" and _("Saved on this device") or false })
+        end
+      end)
+    end or nil,
     fetch_page = fetch_page,
   }
   self:openScreen(nil, dialog)
@@ -1260,7 +1296,7 @@ end
 -- Rate the book on the details screen. The rating is shown at once and kept in
 -- the rating queue, so it works without a connection; it is sent now if there is
 -- one, or when the connection is back.
-function Flows:rateBook(dialog, stars)
+function Flows:rateBook(dialog, stars, on_set)
   local detail = dialog.detail
   local queue = self.rating_queue
   local gate = BookActions.ratingGate(detail, queue ~= nil)
@@ -1278,6 +1314,7 @@ function Flows:rateBook(dialog, stars)
     on_save = function(value)
       queue:queue(detail.user_book_id, value, detail.book.title, detail.book.book_id, User:getId())
       if Live.shown(dialog) then dialog:setRating(value) end
+      if on_set then on_set(value) end
       if Network.connected() then
         if self.flush_goals then self.flush_goals() end
       else
