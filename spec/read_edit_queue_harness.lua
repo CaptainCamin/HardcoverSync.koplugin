@@ -249,7 +249,7 @@ check("a partly applied attempt sends only the field still waiting", function()
   assert(#q:readActions(7) == 0)
 end)
 
-check("an added read whose fields differ is not acknowledged or inserted again", function()
+check("an added read whose fields differ is acknowledged without a second insert", function()
   local q, api = queue(), fakeApi()
   api.records[7] = record(7, {}, 3)
   local real_add = api.addRead
@@ -260,13 +260,10 @@ check("an added read whose fields differ is not acknowledged or inserted again",
   end
   enqueue(q, 7, { kind = "add_read", change = { started_at = "2020-01-01",
     finished_at = "2020-01-02", edition_id = 7 } })
-  assert(q:flush(api, { user_id = 1 }) == false)
-  local action = q:readActions(7)[1]
-  assert(action and action.checking and action.added_id == 99 and not action.conflict,
-    "the differing added read was acknowledged or parked")
+  assert(q:flush(api, { user_id = 1 }) == true, "the landed insertion was left checking")
   assert(#api.calls == 1 and api.calls[1].op == "addRead")
-  assert(q:flush(api, { user_id = 1 }) == false, "the differing added read was acknowledged")
-  assert(#api.calls == 1, "the added read was inserted twice")
+  assert(#q:readActions(7) == 0, "the landed insertion stayed queued")
+  assert(api.records[7].user_book_reads[1].started_at == "2020-01-03")
 end)
 
 check("cancel works before sending, and is refused while checking", function()

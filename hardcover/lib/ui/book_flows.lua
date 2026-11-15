@@ -228,7 +228,7 @@ function Flows:reviewDecision(decision)
     on_done = function(resolved, choice, outcome)
       if resolved == 0 then return end
       if outcome and outcome.kind == "shelf" then self:removalKept(outcome) end
-      if outcome and outcome.kind == "edition_link" then self:restoreEditionLink(outcome.action) end
+      if outcome and outcome.kind == "edition_link" then self:restoreEditionLink(outcome.action, outcome.book_id) end
       if outcome and outcome.kind == "combine" then
         self:combineReview(outcome)
         return
@@ -611,8 +611,9 @@ function Flows:applyEditionLink(file, edition, edition_id, book_id)
   end
 end
 
-function Flows:restoreEditionLink(op)
-  local file = op.file or (op.book_id and self:deviceFile(op.book_id))
+function Flows:restoreEditionLink(op, book_id)
+  book_id = book_id or op.book_id
+  local file = op.file or (book_id and self:deviceFile(book_id))
   if not (file and self.settings and self.settings.updateBookSetting) then return end
   local update = { edition_id = op.old_edition_id, pages = op.old_pages, edition_format = op.old_format }
   local delete = {}
@@ -622,7 +623,7 @@ function Flows:restoreEditionLink(op)
   if #delete > 0 then update._delete = delete end
   self.settings:updateBookSetting(file, update)
   if self.state and self.state.book_status and self.settings.getLinkedBookId
-    and tonumber(self.settings:getLinkedBookId()) == tonumber(op.book_id) then
+    and tonumber(self.settings:getLinkedBookId()) == tonumber(book_id) then
     self.state.book_status.edition_id = op.old_edition_id
   end
 end
@@ -925,7 +926,7 @@ function Flows:readSent(book_id, user_book, op)
           row.edition = { id = op.target_edition_id, pages = op.new_pages,
             edition_format = op.edition_format }
         elseif op and op.kind == "add_read" and op.edition
-            and tonumber(row.edition_id) == tonumber(op.edition.id) then
+            and tonumber(row.edition_id) == tonumber(op.edition.edition_id or op.edition.id) then
           row.edition = op.edition
         else
           local old = old_by_id[tostring(row.id)]

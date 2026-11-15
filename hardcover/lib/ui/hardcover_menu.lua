@@ -728,7 +728,7 @@ function HardcoverMenu:showPendingChanges(menu_instance)
         self.dialog_manager:removalKept(outcome)
       elseif outcome and outcome.kind == "edition_link" and self.dialog_manager
           and self.dialog_manager.restoreEditionLink then
-        self.dialog_manager:restoreEditionLink(outcome.action)
+        self.dialog_manager:restoreEditionLink(outcome.action, outcome.book_id)
       end
       if outcome and outcome.kind == "combine" and self.dialog_manager
           and self.dialog_manager.combineReview then

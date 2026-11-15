@@ -73,15 +73,6 @@ local function copyRead(read)
   return out
 end
 
-local function idOrder(id)
-  local numeric = tonumber(id)
-  if numeric then return numeric end
-  local local_seq = type(id) == "string" and tonumber(id:match("^local:(%d+)$")) or nil
-  -- A local addition has no server id yet. It is the newest read, so put it after every server id
-  -- without turning the id into nil (the form needs the name to replace it in place).
-  return local_seq and (1000000000 + local_seq) or 0
-end
-
 function ReadHistory.normalize(reads)
   local out = {}
   for _, read in ipairs(reads or {}) do out[#out + 1] = copyRead(read) end
@@ -89,7 +80,7 @@ function ReadHistory.normalize(reads)
     local a_start, b_start = a.started_at or "", b.started_at or ""
     if a_start ~= b_start then return a_start > b_start end
     -- the same day (or no start at all): the later read (the higher id) is newer
-    return idOrder(a.id) > idOrder(b.id)
+    return Book.readIdOrder(a.id) > Book.readIdOrder(b.id)
   end)
   return out
 end

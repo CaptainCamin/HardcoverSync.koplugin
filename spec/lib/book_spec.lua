@@ -29,6 +29,15 @@ describe("Book", function()
       }
       assert.are.equal(2, Book:currentRead(reads).id)
     end)
+
+    it("orders an unsent local addition without comparing nil ids", function()
+      local reads = {
+        { id = 1, finished_at = "2020-01-01" },
+        { id = "local:1", finished_at = "2020-01-02" },
+      }
+      assert.are.equal("local:1", Book:currentRead(reads).id)
+      assert.are.equal(2, Book.readIdOrder("local:2") - 1000000000)
+    end)
   end)
 
   describe("parseIdentifiers", function()

@@ -6,6 +6,16 @@ local reading_format_labels = {
   "E-Book"
 }
 
+-- Server ids are numbers; an unsent addition is named local:N until Hardcover answers. Order
+-- them without turning the local name into nil (the form needs it to replace the addition in
+-- place), and without comparing a number with a string.
+function Book.readIdOrder(id)
+  local numeric = tonumber(id)
+  if numeric then return numeric end
+  local local_seq = type(id) == "string" and tonumber(id:match("^local:(%d+)$")) or nil
+  return local_seq and (1000000000 + local_seq) or 0
+end
+
 -- Reads arrive oldest first. An explicitly recorded page 0 is progress too: it
 -- distinguishes a restarted read from Hardcover's newly created empty read.
 function Book:currentRead(reads)
@@ -25,7 +35,7 @@ function Book:currentRead(reads)
   for _, read in ipairs(reads) do
     local read_date, latest_date = read.finished_at or "", latest.finished_at or ""
     if read_date > latest_date
-      or (read_date == latest_date and tonumber(read.id or 0) > tonumber(latest.id or 0)) then
+      or (read_date == latest_date and Book.readIdOrder(read.id) > Book.readIdOrder(latest.id)) then
       latest = read
     end
   end

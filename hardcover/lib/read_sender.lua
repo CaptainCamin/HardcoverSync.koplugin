@@ -270,14 +270,15 @@ function ReadSender.send(api, entry, action, opts)
       -- catching up, keep checking that id rather than inserting a second read.
       if action.added_id then
         local added = findRead(user_book, action.added_id)
-        local attempt = action.read_attempt or {}
-        if added and holds(added, attempt.proposal or {}, attempt.check or {}) then
+        if added then
+          -- The insert landed. If another device changed a field before this lookup, the read
+          -- exists and later local edits must target it; keeping the action checking would block
+          -- every later page for the book forever.
           rebindLocal(entry, action.local_id, added)
+          action.checking, action.read_sent, action.read_attempt = nil, nil, nil
+          action.conflict, action.added_id = nil, nil
           return "sent", user_book
         end
-        -- The id is visible but its fields are not what was inserted yet (or at all). Keep the
-        -- local add and its id: a second insert would duplicate the first, and acknowledging it
-        -- would throw away the proposal.
         return "checking", user_book
       end
       local found = matchingRead(user_book, action.change)
@@ -478,12 +479,16 @@ function ReadSender.send(api, entry, action, opts)
     action.conflict, action.added_id = nil, nil
     return "sent", fresh
   elseif action.kind == "add_read" then
-    -- The added id exists but its fields differ. Keep the action for another look; removing it
-    -- now would lose the local proposal, and inserting again would duplicate the read.
-    action.read_sent = true
-    action.checking = true
-    if opts.persist then opts.persist() end
-    return "checking", fresh or user_book
+    local fresh_read = fresh and added and findRead(fresh, added.id)
+    if fresh_read then
+      -- The id exists, so the insert landed; a field changed elsewhere before this lookup. The
+      -- read is real, so bind the local addition to it and let the history show what Hardcover
+      -- has rather than blocking the book's later pages on a value this device cannot win.
+      rebindLocal(entry, action.local_id, fresh_read)
+      action.checking, action.read_sent, action.read_attempt = nil, nil, nil
+      action.conflict, action.added_id = nil, nil
+      return "sent", fresh
+    end
   end
   action.read_sent = true
   action.checking = true
