@@ -360,10 +360,15 @@ function ReadHistory.project(reads, actions)
     elseif action.kind == "add_read" then
       local read = copyRead(action.read or action.change or {})
       read.id = action.local_id or action.read_id or ("local:" .. tostring(action.seq or (#out + 1)))
+      read.pending_add = true
+      if action.edition then
+        read.edition = copyRead({ edition = action.edition }).edition
+      end
       out[#out + 1] = read
     elseif action.kind == "remove_read" then
-      for i = #out, 1, -1 do
-        if actionMatches(out[i], action) then table.remove(out, i); break end
+      -- keep the row while the removal waits to be sent; the server's next answer leaves it out
+      for _, read in ipairs(out) do
+        if actionMatches(read, action) then read.pending_removal = true; break end
       end
     end
   end

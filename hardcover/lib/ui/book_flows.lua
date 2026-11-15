@@ -665,6 +665,7 @@ function Flows:openReadHistory(context)
     on_open_read = function(read)
       self:editRead(context, history, read)
     end,
+    on_add = function() self:addRead(context, history) end,
   }
   history.context = context
   self:openScreen("reads", history)
@@ -681,6 +682,7 @@ function Flows:editRead(context, history, read)
   local book_id, user_id = tonumber(context.book_id), User:getId()
   local current = context.reads and ReadHistory.current(context.reads)
   local is_current = current and tostring(current.id) == tostring(read.id)
+  local adding = read.pending_add == true
   local form
   local function on_save(change, clear, chosen_edition)
     local file = self:deviceFile(book_id)
@@ -690,15 +692,19 @@ function Flows:editRead(context, history, read)
     local new_pages = chosen_edition and tonumber(chosen_edition.pages) or nil
     local new_format = chosen_edition and ReadHistory.formatName({ edition = chosen_edition }) or nil
     local payload = {
-      kind = edition_change and "read_edition" or "read_dates",
+      kind = adding and "add_read" or (edition_change and "read_edition" or "read_dates"),
       user_id = user_id, book_id = book_id,
       user_book_id = context.user_book_id or (context.detail and context.detail.user_book_id),
       title = context.book and context.book.title,
       edition_id = context.book and context.book.edition_id,
-      read_id = read.id, base = readBase(read), change = change, clear = clear,
-      file = file,
+      read_id = not adding and read.id or nil,
+      local_id = adding and read.id or nil,
+      base = readBase(read), change = change, clear = clear,
+      file = file, edition = chosen_edition,
     }
-    if edition_change then
+    if adding then
+      payload.change.edition_id = change.edition_id or (chosen_edition and chosen_edition.edition_id)
+    elseif edition_change then
       payload.current = is_current == true
       payload.target_edition_id = edition_change
       payload.target_page = tonumber(change.progress_pages)
@@ -715,7 +721,7 @@ function Flows:editRead(context, history, read)
       StatusDialogs.info(_("Could not keep this change. Try again."))
       return
     end
-    if edition_change and is_current and chosen_edition then
+    if edition_change and is_current and chosen_edition and not adding then
       self:applyEditionLink(file, chosen_edition, edition_change)
     end
     form:close()
@@ -727,13 +733,94 @@ function Flows:editRead(context, history, read)
       StatusDialogs.info(_("You're offline. This change is kept and will be sent when you're connected."))
     end
   end
+  local add_action
+  if adding and self.sync_queue then
+    for _i, action in ipairs(self.sync_queue:readActions(book_id)) do
+      if action.kind == "add_read" and tostring(action.local_id) == tostring(read.id) then
+        add_action = action
+        break
+      end
+    end
+  end
   form = require("hardcover/lib/ui/read_edit_dialog"):new {
     book = context.book, read = read, on_save = on_save,
     choose_edition = function(edition_id, callback)
       self:chooseReadEdition(context, read, callback)
     end,
+    on_remove = function()
+      if adding and add_action and self.sync_queue then
+        self.sync_queue:cancelReadEdit(book_id, add_action.seq, user_id, self.sync_queue:get(book_id))
+      else
+        self:removeRead(context, history, read)
+      end
+      if history then self:refreshReadHistory(history) end
+      if context.screen then context.screen:refreshState() end
+    end,
   }
   UIManager:show(form, "full")
+end
+
+function Flows:addRead(context, history)
+  local book_id, user_id = tonumber(context.book_id), User:getId()
+  local current = context.reads and ReadHistory.current(context.reads)
+  local default_edition = current and current.edition or nil
+  if not default_edition and context.book and context.book.edition_id then
+    default_edition = { edition_id = context.book.edition_id, pages = context.book.pages,
+      edition_format = context.book.edition_format }
+  end
+  local form
+  local function on_save(change, clear, chosen_edition)
+    local edition = chosen_edition or default_edition
+    if edition and not change.edition_id then change.edition_id = edition.edition_id end
+    local entry = self.sync_queue and self.sync_queue:enqueueReadEdit(
+      self:deviceFile(book_id) or book_id, {
+        kind = "add_read", user_id = user_id, book_id = book_id,
+        user_book_id = context.user_book_id or (context.detail and context.detail.user_book_id),
+        title = context.book and context.book.title, change = change, clear = clear,
+        edition = edition, file = self:deviceFile(book_id),
+      })
+    if not entry then
+      StatusDialogs.info(_("Could not keep this read. Try again."))
+      return
+    end
+    form:close()
+    if history then self:refreshReadHistory(history) end
+    if context.screen then context.screen:refreshState() end
+    if Network.connected() then
+      if self.flush_goals then self.flush_goals() end
+    else
+      StatusDialogs.info(_("You're offline. This read is kept and will be sent when you're connected."))
+    end
+  end
+  form = require("hardcover/lib/ui/read_edit_dialog"):new {
+    book = context.book, adding = true, default_edition = default_edition, on_save = on_save,
+    choose_edition = function(edition_id, callback)
+      self:chooseReadEdition(context, current or {}, callback)
+    end,
+  }
+  UIManager:show(form, "full")
+end
+
+function Flows:removeRead(context, history, read)
+  local book_id, user_id = tonumber(context.book_id), User:getId()
+  local entry = self.sync_queue and self.sync_queue:enqueueReadEdit(
+    self:deviceFile(book_id) or book_id, {
+      kind = "remove_read", user_id = user_id, book_id = book_id,
+      user_book_id = context.user_book_id or (context.detail and context.detail.user_book_id),
+      title = context.book and context.book.title, read_id = read.id, base = readBase(read),
+      file = self:deviceFile(book_id),
+    })
+  if not entry then
+    StatusDialogs.info(_("Could not remove this read. Try again."))
+    return
+  end
+  if history then self:refreshReadHistory(history) end
+  if context.screen then context.screen:refreshState() end
+  if Network.connected() then
+    if self.flush_goals then self.flush_goals() end
+  else
+    StatusDialogs.info(_("You're offline. The removal is kept and will be sent when you're connected."))
+  end
 end
 
 -- A read edit reached Hardcover: save what it answered, and refresh the open history and page.

@@ -80,13 +80,21 @@ return {
       today = "2026-11-15",
       checked_at = os.time(),
       states = { [2] = { text = "Finish date waiting to send", kind = "waiting" } },
-      on_add = function() end,
+      on_add = function()
+        local form = ReadEditDialog:new {
+          book = book, adding = true, today = "2026-11-15", default_edition = editions[2],
+          editions = editions,
+        }
+        UIManager:show(form, "full")
+        emu:pump()
+      end,
       on_open_read = function(read)
         local form = ReadEditDialog:new {
           book = book,
           read = read,
           today = "2026-11-15",
           editions = editions,
+          on_remove = function() end,
           on_save = function(change, clear) saved = { change = change, clear = clear } end,
         }
         UIManager:show(form, "full")
@@ -107,6 +115,27 @@ return {
     emu:expectText("Hardcover checked today")
     emu:expectNoButtonOverlap()
     emu:shot("read_history")
+
+    -- Add a past read is an empty form that asks for a finish, with the book's edition selected.
+    tap_widget(emu, history.add_row, "Add a past read")
+    local add_form = top()
+    assert(add_form and add_form.name == "hardcover_read_edit", "Add a past read opened no form")
+    for _, text in ipairs({ "Add a past read", "Finished", "A finish date is required.",
+      "Paperback · 341 pages" }) do
+      emu:expectText(text)
+    end
+    emu:shot("read_history_add")
+    add_form:cancel()
+    emu:pump()
+
+    -- A finished read can be removed; the current read cannot.
+    tap_widget(emu, history.items[2].row, "a finished read")
+    local finished = top()
+    assert(finished and finished.name == "hardcover_read_edit", "a finished read opened no form")
+    emu:expectText("Remove this read")
+    emu:shot("read_history_remove")
+    finished:cancel()
+    emu:pump()
 
     -- one read's form: the read in progress has no finish row
     tap_widget(emu, history.items[1].row, "the read in progress")

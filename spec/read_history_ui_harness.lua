@@ -255,6 +255,35 @@ check("the chosen edition is handed to the caller with the change", function()
   assert(chosen and chosen.edition_id == 8 and chosen.pages == 608)
 end)
 
+check("adding a past read asks for a finish and preselects the edition", function()
+  local saved
+  local dialog = ReadEditDialog:new { book = { title = "Dune", pages = 304 }, adding = true,
+    default_edition = { edition_id = 7, pages = 304, edition_format = "Paperback", reading_format_id = 1 },
+    today = today, on_save = function(change, clear, edition) saved = { change = change, clear = clear, edition = edition } end }
+  local keys = {}
+  for _, row in ipairs(dialog:rows()) do keys[#keys + 1] = row.key end
+  assert(table.concat(keys, ",") == "started_at,finished_at,finished_at_precision,edition",
+    table.concat(keys, ","))
+  assert(dialog:editionText() == "Paperback · 304 pages")
+  assert(dialog.save_enabled == false and dialog.problem == "A finish date is required.",
+    tostring(dialog.problem))
+  dialog:setDate("finished_at", 2024, 3, 20)
+  assert(dialog.save_enabled == true, "a finish did not enable Save")
+  dialog:save()
+  assert(saved and saved.change.finished_at == "2024-03-20" and saved.change.started_at == nil)
+  assert(saved.edition and saved.edition.edition_id == 7, "the chosen edition was not handed over")
+end)
+
+check("a normal read with a remove handler shows the remove row; the read in progress does not", function()
+  local normal = ReadEditDialog:new { book = { title = "Dune" }, read = read(1), today = today,
+    on_remove = function() end }
+  assert(normal.row_taps.remove ~= nil, "no remove row")
+  local current = ReadEditDialog:new { book = { title = "Dune" },
+    read = read(3, { no_finish = true, started_at = "2026-11-03" }), today = today,
+    on_remove = function() end }
+  assert(current.row_taps.remove == nil, "the read in progress offered removal")
+end)
+
 check("a date change is summarised and sent sparse", function()
   local saved, cleared
   local dialog = ReadEditDialog:new { book = { title = "Dune" }, read = read(1), today = today,

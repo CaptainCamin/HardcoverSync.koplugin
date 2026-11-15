@@ -225,7 +225,9 @@ check("an addition and a removal", function()
       finished_at = "2020-01-02", edition = { edition_format = "E-Book" } } },
     { kind = "remove_read", seq = 2, read_id = 20 },
   })
-  assert(#projected == 1 and projected[1].id == "local:1" and projected[1].started_at == "2020-01-01")
+  assert(#projected == 2, "a waiting removal must keep its row")
+  assert(projected[1].pending_removal == true and projected[2].pending_add == true)
+  assert(projected[2].id == "local:1" and projected[2].started_at == "2020-01-01")
 end)
 
 check("actions apply in queue order", function()

@@ -333,7 +333,7 @@ function ReadSender.send(api, entry, action, opts)
       rebindLocal(entry, action.local_id, found)
       return "sent", user_book
     end
-  else
+  elseif action.kind ~= "remove_read" then
     local fields = conflictFields(action, target)
     if #fields > 0 then
       return park(action, { kind = "read_changed", read_id = action.read_id, read = target, fields = fields })

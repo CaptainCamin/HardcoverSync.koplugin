@@ -8,6 +8,8 @@
 
 - **Change the edition of any read.** Reading history's Edition row opens the edition picker, audiobooks included, and converts the page to the chosen edition's numbering. The current read also moves the book's linked edition and page count at once, so pages turned afterwards are sent in the right units. Cancelling the change in Pending changes puts the old edition back.
 
+- **Add or remove a read.** Add a past read from Reading history, with its dates and edition; the finish date is required. A finished read can be removed while the book stays on its shelf. Both changes are kept offline and can be cancelled before they are sent.
+
 ## 2.4.0
 
 ### Added

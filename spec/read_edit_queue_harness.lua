@@ -70,7 +70,10 @@ local function fakeApi()
   end
   function api:addRead(user_book_id, fields)
     self.calls[#self.calls + 1] = { op = "addRead", fields = fields }
-    local user_book = self.records[tonumber(user_book_id)]
+    local user_book
+    for _, record in pairs(self.records) do
+      if tostring(record.id) == tostring(user_book_id) then user_book = record; break end
+    end
     local added = { id = 99 }
     for key, value in pairs(fields) do if value ~= NULL then added[key] = value end end
     added.edition = { id = added.edition_id, pages = 300, edition_format = "Paperback", reading_format_id = 1 }
@@ -296,6 +299,63 @@ check("send_anyway sends an older read, wait leaves it waiting", function()
   newer.finished_at = "2025-02-01"
   q:flush(api, { user_id = 1 })
   assert(#api.calls == 1 and api.calls[1].fields.started_at == "2024-03-14")
+end)
+
+print("\n== additions and removals ==")
+
+check("an addition inserts one read and is acknowledged", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, {}, 3)
+  enqueue(q, 7, { kind = "add_read", change = { started_at = "2020-01-01",
+    finished_at = "2020-01-02", finished_at_precision = 1, edition_id = 7 } })
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(#api.calls == 1 and api.calls[1].op == "addRead")
+  assert(api.calls[1].fields.finished_at == "2020-01-02" and api.calls[1].fields.edition_id == 7)
+  assert(#api.records[7].user_book_reads == 1 and #q:readActions(7) == 0)
+end)
+
+check("editing an unsent addition changes it in place", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, {}, 3)
+  local _, action = enqueue(q, 7, { kind = "add_read", local_id = "local:1",
+    change = { started_at = "2020-01-01", finished_at = "2020-01-02", edition_id = 7 } })
+  local _, same = enqueue(q, 7, { kind = "add_read", local_id = "local:1",
+    change = { started_at = "2020-01-01", finished_at = "2020-01-03", edition_id = 7 } })
+  assert(same == action and #q:readActions(7) == 1, "a second addition was queued")
+  assert(q:readActions(7)[1].change.finished_at == "2020-01-03")
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(#api.calls == 1 and api.calls[1].fields.finished_at == "2020-01-03")
+end)
+
+check("an unsent addition can be discarded without an API call", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, {}, 3)
+  local _, action = enqueue(q, 7, { kind = "add_read",
+    change = { started_at = "2020-01-01", finished_at = "2020-01-02", edition_id = 7 } })
+  assert(q:cancelReadEdit(7, action.seq, 1))
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(#api.calls == 0 and #q:readActions(7) == 0)
+end)
+
+check("a removal after an unsent date edit sends both in order and leaves no read", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { read() }, 3)
+  enqueue(q, 7, { read_id = 10, base = { started_at = "2024-03-12" },
+    change = { started_at = "2024-03-14" } })
+  enqueue(q, 7, { kind = "remove_read", read_id = 10, base = { started_at = "2024-03-12" } })
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(#api.calls == 2 and api.calls[1].op == "updateRead" and api.calls[2].op == "deleteRead")
+  assert(#api.records[7].user_book_reads == 0 and #q:readActions(7) == 0)
+end)
+
+check("the only read can be removed, including a year-precision import", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { read { started_at = nil, finished_at = "2019-01-01",
+    finished_at_precision = 3 } }, 3)
+  enqueue(q, 7, { kind = "remove_read", read_id = 10,
+    base = { finished_at = "2019-01-01", finished_at_precision = 3 } })
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(#api.calls == 1 and api.calls[1].op == "deleteRead" and api.calls[1].read_id == 10)
 end)
 
 print("\n== edition changes ==")

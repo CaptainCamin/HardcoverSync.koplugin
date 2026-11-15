@@ -32,6 +32,7 @@ local ListItem = require("hardcover/lib/ui/components/list_item")
 local Picker = require("hardcover/lib/ui/picker")
 local ReadHistory = require("hardcover/lib/read_history")
 local StepperDialog = require("hardcover/lib/ui/components/stepper_dialog")
+local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 local Theme = require("hardcover/lib/ui/theme")
 local TopBar = require("hardcover/lib/ui/components/top_bar")
 
@@ -41,6 +42,9 @@ local ReadEditDialog = InputContainer:extend {
   name = "hardcover_read_edit",
   book = nil,
   read = nil,
+  adding = false,  -- an empty form for a past read; Finished is required
+  default_edition = nil, -- the edition preselected on an addition
+  on_remove = nil, -- function(read) after Remove this read is confirmed
   today = nil,     -- YYYY-MM-DD, for a test; the device's day otherwise
   -- function(current_edition_id, callback) that shows the edition picker and calls back with the
   -- chosen edition (the normalized row: edition_id, pages, edition_format, reading_format_id)
@@ -80,9 +84,9 @@ function ReadEditDialog:init()
     started_at = read.started_at,
     finished_at = read.finished_at,
     finished_at_precision = read.finished_at_precision,
-    edition_id = read.edition_id,
+    edition_id = read.edition_id or (self.default_edition and self.default_edition.edition_id),
     progress_pages = read.progress_pages,
-    edition = read.edition,
+    edition = read.edition or self.default_edition,
   }
   self.form = copyFields(self.original)
   if self.form.finished_at and not self.form.finished_at_precision then
@@ -97,7 +101,14 @@ end
 -- The read being corrected is still in progress: the form leaves out a finish entirely. A new
 -- form (no read yet) is not "in progress": it is waiting for a finish.
 function ReadEditDialog:inProgress()
-  return self.read ~= nil and self.original.finished_at == nil
+  return not self.adding and self.read ~= nil and self.original.finished_at == nil
+end
+
+function ReadEditDialog:formProblem()
+  if self.adding and not self.form.finished_at then
+    return _("A finish date is required."), "finished_at"
+  end
+  return ReadHistory.validate(self.form, self.today)
 end
 
 function ReadEditDialog:editionPages()
@@ -151,6 +162,10 @@ function ReadEditDialog:rows()
   if self.page_conversion then
     rows[#rows + 1] = { key = "progress_pages", label = _("Page reached"),
       value = self:pageText(), edit = function() self:pickPage() end }
+  end
+  if self.read and not self:inProgress() and self.on_remove then
+    rows[#rows + 1] = { key = "remove", label = self.read.pending_add and _("Discard this read")
+      or _("Remove this read"), remove = true }
   end
   return rows
 end
@@ -224,7 +239,23 @@ function ReadEditDialog:saveAllowed()
   if self.busy then return false end
   local change, clear = ReadHistory.diff(self.original, self.form)
   if next(change) == nil and next(clear) == nil then return false end
-  return ReadHistory.validate(self.form, self.today) == nil
+  return self:formProblem() == nil
+end
+
+function ReadEditDialog:buildRemoveRow(row, width, viewport, divider)
+  local item = ListItem.new {
+    width = width,
+    label = row.label,
+    divider = divider and "dotted" or nil,
+    viewport = viewport,
+    strong = true,
+    callback = function()
+      if not self.busy then self:confirmRemove() end
+    end,
+  }
+  item.text = row.label
+  self.row_taps[row.key] = item
+  return item
 end
 
 function ReadEditDialog:buildRow(row, width, viewport, divider)
@@ -250,14 +281,18 @@ function ReadEditDialog:buildContent(width, viewport)
   self.row_taps = {}
   local c = VerticalGroup:new { align = "left", Theme.span("s") }
 
-  self.problem, self.message_field = ReadHistory.validate(self.form, self.today)
+  self.problem, self.message_field = self:formProblem()
   local rows = self:rows()
   for index, row in ipairs(rows) do
     local last = index == #rows
     local explains = self.problem and self.message_field == row.key
     -- the sentence belongs under its row, so that row drops its divider and the sentence closes
     -- the block instead
-    c[#c + 1] = self:buildRow(row, width, viewport, (not last) and not explains)
+    if row.remove then
+      c[#c + 1] = self:buildRemoveRow(row, width, viewport, (not last) and not explains)
+    else
+      c[#c + 1] = self:buildRow(row, width, viewport, (not last) and not explains)
+    end
     if explains then
       c[#c + 1] = Theme.span(Theme.px(4))
       c[#c + 1] = Theme.mmdText(self.problem, "text", 18, { width = width })
@@ -298,7 +333,7 @@ function ReadEditDialog:build()
   local screen_w, screen_h = Screen:getWidth(), Screen:getHeight()
   local title_bar = TopBar.new {
     width = screen_w,
-    title = _("Edit read"),
+    title = self.adding and _("Add a past read") or _("Edit read"),
     on_back = function() self:cancel() end,
   }
   self.title_bar = title_bar
@@ -466,6 +501,24 @@ end
 -- What would be sent; a test calls this to see the sparse change without opening a picker.
 function ReadEditDialog:preview()
   return ReadHistory.diff(self.original, self.form)
+end
+
+function ReadEditDialog:confirmRemove()
+  local read = self.read or {}
+  local pending = read.pending_add == true
+  local detail = string.format(_("%s · %s"), ReadHistory.rangeText(read), self:editionText())
+  StatusDialogs.confirm {
+    title = pending and _("Discard this read?") or _("Remove this read?"),
+    text = pending
+      and _("This read has not been sent to Hardcover yet. It will be removed from this device.")
+      or string.format(_("%s\n\nThe book stays on your Read shelf."), detail),
+    ok_text = pending and _("Discard") or _("Remove"),
+    cancel_text = _("Keep it"),
+    ok_callback = function()
+      self:close()
+      if self.on_remove then self.on_remove(read) end
+    end,
+  }
 end
 
 function ReadEditDialog:save()

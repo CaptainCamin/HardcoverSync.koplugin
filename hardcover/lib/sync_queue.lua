@@ -321,6 +321,22 @@ function SyncQueue:enqueueReadEdit(file_or_book, payload)
   if not entry then return nil end
 
   local at = tonumber(payload.at) or os.time()
+  -- An addition still waiting is changed in place: the reader is editing the same read, not
+  -- adding a second one behind it.
+  if payload.kind == "add_read" and payload.local_id then
+    for _i, existing in ipairs(Actions.readActions(entry)) do
+      if existing.kind == "add_read" and tostring(existing.local_id) == tostring(payload.local_id) then
+        if Actions.started(existing) then return nil end
+        existing.change = payload.change or {}
+        existing.clear = payload.clear or {}
+        existing.edition = payload.edition
+        existing.at = at
+        entry.failures, entry.held, entry.reason = nil, nil, nil
+        self:persist()
+        return entry, existing
+      end
+    end
+  end
   local action
   if payload.kind == "read_dates" then
     action = Actions.readDates(entry, payload.read_id, payload.base, payload.change, payload.clear, at,
@@ -337,6 +353,7 @@ function SyncQueue:enqueueReadEdit(file_or_book, payload)
     return nil
   end
   if payload.force then action.force = true end
+  if payload.kind == "add_read" then action.edition = payload.edition end
   if payload.kind == "read_edition" then
     action.current = payload.current == true
     action.target_edition_id = tonumber(payload.target_edition_id or action.change.edition_id)
