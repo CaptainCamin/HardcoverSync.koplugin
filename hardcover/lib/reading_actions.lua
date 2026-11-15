@@ -75,14 +75,65 @@ function Actions.refresh(entry)
         or action.value == HARDCOVER.STATUS.TO_READ then
         entry.reread = nil
       end
-    else
+    elseif action.kind == "page" then
       entry.mapped_page, entry.page_updated_at = action.value, action.at
       entry.force_page = action.force
       if action.reread then entry.reread = true end
       days[#days + 1] = { day = action.day, page = action.value, at = action.at, seq = action.seq }
     end
+    -- read edits (read_dates, read_edition, add_read, remove_read) are their own actions and
+    -- do not project onto the page/status fields
   end
   if #days > 0 then entry.page_days = days end
+end
+
+local READ_KINDS = { read_dates = true, read_edition = true, add_read = true, remove_read = true }
+
+function Actions.isRead(action)
+  return type(action) == "table" and READ_KINDS[action.kind] == true
+end
+
+-- The read edits waiting in one entry, in queue order.
+function Actions.readActions(entry)
+  local out = {}
+  for _, action in ipairs(Actions.list(entry)) do
+    if Actions.isRead(action) then out[#out + 1] = action end
+  end
+  return out
+end
+
+local function readAction(entry, kind, fields)
+  local action = append(entry, {
+    kind = kind, at = fields.at, read_id = fields.read_id and tonumber(fields.read_id) or nil,
+    local_id = fields.local_id, base = fields.base or {}, change = fields.change or {},
+    clear = fields.clear or {},
+  })
+  Actions.refresh(entry)
+  return action
+end
+
+-- Change one read's dates. `base` is exactly what the form started from, `change` the fields
+-- that differ and `clear` the fields to remove. A nil read_id is a read only this device knows
+-- about (an unsent addition) and is matched by `local_id` instead.
+function Actions.readDates(entry, read_id, base, change, clear, at, local_id)
+  return readAction(entry, "read_dates", { read_id = read_id, base = base, change = change,
+    clear = clear, at = at, local_id = local_id })
+end
+
+function Actions.readEdition(entry, read_id, base, change, clear, at, local_id)
+  return readAction(entry, "read_edition", { read_id = read_id, base = base, change = change,
+    clear = clear, at = at, local_id = local_id })
+end
+
+-- A past read to add: `change` holds its dates and edition. `local_id` names it until Hardcover
+-- gives it an id, so an edit made before it is sent can target the same action.
+function Actions.addRead(entry, change, at, local_id)
+  return readAction(entry, "add_read", { change = change, at = at, local_id = local_id })
+end
+
+-- One read to remove. `base` is the read as it was when the reader asked.
+function Actions.removeRead(entry, read_id, base, at)
+  return readAction(entry, "remove_read", { read_id = read_id, base = base, at = at })
 end
 
 function Actions.status(entry, status, at, finished_date, reread)
@@ -126,6 +177,7 @@ end
 
 function Actions.started(action)
   return action.status_attempt ~= nil or action.status_sent or action.page_attempt or action.applied
+    or action.read_attempt ~= nil or action.read_sent or action.checking
 end
 
 -- Journal rows and grouped pending controls must validate the same reading dependencies.
@@ -150,6 +202,15 @@ function Actions.cancel(entry, kind, seq)
           end
           if later.kind == "status" and
             (action.value ~= HARDCOVER.STATUS.READING or later.value ~= HARDCOVER.STATUS.PAUSED) then break end
+        end
+      end
+    elseif selected[i] and action.kind == "add_read" and action.local_id then
+      -- An unsent addition cannot go while an edit of that local read still depends on it.
+      for j = i + 1, #actions do
+        local later = actions[j]
+        if not selected[j] and (tostring(later.read_id) == tostring(action.local_id)
+          or tostring(later.local_id) == tostring(action.local_id)) then
+          return false, "dependent"
         end
       end
     end

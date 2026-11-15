@@ -42,6 +42,7 @@ function SyncConflictDialog.show(opts)
   end
 
   local described = decision.describe and decision.describe()
+    or (decision.conflict and SyncConflicts.describeRead(decision.entry, decision.conflict))
     or SyncConflicts.describe(decision.filepath or decision.key, decision.entry)
   if not described then
     if opts.on_done then opts.on_done(0) end

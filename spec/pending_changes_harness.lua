@@ -65,6 +65,37 @@ check("a page, a status, a rating and a goal change each get their own line", fu
   end
 end)
 
+check("a read edit has its own row, its state in words, and its own cancel", function()
+  local q = queues()
+  q.sync_queue:enqueueReadEdit(7, {
+    kind = "read_dates", user_id = 1, user_book_id = 507, title = "Dune", read_id = 10,
+    base = { started_at = "2024-03-12" }, change = { finished_at = "2024-03-20" },
+  })
+  local rows = PendingChanges.list(q)
+  assert(#rows == 1 and rows[1].kind == "read", #rows)
+  assert(rows[1].text:find("Dune: Finish date waiting to send", 1, true), rows[1].text)
+  assert(rows[1].note == nil)
+  assert(rows[1].cancel())
+  assert(#q.sync_queue:readActions(7) == 0)
+end)
+
+check("a parked read edit says Needs your decision and appears in the decision group", function()
+  local q = queues()
+  q.sync_queue:enqueueReadEdit(7, {
+    kind = "read_dates", user_id = 1, user_book_id = 507, title = "Dune", read_id = 10,
+    base = { started_at = "2024-03-12" }, change = { started_at = "2024-03-14" },
+  })
+  local action = q.sync_queue:readActions(7)[1]
+  action.conflict = { kind = "read_changed", read_id = 10, read = { id = 10 },
+    fields = { { field = "started_at", online = "2024-03-13", base = "2024-03-12",
+      proposed = "2024-03-14" } } }
+  local rows = PendingChanges.list(q)
+  assert(#rows == 1 and rows[1].note == "Needs your decision", tostring(rows[1] and rows[1].note))
+  local decisions = PendingChanges.decisions(q)
+  assert(#decisions == 1 and decisions[1].kind == "decision", #decisions)
+  assert(decisions[1].text:find("start date changed on Hardcover", 1, true), decisions[1].text)
+end)
+
 check("a book with no title is named by its file; a rating with none by its id", function()
   local q = queues()
   q.sync_queue:enqueuePage("/books/Some Book.epub", { mapped_page = 3, book_id = 1 })
