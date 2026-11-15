@@ -15,6 +15,7 @@
 
 local BookStore = require("hardcover/lib/book_store")
 local Codec = require("hardcover/lib/codec")
+local _t = require("hardcover/lib/table_util")
 
 local ShelfStore = {}
 ShelfStore.__index = ShelfStore
@@ -42,8 +43,7 @@ end
 
 -- A shelf entry (Shelf.normalizeEntry's shape) from a saved book row and its shelf row.
 local function entryOf(row, member)
-  local entry = {}
-  for k, v in pairs(row) do entry[k] = v end
+  local entry = _t.copy(row)
   entry.user_book_id = member.user_book_id
   entry.status_id = member.status_id
   entry.user_rating = member.rating

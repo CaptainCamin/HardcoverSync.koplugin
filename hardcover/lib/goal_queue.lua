@@ -13,6 +13,7 @@
 
 local Goals = require("hardcover/lib/goals")
 local OfflineQueue = require("hardcover/lib/offline_queue")
+local _t = require("hardcover/lib/table_util")
 
 local GoalQueue = OfflineQueue.extend({})
 GoalQueue.store_key = "goal_ops"
@@ -206,8 +207,7 @@ function GoalQueue:_flush(api, opts)
     if valid(op) and not op.held and self:find(op.key) == op then
       local ok, result, err = pcall(function()
         if op.kind == "archive" then
-          local goal = {}
-          for k, v in pairs(op.form or {}) do goal[k] = v end
+          local goal = _t.copy(op.form or {})
           goal.id = op.key
           return api:archiveGoal(goal)
         end

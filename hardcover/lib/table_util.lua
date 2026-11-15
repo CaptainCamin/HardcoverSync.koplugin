@@ -13,6 +13,14 @@ function TableUtil.dig(t, ...)
   return result
 end
 
+function TableUtil.copy(t)
+  local result = {}
+  for k, v in pairs(t) do
+    result[k] = v
+  end
+  return result
+end
+
 function TableUtil.map(t, cb)
   local result = {}
   for i, v in ipairs(t) do

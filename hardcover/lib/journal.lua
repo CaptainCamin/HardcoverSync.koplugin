@@ -14,6 +14,7 @@
 -- rest down by one, so the next page can start with one already held: Journal.append drops it.
 
 local Reviews = require("hardcover/lib/reviews")
+local _t = require("hardcover/lib/table_util")
 
 local Journal = {}
 
@@ -431,12 +432,6 @@ function Journal.changesOf(statuses, pages)
   return out
 end
 
-local function copyOf(entry)
-  local copy = {}
-  for k, v in pairs(entry) do copy[k] = v end
-  return copy
-end
-
 --
 -- What the Journal tab shows: Hardcover's entries as changed on this device. A note or quote edited
 -- and not sent yet shows its new text where it is, saying it is waiting; one being deleted is left
@@ -468,7 +463,7 @@ function Journal.withPending(entries, journal_ops, review_ops, user_id, status_c
     if change ~= nil then used[key] = true end
     if e.book_id and not books[e.book_id] then books[e.book_id] = e end
     if change and nonBlank(change.text) then
-      local copy = copyOf(e)
+      local copy = _t.copy(e)
       copy.text = change.text
       copy.excerpt, copy.truncated = Reviews.excerpt(change.text)
       copy.waiting = true
@@ -479,7 +474,7 @@ function Journal.withPending(entries, journal_ops, review_ops, user_id, status_c
       end
       held[#held + 1] = copy
     elseif change == false and e.kind == "review" then
-      local copy = copyOf(e)
+      local copy = _t.copy(e)
       copy.text, copy.excerpt, copy.truncated, copy.spoilers = nil, nil, nil, nil
       copy.waiting = true
       held[#held + 1] = copy

@@ -24,6 +24,8 @@
 -- Every operation is best-effort: a cache that cannot be read or written must
 -- never break the screen that asked for it.
 
+local _t = require("hardcover/lib/table_util")
+
 local ShelfCache = {}
 ShelfCache.__index = ShelfCache
 
@@ -132,8 +134,7 @@ function ShelfCache:put(user_id, status_id, entries, complete)
       complete = false
       break
     end
-    local copy = {}
-    for k, v in pairs(entry) do copy[k] = v end
+    local copy = _t.copy(entry)
     copy.description = truncate(copy.description, MAX_DESCRIPTION)
     kept[i] = copy
   end
@@ -246,8 +247,7 @@ function ShelfCache:putReading(user_id, entries)
 
   local kept = {}
   for i, entry in ipairs(entries) do
-    local copy = {}
-    for k, v in pairs(entry) do copy[k] = v end
+    local copy = _t.copy(entry)
     copy.description = nil
     kept[i] = copy
   end
@@ -282,8 +282,7 @@ function ShelfCache:putForYou(user_id, entries, signature)
   end
   local kept = {}
   for i, entry in ipairs(entries) do
-    local copy = {}
-    for k, v in pairs(entry) do copy[k] = v end
+    local copy = _t.copy(entry)
     copy.description = nil
     kept[i] = copy
   end
@@ -313,8 +312,7 @@ function ShelfCache:putGoals(user_id, goals)
   end
   local kept = {}
   for i, goal in ipairs(goals) do
-    local copy = {}
-    for k, v in pairs(goal) do copy[k] = v end
+    local copy = _t.copy(goal)
     kept[i] = copy
   end
   saved[tostring(user_id or 0)] = { goals = kept, saved_at = os.time() }
