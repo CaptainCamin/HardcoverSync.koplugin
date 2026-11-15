@@ -209,6 +209,66 @@ check("a lost response is checked, not repeated", function()
   assert(#q:readActions(7) == 0)
 end)
 
+check("a failed verification lookup keeps the edit checking", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { read() })
+  local real_find = api.findUserBook
+  local failed = false
+  function api:findUserBook(book_id)
+    if not failed and #self.calls > 0 then
+      failed = true
+      return nil, { message = "timeout" }
+    end
+    return real_find(self, book_id)
+  end
+  enqueue(q, 7, { read_id = 10, base = { started_at = "2024-03-12" },
+    change = { started_at = "2024-03-14" } })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  local action = q:readActions(7)[1]
+  assert(action and action.checking and not action.conflict, "the lookup error became a question")
+  assert(#api.calls == 1 and api.calls[1].op == "updateRead")
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(#api.calls == 1, "the verified write was repeated")
+  assert(#q:readActions(7) == 0)
+end)
+
+check("a partly applied attempt sends only the field still waiting", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { read() })
+  api.lose_updates = true
+  enqueue(q, 7, { read_id = 10, base = { started_at = "2024-03-12", finished_at = "2024-03-20" },
+    change = { started_at = "2024-03-14", finished_at = "2024-03-21" } })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  -- another device put the start back while the finish stayed as this attempt wrote it
+  api.records[7].user_book_reads[1].started_at = "2024-03-12"
+  api.lose_updates = false
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(#api.calls == 2 and api.calls[2].op == "updateRead", "the remaining start was not sent")
+  assert(api.calls[2].fields.started_at == "2024-03-14")
+  assert(api.calls[2].fields.finished_at == nil, "the satisfied finish was sent again")
+  assert(#q:readActions(7) == 0)
+end)
+
+check("an added read whose fields differ is not acknowledged or inserted again", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, {}, 3)
+  local real_add = api.addRead
+  function api:addRead(user_book_id, fields)
+    local result = real_add(self, user_book_id, fields)
+    self.records[7].user_book_reads[1].started_at = "2020-01-03"
+    return result
+  end
+  enqueue(q, 7, { kind = "add_read", change = { started_at = "2020-01-01",
+    finished_at = "2020-01-02", edition_id = 7 } })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  local action = q:readActions(7)[1]
+  assert(action and action.checking and action.added_id == 99 and not action.conflict,
+    "the differing added read was acknowledged or parked")
+  assert(#api.calls == 1 and api.calls[1].op == "addRead")
+  assert(q:flush(api, { user_id = 1 }) == false, "the differing added read was acknowledged")
+  assert(#api.calls == 1, "the added read was inserted twice")
+end)
+
 check("cancel works before sending, and is refused while checking", function()
   local q, api = queue(), fakeApi()
   api.records[7] = record(7, { read() })

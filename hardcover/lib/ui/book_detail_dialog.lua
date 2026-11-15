@@ -168,10 +168,11 @@ end
 
 -- A dotted note when this book has a question, with one solid Review button into the one list.
 function BookDetailDialog:buildSyncNote(width)
+  self.sync_note_button = nil
   local state = self.sync_state
   if not (state and state.decision and self.on_decision) then return nil end
   self.sync_note_title = _("Needs your decision")
-  return Note.new {
+  local note = Note.new {
     width = width,
     icon = Draw.icon("warning", Theme.px(26)),
     title = self.sync_note_title,
@@ -182,6 +183,8 @@ function BookDetailDialog:buildSyncNote(width)
       if self.on_decision then self.on_decision(self) end
     end },
   }
+  self.sync_note_button = note.action_button
+  return note
 end
 
 -- The compact reviews section: a heading row that opens the reviews page, one line with the
@@ -489,6 +492,7 @@ function BookDetailDialog:init()
     self.rating_tap = rating_label
   end
   local stars_row = HorizontalGroup:new { align = "center" }
+  self.rating_stars = {}
   for i = 1, 5 do
     local name = mine >= i and "star-filled" or (mine >= i - 0.5 and "star-half" or "star")
     local star = CenterContainer:new {
@@ -497,6 +501,7 @@ function BookDetailDialog:init()
     }
     if self.on_rating then
       star = TapRow:new { callback = function() self.on_rating(self, i) end, viewport = viewport, star }
+      self.rating_stars[#self.rating_stars + 1] = star
     end
     table.insert(stars_row, star)
   end
@@ -769,15 +774,21 @@ function BookDetailDialog:init()
     VerticalGroup:new { align = "left", title_bar, self.scroll_body },
   }
 
-  -- keyboard / d-pad focus: the buttons, the carousel's arrows (when it pages), then Close
+  -- keyboard / d-pad focus: the header's controls, the buttons, the reading row and note, the
+  -- reviews section, the carousel's arrows (when it pages), then Close
   self.layout = {}
+  if self.on_shelf then table.insert(self.layout, { self.shelf_tap }) end
+  if self.rating_tap then table.insert(self.layout, { self.rating_tap }) end
+  if #(self.rating_stars or {}) > 0 then table.insert(self.layout, self.rating_stars) end
   for _i, fields in ipairs(self.action_rows or {}) do
     local row = {}
     for _j, field in ipairs(fields) do row[#row + 1] = self[field] end
     if #row > 0 then table.insert(self.layout, row) end
   end
   if self.reading_row then table.insert(self.layout, { self.reading_row }) end
+  if self.sync_note_button then table.insert(self.layout, { self.sync_note_button }) end
   if self.reviews_heading then table.insert(self.layout, { self.reviews_heading }) end
+  if self.review_button then table.insert(self.layout, { self.review_button }) end
   for _i, strip in ipairs({ self.carousel or false, self.similar_carousel or false }) do
     if strip and strip.paged then
       table.insert(self.layout, { strip.prev, strip.next })

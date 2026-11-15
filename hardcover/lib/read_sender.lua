@@ -159,15 +159,24 @@ local function mergeAnswer(user_book, answer)
   return user_book
 end
 
--- Verify that the read now holds `proposal`. Returns true/false, and the read as found.
+-- Whether one read holds every field the attempt asked to write. The lookup's answer and the
+-- attempt's own answer both go through this, so finding a read is not enough to acknowledge it.
+local function holds(read, proposal, check)
+  if type(read) ~= "table" then return false end
+  for field in pairs(check or proposal or {}) do
+    if not same(valueOf(read, field), (proposal or {})[field]) then return false end
+  end
+  return true
+end
+
+-- Verify that the read now holds `proposal`. Returns true/false, the read as found, and on a
+-- failed lookup nil plus the error, so the caller never mistakes an error table for a read.
 local function verified(api, entry, user_id, user_book, read_id, proposal, check)
   local fresh, err = api:findUserBook(entry.book_id, user_id or entry.user_id)
-  if err ~= nil or type(fresh) ~= "table" or not fresh.id then return nil, nil, err end
+  if err ~= nil or type(fresh) ~= "table" or not fresh.id then return nil, nil, nil, err end
   local found = findRead(fresh, read_id)
   if not found then return false, fresh end
-  for field in pairs(check or proposal) do
-    if not same(valueOf(found, field), proposal[field]) then return false, fresh, found end
-  end
+  if not holds(found, proposal, check) then return false, fresh, found end
   return true, fresh, found
 end
 
@@ -261,10 +270,14 @@ function ReadSender.send(api, entry, action, opts)
       -- catching up, keep checking that id rather than inserting a second read.
       if action.added_id then
         local added = findRead(user_book, action.added_id)
-        if added then
+        local attempt = action.read_attempt or {}
+        if added and holds(added, attempt.proposal or {}, attempt.check or {}) then
           rebindLocal(entry, action.local_id, added)
           return "sent", user_book
         end
+        -- The id is visible but its fields are not what was inserted yet (or at all). Keep the
+        -- local add and its id: a second insert would duplicate the first, and acknowledging it
+        -- would throw away the proposal.
         return "checking", user_book
       end
       local found = matchingRead(user_book, action.change)
@@ -280,8 +293,13 @@ function ReadSender.send(api, entry, action, opts)
     else
       local attempt = action.read_attempt or {}
       local proposal, check = attempt.proposal or {}, attempt.check or {}
-      local ok, fresh, found = verified(api, entry, opts.user_id, user_book, action.read_id, proposal, check)
-      if ok then
+      local ok, fresh, found, verify_err = verified(api, entry, opts.user_id, user_book,
+        action.read_id, proposal, check)
+      if ok == nil then
+        -- The verification lookup failed. The write may still have landed; keep checking rather
+        -- than passing the error to conflictFields as if it were a read.
+        return "checking", user_book, verify_err
+      elseif ok then
         local library_pending = action.kind == "read_edition" and action.current
           and action.target_edition_id and fresh
           and tonumber(fresh.edition_id) ~= tonumber(action.target_edition_id)
@@ -299,11 +317,16 @@ function ReadSender.send(api, entry, action, opts)
           -- A third value: ask rather than overwrite it.
           return park(action, { kind = "read_changed", read_id = action.read_id, read = found, fields = fields })
         end
-        -- Nothing is applied yet: the lost write did not land. Retrying from the unchanged
-        -- read is safe; it is not a blind repeat.
+        -- Only the fields still waiting after conflictFields matter here. A field that already
+        -- holds the proposal was removed from the change; counting it again as a change from the
+        -- baseline would leave a partially applied attempt checking forever.
         local unchanged = true
         for field in pairs(check) do
-          if not same(valueOf(found, field), valueOf(action.base, field)) then unchanged = false end
+          local requested = (action.change and action.change[field] ~= nil)
+            or (action.clear and action.clear[field] == true)
+          if requested and not same(valueOf(found, field), valueOf(action.base, field)) then
+            unchanged = false
+          end
         end
         if unchanged then
           action.checking, action.read_sent, action.read_attempt = nil, nil, nil
@@ -440,19 +463,27 @@ function ReadSender.send(api, entry, action, opts)
     rebindLocal(entry, action.local_id, added)
   end
 
-  -- Read again: Hardcover can answer a write with a slightly older read.
-  local ok, fresh, found = verified(api, entry, opts.user_id, user_book, action.read_id, proposal, check)
-  if ok then
+  -- Read again: Hardcover can answer a write with a slightly older read. An add is verified by
+  -- the id its answer returned, not by a read id it did not have yet.
+  local verify_id = action.kind == "add_read" and added and added.id or action.read_id
+  local ok, fresh, found, verify_err = verified(api, entry, opts.user_id, user_book,
+    verify_id, proposal, check)
+  if ok == nil then
+    action.read_sent = true
+    action.checking = true
+    if opts.persist then opts.persist() end
+    return "checking", user_book, verify_err
+  elseif ok then
     action.checking, action.read_sent, action.read_attempt = nil, nil, nil
     action.conflict, action.added_id = nil, nil
     return "sent", fresh
   elseif action.kind == "add_read" then
-    local fresh_read = fresh and added and findRead(fresh, added.id)
-    if fresh_read then
-      action.checking, action.read_sent, action.read_attempt = nil, nil, nil
-      action.conflict, action.added_id = nil, nil
-      return "sent", fresh
-    end
+    -- The added id exists but its fields differ. Keep the action for another look; removing it
+    -- now would lose the local proposal, and inserting again would duplicate the read.
+    action.read_sent = true
+    action.checking = true
+    if opts.persist then opts.persist() end
+    return "checking", fresh or user_book
   end
   action.read_sent = true
   action.checking = true

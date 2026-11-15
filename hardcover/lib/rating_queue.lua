@@ -210,6 +210,10 @@ function RatingQueue:flush(api, on_sent, user_id, opts)
             OfflineQueue.reject(op, lookup_err)
             self:persist()
             ready = false
+          elseif ops[key] ~= op then
+            -- A newer rating replaced this one while the lookup was out. Its answer belongs
+            -- to the old operation and must not acknowledge or park the new one.
+            ready = false
           elseif type(record) ~= "table" or record.id == nil then
             -- The record could not be read. Keep the rating for a later pass; sending now
             -- would be a guess about a library entry this device cannot see.

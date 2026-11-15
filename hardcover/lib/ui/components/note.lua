@@ -76,6 +76,8 @@ function Note.new(opts)
   end)
   local inside = LeftContainer:new { dimen = Geom:new { w = w, h = h }, HorizontalGroup:new { Theme.hspan(pad_x), row } }
   local box = OverlapGroup:new { dimen = Geom:new { w = w, h = h }, allow_mirroring = false, border, inside }
+  -- the caller may put the action in a keyboard/d-pad layout without reaching into the row
+  box.action_button = button
   if opts.on_tap then
     -- Last, so the button (in `inside`) is offered the tap first. Not wrapped around the button: a
     -- tap row hands its tap to every tap row inside it, whatever the position, so the button would

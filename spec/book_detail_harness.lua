@@ -1013,6 +1013,34 @@ check("the decision note is drawn only when there is a question", function()
   assert(asking.sync_note and asking.sync_note_title == "Needs your decision", "no decision note")
 end)
 
+check("the layout A controls are all in the keyboard focus order", function()
+  local d = BookDetailDialog:new {
+    detail = detail(FULL),
+    on_shelf = function() end,
+    on_rating = function() end,
+    on_review = function() end,
+    on_reviews = function() end,
+    on_decision = function() end,
+    state_opts = { queues = { sync_queue = {
+      decisionForBook = function() return { title = "T", kind = "read_changed" } end,
+      readActions = function() return {} end,
+    } }, book_id = FULL.book_id, user_id = 1 },
+  }
+  local seen = {}
+  for _, row in ipairs(d.layout) do
+    for _, widget in ipairs(row) do seen[widget] = true end
+  end
+  assert(seen[d.shelf_tap], "the shelf chip is not focusable")
+  assert(seen[d.rating_tap], "the rating label is not focusable")
+  for i, star in ipairs(d.rating_stars or {}) do
+    assert(seen[star], "rating star " .. i .. " is not focusable")
+  end
+  assert(seen[d.review_button], "the review button is not focusable")
+  assert(seen[d.sync_note_button], "the decision note's Review button is not focusable")
+  assert(seen[d.reviews_heading], "the Reviews heading is not focusable")
+  assert(seen[d.close_button], "Close is not focusable")
+end)
+
 check("the rating label says what a tap does, and each star rates that many", function()
   local rated = {}
   local d = BookDetailDialog:new { detail = detail(FULL), on_rating = function(dialog, stars) rated[#rated + 1] = stars end }

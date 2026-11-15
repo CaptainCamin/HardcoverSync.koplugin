@@ -97,6 +97,16 @@ check("not offered when the plugin has no link actions to open", function()
   assert(not newManager({ no_menu = true }):canChangeEdition(7))
 end)
 
+check("changing another book's read edition does not relabel the open book", function()
+  local m = newManager() -- the open file is linked to book 7
+  m.settings.updateBookSetting = function() end
+  m.state = { book_status = { book_id = 7, edition_id = 10 } }
+  m:applyEditionLink("/a.epub", { pages = 400, edition_format = "E-book" }, 20, 8)
+  assert(m.state.book_status.edition_id == 10, "book 8's edition changed book 7's status")
+  m:applyEditionLink("/a.epub", { pages = 400, edition_format = "E-book" }, 20, 7)
+  assert(m.state.book_status.edition_id == 20, "the linked book's edition did not follow")
+end)
+
 print("\n== the button opens the reader menu's link list ==")
 
 check("tapping it opens the link actions and leaves the details alone", function()

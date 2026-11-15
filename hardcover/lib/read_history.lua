@@ -53,7 +53,11 @@ local function copyRead(read)
   for key, value in pairs(read or {}) do out[key] = value end
   for _, key in ipairs(READ_FIELDS) do
     if out[key] ~= nil and key ~= "started_at" and key ~= "finished_at" then
-      out[key] = number(out[key])
+      local converted = number(out[key])
+      -- An unsent addition is named local:N until Hardcover gives it a real id. Keep that name:
+      -- the form and the queue use it to edit the same queued addition rather than add a second.
+      if key == "id" then converted = converted or out[key] end
+      out[key] = converted
     end
   end
   out.started_at = dateString(out.started_at)
@@ -69,6 +73,15 @@ local function copyRead(read)
   return out
 end
 
+local function idOrder(id)
+  local numeric = tonumber(id)
+  if numeric then return numeric end
+  local local_seq = type(id) == "string" and tonumber(id:match("^local:(%d+)$")) or nil
+  -- A local addition has no server id yet. It is the newest read, so put it after every server id
+  -- without turning the id into nil (the form needs the name to replace it in place).
+  return local_seq and (1000000000 + local_seq) or 0
+end
+
 function ReadHistory.normalize(reads)
   local out = {}
   for _, read in ipairs(reads or {}) do out[#out + 1] = copyRead(read) end
@@ -76,7 +89,7 @@ function ReadHistory.normalize(reads)
     local a_start, b_start = a.started_at or "", b.started_at or ""
     if a_start ~= b_start then return a_start > b_start end
     -- the same day (or no start at all): the later read (the higher id) is newer
-    return (a.id or 0) > (b.id or 0)
+    return idOrder(a.id) > idOrder(b.id)
   end)
   return out
 end

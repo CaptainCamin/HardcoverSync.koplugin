@@ -594,7 +594,7 @@ end
 
 -- Put a current read's chosen edition on the link at once, so pages turned from now on are in
 -- the new edition's units and wait behind the edition action. Cancelling puts the old one back.
-function Flows:applyEditionLink(file, edition, edition_id)
+function Flows:applyEditionLink(file, edition, edition_id, book_id)
   if not (file and self.settings and self.settings.updateBookSetting) then return end
   local pages = type(edition) == "table" and tonumber(edition.pages) or nil
   local format = type(edition) == "table" and ReadHistory.formatName({ edition = edition }) or nil
@@ -605,7 +605,10 @@ function Flows:applyEditionLink(file, edition, edition_id)
   end
   if #delete > 0 then update._delete = delete end
   self.settings:updateBookSetting(file, update)
-  if self.state and self.state.book_status then self.state.book_status.edition_id = edition_id end
+  if self.state and self.state.book_status and self.settings.getLinkedBookId
+    and tonumber(self.settings:getLinkedBookId()) == tonumber(book_id) then
+    self.state.book_status.edition_id = edition_id
+  end
 end
 
 function Flows:restoreEditionLink(op)
@@ -803,7 +806,7 @@ function Flows:editRead(context, history, read)
       return
     end
     if edition_change and is_current and chosen_edition and not adding then
-      self:applyEditionLink(file, chosen_edition, edition_change)
+      self:applyEditionLink(file, chosen_edition, edition_change, book_id)
     end
     form:close()
     if history then self:refreshReadHistory(history) end

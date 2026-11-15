@@ -272,6 +272,15 @@ check("the same day: the later id is newer", function()
   assert(rows[1].id == 21 and rows[2].id == 20)
 end)
 
+check("an unsent addition keeps its local id", function()
+  local rows = ReadHistory.normalize({
+    { id = "local:2", started_at = "2026-11-04" },
+    { id = 21, started_at = "2026-11-04" },
+  })
+  assert(rows[1].id == "local:2", tostring(rows[1].id))
+  assert(rows[2].id == 21, tostring(rows[2].id))
+end)
+
 check("ordinals", function()
   local cases = { { 1, "1st" }, { 2, "2nd" }, { 3, "3rd" }, { 4, "4th" }, { 10, "10th" },
     { 11, "11th" }, { 12, "12th" }, { 13, "13th" }, { 21, "21st" }, { 22, "22nd" },

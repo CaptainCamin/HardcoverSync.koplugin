@@ -144,6 +144,9 @@ local cleanup = {}
 local cleaned = 0
 local touched = {}
 local journal_books = {}
+-- The journal row ids each probe book had before this run touched it. Cleanup must leave those
+-- alone: a catalogue book can have old journal rows even when it is not in the library.
+local journal_before = {}
 
 local function step(label, fn)
   local before = #graphql_errors
@@ -230,6 +233,14 @@ local function makeRecord(book, status)
   local editions = Api:findEditions(book.book_id, user_id)
   local edition = editions and editions[1]
   if not edition or not edition.edition_id then return nil end
+  if journal_before[book.book_id] == nil then
+    local existing = journalRows(book.book_id)
+    if type(existing) == "table" then
+      local ids = {}
+      for _, row in ipairs(existing) do ids[tostring(row.id)] = true end
+      journal_before[book.book_id] = ids
+    end
+  end
   -- findEditions answers normalized books: the edition's own id is `edition_id`, not `id`
   local user_book = Api:updateUserBook(book.book_id, status or 2, 3, edition.edition_id)
   if not (type(user_book) == "table" and user_book.id) then return nil end
@@ -632,33 +643,53 @@ end
 print("  library cleanup audit: " .. (leftovers == 0 and "no records left for the books this run touched"
   or (leftovers .. " book(s) still have a record")))
 
--- The probe books were chosen as not in the library, so the journal rows on them are the ones these
--- probes wrote. Remove them too, and say exactly what is left if Hardcover refuses any.
-local journals_removed, journals_left = 0, 0
+-- A catalogue book can have journal rows from before this run even when it was not in the
+-- library when selected. Remove only the rows that were not there before the probe touched it,
+-- and say exactly what is left if Hardcover refuses any.
+local journals_removed, journals_left, journals_preserved = 0, 0, 0
 for book_id, title in pairs(journal_books) do
-  local rows = journalRows(book_id) or {}
-  for _, row in ipairs(rows) do
-    local deleted, err = Api:deleteJournalEntry(row.id)
-    if deleted then
-      journals_removed = journals_removed + 1
-    else
-      print("  journal cleanup failed for " .. tostring(book_id) .. " row " .. tostring(row.id)
-        .. ": " .. tostring(type(err) == "table" and json.encode(err) or err))
+  local before = journal_before[book_id]
+  if before == nil then
+    print("  journal cleanup skipped for " .. tostring(book_id) .. " (" .. tostring(title)
+      .. "): its earlier rows could not be recorded")
+  else
+    local rows = journalRows(book_id) or {}
+    for _, row in ipairs(rows) do
+      if before[tostring(row.id)] then
+        journals_preserved = journals_preserved + 1
+      else
+        local deleted, err = Api:deleteJournalEntry(row.id)
+        if deleted then
+          journals_removed = journals_removed + 1
+        else
+          print("  journal cleanup failed for " .. tostring(book_id) .. " row " .. tostring(row.id)
+            .. ": " .. tostring(type(err) == "table" and json.encode(err) or err))
+        end
+      end
     end
-  end
-  local _, empty = waitFor(function()
-    local left = journalRows(book_id)
-    if not left or #left == 0 then return true end
-  end, 5)
-  local left = journalRows(book_id)
-  if left and #left > 0 then
-    journals_left = journals_left + #left
-    print("  CLEANUP LEFT: " .. tostring(book_id) .. " (" .. tostring(title) .. ") still has "
-      .. #left .. " journal rows")
+    waitFor(function()
+      local left = journalRows(book_id)
+      if not left then return false end
+      for _, row in ipairs(left) do
+        if not before[tostring(row.id)] then return false end
+      end
+      return true
+    end, 5)
+    local left = journalRows(book_id) or {}
+    local new_left = 0
+    for _, row in ipairs(left) do
+      if not before[tostring(row.id)] then new_left = new_left + 1 end
+    end
+    if new_left > 0 then
+      journals_left = journals_left + new_left
+      print("  CLEANUP LEFT: " .. tostring(book_id) .. " (" .. tostring(title) .. ") still has "
+        .. new_left .. " journal rows this run wrote")
+    end
   end
 end
 print("  journal rows removed: " .. journals_removed
-  .. (journals_left > 0 and (", " .. journals_left .. " left") or ", none left"))
+  .. (journals_left > 0 and (", " .. journals_left .. " left") or ", none left")
+  .. (journals_preserved > 0 and ("; " .. journals_preserved .. " earlier row(s) kept") or ""))
 if not probes_ok then print("  a probe stopped early: " .. tostring(probes_err)) end
 
 check("all probes completed", function() assert(probes_ok, probes_err) end)
