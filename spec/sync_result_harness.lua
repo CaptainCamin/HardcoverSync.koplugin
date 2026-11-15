@@ -110,7 +110,7 @@ check("a rating waits behind an unsettled reading without failing the pass", fun
     cloud_status = HARDCOVER.STATUS.FINISHED, seq = 1 }
   local RatingQueue = require("hardcover/lib/rating_queue")
   local ratings = RatingQueue:new { settings = KB.fakeSettings() }
-  ratings:queue(10, 4.5, "Dune", 1, 1)
+  ratings:queue(10, 4.5, "Dune", 1, 1, { rating = nil, known = true })
   local sent_rating = false
   Api.updateRating = function() sent_rating = true return { id = 10, rating = 4.5 } end
   fakeServer()
@@ -134,8 +134,8 @@ check("ratings that are both held and blocked do not turn a parked pass into a f
   end
   local RatingQueue = require("hardcover/lib/rating_queue")
   local ratings = RatingQueue:new { settings = KB.fakeSettings() }
-  ratings:queue(10, 4.5, "Dune", 1, 1)
-  ratings:queue(20, 3, "Emma", 2, 1)
+  ratings:queue(10, 4.5, "Dune", 1, 1, { rating = nil, known = true })
+  ratings:queue(20, 3, "Emma", 2, 1, { rating = nil, known = true })
   for _, op in pairs(ratings:ops()) do
     op.blocked = true
     if op.book_id == 1 then op.held = true end
@@ -156,7 +156,7 @@ check("a rating that went through beside a question is reported as sent", functi
   fakeServer()
   local RatingQueue = require("hardcover/lib/rating_queue")
   local ratings = RatingQueue:new { settings = KB.fakeSettings() }
-  ratings:queue(20, 4.5, "Emma", 2, 1)
+  ratings:queue(20, 4.5, "Emma", 2, 1, { rating = nil, known = true })
   Api.updateRating = function() return { id = 20, rating = 4.5 } end
   local app = newApp(q)
   app.rating_queue = ratings

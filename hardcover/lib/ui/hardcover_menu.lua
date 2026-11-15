@@ -720,8 +720,21 @@ function HardcoverMenu:showPendingChanges(menu_instance)
           and self.dialog_manager.removalKept then
         self.dialog_manager:removalKept(outcome)
       end
+      if outcome and outcome.kind == "combine" and self.dialog_manager
+          and self.dialog_manager.combineReview then
+        self:queueChanged()
+        self.dialog_manager:combineReview(outcome)
+        return
+      end
       self:queueChanged()
-      if self:pendingTotal() > 0 then
+      if decision and decision.book_id and self.dialog_manager
+          and self.dialog_manager.refreshBookState then
+        self.dialog_manager:refreshBookState(decision.book_id)
+      end
+      if outcome and (outcome.kind == "rating" or outcome.kind == "review")
+          and not Network.connected() then
+        StatusDialogs.info(_("Choice saved; will check Hardcover when connected."), 2)
+      elseif self:pendingTotal() > 0 then
         self:sendPending()
       else
         StatusDialogs.info(_("Choice saved."), 2)
@@ -1466,7 +1479,8 @@ function HardcoverMenu:saveRating(value, menu_instance, quiet)
     if self.rating_queue and (self.state.book_status.id or self.settings:bookLinked()) then
       self.rating_queue:queue(self.state.book_status.id, value,
         self.settings and self.settings.getLinkedTitle and self.settings:getLinkedTitle() or nil,
-        self.settings:getLinkedBookId(), User:getId())
+        self.settings:getLinkedBookId(), User:getId(),
+        { rating = self.state.book_status.rating, known = true })
       self.state.book_status.rating = value > 0 and value or nil
       menu_instance:updateItems()
       if Network.connected() then

@@ -241,7 +241,9 @@ function Flows:deleteJournalEntry(entry, done)
           queue:cancel(detail.user_book_id, entry.book_id, User:getId())
           StatusDialogs.info(_("Review discarded."))
         else
-          queue:queue(detail.user_book_id, "", false, entry.title, entry.book_id, User:getId())
+          local BookActions = require("hardcover/lib/book_actions")
+          queue:queue(detail.user_book_id, "", false, entry.title, entry.book_id, User:getId(),
+            BookActions.reviewBase(detail))
           kept(self, _("Removing your review."),
             _("You're offline. Removing your review is kept and will be sent when you're connected."))
         end

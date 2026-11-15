@@ -45,11 +45,30 @@ function SyncConflicts.changesText(changes)
   return table.concat(changes, ", ", 1, #changes - 1) .. " and " .. changes[#changes]
 end
 
+-- A rating as words for a comparison: "4.5 stars", "1 star" or "No rating".
+function SyncConflicts.ratingText(rating)
+  rating = tonumber(rating) or 0
+  if rating <= 0 then return _("No rating") end
+  return rating == 1 and _("1 star") or T(_("%1 stars"), tostring(rating))
+end
+
+-- A review's text for a comparison, or the words for no review.
+function SyncConflicts.reviewText(value)
+  local text = type(value) == "table" and value.text or ""
+  if type(text) ~= "string" or text == "" then return _("No review") end
+  return text
+end
+
 -- The one-line description of a decision in the review list.
 function SyncConflicts.decisionText(title, decision)
   local conflict = decision and (decision.conflict or (decision.entry and decision.entry.conflict))
   if not conflict then return T(_("%1: needs your decision"), title) end
-  if conflict.kind == "remove" then
+  if conflict.kind == "rating" then
+    return T(_("%1: rating changed on Hardcover"), title)
+  elseif conflict.kind == "review" then
+    return conflict.delete and T(_("%1: remove your review?"), title)
+      or T(_("%1: review changed on Hardcover"), title)
+  elseif conflict.kind == "remove" then
     return T(_("%1: remove anyway?"), title)
   elseif conflict.kind == "reread" then
     return T(_("%1: read again?"), title)
@@ -69,6 +88,8 @@ end
 function SyncConflicts.decisionNote(decision)
   local conflict = decision and (decision.conflict or (decision.entry and decision.entry.conflict))
   if not conflict then return nil end
+  if conflict.kind == "rating" then return _("Both ratings are kept until you answer.") end
+  if conflict.kind == "review" then return _("Both versions are kept until you answer.") end
   if conflict.kind == "remove" then return _("Changed on Hardcover since you asked.") end
   if conflict.kind == "reread" then
     return T(_("Hardcover has it as %1."), SyncConflicts.statusName(conflict.cloud_status))
@@ -171,6 +192,43 @@ function SyncConflicts.describe(filepath, entry)
     return nil
   end
   local name = SyncConflicts.title(filepath, entry)
+
+  if conflict.kind == "rating" then
+    return {
+      title = T(_("%1\n\nYour rating changed on Hardcover since this device last checked.\n\nHardcover: %2\nThis device: %3\n\nWhich should be kept?"),
+        name, SyncConflicts.ratingText(conflict.online), SyncConflicts.ratingText(conflict.proposed)),
+      rows = {
+        { id = "keep_hardcover", text = _("Keep Hardcover's") },
+        { id = "use_device", text = _("Use this device's") },
+        { id = "later", text = _("Decide later") },
+      },
+    }
+  end
+
+  if conflict.kind == "review" then
+    local lines = {
+      T(_("Hardcover:\n%1"), SyncConflicts.reviewText(conflict.online)),
+      T(_("This device:\n%1"), SyncConflicts.reviewText(conflict.proposed)),
+    }
+    if conflict.online.spoilers ~= conflict.proposed.spoilers then
+      lines[#lines + 1] = T(_("Hardcover spoilers: %1\nThis device spoilers: %2"),
+        conflict.online.spoilers and _("yes") or _("no"),
+        conflict.proposed.spoilers and _("yes") or _("no"))
+    end
+    local rows = {
+      { id = "keep_hardcover", text = _("Keep Hardcover's") },
+      { id = "use_device", text = conflict.delete and _("Remove my review anyway") or _("Use this device's") },
+    }
+    if not conflict.delete then
+      rows[#rows + 1] = { id = "combine", text = _("Combine in the editor") }
+    end
+    rows[#rows + 1] = { id = "later", text = _("Decide later") }
+    return {
+      title = T(_("%1\n\nYour review changed on Hardcover since this device last checked.\n\n%2\n\nWhich should be kept?"),
+        name, table.concat(lines, "\n\n")),
+      rows = rows,
+    }
+  end
 
   if conflict.kind == "remove" then
     local why

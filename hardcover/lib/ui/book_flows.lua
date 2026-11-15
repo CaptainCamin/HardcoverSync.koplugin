@@ -64,9 +64,12 @@ function Flows:showBookDetail(book_id, edition_id, opts)
     end,
     -- this book has a question waiting: one visible way to answer it here. The question is looked
     -- up when the note is tapped, so a decision that arrives with the details is the one shown.
-    on_decision = function()
-      local decision = self.sync_queue and self.sync_queue.decisionForBook
-        and self.sync_queue:decisionForBook(book_id, User:getId())
+    on_decision = function(d)
+      local decision = d and d.sync_state and d.sync_state.decision
+      if not decision then
+        decision = self.sync_queue and self.sync_queue.decisionForBook
+          and self.sync_queue:decisionForBook(book_id, User:getId())
+      end
       if decision then self:reviewDecision(decision) end
     end,
     -- the reading row opens the history; the shelf chip changes the shelf, and the stars rate it
@@ -215,14 +218,39 @@ end
 function Flows:reviewDecision(decision)
   require("hardcover/lib/ui/sync_conflict_dialog").show {
     decision = decision,
-    on_done = function(resolved, _choice, outcome)
+    on_done = function(resolved, choice, outcome)
       if resolved == 0 then return end
       if outcome and outcome.kind == "shelf" then self:removalKept(outcome) end
-      StatusDialogs.info(_("Choice saved."), 2)
+      if outcome and outcome.kind == "combine" then
+        self:combineReview(outcome)
+        return
+      end
+      local offline = not Network.connected()
+      StatusDialogs.info(offline and choice ~= "keep_hardcover"
+        and _("Choice saved; will check Hardcover when connected.") or _("Choice saved."), 2)
       self:refreshBookState(decision.book_id)
-      if self.flush_goals then self.flush_goals() end
+      if not offline and self.flush_goals then self.flush_goals() end
     end,
   }
+end
+
+-- A review conflict answered with Combine: both versions open in the ordinary editor, each
+-- under its own heading. The queue keeps the online text as this draft's baseline, so saving
+-- it does not ask the same question again unless Hardcover changes once more.
+function Flows:combineReview(outcome)
+  local online = outcome.online or {}
+  local device = outcome.device or {}
+  local text = online.text == device.text and device.text
+    or T(_("Hardcover:\n%1\n\nThis device:\n%2"), online.text or "", device.text or "")
+  self:writeReview({
+    detail = {
+      user_book_id = outcome.user_book_id,
+      book = { book_id = outcome.book_id, title = outcome.title },
+      user_review = text,
+      review_spoilers = online.spoilers == true or device.spoilers == true,
+      review_known = true,
+    },
+  })
 end
 
 -- Keeping a book after a removal question: the queued removal had already taken it out
@@ -341,6 +369,15 @@ function Flows:reviewMine(detail, book_id)
     rating_state = state.rating_state, review_state = state.review_state,
   }
   if mine.review_state == _("Waiting to send") then mine.review_state = _("Saved on this device") end
+  -- A spoiler clash stays warned about until the reader answers, whichever side asked for
+  -- the warning.
+  local review_decision = self.review_queue and self.review_queue.decisionForBook
+    and self.review_queue:decisionForBook(book_id, User:getId(), detail.user_book_id)
+  local conflict = review_decision and review_decision.entry and review_decision.entry.conflict
+  if conflict and conflict.kind == "review"
+      and (conflict.online.spoilers == true or conflict.proposed.spoilers == true) then
+    mine.spoilers = true
+  end
   return mine
 end
 
@@ -1267,6 +1304,7 @@ function Flows:withPending(detail)
   if detail and detail.book and not detail._server_base then
     detail._server_base = {
       status_id = detail.status_id, user_rating = detail.user_rating,
+      rating_known = detail.rating_known,
       user_review = detail.user_review, review_spoilers = detail.review_spoilers,
       review_known = detail.review_known,
     }
@@ -1312,7 +1350,8 @@ function Flows:rateBook(dialog, stars, on_set)
     text = _("0 clears the rating."),
     value = stars or rating or 2.5, min = 0, max = 5, step = 0.5,
     on_save = function(value)
-      queue:queue(detail.user_book_id, value, detail.book.title, detail.book.book_id, User:getId())
+      queue:queue(detail.user_book_id, value, detail.book.title, detail.book.book_id, User:getId(),
+        BookActions.ratingBase(detail))
       if Live.shown(dialog) then dialog:setRating(value) end
       if on_set then on_set(value) end
       if Network.connected() then
@@ -1368,7 +1407,8 @@ function Flows:editReview(dialog, on_kept)
   local queue = self.review_queue
 
   local function keep(text, spoilers)
-    queue:queue(detail.user_book_id, text, spoilers, detail.book.title, detail.book.book_id, User:getId())
+    queue:queue(detail.user_book_id, text, spoilers, detail.book.title, detail.book.book_id, User:getId(),
+      BookActions.reviewBase(detail))
     BookActions.withPendingReview(detail, { text = text, spoilers = spoilers })
     if Network.connected() then
       StatusDialogs.info(text == "" and _("Removing your review.") or _("Review saved."))

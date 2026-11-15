@@ -19,6 +19,7 @@ end
 
 local function heldText(row)
   if not row then return _("Waiting to send") end
+  if row.parked then return _("Needs your decision") end
   if row.held or row.reason then
     return row.reason == "scope" and _("Sign in again to send it") or _("Hardcover refused it")
   end
@@ -48,6 +49,15 @@ function BookSyncState.forBook(opts, book_id, user_book_id, user_id)
     if waiting then
       state.review_state = heldText(rowFor(opts.review_queue:list(user_id), user_book_id, book_id))
     end
+  end
+
+  -- A rating or review clash is also a question the book should point at, even when the
+  -- reading queue has no question of its own.
+  if not state.decision and opts.rating_queue and opts.rating_queue.decisionForBook then
+    state.decision = opts.rating_queue:decisionForBook(book_id, user_id, user_book_id)
+  end
+  if not state.decision and opts.review_queue and opts.review_queue.decisionForBook then
+    state.decision = opts.review_queue:decisionForBook(book_id, user_id, user_book_id)
   end
 
   local actions = opts.read_actions

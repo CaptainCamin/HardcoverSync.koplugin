@@ -27,12 +27,13 @@ local function syncQueue(decision, actions)
   }
 end
 
-local function itemQueue(value, row)
+local function itemQueue(value, row, decision)
   row = row or {}
   row.book_id, row.user_book_id = row.book_id or 7, row.user_book_id or 55
   return {
     get = function() return value end,
     list = function() return { row } end,
+    decisionForBook = function() return decision end,
   }
 end
 
@@ -83,6 +84,8 @@ check("a queued rating says waiting, and a held one says why", function()
   assert(scope.rating_state == "Sign in again to send it", scope.rating_state)
   local none = state { rating_queue = itemQueue(nil) }
   assert(none.rating_state == nil)
+  local parked = state { rating_queue = itemQueue(4, { parked = true }) }
+  assert(parked.rating_state == "Needs your decision", parked.rating_state)
 end)
 
 check("a queued review uses the same words", function()
@@ -90,6 +93,24 @@ check("a queued review uses the same words", function()
   assert(state { review_queue = itemQueue({ text = "x" }, { blocked = true }) }.review_state
     == "Waiting for an earlier change")
   assert(state { review_queue = itemQueue(nil) }.review_state == nil)
+  assert(state { review_queue = itemQueue({ text = "x" }, { parked = true }) }.review_state
+    == "Needs your decision")
+end)
+
+check("a rating or review question is the book's decision when the reading queue has none", function()
+  local rating = { title = "A Book", kind = "rating",
+    entry = { title = "A Book", conflict = { kind = "rating", online = 5, proposed = 4 } } }
+  local s = state { rating_queue = itemQueue(4, { parked = true }, rating) }
+  assert(s.decision == rating)
+  assert(s.note_lines[1] == "A Book: rating changed on Hardcover", s.note_lines[1])
+  assert(s.note_lines[2] == "Both ratings are kept until you answer.", s.note_lines[2])
+
+  local review = { title = "A Book", kind = "review",
+    entry = { title = "A Book", conflict = { kind = "review", online = { text = "x", spoilers = false },
+      proposed = { text = "y", spoilers = false } } } }
+  local r = state { review_queue = itemQueue({ text = "y" }, { parked = true }, review) }
+  assert(r.decision == review)
+  assert(r.note_lines[1] == "A Book: review changed on Hardcover", r.note_lines[1])
 end)
 
 print("\n== read edits ==")

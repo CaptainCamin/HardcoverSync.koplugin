@@ -156,6 +156,29 @@ check("an older read while a newer one is in progress offers send, wait and disc
   eq(d.rows[4].id, "later", "then later")
 end)
 
+check("a rating or review changed online asks with both values", function()
+  local rating = SyncConflicts.describe(nil, { title = "Dune",
+    conflict = { kind = "rating", online = 5, proposed = 4.5 } })
+  has(rating.title, "Dune"); has(rating.title, "5 stars"); has(rating.title, "4.5 stars")
+  eq(rating.rows[1].text, "Keep Hardcover's")
+  eq(rating.rows[2].text, "Use this device's")
+  has(SyncConflicts.decisionText("Dune", { entry = { conflict = { kind = "rating" } } }), "rating changed")
+
+  local review = SyncConflicts.describe(nil, { title = "Dune", conflict = { kind = "review",
+    online = { text = "their words", spoilers = true },
+    proposed = { text = "my words", spoilers = false } } })
+  has(review.title, "their words"); has(review.title, "my words"); has(review.title, "spoilers")
+  eq(review.rows[1].text, "Keep Hardcover's")
+  eq(review.rows[2].text, "Use this device's")
+  eq(review.rows[3].text, "Combine in the editor")
+
+  local delete = SyncConflicts.describe(nil, { title = "Dune", conflict = { kind = "review",
+    online = { text = "edited", spoilers = false }, proposed = { text = "", spoilers = false },
+    delete = true } })
+  eq(delete.rows[2].text, "Remove my review anyway")
+  eq(#delete.rows, 3, "a delete has no combine row")
+end)
+
 check("an edition page becomes a position in the file", function()
   eq(SyncConflicts.documentPage(150, 300, 600), 300, "halfway")
   eq(SyncConflicts.documentPage(999, 300, 600), 600, "never past the end")

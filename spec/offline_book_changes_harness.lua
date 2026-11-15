@@ -564,6 +564,7 @@ check("a rating sent from the details screen updates a later removal baseline", 
   assert(rating_queue:get(51, 1, 1) == 2, "the rating was not queued")
 
   local api = serverApi()
+  function api:findUserBook() return { id = 51, book_id = 1, status_id = 1, rating = 4, user_book_reads = {} } end
   function api:updateRating(id, rating)
     return { id = id, book_id = 1, status_id = 1, rating = rating, user_book_reads = {} }
   end

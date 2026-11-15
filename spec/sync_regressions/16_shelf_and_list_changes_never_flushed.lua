@@ -112,8 +112,8 @@ KB.check("the first connect sends the shelf, review and rating in one flush", fu
   app.review_queue = ReviewQueue:new { settings = KB.fakeSettings() }
   app.state.book_status = { book_id = 100, status_id = 2 }
   shelf:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 2 })
-  app.rating_queue:queue(nil, 4.5, "New book", 100, 1)
-  app.review_queue:queue(nil, "Read offline", true, "New book", 100, 1)
+  app.rating_queue:queue(nil, 4.5, "New book", 100, 1, { rating = nil, known = true })
+  app.review_queue:queue(nil, "Read offline", true, "New book", 100, 1, { text = "", spoilers = false, known = true })
   local created = false
   app.dialog_manager.shelfSent = function() created = true end
   app.dialog_manager.ratingSent = function() end
@@ -122,6 +122,11 @@ KB.check("the first connect sends the shelf, review and rating in one flush", fu
     if not created then return nil end -- the book is not in the library until the shelf change is sent
     KB.eq(book_id, 100); KB.eq(user_id, 1)
     return { id = 77, book_id = 100 }
+  end
+  Api.findUserBookForRemoval = function(_, book_id, user_id)
+    if not created then return nil end
+    KB.eq(book_id, 100); KB.eq(user_id, 1)
+    return { id = 77, book_id = 100, review_raw = nil, review_has_spoilers = false }
   end
   Api.updateReview = function(_, id, text, spoilers)
     KB.eq(id, 77); KB.eq(text, "Read offline"); KB.eq(spoilers, true)

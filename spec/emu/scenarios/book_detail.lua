@@ -515,6 +515,33 @@ return {
     end
     emu:shot("book_detail_read_decision")
 
+    -- A rating changed on another device is the book's decision even when the reading
+    -- queue has no question of its own; the note names it and the stars say what it needs.
+    emu:closeAll()
+    local rating_decision = { title = "The Dispossessed", kind = "rating",
+      entry = { title = "The Dispossessed", conflict = { kind = "rating", online = 5, proposed = 4 } } }
+    local rating_state = BookDetailDialog:new {
+      detail = detail,
+      on_rating = noop, on_decision = noop, on_reads = noop,
+      state_opts = {
+        queues = {
+          rating_queue = {
+            get = function() return 4 end,
+            list = function() return { { book_id = 101, user_book_id = 9101, parked = true } } end,
+            decisionForBook = function() return rating_decision end,
+          },
+        },
+        book_id = 101, user_id = fixtures.USER_ID,
+      },
+    }
+    emu.UIManager:show(rating_state, "full")
+    emu:pump()
+    for _, expected in ipairs({ "Needs your decision", "rating changed on Hardcover",
+      "Both ratings are kept until you answer." }) do
+      emu:expectText(expected)
+    end
+    emu:shot("book_detail_rating_decision")
+
     print(string.format("  detail rendered in both menu modes"))
   end,
 }

@@ -185,7 +185,8 @@ function PendingChanges.list(queues)
         kind = "rating", title = title,
         text = (r.rating or 0) > 0 and T(_("%1: rating %2"), title, tostring(r.rating))
           or T(_("%1: clear the rating"), title),
-        note = heldNote(r) or (r.blocked and _("waiting for an earlier change") or nil),
+        note = heldNote(r) or (r.parked and _("Needs your decision")
+          or (r.blocked and _("waiting for an earlier change") or nil)),
         cancel = function() return ratings:cancel(r.user_book_id, r.book_id, queues.user_id) end,
       }
     end
@@ -242,7 +243,8 @@ function PendingChanges.list(queues)
       rows[#rows + 1] = {
         kind = "review", title = title,
         text = r.text ~= "" and T(_("%1: review"), title) or T(_("%1: remove the review"), title),
-        note = heldNote(r) or (r.blocked and _("waiting for an earlier change") or nil),
+        note = heldNote(r) or (r.parked and _("Needs your decision")
+          or (r.blocked and _("waiting for an earlier change") or nil)),
         cancel = function() return reviews:cancel(r.user_book_id, r.book_id, queues.user_id) end,
       }
     end

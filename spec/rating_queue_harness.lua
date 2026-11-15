@@ -98,6 +98,9 @@ local function deferredApi(user_id, library_id)
     eq(book_id, 101, "lookup catalog ID"); eq(author_id, user_id, "lookup user")
     self.lookups = self.lookups + 1
     if self.on_lookup then self.on_lookup() end
+    if type(self.found) == "table" and self.found.id ~= nil then
+      self.found.rating = self.lookup_rating
+    end
     self.resolved = type(self.found) == "table" and self.found.id ~= nil
     return self.found, self.lookup_error
   end
@@ -131,15 +134,17 @@ end)
 
 check("a deferred clear resolves first, sends 0, and reports the library ID", function()
   local q, settings = newQueue()
-  q:queue(nil, 4, "Dune", 101, 42); q:queue(nil, 0, "Dune", 101, 42)
+  q:queue(nil, 4, "Dune", 101, 42, { rating = 4, known = true })
+  q:queue(nil, 0, "Dune", 101, 42)
   q = RatingQueue:new { settings = settings }
   eq(q:get(nil, 101, 42), 0); eq(q:list(42)[1].book_id, 101)
   local api, callbacks = deferredApi(), 0
+  api.lookup_rating = 4
   eq(#api.sent, 0)
   eq(q:flush(api, function(id, book)
     callbacks = callbacks + 1; eq(id, 907); eq(book.id, 907)
   end, 42), 0)
-  eq(api.lookups, 1); eq(#api.sent, 1); eq(api.sent[1].rating, 0)
+  eq(api.lookups, 2); eq(#api.sent, 1); eq(api.sent[1].rating, 0)
   eq(callbacks, 1); eq(q:isEmpty(), true)
 end)
 
@@ -167,23 +172,25 @@ check("lookup refusals use the existing hold and retry rules", function()
     { err = { status = 403, errors = { { message = "insufficient_scope" } } }, tries = 1, reason = "scope" },
   }) do
     local q = newQueue()
-    q:queue(nil, 4, "Dune", 101, 42)
+    q:queue(nil, 4, "Dune", 101, 42, { rating = 2, known = true })
     local api = deferredApi()
+    api.lookup_rating = 2
     api.found, api.lookup_error = {}, refusal.err
     for _ = 1, refusal.tries do eq(q:flush(api, nil, 42), 1) end
     eq(q:heldCount(), 1); eq(q:list(42)[1].reason, refusal.reason)
     eq(q:flush(api, nil, 42), 1); eq(api.lookups, refusal.tries); eq(#api.sent, 0)
     q:retryHeld()
     api.found, api.lookup_error = { id = 907 }, nil
-    eq(q:flush(api, nil, 42), 0); eq(api.lookups, refusal.tries + 1); eq(#api.sent, 1)
+    eq(q:flush(api, nil, 42), 0); eq(api.lookups, refusal.tries + 2); eq(#api.sent, 1)
   end
 end)
 
 check("a newer catalog edit during lookup or send survives the old flush", function()
   for _, phase in ipairs({ "on_lookup", "on_send" }) do
     local q, settings = newQueue()
-    q:queue(nil, 2, "Dune", 101, 42)
+    q:queue(nil, 3, "Dune", 101, 42, { rating = 2, known = true })
     local api = deferredApi()
+    api.lookup_rating = 2
     api[phase] = function() q:queue(907, 4.5, "Dune", 101, 42) end
     eq(q:flush(api, nil, 42), 1)
     eq(#api.sent, phase == "on_lookup" and 0 or 1, "replacement before send prevents stale mutation")
@@ -199,27 +206,29 @@ check("accounts independently edit, cancel, list and flush the same catalog rati
   for _, known in ipairs({ false, true }) do
     local q, settings = newQueue()
     local a, b = known and 907 or nil, known and 1907 or nil
-    q:queue(a, 2, "Dune", 101, 42)
+    local base = { rating = 0, known = true }
+    q:queue(a, 2, "Dune", 101, 42, base)
     eq(q:get(a, 101, 84), nil); eq(q:cancel(a, 101, 84), false); eq(#q:list(84), 0)
     local api = deferredApi(84, 1907)
+    api.lookup_rating = 0
     q:flush(api) -- No signed-in account must not send owned changes either.
     eq(q:flush(api, nil, 84), 0, "A is not part of B's waiting count")
     eq(api.lookups, 0); eq(#api.sent, 0); eq(q:count(), 1)
 
-    q:queue(b, 3, "Dune", 101, 84)
-    q:queue(a, 4, "Dune", 101, 42); q:queue(b, 4.5, "Dune", 101, 84)
+    q:queue(b, 3, "Dune", 101, 84, base)
+    q:queue(a, 4, "Dune", 101, 42, base); q:queue(b, 4.5, "Dune", 101, 84, base)
     eq(q:count(), 2); eq(q:get(a, 101, 42), 4); eq(q:get(b, 101, 84), 4.5)
     eq(#q:list(42), 1); eq(q:list(42)[1].rating, 4)
     eq(#q:list(84), 1); eq(q:list(84)[1].rating, 4.5)
     eq(q:cancel(b, 101, 84), true); eq(q:cancel(a, 101, 84), false)
     eq(q:get(a, 101, 42), 4); eq(q:count(), 1)
-    q:queue(b, 3, "Dune", 101, 84)
+    q:queue(b, 3, "Dune", 101, 84, base)
     q = RatingQueue:new { settings = settings }
 
     -- Leave B waiting once, to prove both nonzero and zero results exclude A.
     api.resolved, api.fail, api.found = known, known, nil
     eq(q:flush(api, nil, 84), 1); eq(#api.sent, 0)
-    eq(api.lookups, known and 0 or 1); eq(q:get(a, 101, 42), 4)
+    eq(api.lookups, 1); eq(q:get(a, 101, 42), 4)
     api.fail, api.found = false, { id = 1907 }
     eq(q:flush(api, nil, 84), 0); eq(#api.sent, 1)
     eq(api.sent[1].id, 1907); eq(api.sent[1].rating, 3)
@@ -227,7 +236,7 @@ check("accounts independently edit, cancel, list and flush the same catalog rati
     q = RatingQueue:new { settings = settings }
     eq(q:get(a, 101, 42), 4, "A survived B's session and reinstantiation")
     local returning = deferredApi()
-    returning.resolved = known
+    returning.resolved, returning.lookup_rating = known, 0
     eq(q:flush(returning, nil, 42), 0)
     eq(#returning.sent, 1); eq(returning.sent[1].id, 907); eq(returning.sent[1].rating, 4)
     eq(q:isEmpty(), true)
@@ -236,8 +245,10 @@ end)
 
 check("cancel during lookup prevents the old rating mutation and preserves another author", function()
   local q, settings = newQueue()
-  q:queue(nil, 2, "Dune", 101, 42); q:queue(nil, 3, "Dune", 101, 84)
+  q:queue(nil, 2, "Dune", 101, 42, { rating = 0, known = true })
+  q:queue(nil, 3, "Dune", 101, 84, { rating = 0, known = true })
   local api, callbacks = deferredApi(), 0
+  api.lookup_rating = 0
   api.on_lookup = function() eq(q:cancel(nil, 101, 42), true) end
   eq(q:flush(api, function() callbacks = callbacks + 1 end, 42), 0)
   eq(api.lookups, 1); eq(#api.sent, 0); eq(callbacks, 0)
@@ -299,6 +310,73 @@ check("a rating waits behind an unsettled shelf or removal without counting as a
   eq(q:flush(api, nil, 42, { barrier = barrier }), 0, "barrier gone")
   eq(#api.sent, 2, "both sent")
   eq(q:blockedCount(42), 0, "no block left")
+end)
+
+
+print("\n== risk 2: a rating changed online ==")
+
+local function lookupApi(online)
+  local api = fakeApi()
+  api.found = { id = 907, rating = online }
+  function api:findUserBook(book_id, author_id)
+    eq(book_id, 101, "preflight catalog ID"); eq(author_id, 42, "preflight user")
+    return self.found
+  end
+  return api
+end
+
+check("an unchanged online rating sends, and a changed one parks", function()
+  local q = newQueue()
+  q:queue(907, 4, "Dune", 101, 42, { rating = 3, known = true })
+  local api = lookupApi(3)
+  eq(q:flush(api, nil, 42), 0)
+  eq(#api.sent, 1); eq(api.sent[1].rating, 4)
+
+  local changed = newQueue()
+  changed:queue(907, 4, "Dune", 101, 42, { rating = 3, known = true })
+  local changed_api = lookupApi(5)
+  eq(changed:flush(changed_api, nil, 42), 1)
+  eq(#changed_api.sent, 0, "no write before the reader answers")
+  local row = changed:list(42)[1]
+  eq(row.parked, true); eq(row.decision.online, 5); eq(row.decision.proposed, 4)
+  local decision = changed:decisions(42)[1]
+  eq(decision.kind, "rating"); eq(decision.title, "Dune"); eq(decision.book_id, 101)
+end)
+
+check("using this device's answer is checked again before it is sent", function()
+  local q = newQueue()
+  q:queue(907, 4, "Dune", 101, 42, { rating = 3, known = true })
+  local api = lookupApi(5)
+  eq(q:flush(api, nil, 42), 1)
+  local decision = q:decisions(42)[1]
+  assert(decision.resolve("use_device"))
+  eq(#q:decisions(42), 0, "the answer answers the question")
+  eq(q:flush(api, nil, 42), 0)
+  eq(#api.sent, 1); eq(api.sent[1].rating, 4)
+
+  local changed = newQueue()
+  changed:queue(907, 4, "Dune", 101, 42, { rating = 3, known = true })
+  local online = lookupApi(5)
+  eq(changed:flush(online, nil, 42), 1)
+  assert(changed:decisions(42)[1].resolve("use_device"))
+  online.found.rating = 2
+  eq(changed:flush(online, nil, 42), 1, "the changed online value asks again")
+  eq(#online.sent, 0, "the stale answer is not sent")
+  local again = changed:decisions(42)[1]
+  eq(again.entry.conflict.online, 2)
+  assert(again.resolve("use_device"))
+  eq(changed:flush(online, nil, 42), 0)
+  eq(#online.sent, 1); eq(online.sent[1].rating, 4)
+end)
+
+check("keeping Hardcover's rating drops the device one", function()
+  local q = newQueue()
+  q:queue(907, 4, "Dune", 101, 42, { rating = 3, known = true })
+  local api = lookupApi(5)
+  eq(q:flush(api, nil, 42), 1)
+  assert(q:decisions(42)[1].resolve("keep_hardcover"))
+  eq(q:isEmpty(), true)
+  eq(#api.sent, 0)
 end)
 
 print(string.format("\n%d passed, %d failed", results.passed, results.failed))

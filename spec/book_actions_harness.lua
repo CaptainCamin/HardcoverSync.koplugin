@@ -236,4 +236,28 @@ check("with nothing waiting the review is left as it is, and a book taken off th
   assert(d.user_review == nil)
 end)
 
+print("\n== the values a clash is compared with ==")
+
+check("a new book's empty rating and review are known, not unknown", function()
+  local d = { book = { book_id = 7 }, status_id = 2 }
+  local rating = BookActions.ratingBase(d)
+  assert(type(rating) == "table" and rating.known and rating.rating == nil)
+  local review = BookActions.reviewBase(d)
+  assert(type(review) == "table" and review.known and review.text == "" and review.spoilers == false)
+end)
+
+check("a library record uses its server values, and a copy that lacks them is unknown", function()
+  local known = { user_book_id = 51, user_rating = 2, rating_known = true,
+    _server_base = { user_rating = 4, rating_known = true } }
+  local rating = BookActions.ratingBase(known)
+  assert(rating.known and rating.rating == 4, "the pending overlay leaked into the baseline")
+  assert(BookActions.ratingBase({ user_book_id = 51, user_rating = 2 }) == "unknown")
+
+  local review = { user_book_id = 51, user_review = "draft", review_known = true,
+    _server_base = { user_review = "server words", review_spoilers = true, review_known = true } }
+  local base = BookActions.reviewBase(review)
+  assert(base.known and base.text == "server words" and base.spoilers == true)
+  assert(BookActions.reviewBase({ user_book_id = 51, user_review = "draft" }) == "unknown")
+end)
+
 r.finish()

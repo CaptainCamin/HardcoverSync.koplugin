@@ -12,6 +12,8 @@
 
 - **Your review sits at the top of the reviews page.** Your rating and review now come before other readers', with a state line when the rating or review is waiting to send, and Write/Edit opens the same editor as before. Your review no longer appears twice in the community list, and the page opens offline with your own block even when no community reviews are saved.
 
+- **A rating or review changed elsewhere is never silently replaced.** Before sending an offline rating or review, Hardcover is checked again. If it changed on another device, both versions are kept and the book asks which to use; a review can also be combined in the editor. Removing a review that changed online asks before deleting it.
+
 ## 2.4.0
 
 ### Added
