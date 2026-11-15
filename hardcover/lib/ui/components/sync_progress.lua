@@ -24,7 +24,6 @@ local _ = require("gettext")
 local T = require("ffi/util").template
 
 local Overlay = require("hardcover/lib/ui/components/overlay")
-local ProgressBar = require("hardcover/lib/ui/components/progress_bar")
 local Theme = require("hardcover/lib/ui/theme")
 
 local SyncProgress = {}
@@ -90,7 +89,7 @@ function SyncProgress:_show()
     height = line_h, height_adjust = false, height_overflow_show_ellipsis = true,
     fgcolor = Theme.BLACK,
   }
-  local bar = ProgressBar.new { width = w, fraction = self:_fraction() }
+  local bar = Theme.progress { width = w, height = Theme.px(12), percentage = self:_fraction() }
   -- the text and the bar share the same side inset, so they line up
   local body = FrameContainer:new { width = sw, bordersize = 0, padding = 0, margin = 0,
     background = Theme.WHITE,
@@ -127,12 +126,14 @@ function SyncProgress:refresh()
   if self:_bottom() ~= self.bottom then self:_show() end
 end
 
--- opts { phase, title, kind }: what changed; the rest stays. Nothing is drawn after close().
+-- opts { phase, title, kind }: what changed; the rest stays. `title` and `kind` are assigned as
+-- given, so a nil title clears the last one: an untitled entry (or the batch prefetch's bare
+-- verify) must not keep naming the book before it. Nothing is drawn after close().
 function SyncProgress:update(event)
   if self.closed or not event then return end
   if event.phase then self.phase = event.phase end
-  if event.title ~= nil then self.title = event.title end
-  if event.kind ~= nil then self.kind = event.kind end
+  self.title = event.title
+  self.kind = event.kind
   if event.phase == "send" then self.current = self.current + 1 end
   self:_show()
 end

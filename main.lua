@@ -1238,10 +1238,11 @@ function HardcoverApp:_noticeHeld(kind, held)
   self.noticed_held[kind] = held
 end
 
--- The screen the user is on, ignoring toasts: a snackbar or the bar itself floats over whatever is
--- underneath and must not decide whether a flush may show the bar. Walks UIManager's window stack
--- from the top, skipping invisible windows and toasts, to the first real one. Falls back to
--- getTopmostVisibleWidget where the stack is not available (the stock-Lua specs).
+-- The topmost screen the user is looking at, ignoring toasts: a snackbar or the bar itself floats
+-- over whatever is underneath and must not decide anything. Walks UIManager's window stack from the
+-- top, skipping invisible windows and toasts, to the first real one. Used only for the bar's nav
+-- offset; the show/hide decision is _syncInPlugin. Falls back to getTopmostVisibleWidget where the
+-- stack is not available (the stock-Lua specs).
 function HardcoverApp:_syncScreenWidget()
   local stack = UIManager._window_stack
   if type(stack) == "table" then
@@ -1257,16 +1258,32 @@ end
 
 -- The bar is drawn only on the plugin's own screens. A flush can run while a book is open (after a
 -- reconnect, on resume), and there the reading surface gets only the result snackbar: the page, the
--- book's panel and KOReader's own menus are never covered by a persistent bar. Plugin screens carry
--- a "hardcover_" name; the reader panel is the reading surface's one plugin window, so it is out too.
-function HardcoverApp:_syncScreenIsPlugin(top)
-  local name = top and top.name
-  if type(name) ~= "string" or name:sub(1, #"hardcover_") ~= "hardcover_" then return false end
-  return name ~= "hardcover_reader_panel"
+-- book's panel, its end page and the pickers and dialogs opened from them are never covered by a
+-- persistent bar. The plugin's screens live in the shell (Home, Library, Goals, Stats), but the
+-- reader's windows carry "hardcover_" names too, so a name cannot tell them apart. Walk the stack
+-- from the top to the first root screen instead: the shell means the plugin, the reader or the file
+-- browser means not. A dialog or sheet above either root does not change that, and a book opened
+-- from the plugin puts the reader back on top. Toasts never match a root name.
+function HardcoverApp:_syncInPlugin()
+  local stack = UIManager._window_stack
+  if type(stack) == "table" then
+    for i = #stack, 1, -1 do
+      local widget = stack[i] and stack[i].widget
+      if widget and not widget.invisible then
+        local name = widget.name
+        if name == "hardcover_shell" then return true end
+        if name == "ReaderUI" or name == "filemanager" then return false end
+      end
+    end
+    return false
+  end
+  -- the stock-Lua specs have no window stack; the topmost widget is the only screen there
+  local top = UIManager.getTopmostVisibleWidget and UIManager:getTopmostVisibleWidget()
+  return top ~= nil and top.name == "hardcover_shell"
 end
 
 function HardcoverApp:_syncProgressAllowed()
-  return self:_syncScreenIsPlugin(self:_syncScreenWidget())
+  return self:_syncInPlugin()
 end
 
 -- Keep the bar only while the user stays on a plugin screen: closing the plugin mid-flush must not
@@ -1295,8 +1312,7 @@ function HardcoverApp:_beginSyncProgress(user_id)
   end
   if total <= 0 then return nil end
   if self.dialog_manager and self.dialog_manager.syncingChanged then self.dialog_manager:syncingChanged(true) end
-  local top = self:_syncScreenWidget()
-  if not self:_syncScreenIsPlugin(top) then return nil end
+  if not self:_syncInPlugin() then return nil end
   -- required here, not at the top: it pulls in the theme, which startup keeps out
   local SyncProgress = require("hardcover/lib/ui/components/sync_progress")
   local progress = SyncProgress.show {
