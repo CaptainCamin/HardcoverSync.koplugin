@@ -1274,6 +1274,7 @@ end
 function HardcoverApp:_guardSyncProgress(progress)
   if not progress or progress.closed then return end
   if self:_syncProgressAllowed() then
+    if progress.refresh then progress:refresh() end -- the screen under the bar may have changed
     UIManager:scheduleIn(1, function() self:_guardSyncProgress(progress) end)
   else
     progress:close()
@@ -1298,7 +1299,13 @@ function HardcoverApp:_beginSyncProgress(user_id)
   if not self:_syncScreenIsPlugin(top) then return nil end
   -- required here, not at the top: it pulls in the theme, which startup keeps out
   local SyncProgress = require("hardcover/lib/ui/components/sync_progress")
-  local progress = SyncProgress.show { total = total, above_nav = top.name == "hardcover_shell" }
+  local progress = SyncProgress.show {
+    total = total,
+    above_nav = function()
+      local w = self:_syncScreenWidget()
+      return w ~= nil and w.name == "hardcover_shell"
+    end,
+  }
   self:_guardSyncProgress(progress)
   return progress
 end

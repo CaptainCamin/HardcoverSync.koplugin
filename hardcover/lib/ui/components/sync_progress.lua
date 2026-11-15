@@ -66,9 +66,19 @@ function SyncProgress:_fraction()
   return math.max(0, math.min(1, self.current / self.total))
 end
 
+-- How far above the screen's bottom edge the bar sits: over the shell's bottom nav bar, so it never
+-- covers Home/Library/Goals/Stats. `above_nav` is a boolean or a function returning one, so the
+-- offset can follow the screen under the bar as it changes (a dialog closing back to the shell).
+function SyncProgress:_bottom()
+  local above = self.above_nav
+  if type(above) == "function" then above = above() end
+  return above and Theme.mmd.nav_bar.h or 0
+end
+
 -- Build the bar and put it up, replacing the previous one without a second refresh of the box.
 function SyncProgress:_show()
   local old = self.overlay
+  self.bottom = self:_bottom()
   local sw = Device.screen:getWidth()
   local side = Theme.space.m
   local w = sw - 2 * side
@@ -103,11 +113,18 @@ function SyncProgress.show(opts)
     phase = nil,
     title = nil,
     kind = nil,
-    -- lift above the shell's bottom nav bar so it never covers Home/Library/Goals/Stats
-    bottom = (opts and opts.above_nav) and Theme.mmd.nav_bar.h or 0,
+    above_nav = opts and opts.above_nav,
+    bottom = 0,
   }, SyncProgress)
   self:_show()
   return self
+end
+
+-- Re-lift or drop the nav offset when the screen under the bar changed. Rebuilds the bar only when
+-- the offset actually changed, so e-ink is not repainted needlessly.
+function SyncProgress:refresh()
+  if self.closed then return end
+  if self:_bottom() ~= self.bottom then self:_show() end
 end
 
 -- opts { phase, title, kind }: what changed; the rest stays. Nothing is drawn after close().

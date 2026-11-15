@@ -25,8 +25,9 @@ local shown = {}
 package.preload["hardcover/lib/ui/components/sync_progress"] = function()
   return {
     show = function(opts)
-      local bar = { opts = opts, closed = false }
+      local bar = { opts = opts, closed = false, refreshed = 0 }
       bar.update = function() end
+      bar.refresh = function() bar.refreshed = bar.refreshed + 1 end
       bar.close = function() bar.closed = true end
       shown[#shown + 1] = bar
       return bar
@@ -107,7 +108,7 @@ check("a plugin screen on top: the bar shows with the total", function()
   assert(bar ~= nil, "no bar on a plugin screen")
   eq(#shown, 1, "shown")
   eq(shown[1].opts.total, 3, "total")
-  eq(shown[1].opts.above_nav, true, "lifts over the shell's nav")
+  eq(shown[1].opts.above_nav(), true, "lifts over the shell's nav")
   eq(syncing[1], true, "syncing started")
 end)
 
@@ -115,7 +116,7 @@ check("a non-shell plugin screen does not lift over a nav", function()
   local app = make_app()
   set_top({ name = "hardcover_book_detail" })
   app:_beginSyncProgress(1)
-  eq(shown[#shown].opts.above_nav, false, "above_nav")
+  eq(shown[#shown].opts.above_nav(), false, "above_nav")
 end)
 
 check("a snackbar over the reader does not start the bar", function()
@@ -131,7 +132,7 @@ check("a snackbar over Home still shows the bar", function()
   set_stack({ { name = "hardcover_shell" }, { name = "hardcover_overlay", toast = true } })
   local bar = app:_beginSyncProgress(1)
   assert(bar ~= nil, "no bar under a snackbar on a plugin screen")
-  eq(shown[#shown].opts.above_nav, true, "lifts over the shell's nav")
+  eq(shown[#shown].opts.above_nav(), true, "lifts over the shell's nav")
 end)
 
 check("the guard closes the bar once the plugin is closed mid-flush", function()
@@ -151,8 +152,10 @@ check("the guard keeps the bar while the user stays on a plugin screen", functio
   set_top({ name = "hardcover_shell" })
   local bar = app:_beginSyncProgress(1)
   local before = #KB.sched.scheduled
+  local before_refresh = bar.refreshed
   KB.sched.scheduled[before].fn()
   eq(bar.closed, false, "bar still open")
+  eq(bar.refreshed, before_refresh + 1, "guard refreshed the bar")
   eq(#KB.sched.scheduled, before + 1, "guard rescheduled")
 end)
 
