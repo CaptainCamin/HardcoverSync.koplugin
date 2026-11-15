@@ -68,10 +68,15 @@ return {
     os.remove(path)
     local DialogManager = require("hardcover/lib/ui/dialog_manager")
     local pending = 0
+    local decisions = 0
     local sent_now, opened_list = 0, 0
     local manager = DialogManager:new { settings = settings,
       sync_queue = { finishedCount = function() return 0 end, pendingCount = function() return pending end,
-        changeCount = function() return pending end, shelfOp = function() return nil end },
+        changeCount = function() return pending end, conflictCount = function() return decisions end,
+        decisions = function()
+          return decisions > 0 and { { id = "d", kind = "page", resolve = function() return true end } } or {}
+        end,
+        shelfOp = function() return nil end },
       shelf_cache = ShelfCache:new { path = path, open = function(p) return LuaSettings:open(p) end },
       send_now = function() sent_now = sent_now + 1 end,
       show_pending = function() opened_list = opened_list + 1 end }
@@ -104,6 +109,17 @@ return {
     emu:expectText("2 changes waiting")
     emu:expectText("Sync now")
     emu:shot("shell_home_waiting")
+
+    -- a question the reader must answer leads, and says where to answer it
+    decisions = 1
+    home:rebuild()
+    emu:pump()
+    emu:expectText("1 book needs your decision")
+    emu:expectText("2 changes waiting.")
+    emu:shot("shell_home_decision")
+    decisions = 0
+    home:rebuild()
+    emu:pump()
 
     -- the sync box: a tap on its words opens what is waiting; its Sync now button sends and
     -- does not also open the list (the button sits inside the box's own touch area)

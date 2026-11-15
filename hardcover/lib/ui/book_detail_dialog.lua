@@ -78,6 +78,8 @@ local BookDetailDialog = FocusManager:extend {
   -- called with the dialog when "Your review" is tapped (write, change or remove your own review);
   -- no callback, no button
   on_review = nil,
+  -- called with the dialog when a sync question about this book is waiting; no callback, no button
+  on_decision = nil,
   -- called with no arguments when "Lists" is chosen in the Add sheet (the lists to put the book on);
   -- no callback, no Lists row
   on_lists = nil,
@@ -342,6 +344,7 @@ function BookDetailDialog:init()
   self.open_button, self.find_button, self.zlibrary_button = nil, nil, nil
   self.reviews_button, self.review_button, self.add_button, self.edition_button, self.lists_button =
     nil, nil, nil, nil, nil
+  self.decision_button = nil
   local action_bar = VerticalGroup:new { align = "left" }
   local action_rows = {} -- the buttons of each row, for the focus order
   local primary_field, primary_label, primary_handler
@@ -377,6 +380,7 @@ function BookDetailDialog:init()
   end
   add_round("zlibrary_button", "download", _("Download"), "on_zlibrary", self.on_zlibrary and not self.on_open)
   add_round("add_button", "shelf", _("Shelf"), "on_shelf", true)
+  add_round("decision_button", "sync", _("Decide"), "on_decision", self.on_decision)
   add_round("lists_button", "bookmark", _("Lists"), "on_lists", self.on_lists)
   add_round("reviews_button", "chat", _("Reviews"), "on_reviews", self.on_reviews)
   add_round("review_button", "edit", _("Your review"), "on_review", self.on_review)

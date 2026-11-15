@@ -49,11 +49,36 @@ function RatingQueue:list(user_id)
     if valid(op) and (user_id == nil or OfflineQueue.bookOpForUser(op, user_id)) then
       out[#out + 1] = { user_book_id = op.user_book_id, book_id = op.book_id, user_id = op.user_id,
         rating = tonumber(op.rating), title = op.title,
-        held = op.held, reason = op.reason }
+        held = op.held, reason = op.reason, blocked = op.blocked, blocked_reason = op.blocked_reason }
     end
   end
   table.sort(out, function(a, b) return tostring(a.book_id or a.user_book_id) < tostring(b.book_id or b.user_book_id) end)
   return out
+end
+
+-- Ratings waiting for an earlier change (a shelf or removal not settled): not a refusal, and
+-- not a reason to keep retrying on their own.
+function RatingQueue:blockedCount(user_id)
+  local n = 0
+  for _, op in pairs(self:ops()) do
+    if valid(op) and op.blocked and (user_id == nil or OfflineQueue.bookOpForUser(op, user_id)) then
+      n = n + 1
+    end
+  end
+  return n
+end
+
+-- Ratings parked for any reason (held or blocked), counting one that is both only once:
+-- the number the flush result must not exceed to call the pass complete.
+function RatingQueue:parkedCount(user_id)
+  local n = 0
+  for _, op in pairs(self:ops()) do
+    if valid(op) and (op.held or op.blocked)
+      and (user_id == nil or OfflineQueue.bookOpForUser(op, user_id)) then
+      n = n + 1
+    end
+  end
+  return n
 end
 
 -- Cancel the rating waiting for one book.
@@ -69,9 +94,12 @@ end
 -- Send what is waiting, one request each. A rating Hardcover did not answer for
 -- stays queued for the next try and stops the flush. One it refused is counted and the
 -- rest go on; the third refusal in a row holds it until the user presses Sync (retryHeld).
--- `on_sent(user_book_id, user_book)` is called for each one that went through. Returns
--- the number still waiting (held ones included).
-function RatingQueue:flush(api, on_sent, user_id)
+-- `opts.barrier(op)` (optional) says an earlier change must settle first: such a rating is
+-- skipped, marked blocked, and does not count as a failure. `on_sent(user_book_id, user_book)`
+-- is called for each one that went through. Returns the number still waiting (held, blocked
+-- and unowned included).
+function RatingQueue:flush(api, on_sent, user_id, opts)
+  opts = opts or {}
   -- a second flush while one is out waits for the first (each rating is sent once)
   return self:withFlushLock(function() return #self:list(user_id) end, function()
     local ops = self:ops()
@@ -83,7 +111,13 @@ function RatingQueue:flush(api, on_sent, user_id)
 
     for _, key in ipairs(keys) do
       local op = ops[key]
-      if op and not op.held and OfflineQueue.bookOpForUser(op, user_id) then
+      local mine = op and OfflineQueue.bookOpForUser(op, user_id)
+      local barrier = mine and opts.barrier and opts.barrier(op) or nil
+      if op and barrier then
+        op.blocked, op.blocked_reason = true, barrier
+        self:persist()
+      elseif op and not op.held and OfflineQueue.bookOpForUser(op, user_id) then
+        op.blocked, op.blocked_reason = nil, nil
         local id, err = self:resolveUserBook(api, op, user_id)
         local user_book
         if id and ops[key] == op then user_book, err = api:updateRating(id, tonumber(op.rating), op.at) end

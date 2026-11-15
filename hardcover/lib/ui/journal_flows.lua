@@ -317,6 +317,22 @@ end
 function Flows:reviewChangeSent(user_book_id, text, spoilers, book_id)
   local store = self.journal_store
   if not store or user_book_id == nil then return end
+  -- The open book's removal baseline must know about a review Hardcover accepted.
+  local screen = self.screens and self:screens():open("book")
+  local detail = screen and screen.detail
+  local base = detail and detail._server_base
+  if base then
+    local on = detail.book and tonumber(detail.book.book_id)
+    local same
+    if book_id then
+      same = on == tonumber(book_id)
+    else
+      same = tonumber(detail.user_book_id) == tonumber(user_book_id)
+    end
+    if same then
+      base.user_review, base.review_spoilers, base.review_known = text, spoilers, true
+    end
+  end
   local function ofBook(e)
     return e.kind == "review" and e.user_book_id ~= nil and tostring(e.user_book_id) == tostring(user_book_id)
   end

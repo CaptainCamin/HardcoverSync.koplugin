@@ -44,6 +44,7 @@ local HomeBody = InputContainer:extend {
   select_cb = nil,    -- called with a shelf's row when it is tapped
   open_book_cb = nil, -- called with the book id when Open book is tapped
   pending_fn = nil, -- returns how many changes are waiting to sync
+  decision_fn = nil, -- returns how many books need the reader's decision
   sync_cb = nil,    -- Sync now
   pending_cb = nil, -- a tap on the sync box: what is waiting
   empty_message = nil, -- why Currently Reading is empty before its first successful load
@@ -126,9 +127,16 @@ end
 -- and are built at the taller one's height so switching between them moves nothing below.
 function HomeBody:syncNote(width)
   local waiting = self.pending_fn and self.pending_fn() or 0
+  local decisions = self.decision_fn and self.decision_fn() or 0
   local action = { label = _("Sync now"), callback = function() if self.sync_cb then self.sync_cb() end end }
   local on_tap = function() if self.pending_cb then self.pending_cb() end end
   local function make(count, h)
+    if decisions > 0 then
+      return Note.new { width = width, h = h, dotted = true, icon_name = "sync", action = action, on_tap = on_tap,
+        title = decisions == 1 and _("1 book needs your decision")
+          or string.format(_("%d books need your decision"), decisions),
+        text = count > decisions and string.format(_("%d changes waiting."), count) or _("Tap to review.") }
+    end
     if count > 0 then
       return Note.new { width = width, h = h, dotted = true, icon_name = "sync", action = action, on_tap = on_tap,
         title = count == 1 and _("1 change waiting") or string.format(_("%d changes waiting"), count),

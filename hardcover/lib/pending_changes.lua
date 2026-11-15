@@ -17,6 +17,7 @@ local Reviews = require("hardcover/lib/reviews")
 local PendingStatus = require("hardcover/lib/pending_status")
 local Actions = require("hardcover/lib/reading_actions")
 local SyncConflicts = require("hardcover/lib/sync_conflicts")
+local Decisions = require("hardcover/lib/decisions")
 
 local PendingChanges = {}
 
@@ -78,25 +79,56 @@ local function shelfOpOf(entry)
   end
 end
 
+-- Every open question, one row each, for the "Needs your decision" group. A queue that
+-- can park work contributes through decisions(); this only adds the words the shared
+-- review list shows.
+function PendingChanges.decisions(queues)
+  local rows = {}
+  for _i, decision in ipairs(Decisions.list(queues)) do
+    local title = type(decision.title) == "string" and decision.title ~= "" and decision.title
+      or SyncConflicts.title(decision.filepath or decision.key, decision.entry)
+    rows[#rows + 1] = {
+      kind = "decision", section = _("Needs your decision"), title = title,
+      text = decision.text or SyncConflicts.decisionText(title, decision),
+      note = decision.note or SyncConflicts.decisionNote(decision),
+      decision = decision,
+    }
+  end
+  return rows
+end
+
 function PendingChanges.list(queues)
   queues = queues or {}
   local rows = {}
 
   local sync = queues.sync_queue
+  local conflicted = {}
+  if sync then
+    for _i, key in ipairs(sync:keys()) do
+      local entry = sync:get(key)
+      if type(entry) == "table" and entry.conflict then conflicted[key] = entry.conflict.kind end
+    end
+  end
+
   if sync then
     for _i, filepath in ipairs(sync:keys()) do
       local entry = sync:get(filepath)
       local title = SyncConflicts.title(entry.file or filepath, entry)
-      local note = stuck(entry)
+      local conflict_kind = conflicted[filepath]
+      local note = entry.remove and _("waiting for the removal to settle") or stuck(entry)
       local shelf_op = shelfOpOf(entry)
       if entry.mapped_page ~= nil then
         local state = startedState(entry, "page")
-        rows[#rows + 1] = {
-          kind = "page", title = title, note = note or state, state = state, started = state ~= nil,
-          shelf_op = entry.reread and shelf_op or nil,
-          text = T(_("%1: page %2"), title, entry.mapped_page),
-          cancel = function() return sync:cancelPage(filepath) end,
-        }
+        -- A page conflict is the question itself; any other conflict leaves the page a
+        -- dependant, still shown and cancellable behind the answer.
+        if conflict_kind ~= "page" and conflict_kind ~= "reread" then
+          rows[#rows + 1] = {
+            kind = "page", title = title, note = note or state, state = state, started = state ~= nil,
+            shelf_op = entry.reread and shelf_op or nil,
+            text = T(_("%1: page %2"), title, entry.mapped_page),
+            cancel = function() return sync:cancelPage(filepath) end,
+          }
+        end
       end
     end
   end
@@ -109,7 +141,7 @@ function PendingChanges.list(queues)
         kind = "rating", title = title,
         text = (r.rating or 0) > 0 and T(_("%1: rating %2"), title, tostring(r.rating))
           or T(_("%1: clear the rating"), title),
-        note = heldNote(r),
+        note = heldNote(r) or (r.blocked and _("waiting for an earlier change") or nil),
         cancel = function() return ratings:cancel(r.user_book_id, r.book_id, queues.user_id) end,
       }
     end
@@ -119,24 +151,28 @@ function PendingChanges.list(queues)
   local sync_queue = queues.sync_queue
   for _i, change in ipairs(PendingStatus.list(sync_queue)) do
     local entry, key = change.entry, change.key
-    local summary = change.count > 1 and T(_("%1 status changes; ends at %2"), change.count, statusText(change.status_id)) or nil
-    local state = not entry.remove and startedState(entry, "status") or nil
-    if entry.file and not entry.remove then
-      local title = SyncConflicts.title(entry.file, entry)
-      rows[#rows + 1] = {
-        kind = "status", title = title, note = stuck(entry) or state, state = state, started = state ~= nil,
-        shelf_op = shelfOpOf(entry),
-        text = summary and T(_("%1: %2"), title, summary) or T(_("%1: mark as %2"), title, statusText(entry.status_id)),
-        cancel = function() return sync_queue:cancelStatus(key) end,
-      }
-    else
-      local title = bookTitle(change)
-      rows[#rows + 1] = {
-        kind = "shelf", title = title, op = change, note = heldNote(change) or state, state = state, started = state ~= nil,
-        text = change.kind == "remove" and T(_("%1: remove from your library"), title)
-          or (summary and T(_("%1: %2"), title, summary) or T(_("%1: move to %2"), title, statusText(change.status_id))),
-        cancel = function() return sync_queue:cancelStatus(key) end,
-      }
+    -- The removal question stands for that row; other changes behind it stay visible.
+    if conflicted[key] ~= "remove" then
+      local summary = change.count > 1 and T(_("%1 status changes; ends at %2"), change.count, statusText(change.status_id)) or nil
+      local state = not entry.remove and startedState(entry, "status") or nil
+      local note = conflicted[key] and _("waiting for your decision") or stuck(entry) or state
+      if entry.file and not entry.remove then
+        local title = SyncConflicts.title(entry.file, entry)
+        rows[#rows + 1] = {
+          kind = "status", title = title, note = note, state = state, started = state ~= nil,
+          shelf_op = shelfOpOf(entry),
+          text = summary and T(_("%1: %2"), title, summary) or T(_("%1: mark as %2"), title, statusText(entry.status_id)),
+          cancel = function() return sync_queue:cancelStatus(key) end,
+        }
+      else
+        local title = bookTitle(change)
+        rows[#rows + 1] = {
+          kind = "shelf", title = title, op = change, note = heldNote(change) or note, state = state, started = state ~= nil,
+          text = change.kind == "remove" and T(_("%1: remove from your library"), title)
+            or (summary and T(_("%1: %2"), title, summary) or T(_("%1: move to %2"), title, statusText(change.status_id))),
+          cancel = function() return sync_queue:cancelStatus(key) end,
+        }
+      end
     end
   end
 
@@ -162,7 +198,7 @@ function PendingChanges.list(queues)
       rows[#rows + 1] = {
         kind = "review", title = title,
         text = r.text ~= "" and T(_("%1: review"), title) or T(_("%1: remove the review"), title),
-        note = heldNote(r),
+        note = heldNote(r) or (r.blocked and _("waiting for an earlier change") or nil),
         cancel = function() return reviews:cancel(r.user_book_id, r.book_id, queues.user_id) end,
       }
     end
@@ -215,6 +251,13 @@ function PendingChanges.list(queues)
     end
   end
 
+  -- Everything below the questions is ordinary waiting work, named as its own group so
+  -- the reader can tell it from the decisions above. With no questions, keep the plain list.
+  if Decisions.count(queues) > 0 then
+    for _i, row in ipairs(rows) do
+      row.section = row.section or _("Waiting to send")
+    end
+  end
   return rows
 end
 

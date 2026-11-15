@@ -293,8 +293,8 @@ function SyncQueue:enqueuePage(filepath, payload)
   Actions.page(entry, payload.mapped_page, at, entry.reread, payload.force_page)
   entry.first_page_date = entry.first_page_date or os.date("%Y-%m-%d", at)
   entry.failures = nil
-  -- reading on changes the question being asked (and the user's earlier answer)
-  entry.conflict = nil
+  -- Reading on does not answer a conflict: the unsafe change stays parked, and this page waits
+  -- behind it. (The question is answered in Pending changes, not by a later page turn.)
   self:persist()
   return entry
 end
@@ -310,7 +310,8 @@ function SyncQueue:startReread(filepath, payload)
   entry.read_id, entry.started_at = nil, nil
   entry.first_page_date = os.date("%Y-%m-%d", at)
   Actions.page(entry, payload.mapped_page or 0, at, true)
-  entry.conflict, entry.failures = nil, nil
+  -- a reread does not answer an unresolved conflict either: it waits with the rest
+  entry.failures = nil
   self:persist()
   return entry
 end
@@ -334,6 +335,12 @@ end
 function SyncQueue:enqueueStatus(filepath, payload)
   local held = self:shelfChangeWaiting(filepath)
   local before = held and self:get(filepath)
+  -- A removal may have been recorded by book id (no file) or from another file of the same
+  -- book. A new shelf change from this file still answers that removal.
+  if not before and payload.book_id then
+    local by_book = self:get(tonumber(payload.book_id) or payload.book_id)
+    if type(by_book) == "table" and by_book.remove then before = by_book end
+  end
   local origin = before and before.from_status_id
   local previous = before and before.status_id or payload.from_status_id
   local reread = payload.status_id == HARDCOVER.STATUS.READING
@@ -341,7 +348,12 @@ function SyncQueue:enqueueStatus(filepath, payload)
   local entry = self:_ensure(filepath, payload)
   if not entry then return nil end
   -- back from a waiting removal: the record is still there, so this is not a book new to the library
-  if before and before.remove then entry.remove, entry.remove_at, entry.edition_id = nil, nil, nil end
+  if before and before.remove then
+    entry.remove, entry.remove_at, entry.edition_id = nil, nil, nil
+    entry.remove_seq, entry.remove_base, entry.remove_force = nil, nil, nil
+    -- putting the book back is an answer to a removal question too
+    if entry.conflict and entry.conflict.kind == "remove" then entry.conflict = nil end
+  end
   entry.held, entry.reason = nil, nil
   entry.from_status_id = origin or payload.from_status_id or 0
   -- The day the book was finished, kept so a sync on a later day does not become the finish date
@@ -371,12 +383,19 @@ end
 
 --
 -- The book leaves the library. `user_book_id` is its record, `from_status_id` the shelf it is on.
--- Returns "queued", or "dropped" when the book only ever went on a shelf offline: there is nothing on
--- Hardcover to remove, so what waits for it (a status, a page) is thrown away. The pages of a removed
--- book belonged to the record that goes, so a queued removal keeps none. (A change already on its way
--- is not dropped: the book will exist, so the removal follows it and looks the record up.)
+-- `base` is what this device last knew of that record (see removalSnapshot): a removal is replayed
+-- only when Hardcover still matches it. Returns "queued", or "dropped" when the book only ever went
+-- on a shelf offline: there is nothing on Hardcover to remove, so what waits for it (a status, a
+-- page) is thrown away.
 --
-function SyncQueue:queueRemove(user_id, book_id, user_book_id, title, from_status_id)
+-- What was already waiting for the book stays in the entry, after `remove_seq`. It is not sent while
+-- the removal waits: a page or status recorded before the reader asked to remove the book belongs
+-- to the record that goes, and work recorded afterwards depends on the removal's outcome. An
+-- explicit shelf change (enqueueStatus) is the reader putting the book back, and cancels the
+-- removal instead. (A change already on its way is not dropped: the book will exist, so the
+-- removal follows it and looks the record up.)
+--
+function SyncQueue:queueRemove(user_id, book_id, user_book_id, title, from_status_id, base, file)
   local key = tostring(tonumber(book_id) or book_id)
   local pending = self:pending()
   local before = pending[key]
@@ -388,13 +407,33 @@ function SyncQueue:queueRemove(user_id, book_id, user_book_id, title, from_statu
     return "dropped"
   end
   local now = os.time()
-  pending[key] = {
-    book_id = tonumber(book_id), user_id = user_id, user_book_id = user_book_id,
-    title = title or (before and before.title),
-    from_status_id = before and before.from_status_id or from_status_id or 0,
-    remove = true, remove_at = now, updated_at = now,
-    file = before and before.file, files = before and before.files,
+  local entry = before or {}
+  Actions.list(entry)
+  entry.book_id = tonumber(book_id)
+  entry.user_id = user_id
+  entry.user_book_id = user_book_id
+  entry.title = title or (before and before.title)
+  entry.from_status_id = before and before.from_status_id or from_status_id or 0
+  entry.remove = true
+  entry.remove_at = now
+  -- the actions already waiting belong to the record that goes; later ones wait with the removal
+  entry.remove_seq = entry.action_seq or 0
+  -- Without a saved comparison, every field is unknown: a record with work on it will ask.
+  entry.remove_base = base or (before and before.remove_base) or {
+    status_known = false, rating_known = false, reads_known = false, review_known = false,
   }
+  entry.remove_force = nil
+  -- a page question about a record that is going is moot; the removal has its own check
+  entry.conflict = nil
+  entry.failures, entry.held, entry.reason = nil, nil, nil
+  entry.updated_at = now
+  entry.file = (before and before.file) or file
+  entry.files = before and before.files or (file and {} or nil)
+  if file then
+    entry.files = entry.files or {}
+    entry.files[file] = true
+  end
+  pending[key] = entry
   self:persist()
   return "queued"
 end
@@ -435,7 +474,8 @@ function SyncQueue:cancelPage(filepath)
   if self.sending_key == self:keyOf(filepath) or not Actions.cancel(entry, "page") then return false end
   entry.force_page, entry.first_page_date, entry.reread = nil, nil, nil
   if entry.status_id == nil then entry.from_status_id = nil end
-  entry.conflict, entry.failures = nil, nil
+  if entry.conflict and entry.conflict.kind ~= "remove" then entry.conflict = nil end
+  entry.failures = nil
   self:save(filepath, entry)
   return true
 end
@@ -449,6 +489,8 @@ function SyncQueue:cancelStatus(filepath)
   if not entry.remove and not Actions.cancel(entry, "status") then return false end
   entry.privacy_setting_id, entry.failures = nil, nil
   entry.remove, entry.remove_at, entry.held, entry.reason = nil, nil, nil, nil
+  entry.remove_seq, entry.remove_base, entry.remove_force = nil, nil, nil
+  if entry.conflict and entry.conflict.kind == "remove" then entry.conflict = nil end
   if not entry.reread then entry.from_status_id = nil end
   self:save(filepath, entry)
   return true
@@ -465,6 +507,8 @@ function SyncQueue:cancelAction(book_id, seq, user_id, expected_entry)
   if entry.remove and seq == nil then
     removed = true
     entry.remove, entry.remove_at = nil, nil
+    entry.remove_seq, entry.remove_base, entry.remove_force = nil, nil, nil
+    if entry.conflict and entry.conflict.kind == "remove" then entry.conflict = nil end
   else
     local reason
     removed, reason = Actions.cancel(entry, nil, seq)
@@ -633,11 +677,203 @@ function SyncQueue:conflictCount()
   return #self:conflicts()
 end
 
+-- What every conflict is, in a stable string: a notice can tell a genuinely new or changed
+-- question from the same one noticed before. `exclude` is a file whose question is being shown
+-- right now.
+function SyncQueue:conflictSignature(exclude)
+  local parts = {}
+  for _, conflict in ipairs(self:conflicts()) do
+    local shown = exclude and (conflict.filepath == exclude
+      or (type(conflict.entry.files) == "table" and conflict.entry.files[exclude]))
+    if not shown then
+      local c = conflict.entry.conflict
+      parts[#parts + 1] = table.concat({ tostring(conflict.key), tostring(c.kind),
+        tostring(c.seq or c.at or "") }, ":")
+    end
+  end
+  table.sort(parts)
+  return table.concat(parts, "|")
+end
+
+-- The decisions waiting for `user_id` (nil: any), in the shared shape a review list uses:
+-- { id, kind, key, filepath, book_id, user_book_id, title, entry, resolve(choice) }.
+-- Other queues add their own decisions() method and appear in the same list.
+function SyncQueue:decisions(user_id)
+  local out = {}
+  for _, conflict in ipairs(self:conflicts()) do
+    local entry = conflict.entry
+    if user_id == nil or SyncQueue.ownedBy(entry, user_id) then
+      local key = conflict.key
+      out[#out + 1] = {
+        id = table.concat({ tostring(key), tostring(entry.conflict.kind),
+          tostring(entry.conflict.seq or entry.conflict.at or "") }, ":"),
+        kind = entry.conflict.kind, key = key, filepath = conflict.filepath,
+        book_id = tonumber(entry.book_id), user_book_id = entry.user_book_id,
+        title = entry.title, entry = entry,
+        resolve = function(choice) return self:resolve(key, choice) end,
+      }
+    end
+  end
+  return out
+end
+
+-- The first decision about this book, or nil.
+function SyncQueue:decisionForBook(book_id, user_id)
+  book_id = tonumber(book_id)
+  if not book_id then return nil end
+  for _, decision in ipairs(self:decisions(user_id)) do
+    if decision.book_id == book_id then return decision end
+  end
+end
+
+-- What still waits after a pass, for an honest result: questions only the reader can answer,
+-- work held by Hardcover's refusal or a changed reading, and work that did not get a turn
+-- (a connection that failed, or a pass stopped early).
+function SyncQueue:waitingCounts(user_id)
+  local counts = { decisions = 0, waiting = 0, failed = 0 }
+  for _, key in ipairs(self:keys()) do
+    local entry = self:get(key)
+    if user_id == nil or SyncQueue.ownedBy(entry, user_id) then
+      if type(entry) == "table" and entry.conflict then
+        counts.decisions = counts.decisions + 1
+      elseif self:isHeld(entry) then
+        -- a reading whose identity changed waits for a decision; a refusal or a missing
+        -- permission is a failed send, not a dependant
+        if entry.reason == "reading_changed" then
+          counts.waiting = counts.waiting + 1
+        else
+          counts.failed = counts.failed + 1
+        end
+      else
+        counts.failed = counts.failed + 1
+      end
+    end
+  end
+  return counts
+end
+
+-- Is a write that needs the library record safe to send now? nil when it is; otherwise the
+-- reason it must wait: "remove" while the book is being removed (or its removal has a
+-- question), "reading" while the reading it belongs to is unsettled, "status" while a shelf
+-- change for it has not gone through. Ratings need a shelf that is not about to change; a
+-- review only needs the record to stay (a page question does not stop it).
+function SyncQueue:bookBarrier(book_id, user_book_id, user_id, purpose)
+  local entry = self:get(book_id)
+  if type(entry) ~= "table" and user_book_id then
+    for _, key in ipairs(self:keys()) do
+      local candidate = self:get(key)
+      if type(candidate) == "table" and candidate.user_book_id ~= nil
+        and tostring(candidate.user_book_id) == tostring(user_book_id) then
+        entry = candidate
+        break
+      end
+    end
+  end
+  if type(entry) ~= "table" or not SyncQueue.ownedBy(entry, user_id) then return nil end
+  if entry.remove then return "remove" end
+  local conflict = entry.conflict
+  if conflict and conflict.kind == "remove" then return "remove" end
+  if purpose == "rating" then
+    if conflict and conflict.kind == "reread" then return "reading" end
+    if entry.status_id ~= nil or entry.reread then return "status" end
+    if entry.held and entry.reason == "reading_changed" then return "reading" end
+  end
+  return nil
+end
+
+-- One library record as a removal compares it: the fields a delete would take with it, in a
+-- shape that can be saved on the queue entry and compared with a fresh lookup.
+function SyncQueue.readSignature(reads)
+  if type(reads) ~= "table" then return nil end
+  local parts = {}
+  for _, read in ipairs(reads) do
+    parts[#parts + 1] = table.concat({
+      tostring(read.id or ""), tostring(read.progress_pages or ""),
+      tostring(read.edition_id or ""), tostring(read.started_at or ""),
+      tostring(read.finished_at or ""),
+    }, ":")
+  end
+  if #parts == 0 then return nil end
+  return table.concat(parts, "|")
+end
+
+function SyncQueue.removalSnapshot(user_book)
+  if type(user_book) ~= "table" then return nil end
+  local has_review = user_book.has_review
+  if has_review == nil and type(user_book.review_raw) == "string" then
+    has_review = user_book.review_raw ~= ""
+  end
+  return {
+    id = tonumber(user_book.id),
+    updated_at = user_book.updated_at,
+    status_id = tonumber(user_book.status_id),
+    rating = tonumber(user_book.rating),
+    has_review = has_review,
+    review_raw = user_book.review_raw,
+    review_has_spoilers = user_book.review_has_spoilers,
+    reads = SyncQueue.readSignature(user_book.user_book_reads),
+    -- this is what Hardcover answered, so every field is known (even when it is empty)
+    status_known = true, rating_known = true, reads_known = true, review_known = true,
+  }
+end
+
+-- Did Hardcover's record change since the device last saw it? `base` is what the device knew
+-- (with _known flags saying which fields it could compare); `online` is removalSnapshot of the
+-- fresh record. Unknown fields that now hold something count as a change: the reader asked to
+-- remove a record, not work this device never saw. Returns changed, labels, online.
+function SyncQueue.removalChanges(base, online)
+  if type(online) ~= "table" then return true, { "a record this device could not check" }, nil end
+  local changes = {}
+  local function add(label) changes[#changes + 1] = label end
+
+  if type(base) ~= "table" then
+    return true, { "a record this device could not check" }, online
+  end
+
+  if base.updated_at ~= nil and online.updated_at ~= nil and base.updated_at ~= online.updated_at then
+    add("a change")
+  end
+  if base.status_known then
+    if base.status_id ~= online.status_id then add("a different shelf") end
+  elseif online.status_id ~= nil then
+    add("a shelf this device could not check")
+  end
+  if base.rating_known then
+    if base.rating ~= online.rating then add("a rating") end
+  elseif online.rating ~= nil then
+    add("a rating this device could not check")
+  end
+  if base.reads_known then
+    if base.reads ~= online.reads then add("reading progress") end
+  elseif online.reads ~= nil then
+    add("reading progress this device could not check")
+  end
+  if base.review_known then
+    local base_has = base.has_review
+    if base_has == nil then
+      base_has = type(base.review_raw) == "string" and base.review_raw ~= "" or false
+    end
+    local online_has = online.has_review and true or false
+    if base_has ~= online_has
+      or (base_has and (base.review_raw ~= online.review_raw
+        or base.review_has_spoilers ~= online.review_has_spoilers)) then
+      add("a review")
+    end
+  elseif online.has_review then
+    add("a review this device could not check")
+  end
+
+  return #changes > 0, changes, online
+end
+
 -- Apply the user's answer to one entry's conflict.
 --   page:   "cloud" keeps Hardcover's page and drops ours (remembering it as the
 --           place to resume); "local" sends ours.
 --   reread: "yes" sends a NEW read (the old one is never touched); "no" drops
 --           the queued progress.
+--   remove: "keep" leaves the book and everything on it alone (its waiting work
+--           may then be sent); "remove" accepts what Hardcover has now and lets
+--           the next pass remove it, rechecking once more first.
 -- "later" is not an answer: it leaves everything as it is. Returns true when
 -- something changed.
 function SyncQueue:resolve(filepath, choice)
@@ -647,7 +883,36 @@ function SyncQueue:resolve(filepath, choice)
   end
   local kind, seq = entry.conflict.kind, entry.conflict.seq
 
-  if kind == "page" and choice == "cloud" then
+  if kind == "remove" and choice == "keep" then
+    local conflict = entry.conflict
+    local online = conflict.online or {}
+    local from = tonumber(entry.from_status_id)
+    local status_id = tonumber(online.status_id) or (from and from ~= 0 and from) or nil
+    entry.remove, entry.remove_at, entry.remove_seq = nil, nil, nil
+    entry.remove_base, entry.remove_force = nil, nil
+    entry.failures = nil
+    entry.conflict = nil
+    if self:isEmpty(entry) then self:_drop(filepath) end
+    self:persist()
+    -- The caller puts the book back on the shelf it had online; the queued removal had
+    -- already taken it out of the saved shelves.
+    local outcome = status_id and {
+      kind = "shelf", book_id = tonumber(entry.book_id),
+      user_book_id = tonumber(online.id) or entry.user_book_id,
+      status_id = status_id, rating = online.rating, title = entry.title,
+    } or nil
+    return true, outcome
+  elseif kind == "remove" and choice == "remove" then
+    local conflict = entry.conflict
+    entry.user_book_id = conflict.current_user_book_id or entry.user_book_id
+    -- What was just shown is the new baseline: the next pass removes only if it still holds.
+    entry.remove_base = conflict.online
+    entry.remove_force = conflict.online == nil and true or nil
+    entry.failures = nil
+    entry.conflict = nil
+    self:persist()
+    return true
+  elseif kind == "page" and choice == "cloud" then
     local resume = self.settings:readSetting("resume")
     if type(resume) ~= "table" then
       resume = {}
@@ -802,6 +1067,7 @@ function SyncQueue:_sendStatus(api, key, entry, op, user_book, status, info)
       from_status = user_book and user_book.status_id or 0 }
     self:persist()
     result, err = StatusSender.upsert(api, user_book, status, info)
+    if hasUserBook(result) then self.last_flush_sent = true end
     if not hasUserBook(result) then
       if err ~= nil and not OfflineQueue.transient(err) then
         op.status_attempt = nil -- a definite refusal, not an ambiguous outcome
@@ -835,6 +1101,15 @@ local function findUserBook(api, book_id, opts, prefetched)
   return api:findUserBook(book_id, opts.user_id)
 end
 
+-- A removal needs what a delete would take with it (rating, review and reads), which the
+-- ordinary lookup does not ask for. Older API doubles keep working through findUserBook.
+local function findRemovalRecord(api, book_id, opts)
+  if type(api.findUserBookForRemoval) == "function" then
+    return api:findUserBookForRemoval(book_id, opts.user_id)
+  end
+  return api:findUserBook(book_id, opts.user_id)
+end
+
 function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
   local entry = self:get(filepath)
   if self:isEmpty(entry) then
@@ -847,15 +1122,43 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
   local privacy_setting_id = entry.privacy_setting_id
 
   if entry.remove then
-    local id = entry.user_book_id
-    if not id then
-      local found, lookup_err = findUserBook(api, book_id, opts, prefetched)
-      if lookup_err ~= nil then return false, "transient" end
-      id = found and found.id -- not in the library: nothing to remove
+    -- Always look the record up, even when its id is known: a removal is a delete, and the
+    -- record may have gained work since the reader asked for it.
+    local current, lookup_err = findRemovalRecord(api, book_id, opts)
+    if lookup_err ~= nil then return false, "transient" end
+    -- The reader may have put the book back while the lookup yielded: that is no longer a
+    -- removal, and its new shelf change must not be dropped with the old request.
+    if self:get(filepath) ~= entry or not entry.remove then return false end
+    if not (type(current) == "table" and current.id) then
+      -- not in the library: the removal has nothing left to do
+      local now = self:get(filepath)
+      if now == entry then
+        local op = SyncQueue.opOf(entry)
+        self:_drop(filepath)
+        self:persist()
+        if opts.on_status_sent and not entry.file then opts.on_status_sent(op, current) end
+      end
+      return true
     end
-    local removed, err = true, nil
-    if id then removed, err = api:removeUserBook(id) end
+
+    if not entry.remove_force then
+      local online = SyncQueue.removalSnapshot(current)
+      local replaced = entry.user_book_id ~= nil
+        and tostring(entry.user_book_id) ~= tostring(current.id)
+      local changed, changes = SyncQueue.removalChanges(entry.remove_base, online)
+      if replaced or changed then
+        entry.conflict = {
+          kind = "remove", at = os.time(), current_user_book_id = current.id,
+          changes = changes, replaced = replaced or nil, online = online,
+        }
+        self:persist()
+        return false, "conflict"
+      end
+    end
+
+    local removed, err = api:removeUserBook(current.id)
     if not removed then return failed(self, filepath, err) end
+    self.last_flush_sent = true
     -- a status made while this was out is what is left to send
     local now = self:get(filepath)
     if now == entry and entry.remove then
@@ -1017,6 +1320,7 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
             countRejection(self, filepath)
             return false
           end
+          self.last_flush_sent = true
           user_book = result
           op.read_id = op.read_id or (latestRead(result) and latestRead(result).id)
           op.applied = true
@@ -1048,6 +1352,7 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
         if op.at and op.at > 0 then dates.action_at = os.date("!%Y-%m-%dT%H:%M:%SZ", op.at) end
         local result, err = api:updateReadDates(target.id, dates)
         if not hasUserBook(result) then return failed(self, filepath, err) end
+        self.last_flush_sent = true
         if result.status_id ~= user_book.status_id then
           holdChangedReading(self, entry)
           return false
@@ -1103,7 +1408,7 @@ function SyncQueue:_prefetchUserBooks(api, paths, user_id)
   for _, key in ipairs(paths) do
     local entry = self:get(key)
     local book_id = type(entry) == "table" and entry.book_id
-    if book_id and not self:isEmpty(entry) and not (entry.remove and entry.user_book_id)
+    if book_id and not self:isEmpty(entry) and not entry.remove
       and not seen[tostring(book_id)] then
       seen[tostring(book_id)] = true
       ids[#ids + 1] = tonumber(book_id) or book_id
@@ -1120,6 +1425,9 @@ function SyncQueue:flush(api, opts)
   if self.flushing then
     return false
   end
+  -- For an honest sync result: did this pass put anything on Hardcover? (A parked question
+  -- and a missing record are not sends.)
+  self.last_flush_sent = false
 
   -- what was queued under an account that is not signed in any more is dropped, not sent to this one
   if opts.user_id ~= nil then

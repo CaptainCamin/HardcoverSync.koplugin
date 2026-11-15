@@ -52,11 +52,15 @@ function Flows:showBookDetail(book_id, edition_id, opts)
   opts = opts or {}
   local dialog
   local on_device_file = self:deviceFile(book_id)
+  local decision = self.sync_queue and self.sync_queue.decisionForBook
+    and self.sync_queue:decisionForBook(book_id, User:getId())
   dialog = require("hardcover/lib/ui/book_detail_dialog"):new {
     detail = nil,
     loading = true,
     -- the details on screen go along, so the reviews can say which book and how it is rated
     on_reviews = function(d) self:showReviews(book_id, Reviews.summary(d and d.detail)) end,
+    -- this book has a question waiting: one visible way to answer it here
+    on_decision = decision and function(d) self:reviewDecision(decision) end or nil,
     -- the book is on this device (a file the plugin linked to it): Open. Otherwise the file search
     -- below, which is for looking further.
     on_open = on_device_file and function(d) self:openOnDevice(d, on_device_file) end or nil,
@@ -190,6 +194,69 @@ function Flows:showBookDetail(book_id, edition_id, opts)
   end)
 
   return dialog
+end
+
+-- Answer the question about this book from its details screen: one question, and
+-- Back or "Decide later" leaves it waiting.
+function Flows:reviewDecision(decision)
+  require("hardcover/lib/ui/sync_conflict_dialog").show {
+    decision = decision,
+    on_done = function(resolved, _choice, outcome)
+      if resolved == 0 then return end
+      if outcome and outcome.kind == "shelf" then self:removalKept(outcome) end
+      StatusDialogs.info(_("Choice saved."), 2)
+      if self.flush_goals then self.flush_goals() end
+    end,
+  }
+end
+
+-- Keeping a book after a removal question: the queued removal had already taken it out
+-- of the saved shelves. Put it back where Hardcover has it, with its rating, and clear
+-- the unsent-removal marker so a later download cannot keep hiding it.
+function Flows:removalKept(op)
+  if type(op) ~= "table" or not tonumber(op.book_id) or not op.status_id then return end
+  local user_id = User:getId()
+  self:shelfChanged(op.book_id, nil, op.status_id, op.user_book_id, false)
+  local shelves = self:shelves()
+  if shelves and op.rating ~= nil then
+    shelves:rateBook(user_id, op.book_id, op.rating)
+  end
+  local screen = self:screens():open("book")
+  local on = screen and screen.detail and screen.detail.book and screen.detail.book.book_id
+  if on and tonumber(on) == tonumber(op.book_id) then
+    screen:setStatus(op.status_id, op.user_book_id)
+    -- setStatus clears the rating with the shelf; the book was kept, so put its rating
+    -- back too (a rating set offline and not sent is still what the reader chose).
+    local waiting = self.rating_queue
+      and self.rating_queue:get(op.user_book_id, op.book_id, user_id)
+    if waiting ~= nil then
+      screen:setRating(waiting)
+    elseif op.rating ~= nil then
+      screen:setRating(op.rating)
+    end
+  end
+end
+
+-- Hardcover confirmed values for the book open on its details screen. A removal baseline
+-- must include edits it has accepted, but never the overlays of edits still waiting.
+-- `opts.status` / `opts.rating` say which fields this answer settles; `opts.book_id` is for
+-- an answer that names the library record but not the catalog book.
+function Flows:rememberServerDetail(user_book, opts)
+  if type(user_book) ~= "table" then return end
+  opts = opts or {}
+  local book_id = tonumber(opts.book_id or user_book.book_id)
+  local screen = self:screens():open("book")
+  local detail = screen and screen.detail
+  local on = detail and detail.book and tonumber(detail.book.book_id)
+  local base = detail and detail._server_base
+  if not (book_id and on == book_id and base) then return end
+  if opts.status and user_book.status_id ~= nil then
+    base.status_id, base.status_known = tonumber(user_book.status_id), true
+  end
+  if opts.rating then
+    -- updateRating answers with the rating as well, nil when it was cleared
+    base.user_rating, base.rating_known = tonumber(user_book.rating), true
+  end
 end
 
 function Flows:bookSourceChoice()
@@ -738,6 +805,16 @@ end
 
 -- What was changed here and not sent yet (a shelf, a rating) shows in place of what is on record.
 function Flows:withPending(detail)
+  -- What Hardcover (or the saved copy) said before any offline overlay below. A removal
+  -- asked for from this screen must compare against this, not against the reader's own
+  -- not-yet-sent rating, review or shelf change.
+  if detail and detail.book and not detail._server_base then
+    detail._server_base = {
+      status_id = detail.status_id, user_rating = detail.user_rating,
+      user_review = detail.user_review, review_spoilers = detail.review_spoilers,
+      review_known = detail.review_known,
+    }
+  end
   if self.sync_queue and detail and detail.book then
     BookActions.withPendingShelf(detail,
       PendingStatus.get(self.sync_queue, detail.book.book_id, User:getId()))
@@ -883,6 +960,7 @@ function Flows:ratingSent(_user_book_id, user_book)
   if shelves and type(user_book) == "table" and user_book.book_id then
     shelves:rateBook(User:getId(), user_book.book_id, user_book.rating)
   end
+  self:rememberServerDetail(user_book, { status = true, rating = true })
   self:forgetShelves(user_book and user_book.status_id, nil)
 end
 
@@ -943,6 +1021,7 @@ function Flows:saveShelf(dialog, status_id)
       end
 
       -- A change queued while the request was out is newer and must remain queued.
+      self:rememberServerDetail(user_book, { status = true })
       self:shelfChanged(request.book_id, old_status_id, status_id, user_book.id or detail.user_book_id)
       if Live.shown(dialog) then
         dialog:setStatus(status_id, user_book.id or detail.user_book_id)
@@ -957,12 +1036,59 @@ function Flows:removeFromShelf(dialog)
   local book_id = detail.book and detail.book.book_id
 
   local waiting = self.sync_queue and book_id and self.sync_queue:shelfOp(book_id, User:getId())
+  -- What this device last knew of the record, so a later replay can tell whether Hardcover
+  -- gained work the reader never saw. Use the values before `withPending` laid the reader's
+  -- own not-yet-sent shelf, rating and review changes over them.
+  local server = detail._server_base or detail
+  local queued = self.sync_queue and book_id and self.sync_queue:get(book_id)
+  local status = self.state and self.state.book_status or {}
+  -- The reader's open book is not necessarily this one; only use its reads when it is.
+  if status.book_id ~= nil and detail.book and tonumber(status.book_id) ~= tonumber(detail.book.book_id) then
+    status = {}
+  end
+  if status.id ~= nil and user_book_id ~= nil and tonumber(status.id) ~= tonumber(user_book_id) then
+    status = {}
+  end
+  -- A queued page has already been laid over the open book's saved reads. Use the last
+  -- synced snapshot instead, so the reader's own offline page is not mistaken for an
+  -- online change.
+  local reads = type(status.user_book_reads) == "table" and status.user_book_reads or nil
+  local reads_known = type(reads) == "table"
+  if (queued and queued.mapped_page ~= nil) or not reads then
+    local file = book_id and self:deviceFile(book_id)
+    local snapshot = file and self.settings and self.settings.bookStatusFromSnapshot
+      and self.settings:bookStatusFromSnapshot(file) or nil
+    if snapshot and type(snapshot.user_book_reads) == "table" then
+      reads, reads_known = snapshot.user_book_reads, true
+    elseif queued and queued.mapped_page ~= nil then
+      reads, reads_known = nil, false
+    end
+  end
+  -- A queued status has already moved the saved shelf; its `from_status_id` is the shelf
+  -- Hardcover still has.
+  local online_status = server.status_id
+  if waiting and waiting.kind == "status" and waiting.from_status_id ~= nil then
+    online_status = waiting.from_status_id
+  end
+  local base = {
+    status_id = online_status,
+    status_known = online_status ~= nil,
+    rating = server.user_rating,
+    rating_known = true,
+    review_raw = server.user_review,
+    review_has_spoilers = server.review_spoilers,
+    review_known = server.review_known == true,
+    reads = self.sync_queue and self.sync_queue.readSignature
+      and reads and self.sync_queue.readSignature(reads) or nil,
+    reads_known = reads_known and self.sync_queue and self.sync_queue.readSignature ~= nil,
+  }
   -- offline, or a book that only went on a shelf offline (the connection may be back, but
   -- Hardcover has no record of it yet): kept, not sent
   if self.sync_queue and book_id and (not Network.connected() or (not user_book_id and waiting)) then
     if not (user_book_id or waiting) then return end
     -- a book that only went on a shelf offline has nothing on Hardcover to remove
-    local outcome = self.sync_queue:queueRemove(User:getId(), book_id, user_book_id, detail.book.title, old_status_id)
+    local outcome = self.sync_queue:queueRemove(User:getId(), book_id, user_book_id, detail.book.title,
+      old_status_id, base, self:deviceFile(book_id))
     self:shelfChanged(book_id, old_status_id, nil, nil, true)
     if Live.shown(dialog) then dialog:setStatus(nil, nil) end
     if outcome == "dropped" then
@@ -1005,6 +1131,7 @@ function Flows:shelfSent(op, user_book)
   if shelves and op.from_status_id then shelves:markStale(user_id, op.from_status_id) end
   local status_id = op.kind == "status" and op.status_id or nil
   local user_book_id = type(user_book) == "table" and tonumber(user_book.id) or nil
+  self:rememberServerDetail(user_book, { status = true })
   self:shelfChanged(op.book_id, op.from_status_id, status_id, user_book_id)
 
   local screen = self:screens():open("book")
@@ -1152,6 +1279,8 @@ function Flows:applyAbout(dialog, book_id, about)
   if self.book_store then self.book_store:updateNumbers(book_id, about) end
 
   local mine = about.user_book
+  -- Refresh is also what Hardcover has: keep a later removal comparison current.
+  self:rememberServerDetail(mine, { book_id = book_id, status = true, rating = true })
   local status_id = mine and tonumber(mine.status_id) or nil
   local user_book_id = mine and tonumber(mine.id) or nil
   -- a shelf change made here and not sent yet is what the screen shows, not Hardcover's

@@ -51,6 +51,7 @@ local JournalQueue = require("hardcover/lib/journal_queue")
 local ReviewQueue = require("hardcover/lib/review_queue")
 local json = require("json")
 local SyncConflicts = require("hardcover/lib/sync_conflicts")
+local Decisions = require("hardcover/lib/decisions")
 local StartReading = require("hardcover/lib/start_reading")
 local throttle = require("hardcover/lib/throttle")
 local User = require("hardcover/lib/user")
@@ -953,6 +954,29 @@ function HardcoverApp:onNetworkConnected()
   self:flushSyncQueue(false)
 end
 
+-- Every change waiting, across the queues, and how many questions need the reader.
+function HardcoverApp:pendingTotal()
+  local sync = self.sync_queue
+  local sync_count = 0
+  if sync then
+    if sync.changeCount then sync_count = sync:changeCount()
+    elseif sync.pendingCount then sync_count = sync:pendingCount() end
+  end
+  return sync_count + (self.goal_queue and self.goal_queue:count() or 0)
+    + (self.rating_queue and self.rating_queue:count() or 0)
+    + (self.list_queue and self.list_queue:count() or 0)
+    + (self.journal_queue and self.journal_queue:count() or 0)
+    + (self.review_queue and self.review_queue:count() or 0)
+end
+
+function HardcoverApp:decisionCount()
+  return Decisions.count({
+    user_id = User.settings and User:getId() or nil,
+    sync_queue = self.sync_queue, goal_queue = self.goal_queue, rating_queue = self.rating_queue,
+    list_queue = self.list_queue, journal_queue = self.journal_queue, review_queue = self.review_queue,
+  })
+end
+
 function HardcoverApp:on_flush_sync_queue()
   -- pressing Sync is the user asking again: let goal changes Hardcover refused try once more
   if self.goal_queue then self.goal_queue:retryHeld() end
@@ -961,11 +985,7 @@ function HardcoverApp:on_flush_sync_queue()
   if self.journal_queue then self.journal_queue:retryHeld() end
   if self.review_queue then self.review_queue:retryHeld() end
   if self.rating_queue then self.rating_queue:retryHeld() end
-  local pending = self.sync_queue:changeCount() + (self.goal_queue and self.goal_queue:count() or 0)
-    + (self.rating_queue and self.rating_queue:count() or 0)
-    + (self.list_queue and self.list_queue:count() or 0)
-    + (self.journal_queue and self.journal_queue:count() or 0)
-    + (self.review_queue and self.review_queue:count() or 0)
+  local pending = self:pendingTotal()
 
   if pending == 0 then
     StatusDialogs.info(_("Nothing to sync"), 2)
@@ -973,15 +993,21 @@ function HardcoverApp:on_flush_sync_queue()
   end
 
   if not NetworkManager:isConnected() then
-    StatusDialogs.info(T(_("%1 change(s) saved. They will sync when you are online."), pending), 3)
+    local decisions = self:decisionCount()
+    if decisions > 0 then
+      StatusDialogs.info(SyncConflicts.notice(decisions), 3)
+    else
+      StatusDialogs.info(T(_("%1 change(s) saved. They will sync when you are online."), pending), 3)
+    end
     return
   end
 
-  local done = function(success)
-    if success then
-      StatusDialogs.info(_("Progress synced"), 2)
+  local done = function(result)
+    local text, level = SyncConflicts.outcomeText(result)
+    if level == "error" then
+      StatusDialogs.error(text, 3)
     else
-      StatusDialogs.error(_("Sync failed. Changes are saved and will retry."), 3)
+      StatusDialogs.info(text, 3)
     end
   end
 
@@ -1023,20 +1049,24 @@ function HardcoverApp:_scheduleFlushRetry(success)
 end
 
 -- A sync can end with questions only the user can answer (this device and
--- Hardcover disagree about where they are in a book). Say so once per new
--- question; the answers are in the Sync menu.
+-- Hardcover disagree about where they are in a book, or a removal would delete
+-- work added elsewhere). Say so once per new question; the answers are in Sync.
 function HardcoverApp:_noticeSyncConflicts()
   if not self.sync_queue.conflicts then return end
   -- the book being opened asks its own question at once (askAboutOpenBook): not a reason to send
   -- the reader to the Sync menu, and the notice would cover that question's last choice
   local count = 0
   for _, conflict in ipairs(self.sync_queue:conflicts()) do
-    if conflict.filepath ~= self.asking_about_book then count = count + 1 end
+    local shown = self.asking_about_book and (conflict.filepath == self.asking_about_book
+      or (type(conflict.entry.files) == "table" and conflict.entry.files[self.asking_about_book]))
+    if not shown then count = count + 1 end
   end
-  if count > 0 and count ~= self.noticed_conflicts then
+  local signature = self.sync_queue.conflictSignature and self.sync_queue:conflictSignature(self.asking_about_book)
+    or tostring(count)
+  if count > 0 and signature ~= self.noticed_conflicts then
     StatusDialogs.info(SyncConflicts.notice(count), 5)
   end
-  self.noticed_conflicts = count
+  self.noticed_conflicts = signature
 end
 
 -- The page of this file for a page of the edition Hardcover has, by the book's page labels when
@@ -1084,7 +1114,11 @@ function HardcoverApp:askAboutOpenBook()
       require("hardcover/lib/ui/sync_conflict_dialog").show {
         queue = self.sync_queue,
         only = file,
-        on_done = function(resolved)
+        on_done = function(resolved, _choice, outcome)
+          if outcome and outcome.kind == "shelf" and self.dialog_manager
+              and self.dialog_manager.removalKept then
+            self.dialog_manager:removalKept(outcome)
+          end
           local page = resolved > 0 and self.sync_queue:takeResumePage(file)
           -- A different answer also settles the question for this opening;
           -- a late cache response must not offer the rejected cloud page.
@@ -1150,8 +1184,14 @@ function HardcoverApp:_flushGoals()
   local sent, archived = {}, {}
   local result = queue:flush(Api, {
     user_id = User:getId(),
-    on_saved = function(key, goal) sent[#sent + 1] = { key = key, goal = goal } end,
-    on_archived = function(key) archived[#archived + 1] = key end,
+    on_saved = function(key, goal)
+      self._flush_sent = true
+      sent[#sent + 1] = { key = key, goal = goal }
+    end,
+    on_archived = function(key)
+      self._flush_sent = true
+      archived[#archived + 1] = key
+    end,
   })
   self.dialog_manager:goalsFlushed(sent, archived)
 
@@ -1162,11 +1202,17 @@ function HardcoverApp:_flushGoals()
   return not result.stopped and result.waiting == result.held
 end
 
--- Send the ratings set offline. Returns false while any is still waiting.
+-- Send the ratings set offline. A rating waits behind an unsettled shelf or removal for its book
+-- (the API resends the status with the rating). Returns false while any is still waiting for
+-- something other than a decision or an earlier change.
 function HardcoverApp:_flushRatings()
   local queue = self.rating_queue
   if not queue or queue:isEmpty() then
     return true
+  end
+  local barrier = function(op)
+    return self.sync_queue and self.sync_queue.bookBarrier
+      and self.sync_queue:bookBarrier(op.book_id, op.user_book_id, User:getId(), "rating")
   end
   local waiting = queue:flush(Api, function(user_book_id, user_book)
     local status = self.state.book_status
@@ -1175,10 +1221,12 @@ function HardcoverApp:_flushRatings()
       -- The first status sync may have replaced the reader's local rating with an older server value.
       status.rating = user_book.rating
     end
+    self._flush_sent = true
     self.dialog_manager:ratingSent(user_book_id, user_book)
-  end, User:getId())
-  -- (held ones wait for the user, as shelf and list changes do)
-  return waiting <= queue:heldCount(User:getId())
+  end, User:getId(), { barrier = barrier })
+  -- (held and blocked ones wait for the user or an earlier change, not for a retry;
+  -- the union matters when one rating is both)
+  return waiting <= queue:parkedCount(User:getId())
 end
 
 -- Send the list changes made offline (as _flushReviews).
@@ -1189,7 +1237,10 @@ function HardcoverApp:_flushLists()
   end
   local result = queue:flush(Api, {
     user_id = User:getId(),
-    on_sent = function(op, answer) self.dialog_manager:listChangeSent(op, answer) end,
+    on_sent = function(op, answer)
+      self._flush_sent = true
+      self.dialog_manager:listChangeSent(op, answer)
+    end,
   })
   self:_noticeHeld("list", result.held)
   return not result.stopped and result.waiting == result.held
@@ -1202,25 +1253,34 @@ function HardcoverApp:_flushJournals()
     return true
   end
   local result = queue:flush(Api, { user_id = User:getId(), json = json,
-    on_sent = function(op, entry) self.dialog_manager:journalChangeSent(op, entry) end })
+    on_sent = function(op, entry)
+      self._flush_sent = true
+      self.dialog_manager:journalChangeSent(op, entry)
+    end })
   self:_noticeHeld("journal", result.held)
   return not result.stopped and result.waiting == result.held
 end
 
--- Send reviews after shelf changes, resolving the library record for a newly added book.
+-- Send reviews after shelf changes, resolving the library record for a newly added book. A review
+-- waits while its book's removal is unsettled; a page question on a stable record does not stop it.
 function HardcoverApp:_flushReviews()
   local queue = self.review_queue
   if not queue or queue:isEmpty() then
     return true
   end
-  local waiting = queue:flush(Api, { json = json, user_id = User:getId(),
+  local barrier = function(op)
+    return self.sync_queue and self.sync_queue.bookBarrier
+      and self.sync_queue:bookBarrier(op.book_id, op.user_book_id, User:getId(), "review")
+  end
+  local waiting = queue:flush(Api, { json = json, user_id = User:getId(), barrier = barrier,
     on_sent = function(user_book_id, user_book, book_id)
+      self._flush_sent = true
       local has = type(user_book) == "table" and user_book.has_review ~= false
       self.dialog_manager:reviewChangeSent(user_book_id, has and user_book.review_raw or nil,
         has and user_book.review_has_spoilers, book_id)
     end })
   self:_noticeHeld("review", queue:heldCount(User:getId()))
-  return waiting <= queue:heldCount(User:getId())
+  return waiting <= queue:parkedCount(User:getId())
 end
 
 -- Say once when changes are held that Hardcover refused (or that need signing in again).
@@ -1242,7 +1302,7 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
     or (self.review_queue and not self.review_queue:isEmpty())
   if not goals_waiting and (not self.sync_queue or not self.sync_queue:hasPending()) then
     if callback then
-      callback(true)
+      callback({ ok = true, decisions = 0, waiting = 0, failed = false, sent = false })
     end
     return
   end
@@ -1260,44 +1320,65 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
     end
     self.flush_running = true
     Trapper:wrap(function()
-      local flushed, success = pcall(function()
-        local success = self.sync_queue:flush(Api, {
+      local flushed, result = pcall(function()
+        self._flush_sent = false
+        local sync_flushed = self.sync_queue:flush(Api, {
           user_id = User:getId(),
           settings = self.settings,
-          on_status_sent = function(op, user_book) self.dialog_manager:shelfSent(op, user_book) end,
+          on_status_sent = function(op, user_book)
+            self.dialog_manager:shelfSent(op, user_book)
+          end,
           current_file = self.ui.document and self.ui.document.file,
           state = self.state,
         })
-        -- a change Hardcover refused is held in the progress queue: say so (a page that waits for the
-        -- reader's answer is not one)
+        local sent_any = self.sync_queue.last_flush_sent == true
+        -- Questions are not failures: the pass reports what was sent, what needs the reader,
+        -- what is held, and separately whether a request failed.
+        local sync_waiting = self.sync_queue.waitingCounts and self.sync_queue:waitingCounts(User:getId())
+          or { decisions = self.sync_queue.conflictCount and self.sync_queue:conflictCount() or 0,
+            waiting = 0, failed = sync_flushed == false and 1 or 0 }
         if self.sync_queue.heldCount then
-          self:_noticeHeld("shelf", math.max(0, self.sync_queue:heldCount(User:getId()) - self.sync_queue:conflictCount()))
+          local conflicts = self.sync_queue.conflictCount and self.sync_queue:conflictCount() or 0
+          self:_noticeHeld("shelf", math.max(0, self.sync_queue:heldCount(User:getId()) - conflicts))
         end
-        -- an empty progress queue flushes to true; a queue with nothing to send for
-        -- want of a user id says false, which must not hide the goals
-        success = self:_flushGoals() and success
+        local others = true
+        others = self:_flushGoals() and others
         -- Create/update library records before reviews and ratings look them up.
-        success = self:_flushLists() and success
-        success = self:_flushJournals() and success
-        success = self:_flushReviews() and success
-        success = self:_flushRatings() and success
+        others = self:_flushLists() and others
+        others = self:_flushJournals() and others
+        others = self:_flushReviews() and others
+        others = self:_flushRatings() and others
 
-        return success
+        local blocked = 0
+        if self.rating_queue and self.rating_queue.blockedCount then
+          blocked = blocked + self.rating_queue:blockedCount(User:getId())
+        end
+        if self.review_queue and self.review_queue.blockedCount then
+          blocked = blocked + self.review_queue:blockedCount(User:getId())
+        end
+
+        local failed = sync_waiting.failed > 0 or not others
+        return {
+          ok = not failed, failed = failed,
+          decisions = self:decisionCount(), waiting = sync_waiting.waiting + blocked,
+          sent = sent_any or self._flush_sent == true,
+        }
       end)
       self.flush_running = false -- also after a raise: it must not block every later flush
-      if not flushed then error(success, 0) end
+      if not flushed then error(result, 0) end
 
-      self:_scheduleFlushRetry(success)
-      self:_noticeSyncConflicts()
+      self:_scheduleFlushRetry(result.ok)
+      -- A manual sync reports through its done() callback; a background one gets the notice.
+      if not callback then self:_noticeSyncConflicts() end
       -- Home's sync box shows what is waiting
       if self.dialog_manager and self.dialog_manager.queueChanged then self.dialog_manager:queueChanged() end
 
       local waiters = self.flush_waiters
       self.flush_waiters = nil
       if callback then
-        callback(success)
+        callback(result)
       end
-      for _, waiting in ipairs(waiters or {}) do waiting(success) end
+      for _, waiting in ipairs(waiters or {}) do waiting(result) end
     end)
   end
 
@@ -1306,13 +1387,13 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
       if NetworkManager:isConnected() then
         run()
       elseif callback then
-        callback(false)
+        callback({ ok = false, failed = true, decisions = self:decisionCount(), waiting = 0, sent = false })
       end
     end)
   elseif NetworkManager:isConnected() then
     run()
   elseif callback then
-    callback(false)
+    callback({ ok = false, failed = true, decisions = self:decisionCount(), waiting = 0, sent = false })
   end
 end
 

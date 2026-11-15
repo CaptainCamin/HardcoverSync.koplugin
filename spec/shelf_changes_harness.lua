@@ -42,6 +42,7 @@ local function fakeApi()
     return step
   end
   function api:findUserBook() return nil end
+  function api:findUserBookForRemoval(...) return self:findUserBook(...) end
   function api:updateUserBookStatus(...) return reply("updateUserBookStatus", ...) end
   function api:updateUserBook(...) return reply("updateUserBook", ...) end
   function api:removeUserBook(...) return reply("removeUserBook", ...) end
@@ -156,6 +157,8 @@ check("each change is sent once, with the right arguments, and the queue empties
   local q, api = newQueue(), fakeApi()
   q:enqueueStatus(100, { user_id = 1, book_id = 100, status_id = 1, edition_id = 7 })
   q:queueRemove(1, 101, 66, "Other")
+  -- the record a removal finds: unchanged from what the device knew (nothing but its id)
+  api.findUserBook = function(_, book_id) return tonumber(book_id) == 101 and { id = 66 } or nil end
   local sent = {}
   local res = q:flush(api, { user_id = 1, on_status_sent = function(op, r) sent[#sent + 1] = { op = op, r = r } end })
   eq(res, true)

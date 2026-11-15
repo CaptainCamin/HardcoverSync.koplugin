@@ -37,13 +37,14 @@ KB.check("a status from the reader after the details screen's one replaces it", 
   KB.eq(q:pendingCount(), 1, "one entry")
 end)
 
-KB.check("a removal after the reader's status beats it, and the page goes with the record", function()
+KB.check("a removal after the reader's status keeps the waiting work until the removal settles", function()
   local q = readerThen(function(queue)
     KB.eq(queue:queueRemove(1, 7, 500, "T", 2), "queued")
   end)
   KB.eq(q:get(7).remove, true, "removal kept")
-  KB.eq(q:get(7).status_id, nil, "status")
-  KB.eq(q:get(7).mapped_page, nil, "page")
+  KB.eq(q:get(7).status_id, HARDCOVER.STATUS.READING, "status kept behind the removal")
+  KB.eq(q:get(7).mapped_page, 40, "page kept behind the removal")
+  KB.eq(q:get(7).remove_seq, 2, "nothing recorded before the removal goes first")
 end)
 
 KB.finish("the newest status change wins across the reader and the details screen")
