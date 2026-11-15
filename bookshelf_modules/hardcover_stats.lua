@@ -13,21 +13,16 @@ if not Kit.plugin then return {} end
 
 local M = require("hardcover/lib/bookshelf_modules")
 
-local function app()
-  local ok, instance = pcall(Kit.plugin, MODULE_DIR)
-  return ok and instance or nil
-end
-
 return {
   key = "hardcover_stats",
   title = _("Hardcover stats"),
   summary = _("Books finished this year. Works offline."),
   min_w = 2,
   render = function(ctx)
-    return M.statsWidget(app(), ctx)
+    return M.statsWidget(M.app(MODULE_DIR), ctx)
   end,
   on_tap = function(ctx)
-    M.cardTap(app(), ctx, "showStats")
+    M.cardTap(M.app(MODULE_DIR), ctx, "showStats")
   end,
-  show_settings = function(ctx) M.cardSettings(app(), ctx, "stats") end,
+  show_settings = function(ctx) M.cardSettings(M.app(MODULE_DIR), ctx, "stats") end,
 }
