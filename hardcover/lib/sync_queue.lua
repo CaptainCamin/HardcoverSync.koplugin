@@ -890,6 +890,12 @@ function SyncQueue:resolveRead(key, seq, choice)
         if action.clear then action.clear[field.field] = nil end
         -- a kept Hardcover value must not be sent again through the edition move's stored target
         if field.field == "edition_id" then
+          -- The queued page was converted into the edition Hardcover did not keep. Its page
+          -- count for the kept edition is unknown here, so sending that number would record
+          -- new-edition units against a different edition. Drop the converted page with the
+          -- edition; the reader's next page turn is in the restored link's units.
+          if action.change then action.change.progress_pages = nil end
+          action.target_page = nil
           action.target_edition_id = nil
           restoreLink()
         end

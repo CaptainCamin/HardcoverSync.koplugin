@@ -249,6 +249,37 @@ check("a partly applied attempt sends only the field still waiting", function()
   assert(#q:readActions(7) == 0)
 end)
 
+check("reconciliation continues from the snapshot that was verified", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { read() })
+  api.lose_updates = true
+  enqueue(q, 7, { read_id = 10, base = { started_at = "2024-03-12", finished_at = "2024-03-20" },
+    change = { started_at = "2024-03-14", finished_at = "2024-03-21" } })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  api.lose_updates = false
+  -- Two partial snapshots: the first lookup has only the new start, the verification has only
+  -- the new finish. The send must use the verified snapshot, not mix the two.
+  api.records[7].user_book_reads[1].started_at = "2024-03-12"
+  local real_find = api.findUserBook
+  local lookups = 0
+  function api:findUserBook(book_id)
+    if #self.calls == 1 then
+      lookups = lookups + 1
+      if lookups == 1 then
+        return record(7, { read { started_at = "2024-03-14", finished_at = "2024-03-20" } }, 2)
+      elseif lookups == 2 then
+        return record(7, { read { started_at = "2024-03-12", finished_at = "2024-03-21" } }, 2)
+      end
+    end
+    return real_find(self, book_id)
+  end
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(#api.calls == 2 and api.calls[2].op == "updateRead", "the remaining start was not sent")
+  assert(api.calls[2].fields.started_at == "2024-03-14")
+  assert(api.calls[2].fields.finished_at == nil, "the satisfied finish was sent again")
+  assert(#q:readActions(7) == 0)
+end)
+
 check("an added read whose fields differ is acknowledged without a second insert", function()
   local q, api = queue(), fakeApi()
   api.records[7] = record(7, {}, 3)
@@ -531,6 +562,9 @@ check("keeping Hardcover's edition reports the link to restore", function()
   local saved, outcome = q:resolveRead(7, action.seq, "keep_hardcover")
   assert(saved and outcome and outcome.kind == "edition_link", "the link was not reported for restore")
   assert(outcome.action == action and outcome.book_id == 7)
+  assert(action.change.progress_pages == nil and action.target_page == nil,
+    "the page converted for the discarded edition was kept")
+  assert(#q:readActions(7) == 0, "the discarded page was left queued")
 end)
 
 check("an edition change with later pages cannot be cancelled out from under them", function()

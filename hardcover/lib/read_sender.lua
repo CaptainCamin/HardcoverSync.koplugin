@@ -330,6 +330,10 @@ function ReadSender.send(api, entry, action, opts)
           end
         end
         if unchanged then
+          -- Continue preflight from this one snapshot. The first lookup may have seen a different
+          -- partial write; combining its target with these fields can acknowledge a value it
+          -- never had.
+          user_book, target = fresh, found
           action.checking, action.read_sent, action.read_attempt = nil, nil, nil
         else
           return "checking", fresh
