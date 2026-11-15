@@ -6,9 +6,14 @@ local Utf8Proc = require("ffi/utf8proc")
 
 local LocalSearch = {}
 local TextFold = require("hardcover/lib/text_fold")
+local TextUtil = require("hardcover/lib/text_util")
 
 local function fold(text)
   return TextFold.fold(Utf8Proc.lowercase(text))
+end
+
+function LocalSearch.clean(query)
+  return type(query) == "string" and TextUtil.trim(query) or ""
 end
 
 function LocalSearch.matches(query, fields)
@@ -26,6 +31,16 @@ function LocalSearch.matches(query, fields)
     if not text:find(word, 1, true) then return false end
   end
   return true
+end
+
+function LocalSearch.filter(rows, query, field_names)
+  local found = {}
+  for _, row in ipairs(rows or {}) do
+    local fields = {}
+    for _, name in ipairs(field_names or {}) do fields[#fields + 1] = row[name] end
+    if LocalSearch.matches(query, fields) then found[#found + 1] = row end
+  end
+  return found
 end
 
 return LocalSearch

@@ -36,6 +36,7 @@
 
 local util = require("util")
 local _ = require("gettext")
+local TextUtil = require("hardcover/lib/text_util")
 
 local ListRow = {}
 
@@ -80,7 +81,7 @@ function ListRow.authors(book)
   -- Shelf rows: already joined by Shelf.normalizeEntry.
   if type(book.authors) == "string" and book.authors ~= "" then
     for name in book.authors:gmatch("[^,]+") do
-      push((name:gsub("^%s+", ""):gsub("%s+$", "")))
+      push(TextUtil.trim(name))
     end
     if #out > 0 then return table.concat(out, ", ") end
   end

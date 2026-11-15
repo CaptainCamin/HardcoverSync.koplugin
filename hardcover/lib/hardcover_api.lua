@@ -2,6 +2,7 @@ local config = require("hardcover/lib/config")
 local logger = require("logger")
 local json = require("json")
 local _t = require("hardcover/lib/table_util")
+local TextUtil = require("hardcover/lib/text_util")
 local T = require("ffi/util").template
 local Network = require("hardcover/lib/network")
 
@@ -552,7 +553,7 @@ function HardcoverApi:findBooks(title, author, userId)
     return {}
   end
 
-  title = title:gsub(":.+", ""):gsub("^%s+", ""):gsub("%s+$", "")
+  title = TextUtil.trim(title:gsub(":.+", ""))
   return self:search(title, author, userId)
 end
 

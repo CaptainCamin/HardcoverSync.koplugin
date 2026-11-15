@@ -17,6 +17,8 @@
 -- day AFTER the last day: a 2026 goal ends 2027-01-01), `progress`, a `description`
 -- ("2026 Reading Goal") and `archived`. Several goals can cover the same period.
 
+local TextUtil = require("hardcover/lib/text_util")
+
 local Goals = {}
 
 -- days since 1970-01-01 for a calendar date; integer arithmetic, so no time zones
@@ -390,10 +392,6 @@ function Goals.formFrom(goal)
   }
 end
 
-local function trim(s)
-  return (tostring(s or ""):gsub("^%s+", ""):gsub("%s+$", ""))
-end
-
 -- The target field accepts decimal whole numbers, with optional comma or space
 -- thousands grouping. Keep parsing stricter than tonumber (hex and exponents are not form input).
 function Goals.parseTarget(value)
@@ -405,7 +403,7 @@ function Goals.parseTarget(value)
   end
   if type(value) ~= "string" then return nil end
 
-  local target = trim(value)
+  local target = TextUtil.trim(value)
   if target:match("^%d+$") then return tonumber(target) end
   local separator = target:find(",", 1, true) and "," or (target:find(" ", 1, true) and " " or nil)
   if not separator then return nil end
@@ -441,7 +439,7 @@ end
 function Goals.validate(form)
   if type(form) ~= "table" then return "Nothing to save." end
 
-  local name = trim(form.name)
+  local name = TextUtil.trim(tostring(form.name or ""))
   if name == "" then return "Give the goal a name." end
   if characterCount(name) > 120 then return "The name is too long." end
 
@@ -478,7 +476,7 @@ end
 --
 function Goals.input(form)
   local input = {
-    description = trim(form.name),
+    description = TextUtil.trim(tostring(form.name or "")),
     metric = form.metric,
     goal = Goals.parseTarget(form.target),
     start_date = form.start_date,

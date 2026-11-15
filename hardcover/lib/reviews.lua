@@ -14,6 +14,8 @@
 --     in a viewer.
 --   * `review_has_spoilers` reviews stay hidden until the reader taps them.
 
+local TextUtil = require("hardcover/lib/text_util")
+
 local Reviews = {}
 
 -- One request fetches one page of this many reviews (the API allows 60 requests
@@ -30,10 +32,6 @@ Reviews.EXCERPT_CHARS = 300
 local ELLIPSIS = "\226\128\166"
 local DOT = " \194\183 "
 
-local function trim(s)
-  return (s:gsub("^%s+", ""):gsub("%s+$", ""))
-end
-
 --
 -- A reader's name. Falls back to "A reader" when the account is private (no
 -- `user`) or has neither a display name nor a username.
@@ -43,8 +41,8 @@ function Reviews.reviewer(user_book)
   if type(user) == "table" then
     for _, key in ipairs({ "name", "username" }) do
       local value = user[key]
-      if type(value) == "string" and trim(value) ~= "" then
-        return trim(value)
+      if type(value) == "string" and TextUtil.trim(value) ~= "" then
+        return TextUtil.trim(value)
       end
     end
   end
@@ -85,7 +83,7 @@ end
 --
 function Reviews.excerpt(text, max_chars)
   max_chars = max_chars or Reviews.EXCERPT_CHARS
-  text = trim((tostring(text or ""):gsub("%s*[\r\n]+%s*", "  ")))
+  text = TextUtil.trim((tostring(text or ""):gsub("%s*[\r\n]+%s*", "  ")))
 
   -- count characters, not bytes: a non-continuation byte starts each one
   local function chars(str) return select(2, str:gsub("[^\128-\191]", "")) end
@@ -106,7 +104,7 @@ function Reviews.excerpt(text, max_chars)
     cut = true
   end
 
-  text = trim(text)
+  text = TextUtil.trim(text)
   if cut then text = text .. ELLIPSIS end
   return text, cut
 end
@@ -151,7 +149,7 @@ end
 --
 function Reviews.normalize(user_book)
   if type(user_book) ~= "table" then return nil end
-  local text = type(user_book.review_raw) == "string" and trim(user_book.review_raw) or ""
+  local text = type(user_book.review_raw) == "string" and TextUtil.trim(user_book.review_raw) or ""
   local excerpt, truncated = Reviews.excerpt(text)
   return {
     id = user_book.id,

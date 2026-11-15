@@ -1,5 +1,7 @@
 -- Pure helpers for book search (no widgets).
 
+local TextUtil = require("hardcover/lib/text_util")
+
 local BookSearch = {}
 
 -- Hardcover's search returns 25 books a page and this plugin asks for the first
@@ -11,7 +13,7 @@ BookSearch.MAX_RESULTS = 25
 -- or only spaces. Nil means no request is made at all.
 function BookSearch.normalize(text)
   if type(text) ~= "string" then return nil end
-  text = text:gsub("^%s+", ""):gsub("%s+$", "")
+  text = TextUtil.trim(text)
   if text == "" then return nil end
   return text
 end
