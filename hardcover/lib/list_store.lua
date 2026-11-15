@@ -11,6 +11,7 @@
 
 local Codec = require("hardcover/lib/codec")
 local Lists = require("hardcover/lib/lists")
+local _t = require("hardcover/lib/table_util")
 
 local ListStore = {}
 ListStore.__index = ListStore
@@ -143,8 +144,7 @@ function ListStore:entriesOf(row, members)
   for _, m in ipairs(members) do
     local book = books[tonumber(m.book_id)]
     if book then
-      local entry = {}
-      for k, v in pairs(book) do entry[k] = v end
+      local entry = _t.copy(book)
       entry.list_book_id = m.list_book_id
       entry.date_added = m.date_added
       entry.position = m.position

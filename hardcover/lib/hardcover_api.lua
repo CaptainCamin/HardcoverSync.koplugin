@@ -2108,19 +2108,16 @@ local GOAL_FIELDS = [[
 function HardcoverApi:saveGoal(id, input)
   input = input or {}
   -- GoalInput requires `conditions` (the live API refuses a change without it)
-  if type(input.conditions) ~= "table" then
-    local copy = {}
-    for k, v in pairs(input) do copy[k] = v end
-    copy.conditions = {}
-    input = copy
-  end
-
-  if not id and input.privacy_setting_id == nil then
-    local me = self:me()
-    local setting = type(me) == "table" and tonumber(me.account_privacy_setting_id) or nil
-    local copy = {}
-    for k, v in pairs(input) do copy[k] = v end
-    copy.privacy_setting_id = setting or 1
+  local needs_conditions = type(input.conditions) ~= "table"
+  local needs_privacy = not id and input.privacy_setting_id == nil
+  if needs_conditions or needs_privacy then
+    local copy = _t.copy(input)
+    if needs_conditions then copy.conditions = {} end
+    if needs_privacy then
+      local me = self:me()
+      local setting = type(me) == "table" and tonumber(me.account_privacy_setting_id) or nil
+      copy.privacy_setting_id = setting or 1
+    end
     input = copy
   end
 

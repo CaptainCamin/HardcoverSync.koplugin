@@ -4,6 +4,7 @@ local Book = require("hardcover/lib/book")
 local OfflineQueue = require("hardcover/lib/offline_queue")
 local StatusSender = require("hardcover/lib/status_sender")
 local Actions = require("hardcover/lib/reading_actions")
+local _t = require("hardcover/lib/table_util")
 
 local SyncQueue = OfflineQueue.extend({})
 SyncQueue.store_key = "pending"
@@ -568,8 +569,7 @@ function SyncQueue:applyToReading(entries, lookup)
     if id then have[id] = true end
     local queued_status = q and self:statusOf(id)
     if not (queued_status and queued_status ~= HARDCOVER.STATUS.READING) then
-      local card = {}
-      for k, v in pairs(entry) do card[k] = v end
+      local card = _t.copy(entry)
       if q and q.mapped_page ~= nil then
         local shown = tonumber(card.progress_pages)
         if not shown or shown < q.mapped_page or q.force_page or q.reread then card.progress_pages = q.mapped_page end
@@ -589,8 +589,7 @@ function SyncQueue:applyToReading(entries, lookup)
   for i = #fresh, 1, -1 do
     local id, q = fresh[i].id, fresh[i].q
     local row = lookup and lookup(id, q)
-    local card = {}
-    for k, v in pairs(type(row) == "table" and row or {}) do card[k] = v end
+    local card = _t.copy(type(row) == "table" and row or {})
     card.book_id = id
     card.title = card.title or q.title
     if q.mapped_page ~= nil then card.progress_pages = q.mapped_page end

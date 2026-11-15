@@ -51,6 +51,17 @@ local function journalChanged(state, key, fields)
   end
 end
 
+local function journalSent(state, shown, op, entry)
+  for _, shown_entry in ipairs(shown or {}) do
+    if shown_entry.queue_id == op.id then
+      for k in pairs(shown_entry) do shown_entry[k] = nil end
+      for k, v in pairs(entry) do shown_entry[k] = v end
+    end
+  end
+  state.sent = Journal.append({ entry }, state.sent)
+  state.entries = Journal.append({ entry }, state.entries)
+end
+
 local function freshJournal(state, page)
   local entries = Journal.append(state.sent, page)
   for i = #entries, 1, -1 do
@@ -366,14 +377,7 @@ function Flows:showJournal(host)
   }
   self:openScreen("journal", dialog, host)
   function dialog:journalSent(op, entry)
-    for _, shown_entry in ipairs(self.entries or {}) do
-      if shown_entry.queue_id == op.id then
-        for k in pairs(shown_entry) do shown_entry[k] = nil end
-        for k, v in pairs(entry) do shown_entry[k] = v end
-      end
-    end
-    state.sent = Journal.append({ entry }, state.sent)
-    state.entries = Journal.append({ entry }, state.entries)
+    journalSent(state, self.entries, op, entry)
     self:setEntries(manager:pendingJournal(state.entries, me_id), self.has_more)
   end
   function dialog:journalChanged(key, fields)
@@ -526,14 +530,7 @@ function Flows:showBookJournal(book_id, title, opts)
   }
   function screen:journalSent(op, entry)
     if tonumber(entry.book_id) ~= tonumber(book_id) then return end
-    for _, shown_entry in ipairs(self.body.entries or {}) do
-      if shown_entry.queue_id == op.id then
-        for k in pairs(shown_entry) do shown_entry[k] = nil end
-        for k, v in pairs(entry) do shown_entry[k] = v end
-      end
-    end
-    state.sent = Journal.append({ entry }, state.sent)
-    state.entries = Journal.append({ entry }, state.entries)
+    journalSent(state, self.body.entries, op, entry)
     refresh()
   end
   function screen:journalChanged(key, fields)

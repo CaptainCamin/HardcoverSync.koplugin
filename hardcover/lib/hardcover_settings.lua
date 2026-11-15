@@ -70,8 +70,7 @@ function HardcoverSettings:updateBookSetting(filename, config, silent, opts)
   end
   local book_setting = books[filename]
   -- what the book's settings were before this change (table.unpack would copy nothing: they are keyed)
-  local original_value = {}
-  for k, v in pairs(book_setting) do original_value[k] = v end
+  local original_value = _t.copy(book_setting)
   for k, v in pairs(config) do
     if k == "_delete" then
       for _, name in ipairs(v) do

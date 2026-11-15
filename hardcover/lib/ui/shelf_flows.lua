@@ -23,6 +23,7 @@ local Home = require("hardcover/lib/home")
 local Network = require("hardcover/lib/network")
 local ShelfLoader = require("hardcover/lib/shelf_loader")
 local ShelvesSync = require("hardcover/lib/shelves_sync")
+local _t = require("hardcover/lib/table_util")
 local User = require("hardcover/lib/user")
 
 local SETTING = require("hardcover/lib/constants/settings")
@@ -333,8 +334,7 @@ function Flows:moveShownCounts(old_status_id, new_status_id, book_id)
     if screen and screen.rows and screen.setRows then
       local rows = {}
       for _j, row in ipairs(screen.rows) do
-        local copy = {}
-        for k, v in pairs(row) do copy[k] = v end
+        local copy = _t.copy(row)
         if type(copy.count) == "number" then
           if copy.status_id == old_status_id then copy.count = math.max(0, copy.count - 1) end
           if copy.status_id == new_status_id then copy.count = copy.count + 1 end
@@ -357,8 +357,7 @@ function Flows:moveShownCounts(old_status_id, new_status_id, book_id)
     if new_status_id == READING then
       local row = self:findShelfEntry(User:getId(), book_id)
       if type(row) == "table" then
-        local card = {}
-        for k, v in pairs(row) do card[k] = v end
+        local card = _t.copy(row)
         card.book_id = card.book_id or book_id
         table.insert(entries, 1, card)
       end

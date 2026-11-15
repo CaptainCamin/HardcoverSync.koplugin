@@ -22,6 +22,7 @@
 
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local OfflineQueue = require("hardcover/lib/offline_queue")
+local _t = require("hardcover/lib/table_util")
 
 local JournalQueue = OfflineQueue.extend({})
 JournalQueue.store_key = "journal_ops"
@@ -235,8 +236,7 @@ function JournalQueue:flush(api, opts)
           -- edited while it was on its way: the new text goes next, as a change to the entry it made
           local edited = op.action == nil and op.text ~= sent_text and tonumber(entry.id) ~= nil
             and ops[op.id] == op
-          local sent = {}
-          for k, v in pairs(op) do sent[k] = v end
+          local sent = _t.copy(op)
           sent.text = sent_text
           -- only this very change: a newer one may have taken its place while it was on its way
           if not edited and ops[op.id] == op then ops[op.id] = nil end

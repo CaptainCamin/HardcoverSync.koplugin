@@ -28,6 +28,7 @@ local Recommendations = require("hardcover/lib/recommendations")
 local Reviews = require("hardcover/lib/reviews")
 local ReviewText = require("hardcover/lib/review_text")
 local Shelf = require("hardcover/lib/shelf")
+local _t = require("hardcover/lib/table_util")
 local User = require("hardcover/lib/user")
 local BookSources = require("hardcover/lib/book_sources")
 
@@ -1080,12 +1081,10 @@ local SERIES_FRESH_FOR = 7 * 24 * 3600
 local function withShelfStatuses(self, series, user_id)
   local shelves = self:shelves()
   if not (shelves and shelves:synced(user_id, Home.statusIds())) then return series end
-  local copy = {}
-  for k, v in pairs(series) do copy[k] = v end
+  local copy = _t.copy(series)
   copy.books = {}
   for i, b in ipairs(series.books or {}) do
-    local row = {}
-    for k, v in pairs(b) do row[k] = v end
+    local row = _t.copy(b)
     local m = shelves:member(user_id, b.book_id)
     row.status_id = m and m.status_id or nil
     row.rating = m and m.rating or nil

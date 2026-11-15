@@ -34,6 +34,7 @@ local Picker = require("hardcover/lib/ui/picker")
 local TopBar = require("hardcover/lib/ui/components/top_bar")
 local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
+local _t = require("hardcover/lib/table_util")
 
 local Screen = Device.screen
 
@@ -52,8 +53,7 @@ function GoalFormDialog:init()
   self.today = self.today or Goals.today()
   self.form = self.goal and Goals.formFrom(self.goal) or Goals.newForm(self.today)
   -- what it was when it opened, to know whether anything was changed
-  self.original = {}
-  for k, v in pairs(self.form) do self.original[k] = v end
+  self.original = _t.copy(self.form)
   self.message = nil
   self.busy = false
   self.dimen = Geom:new { x = 0, y = 0, w = Screen:getWidth(), h = Screen:getHeight() }
@@ -342,9 +342,7 @@ function GoalFormDialog:save()
   end
   self.message = nil
   if self.on_save then
-    local copy = {}
-    for k, v in pairs(self.form) do copy[k] = v end
-    self.on_save(copy)
+    self.on_save(_t.copy(self.form))
   end
 end
 

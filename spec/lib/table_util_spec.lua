@@ -28,6 +28,18 @@ describe("table_util", function()
     end)
   end)
 
+  describe("copy", function()
+    it("returns a shallow copy", function()
+      local nested = { 1, 2, 3 }
+      local input = { a = 1, b = "two", nested = nested }
+      local result = table_util.copy(input)
+
+      assert.are.same(result, input)
+      assert.is_true(result ~= input)
+      assert.is_true(result.nested == nested)
+    end)
+  end)
+
   describe("map", function()
     it("returns table containing callback result", function()
       local input = { 1, 2, 3, 4 }
