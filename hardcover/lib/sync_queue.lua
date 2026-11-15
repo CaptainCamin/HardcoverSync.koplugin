@@ -327,9 +327,14 @@ function SyncQueue:enqueueReadEdit(file_or_book, payload)
     for _i, existing in ipairs(Actions.readActions(entry)) do
       if existing.kind == "add_read" and tostring(existing.local_id) == tostring(payload.local_id) then
         if Actions.started(existing) then return nil end
-        existing.change = payload.change or {}
-        existing.clear = payload.clear or {}
-        existing.edition = payload.edition
+        -- The form sends only what changed: lay the change over the addition, never replace it,
+        -- or an untouched finish date would be lost and the read would be inserted unfinished.
+        local merged = {}
+        for key, value in pairs(existing.change or {}) do merged[key] = value end
+        for key, value in pairs(payload.change or {}) do merged[key] = value end
+        for field in pairs(payload.clear or {}) do merged[field] = nil end
+        existing.change, existing.clear = merged, {}
+        existing.edition = payload.edition or existing.edition
         existing.at = at
         entry.failures, entry.held, entry.reason = nil, nil, nil
         self:persist()
@@ -863,6 +868,14 @@ function SyncQueue:resolveRead(key, seq, choice)
   end
   if not action or not action.conflict then return false end
   local conflict = action.conflict
+  local outcome
+  local function restoreLink()
+    -- If this was the current read's edition, the screen already moved the linked file. Dropping
+    -- the action must put the file back on Hardcover's edition, or later pages use the wrong units.
+    if action.kind == "read_edition" and action.current then
+      outcome = { kind = "edition_link", action = action, book_id = tonumber(entry.book_id) }
+    end
+  end
   local function remove()
     Actions.ack(entry, action.seq)
   end
@@ -876,7 +889,10 @@ function SyncQueue:resolveRead(key, seq, choice)
         if action.change then action.change[field.field] = nil end
         if action.clear then action.clear[field.field] = nil end
         -- a kept Hardcover value must not be sent again through the edition move's stored target
-        if field.field == "edition_id" then action.target_edition_id = nil end
+        if field.field == "edition_id" then
+          action.target_edition_id = nil
+          restoreLink()
+        end
         if field.field == "progress_pages" then action.target_page = nil end
       end
       action.conflict = nil
@@ -903,6 +919,7 @@ function SyncQueue:resolveRead(key, seq, choice)
       action.change, action.clear, action.base = full, {}, {}
       action.conflict = nil
     elseif choice == "discard" then
+      restoreLink()
       remove()
     else
       return false
@@ -913,6 +930,7 @@ function SyncQueue:resolveRead(key, seq, choice)
     elseif choice == "wait" then
       action.wait, action.conflict = true, nil
     elseif choice == "discard" then
+      restoreLink()
       remove()
     else
       return false
@@ -923,7 +941,7 @@ function SyncQueue:resolveRead(key, seq, choice)
 
   Actions.refresh(entry)
   self:save(key, entry)
-  return true
+  return true, outcome
 end
 
 -- The first decision about this book, or nil.

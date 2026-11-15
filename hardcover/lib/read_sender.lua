@@ -257,12 +257,22 @@ function ReadSender.send(api, entry, action, opts)
   -- A request whose answer was lost is checked, not repeated.
   if action.checking then
     if action.kind == "add_read" then
+      -- A successful answer names the read it created. While the verification lookup is still
+      -- catching up, keep checking that id rather than inserting a second read.
+      if action.added_id then
+        local added = findRead(user_book, action.added_id)
+        if added then
+          rebindLocal(entry, action.local_id, added)
+          return "sent", user_book
+        end
+        return "checking", user_book
+      end
       local found = matchingRead(user_book, action.change)
       if found then
         rebindLocal(entry, action.local_id, found)
         return "sent", user_book
       end
-      -- nothing matching: the add did not land. Its duplicate check makes a retry safe.
+      -- nothing matching and no id: the add did not land. Its duplicate check makes a retry safe.
       action.checking, action.read_sent, action.read_attempt = nil, nil, nil
     elseif action.kind == "remove_read" then
       -- target is present, so the delete did not land; retry once, verified.
@@ -426,6 +436,7 @@ function ReadSender.send(api, entry, action, opts)
   local added
   if action.kind == "add_read" then
     added = (result.user_book_reads or {})[1] or matchingRead(user_book, action.change)
+    action.added_id = added and added.id or nil
     rebindLocal(entry, action.local_id, added)
   end
 
@@ -433,13 +444,13 @@ function ReadSender.send(api, entry, action, opts)
   local ok, fresh, found = verified(api, entry, opts.user_id, user_book, action.read_id, proposal, check)
   if ok then
     action.checking, action.read_sent, action.read_attempt = nil, nil, nil
-    action.conflict = nil
+    action.conflict, action.added_id = nil, nil
     return "sent", fresh
   elseif action.kind == "add_read" then
     local fresh_read = fresh and added and findRead(fresh, added.id)
     if fresh_read then
       action.checking, action.read_sent, action.read_attempt = nil, nil, nil
-      action.conflict = nil
+      action.conflict, action.added_id = nil, nil
       return "sent", fresh
     end
   end

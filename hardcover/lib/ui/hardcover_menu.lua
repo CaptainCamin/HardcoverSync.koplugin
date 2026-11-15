@@ -439,9 +439,16 @@ function HardcoverMenu:getSubMenuItems(book_view)
       enabled_func = function()
         return self.enabled and self.settings:bookLinked()
       end,
-      callback = function(_menu_instance)
+      callback = function(menu_instance)
         -- The edition belongs to one read now, so the history opens on the current read's form.
-        self.dialog_manager:showLinkedReadHistory { edit_current = true }
+        -- A linked book with no read has no form to open: fall back to the link picker, which can
+        -- still choose the book's edition without losing the link.
+        local status = self.state and self.state.book_status
+        if status and status.id and Book:currentRead(status.user_book_reads) then
+          self.dialog_manager:showLinkedReadHistory { edit_current = true }
+        else
+          self.hardcover:showLinkBookDialog(true, function() menu_instance:updateItems() end)
+        end
       end,
       keep_menu_open = true,
       separator = true
@@ -719,6 +726,9 @@ function HardcoverMenu:showPendingChanges(menu_instance)
       if outcome and outcome.kind == "shelf" and self.dialog_manager
           and self.dialog_manager.removalKept then
         self.dialog_manager:removalKept(outcome)
+      elseif outcome and outcome.kind == "edition_link" and self.dialog_manager
+          and self.dialog_manager.restoreEditionLink then
+        self.dialog_manager:restoreEditionLink(outcome.action)
       end
       if outcome and outcome.kind == "combine" and self.dialog_manager
           and self.dialog_manager.combineReview then

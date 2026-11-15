@@ -213,6 +213,13 @@ function Actions.cancel(entry, kind, seq)
           return false, "dependent"
         end
       end
+    elseif selected[i] and action.kind == "read_edition" and action.current then
+      -- Pages queued after a current-read edition change are in the new edition's units. The
+      -- change cannot be pulled out from under them; cancel those pages first, or keep it.
+      for j = i + 1, #actions do
+        local later = actions[j]
+        if not selected[j] and later.kind == "page" then return false, "dependent" end
+      end
     end
   end
   for i = #actions, 1, -1 do

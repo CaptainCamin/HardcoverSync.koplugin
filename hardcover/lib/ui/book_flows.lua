@@ -121,13 +121,16 @@ function Flows:showBookDetail(book_id, edition_id, opts)
       looked_up = true
       local entry = self:findShelfEntry(user_id, book_id)
       local stored = self.book_store and self.book_store:detail(book_id, edition_id)
+      local saved_reads = self.read_store and self.read_store:get(user_id, book_id)
       if stored then
         stored.user_book_id = entry and entry.user_book_id
         stored.status_id = entry and entry.status_id
         stored.user_rating = entry and entry.user_rating
+        if stored.reads == nil then stored.reads = saved_reads and saved_reads.reads end
         found = stored
       elseif entry then
         found = Shelf.detailFromEntry(entry)
+        if found and found.reads == nil then found.reads = saved_reads and saved_reads.reads end
       end
     end
     return found
@@ -168,6 +171,10 @@ function Flows:showBookDetail(book_id, edition_id, opts)
     settled.user_book_id = m and m.user_book_id
     settled.status_id = m and m.status_id
     settled.user_rating = m and m.rating
+    if settled.reads == nil then
+      local saved = self.read_store and self.read_store:get(user_id, book_id)
+      settled.reads = saved and saved.reads
+    end
     dialog.similar_card = Recommendations.loadingCard(settled.book and settled.book.title)
     dialog:setDetail(self:withPending(settled))
     self:loadSeries(dialog, settled.book, user_id, function() self:loadSimilar(dialog, book_id) end)
@@ -221,6 +228,7 @@ function Flows:reviewDecision(decision)
     on_done = function(resolved, choice, outcome)
       if resolved == 0 then return end
       if outcome and outcome.kind == "shelf" then self:removalKept(outcome) end
+      if outcome and outcome.kind == "edition_link" then self:restoreEditionLink(outcome.action) end
       if outcome and outcome.kind == "combine" then
         self:combineReview(outcome)
         return
@@ -897,10 +905,35 @@ function Flows:removeRead(context, history, read)
 end
 
 -- A read edit reached Hardcover: save what it answered, and refresh the open history and page.
-function Flows:readSent(book_id, user_book, _op)
+function Flows:readSent(book_id, user_book, op)
   local user_id = User:getId()
   local reads = type(user_book) == "table" and user_book.user_book_reads or nil
-  if reads and self.read_store then self.read_store:put(user_id, tonumber(book_id), reads) end
+  if reads and self.read_store then
+    -- findUserBook carries a read's edition_id but not its edition row. Keep the richer saved
+    -- edition when the id still matches, or use the edition the action just moved to; otherwise
+    -- a later past-read conversion would fall back to the book's page count.
+    local saved = self.read_store:get(user_id, tonumber(book_id))
+    local old_by_id = {}
+    for _, row in ipairs(saved and saved.reads or {}) do old_by_id[tostring(row.id)] = row end
+    for _, row in ipairs(reads) do
+      if not row.edition then
+        if op and op.kind == "read_edition" and tostring(row.id) == tostring(op.read_id)
+            and tonumber(row.edition_id) == tonumber(op.target_edition_id) then
+          row.edition = { id = op.target_edition_id, pages = op.new_pages,
+            edition_format = op.edition_format }
+        elseif op and op.kind == "add_read" and op.edition
+            and tonumber(row.edition_id) == tonumber(op.edition.id) then
+          row.edition = op.edition
+        else
+          local old = old_by_id[tostring(row.id)]
+          if old and old.edition and tostring(old.edition_id) == tostring(row.edition_id) then
+            row.edition = old.edition
+          end
+        end
+      end
+    end
+    self.read_store:put(user_id, tonumber(book_id), reads)
+  end
 
   local screen = self:screens():open("book")
   local on = screen and screen.detail and screen.detail.book and screen.detail.book.book_id

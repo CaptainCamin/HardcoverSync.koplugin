@@ -327,6 +327,44 @@ check("editing an unsent addition changes it in place", function()
   assert(#api.calls == 1 and api.calls[1].fields.finished_at == "2020-01-03")
 end)
 
+check("editing only one date of an unsent addition keeps its untouched dates", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, {}, 3)
+  enqueue(q, 7, { kind = "add_read", local_id = "local:1",
+    change = { started_at = "2020-01-01", finished_at = "2020-01-02", edition_id = 7 } })
+  enqueue(q, 7, { kind = "add_read", local_id = "local:1",
+    change = { started_at = "2020-01-03" } })
+  local action = q:readActions(7)[1]
+  assert(action.change.started_at == "2020-01-03", "the new start was lost")
+  assert(action.change.finished_at == "2020-01-02", "the untouched finish date was dropped")
+  assert(action.change.edition_id == 7, "the untouched edition was dropped")
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(api.calls[1].fields.finished_at == "2020-01-02", "the insert lost the finish date")
+  assert(api.calls[1].fields.started_at == "2020-01-03")
+end)
+
+check("an added read whose verification lookup lags is never inserted twice", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, {}, 3)
+  local real_find = api.findUserBook
+  local lookups = 0
+  function api:findUserBook(book_id)
+    lookups = lookups + 1
+    -- A fresh copy each time: the API's stale answer must not carry the add's own answer.
+    if lookups <= 5 then return record(7, {}, 3) end
+    return real_find(self, book_id)
+  end
+  enqueue(q, 7, { kind = "add_read", change = { started_at = "2020-01-01",
+    finished_at = "2020-01-02", edition_id = 7 } })
+  assert(q:flush(api, { user_id = 1 }) == false, "the first pass should be checking")
+  assert(#api.calls == 1 and api.calls[1].op == "addRead")
+  assert(q:readActions(7)[1].added_id == 99, "the returned read id was not kept")
+  assert(q:flush(api, { user_id = 1 }) == false, "the lagging lookup should keep checking")
+  assert(#api.calls == 1, "a second insert was sent while the first was still appearing")
+  assert(q:flush(api, { user_id = 1 }) == true, "the read should be found once the lookup catches up")
+  assert(#api.calls == 1 and #q:readActions(7) == 0)
+end)
+
 check("an unsent addition can be discarded without an API call", function()
   local q, api = queue(), fakeApi()
   api.records[7] = record(7, {}, 3)
@@ -420,6 +458,33 @@ check("a page queued before an edition change is sent in the old units first", f
     and api.calls[1].page == 150, "the old page was not sent in the old units")
   assert(api.calls[2].op == "updateRead" and api.calls[2].fields.edition_id == 8,
     "the edition change did not follow the page")
+end)
+
+check("keeping Hardcover's edition reports the link to restore", function()
+  local q, api = queue(), fakeApi()
+  local row = read { edition_id = 7 }
+  api.records[7] = record(7, { row }, 2)
+  api.records[7].edition_id = 7
+  local _, action = enqueue(q, 7, { kind = "read_edition", read_id = 10, current = true,
+    target_edition_id = 8, target_page = 200, old_edition_id = 7, old_pages = 304,
+    base = { edition_id = 7, progress_pages = 100 },
+    change = { edition_id = 8, progress_pages = 200 } })
+  row.edition_id = 9 -- changed on another device
+  assert(q:flush(api, { user_id = 1 }) == false)
+  local saved, outcome = q:resolveRead(7, action.seq, "keep_hardcover")
+  assert(saved and outcome and outcome.kind == "edition_link", "the link was not reported for restore")
+  assert(outcome.action == action and outcome.book_id == 7)
+end)
+
+check("an edition change with later pages cannot be cancelled out from under them", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { read() }, 2)
+  local _, edition = enqueue(q, 7, { kind = "read_edition", read_id = 10, current = true,
+    target_edition_id = 8, target_page = 200, base = { edition_id = 7, progress_pages = 100 },
+    change = { edition_id = 8, progress_pages = 200 } })
+  q:enqueuePage("/books/7.epub", { book_id = 7, mapped_page = 220, edition_id = 8 })
+  assert(q:cancelReadEdit(7, edition.seq, 1) == false, "the edition change was cancelled with pages behind it")
+  assert(q:readActions(7)[1].kind == "read_edition", "the edition change was removed")
 end)
 
 check("a past read's edition changes only that read", function()

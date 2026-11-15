@@ -18,7 +18,18 @@ function Book:currentRead(reads)
       if tonumber(read.progress_pages) ~= nil then return read end
     end
   end
-  return unfinished or reads[#reads]
+  if unfinished then return unfinished end
+  -- Every read is finished. The newest read is the latest finish, not necessarily the highest
+  -- id: adding a past read gives it a new id but an older finish date.
+  local latest = reads[#reads]
+  for _, read in ipairs(reads) do
+    local read_date, latest_date = read.finished_at or "", latest.finished_at or ""
+    if read_date > latest_date
+      or (read_date == latest_date and tonumber(read.id or 0) > tonumber(latest.id or 0)) then
+      latest = read
+    end
+  end
+  return latest
 end
 
 function Book:readingFormat(format_id)
