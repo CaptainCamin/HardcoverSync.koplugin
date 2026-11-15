@@ -1,0 +1,400 @@
+-- One read's dates and edition, as a form: Started, Finished (with Day/Month/Year precision), and
+-- the edition it was in. Save writes only what changed; a sentence under the row it is about says
+-- why Save is not available. The read in progress has no finish: "Still reading" is its state.
+--
+--   ReadEditDialog:new {
+--     book = { title = "...", pages = 304, edition_format = "Paperback" },
+--     read = detail.reads[1], today = "2026-11-15",
+--     on_save = function(change, clear) ... end, on_close = function() ... end,
+--   }
+--
+-- The caller sends `change` (only the fields that differ) and `clear` (fields to remove, as
+-- json.util.null) through the read queue. Nothing here calls the API or the queue.
+--
+-- Built on goal_form_dialog's layout: a top bar, one row per value, the change it will write above
+-- the buttons, a filled Save and an outlined Cancel. Dates use components/date_picker.lua.
+
+local DatePicker = require("hardcover/lib/ui/components/date_picker")
+local Device = require("device")
+local FrameContainer = require("ui/widget/container/framecontainer")
+local Geom = require("ui/geometry")
+local HorizontalGroup = require("ui/widget/horizontalgroup")
+local InputContainer = require("ui/widget/container/inputcontainer")
+local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
+local ScrollControl = require("hardcover/lib/ui/components/scroll_control")
+local UIManager = require("ui/uimanager")
+local VerticalGroup = require("ui/widget/verticalgroup")
+local _ = require("gettext")
+
+local Button = require("hardcover/lib/ui/components/button")
+local Draw = require("hardcover/lib/ui/components/draw")
+local ListItem = require("hardcover/lib/ui/components/list_item")
+local Picker = require("hardcover/lib/ui/picker")
+local ReadHistory = require("hardcover/lib/read_history")
+local Theme = require("hardcover/lib/ui/theme")
+local TopBar = require("hardcover/lib/ui/components/top_bar")
+
+local Screen = Device.screen
+
+local ReadEditDialog = InputContainer:extend {
+  name = "hardcover_read_edit",
+  book = nil,
+  read = nil,
+  today = nil,     -- YYYY-MM-DD, for a test; the device's day otherwise
+  on_save = nil,   -- function(change, clear)
+  on_close = nil,
+}
+
+local PRECISION = { { label = _("Day"), value = 1 }, { label = _("Month"), value = 2 },
+  { label = _("Year"), value = 3 } }
+
+local function copyFields(fields)
+  local out = {}
+  for key, value in pairs(fields) do out[key] = value end
+  return out
+end
+
+local function dateParts(value)
+  local year, month, day = tostring(value or ""):match("^(%d%d%d%d)%-(%d%d)%-(%d%d)")
+  return tonumber(year), tonumber(month), tonumber(day)
+end
+
+local function precisionLabel(value)
+  value = tonumber(value) or 1
+  for _, choice in ipairs(PRECISION) do
+    if choice.value == value then return choice.label end
+  end
+  return PRECISION[1].label
+end
+
+function ReadEditDialog:init()
+  self.today = self.today or os.date("%Y-%m-%d")
+  local read = self.read or {}
+  self.original = copyFields {
+    started_at = read.started_at,
+    finished_at = read.finished_at,
+    finished_at_precision = read.finished_at_precision,
+    edition_id = read.edition_id,
+    progress_pages = read.progress_pages,
+  }
+  self.form = copyFields(self.original)
+  if self.form.finished_at and not self.form.finished_at_precision then
+    self.form.finished_at_precision = 1
+  end
+  self.busy = false
+  self.dimen = Geom:new { x = 0, y = 0, w = Screen:getWidth(), h = Screen:getHeight() }
+  self.key_events.CloseReadEdit = { { "Back" } }
+  self:build()
+end
+
+-- The read being corrected is still in progress: the form leaves out a finish entirely. A new
+-- form (no read yet) is not "in progress": it is waiting for a finish.
+function ReadEditDialog:inProgress()
+  return self.read ~= nil and self.original.finished_at == nil
+end
+
+function ReadEditDialog:editionText()
+  local read = self.read or {}
+  local book = self.book or {}
+  local format = ReadHistory.formatName(read, book.edition_format)
+  local pages = ReadHistory.editionPages(read) or tonumber(book.pages)
+  if format and pages then return string.format(_("%s · %d pages"), format, pages) end
+  if format then return format end
+  if pages then return string.format(_("%d pages"), pages) end
+  return _("Edition not recorded")
+end
+
+function ReadEditDialog:rows()
+  local rows = {
+    { key = "started_at", label = _("Started"),
+      value = self.form.started_at and ReadHistory.dateText(self.form.started_at, 1) or _("Not set"),
+      edit = function() self:pickDate("started_at", _("Start date")) end },
+  }
+  if self:inProgress() then
+    rows[#rows + 1] = { key = "status", label = _("Status"), value = _("Still reading"), static = true }
+  else
+    rows[#rows + 1] = { key = "finished_at", label = _("Finished"),
+      value = self.form.finished_at and ReadHistory.dateText(self.form.finished_at,
+        self.form.finished_at_precision) or _("Not set"),
+      edit = function() self:pickDate("finished_at", _("Finish date")) end }
+    rows[#rows + 1] = { key = "finished_at_precision", label = _("Finish precision"),
+      value = precisionLabel(self.form.finished_at_precision),
+      edit = function() self:pickPrecision() end }
+  end
+  -- Until slice 5 the edition is shown, not chosen: no chevron and no tap.
+  rows[#rows + 1] = { key = "edition", label = _("Edition"), value = self:editionText(), static = true }
+  return rows
+end
+
+function ReadEditDialog:summaryLines()
+  local change, clear = ReadHistory.diff(self.original, self.form)
+  local lines = {}
+
+  if clear.started_at then
+    lines[#lines + 1] = _("Start date cleared")
+  elseif change.started_at then
+    local new = ReadHistory.dateText(change.started_at, 1)
+    if self.original.started_at then
+      local old = ReadHistory.shortDate(self.original.started_at,
+        tostring(change.started_at):sub(1, 4) .. "-01-01")
+      lines[#lines + 1] = string.format(_("Started %s → %s"), old, new)
+    else
+      lines[#lines + 1] = string.format(_("Started %s"), new)
+    end
+  end
+
+  if clear.finished_at then
+    lines[#lines + 1] = _("Finish date cleared")
+  elseif change.finished_at then
+    local new = ReadHistory.dateText(change.finished_at, self.form.finished_at_precision)
+    if self.original.finished_at then
+      local old = ReadHistory.dateText(self.original.finished_at,
+        self.original.finished_at_precision)
+      lines[#lines + 1] = string.format(_("Finished %s → %s"), old, new)
+    else
+      lines[#lines + 1] = string.format(_("Finished %s"), new)
+    end
+  elseif change.finished_at_precision then
+    lines[#lines + 1] = string.format(_("Finish precision %s → %s"),
+      precisionLabel(self.original.finished_at_precision), precisionLabel(change.finished_at_precision))
+  end
+
+  if change.edition_id or clear.edition_id then
+    lines[#lines + 1] = clear.edition_id and _("Edition cleared") or _("Edition changed")
+  end
+  if change.progress_pages or clear.progress_pages then
+    lines[#lines + 1] = string.format(_("Page %s → %s"), tostring(self.original.progress_pages or 0),
+      tostring(self.form.progress_pages or 0))
+  end
+
+  if #lines == 0 then return { _("No changes yet") } end
+  -- at most two lines: the form must not grow with the change
+  if #lines > 2 then
+    local rest = {}
+    for i = 3, #lines do rest[#rest + 1] = lines[i] end
+    lines[2] = lines[2] .. " · " .. table.concat(rest, " · ")
+    for i = #lines, 3, -1 do lines[i] = nil end
+  end
+  return lines
+end
+
+function ReadEditDialog:saveAllowed()
+  if self.busy then return false end
+  local change, clear = ReadHistory.diff(self.original, self.form)
+  if next(change) == nil and next(clear) == nil then return false end
+  return ReadHistory.validate(self.form, self.today) == nil
+end
+
+function ReadEditDialog:buildRow(row, width, viewport, divider)
+  local item = ListItem.new {
+    width = width,
+    label = row.label,
+    support = row.value,
+    trailing = (not row.static) and Draw.chevron("right") or nil,
+    divider = divider and "dotted" or nil,
+    viewport = viewport,
+    strong = true,
+    callback = (not row.static) and function()
+      if not self.busy then row.edit() end
+    end or nil,
+  }
+  if row.static then item.ges_events = {} end
+  item.text = row.label
+  if not row.static then self.row_taps[row.key] = item end
+  return item
+end
+
+function ReadEditDialog:buildContent(width, viewport)
+  self.row_taps = {}
+  local c = VerticalGroup:new { align = "left", Theme.span("s") }
+
+  self.problem, self.message_field = ReadHistory.validate(self.form, self.today)
+  local rows = self:rows()
+  for index, row in ipairs(rows) do
+    local last = index == #rows
+    local explains = self.problem and self.message_field == row.key
+    -- the sentence belongs under its row, so that row drops its divider and the sentence closes
+    -- the block instead
+    c[#c + 1] = self:buildRow(row, width, viewport, (not last) and not explains)
+    if explains then
+      c[#c + 1] = Theme.span(Theme.px(4))
+      c[#c + 1] = Theme.mmdText(self.problem, "text", 18, { width = width })
+      c[#c + 1] = Theme.span(Theme.px(8))
+      c[#c + 1] = Theme.dottedRule(width)
+    end
+  end
+  c[#c + 1] = Theme.span("l")
+
+  -- what Save will write, one line per change, in black
+  self.summary = self:summaryLines()
+  self.summary_text = table.concat(self.summary, "\n")
+  for _, line in ipairs(self.summary) do
+    c[#c + 1] = Theme.mmdText(line, "text", 18, { width = width })
+    c[#c + 1] = Theme.span(Theme.px(2))
+  end
+  c[#c + 1] = Theme.span("m")
+
+  self.save_enabled = self:saveAllowed()
+  self.save_button = Button.new {
+    label = _("Save"), w = width, primary = true, viewport = viewport,
+    enabled = self.save_enabled,
+    callback = self.save_enabled and function() self:save() end or nil,
+  }
+  c[#c + 1] = self.save_button
+  c[#c + 1] = Theme.span(Theme.px(12))
+  self.cancel_button = Button.new {
+    label = _("Cancel"), w = width, viewport = viewport,
+    enabled = not self.busy,
+    callback = (not self.busy) and function() self:cancel() end or nil,
+  }
+  c[#c + 1] = self.cancel_button
+  c[#c + 1] = Theme.span("l")
+  return c
+end
+
+function ReadEditDialog:build()
+  local screen_w, screen_h = Screen:getWidth(), Screen:getHeight()
+  local title_bar = TopBar.new {
+    width = screen_w,
+    title = _("Edit read"),
+    on_back = function() self:cancel() end,
+  }
+  self.title_bar = title_bar
+  local room = screen_h - title_bar:getSize().h
+  local margin = Theme.margin
+
+  local width = screen_w - 2 * margin
+  local content = self:buildContent(width, nil)
+  local body
+  self.scroll = nil
+  if content:getSize().h + Theme.space.m > room then
+    local gutter = ScrollControl.gutter()
+    width = screen_w - 2 * margin - gutter
+    self.scroll = ScrollableContainer:new {
+      dimen = Geom:new { x = 0, y = 0, w = screen_w, h = room },
+      show_parent = self,
+    }
+    local scroll = self.scroll
+    content = self:buildContent(width, function() return scroll.dimen end)
+    scroll[1] = HorizontalGroup:new { Theme.hspan(margin), content }
+    body = ScrollControl.wrap(scroll, content)
+  else
+    body = HorizontalGroup:new { Theme.hspan(margin), content }
+  end
+  self.content_width = width
+
+  self.frame = FrameContainer:new {
+    width = screen_w,
+    height = screen_h,
+    background = Theme.WHITE,
+    bordersize = 0,
+    padding = 0,
+    margin = 0,
+    VerticalGroup:new { align = "left", title_bar, body },
+  }
+  self[1] = self.frame
+end
+
+function ReadEditDialog:rebuild()
+  if self[1] and type(self[1].free) == "function" then
+    pcall(function() self[1]:free() end)
+  end
+  self[1] = nil
+  self:build()
+  UIManager:setDirty(self, "ui")
+end
+
+-- ----------------------------------------------------------------- editing
+
+function ReadEditDialog:change(key, value)
+  self.form[key] = value
+  self:rebuild()
+end
+
+function ReadEditDialog:setDate(key, year, month, day)
+  self.form[key] = string.format("%04d-%02d-%02d", year, month, day)
+  if key == "finished_at" and not self.form.finished_at_precision then
+    self.form.finished_at_precision = 1
+  end
+  self:rebuild()
+end
+
+function ReadEditDialog:pickDate(key, title)
+  local year, month, day = dateParts(self.form[key])
+  if not (year and month and day) then
+    year, month, day = dateParts(self.today)
+  end
+  DatePicker.show {
+    title = title, year = year, month = month, day = day,
+    save_label = _("Set date"),
+    on_save = function(y, m, d) self:setDate(key, y, m, d) end,
+  }
+end
+
+function ReadEditDialog:pickPrecision()
+  local picker
+  local rows = {}
+  for _, choice in ipairs(PRECISION) do
+    rows[#rows + 1] = {
+      text = choice.label,
+      current = (tonumber(self.form.finished_at_precision) or 1) == choice.value,
+      callback = function()
+        UIManager:close(picker)
+        self:change("finished_at_precision", choice.value)
+      end,
+    }
+  end
+  picker = Picker.new { title = _("Finish precision"), rows = rows }
+  UIManager:show(picker)
+  return picker
+end
+
+-- ----------------------------------------------------------------- actions
+
+-- What would be sent; a test calls this to see the sparse change without opening a picker.
+function ReadEditDialog:preview()
+  return ReadHistory.diff(self.original, self.form)
+end
+
+function ReadEditDialog:save()
+  if self.busy then return end
+  if ReadHistory.validate(self.form, self.today) then return end
+  local change, clear = self:preview()
+  if next(change) == nil and next(clear) == nil then return end
+  if self.on_save then self.on_save(change, clear) end
+end
+
+function ReadEditDialog:cancel()
+  if self.busy then return true end
+  local change, clear = self:preview()
+  if next(change) == nil and next(clear) == nil then return self:close() end
+  local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
+  StatusDialogs.confirm {
+    title = _("Discard your changes?"),
+    ok_text = _("Discard"),
+    cancel_text = _("Keep editing"),
+    ok_callback = function() self:close() end,
+  }
+  return true
+end
+
+function ReadEditDialog:setBusy(busy)
+  self.busy = busy and true or false
+  self:rebuild()
+end
+
+function ReadEditDialog:close()
+  UIManager:close(self)
+  if self.on_close then self.on_close() end
+  return true
+end
+
+function ReadEditDialog:onCloseReadEdit()
+  return self:cancel()
+end
+
+function ReadEditDialog:onCloseWidget()
+  UIManager:setDirty(nil, "ui")
+end
+
+return ReadEditDialog

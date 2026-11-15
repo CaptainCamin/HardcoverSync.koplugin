@@ -9,6 +9,7 @@ local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local LeftContainer = require("ui/widget/container/leftcontainer")
 local OverlapGroup = require("ui/widget/overlapgroup")
+local TextBoxWidget = require("ui/widget/textboxwidget")
 local VerticalGroup = require("ui/widget/verticalgroup")
 
 local Button = require("hardcover/lib/ui/components/button")
@@ -23,7 +24,8 @@ local Note = {}
 
 Note.MIN_H = px(62)
 
--- opts { width, icon_name (an SVG in icons/), title, text, dotted, action = { label, callback }, h, on_tap }
+-- opts { width, icon_name (an SVG in icons/), title, text, text_wrap (the text may take more than
+-- one line), dotted, action = { label, callback }, h, on_tap }
 -- `h` makes the box at least that tall (give both looks the taller one's height). `on_tap` makes the
 -- whole box a touch target too; the action's button still takes the taps on it.
 function Note.new(opts)
@@ -44,7 +46,13 @@ function Note.new(opts)
     Theme.mmdText(opts.title, "strong", 21, { width = text_w }) }
   if opts.text then
     words[#words + 1] = Theme.span(px(3))
-    words[#words + 1] = Theme.mmdText(opts.text, "text", 18, { secondary = true, width = text_w })
+    if opts.text_wrap then
+      local face, bold = Theme.mmdFace("text", 18)
+      words[#words + 1] = TextBoxWidget:new { text = opts.text, face = face, bold = bold,
+        width = text_w, fgcolor = Theme.secondary() }
+    else
+      words[#words + 1] = Theme.mmdText(opts.text, "text", 18, { secondary = true, width = text_w })
+    end
   end
   -- the words take the room, so the button sits at the far end of the box
   local row = HorizontalGroup:new { align = "center", icon, Theme.hspan(px(12)),
