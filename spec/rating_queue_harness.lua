@@ -264,6 +264,19 @@ check("old persisted library-only ratings still send without a lookup", function
   eq(#api.sent, 1); eq(api.sent[1].id, 907); eq(api.sent[1].rating, 3)
 end)
 
+check("parkedCount counts a rating that is both held and blocked once", function()
+  local q = newQueue()
+  q:queue(907, 4, "Dune", 101, 42)
+  q:queue(908, 2, "Emma", 202, 42)
+  for _, op in pairs(q:ops()) do
+    op.blocked = true
+    if op.book_id == 101 then op.held = true end
+  end
+  eq(q:heldCount(42), 1, "held")
+  eq(q:blockedCount(42), 2, "blocked")
+  eq(q:parkedCount(42), 2, "the overlap is not counted twice")
+end)
+
 check("a rating waits behind an unsettled shelf or removal without counting as a failure", function()
   local q, settings = newQueue()
   q:queue(907, 4, "Dune", 101, 42)

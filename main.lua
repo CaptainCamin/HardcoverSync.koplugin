@@ -1114,7 +1114,11 @@ function HardcoverApp:askAboutOpenBook()
       require("hardcover/lib/ui/sync_conflict_dialog").show {
         queue = self.sync_queue,
         only = file,
-        on_done = function(resolved)
+        on_done = function(resolved, _choice, outcome)
+          if outcome and outcome.kind == "shelf" and self.dialog_manager
+              and self.dialog_manager.removalKept then
+            self.dialog_manager:removalKept(outcome)
+          end
           local page = resolved > 0 and self.sync_queue:takeResumePage(file)
           -- A different answer also settles the question for this opening;
           -- a late cache response must not offer the rejected cloud page.
@@ -1217,10 +1221,12 @@ function HardcoverApp:_flushRatings()
       -- The first status sync may have replaced the reader's local rating with an older server value.
       status.rating = user_book.rating
     end
+    self._flush_sent = true
     self.dialog_manager:ratingSent(user_book_id, user_book)
   end, User:getId(), { barrier = barrier })
-  -- (held and blocked ones wait for the user or an earlier change, not for a retry)
-  return waiting <= queue:heldCount(User:getId()) + queue:blockedCount(User:getId())
+  -- (held and blocked ones wait for the user or an earlier change, not for a retry;
+  -- the union matters when one rating is both)
+  return waiting <= queue:parkedCount(User:getId())
 end
 
 -- Send the list changes made offline (as _flushReviews).
@@ -1274,7 +1280,7 @@ function HardcoverApp:_flushReviews()
         has and user_book.review_has_spoilers, book_id)
     end })
   self:_noticeHeld("review", queue:heldCount(User:getId()))
-  return waiting <= queue:heldCount(User:getId()) + queue:blockedCount(User:getId())
+  return waiting <= queue:parkedCount(User:getId())
 end
 
 -- Say once when changes are held that Hardcover refused (or that need signing in again).
@@ -1320,7 +1326,6 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
           user_id = User:getId(),
           settings = self.settings,
           on_status_sent = function(op, user_book)
-            self._flush_sent = true
             self.dialog_manager:shelfSent(op, user_book)
           end,
           current_file = self.ui.document and self.ui.document.file,

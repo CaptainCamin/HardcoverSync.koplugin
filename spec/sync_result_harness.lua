@@ -40,7 +40,8 @@ local function newApp(queue)
     settings = { saveBookSnapshot = function() end },
     sync_queue = queue,
     wifi = { withWifi = function(_, fn) fn() end },
-    dialog_manager = { queueChanged = function() end, shelfSent = function() end },
+    dialog_manager = { queueChanged = function() end, shelfSent = function() end,
+      ratingSent = function() end },
   }
 end
 
@@ -121,6 +122,63 @@ check("a rating waits behind an unsettled reading without failing the pass", fun
   assert(result.waiting >= 1, "the blocked rating is not reported as waiting")
   assert(ratings:blockedCount(1) == 1, "the rating was not marked blocked")
   assert(sent_rating == false, "the rating went before the reading was settled")
+end)
+
+check("ratings that are both held and blocked do not turn a parked pass into a failure", function()
+  local q = KB.newQueue()
+  q:enqueuePage("/books/a.epub", { mapped_page = 100, book_id = 1, edition_id = 3 })
+  q:enqueuePage("/books/b.epub", { mapped_page = 50, book_id = 2, edition_id = 3 })
+  for _, file in ipairs({ "/books/a.epub", "/books/b.epub" }) do
+    q:get(file).conflict = { kind = "reread", local_page = 100,
+      cloud_status = HARDCOVER.STATUS.FINISHED, seq = 1 }
+  end
+  local RatingQueue = require("hardcover/lib/rating_queue")
+  local ratings = RatingQueue:new { settings = KB.fakeSettings() }
+  ratings:queue(10, 4.5, "Dune", 1, 1)
+  ratings:queue(20, 3, "Emma", 2, 1)
+  for _, op in pairs(ratings:ops()) do
+    op.blocked = true
+    if op.book_id == 1 then op.held = true end
+  end
+  fakeServer()
+  local app = newApp(q)
+  app.rating_queue = ratings
+  local result = run(app)
+  assert(result.decisions == 2 and result.failed == false and result.ok == true,
+    "the parked ratings read as a failed request")
+  assert(result.waiting == 2, "waiting: " .. tostring(result.waiting))
+  assert(result.sent == false, "nothing was sent")
+end)
+
+check("a rating that went through beside a question is reported as sent", function()
+  local q = KB.newQueue()
+  q:enqueuePage("/books/a.epub", { mapped_page = 100, book_id = 1, edition_id = 3 })
+  fakeServer()
+  local RatingQueue = require("hardcover/lib/rating_queue")
+  local ratings = RatingQueue:new { settings = KB.fakeSettings() }
+  ratings:queue(20, 4.5, "Emma", 2, 1)
+  Api.updateRating = function() return { id = 20, rating = 4.5 } end
+  local app = newApp(q)
+  app.rating_queue = ratings
+  local result = run(app)
+  assert(result.decisions == 1 and result.failed == false and result.ok == true)
+  assert(result.sent == true, "the rating went through but was not reported")
+  assert(ratings:isEmpty(), "the rating was not cleared")
+end)
+
+check("a removal with nothing left to delete is not reported as sent", function()
+  local q = KB.newQueue()
+  q:queueRemove(1, 7, 70, "Dune", HARDCOVER.STATUS.READING, {
+    status_known = true, status_id = HARDCOVER.STATUS.READING,
+    rating_known = true, reads_known = true, review_known = true,
+  })
+  fakeServer()
+  Api.findUserBookForRemoval = function() return nil end
+  Api.removeUserBook = function() error("nothing should be deleted") end
+  local result = run(newApp(q))
+  assert(result.ok == true and result.failed == false)
+  assert(result.sent == false, "a no-op removal was reported as a send")
+  assert(q:get(7) == nil, "the finished removal is still queued")
 end)
 
 r.finish()

@@ -69,6 +69,18 @@ function ReviewQueue:blockedCount(user_id)
   return n
 end
 
+-- Reviews parked for any reason (held or blocked), counting one that is both only once.
+function ReviewQueue:parkedCount(user_id)
+  local n = 0
+  for _, op in pairs(self:ops()) do
+    if valid(op) and (op.held or op.blocked)
+      and (user_id == nil or OfflineQueue.bookOpForUser(op, user_id)) then
+      n = n + 1
+    end
+  end
+  return n
+end
+
 -- Cancel the review waiting for one book.
 function ReviewQueue:cancel(user_book_id, book_id, user_id)
   local ops = self:ops()

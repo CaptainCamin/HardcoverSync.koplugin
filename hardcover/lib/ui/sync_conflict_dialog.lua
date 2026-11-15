@@ -57,8 +57,13 @@ function SyncConflictDialog.show(opts)
       callback = function()
         UIManager:close(picker)
         -- "Decide later" is not an answer: it keeps both the conflict and the offline data.
-        if row.id ~= "later" and decision.resolve(row.id) then resolved = 1 end
-        if opts.on_done then opts.on_done(resolved) end
+        local outcome
+        if row.id ~= "later" then
+          local saved
+          saved, outcome = decision.resolve(row.id)
+          if saved then resolved = 1 end
+        end
+        if opts.on_done then opts.on_done(resolved, row.id, outcome) end
       end,
     }
   end

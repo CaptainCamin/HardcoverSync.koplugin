@@ -201,12 +201,31 @@ end
 function Flows:reviewDecision(decision)
   require("hardcover/lib/ui/sync_conflict_dialog").show {
     decision = decision,
-    on_done = function(resolved)
+    on_done = function(resolved, _choice, outcome)
       if resolved == 0 then return end
+      if outcome and outcome.kind == "shelf" then self:removalKept(outcome) end
       StatusDialogs.info(_("Choice saved."), 2)
       if self.flush_goals then self.flush_goals() end
     end,
   }
+end
+
+-- Keeping a book after a removal question: the queued removal had already taken it out
+-- of the saved shelves. Put it back where Hardcover has it, with its rating, and clear
+-- the unsent-removal marker so a later download cannot keep hiding it.
+function Flows:removalKept(op)
+  if type(op) ~= "table" or not tonumber(op.book_id) or not op.status_id then return end
+  local user_id = User:getId()
+  self:shelfChanged(op.book_id, nil, op.status_id, op.user_book_id, false)
+  local shelves = self:shelves()
+  if shelves and op.rating ~= nil then
+    shelves:rateBook(user_id, op.book_id, op.rating)
+  end
+  local screen = self:screens():open("book")
+  local on = screen and screen.detail and screen.detail.book and screen.detail.book.book_id
+  if on and tonumber(on) == tonumber(op.book_id) then
+    screen:setStatus(op.status_id, op.user_book_id)
+  end
 end
 
 function Flows:bookSourceChoice()
@@ -755,6 +774,16 @@ end
 
 -- What was changed here and not sent yet (a shelf, a rating) shows in place of what is on record.
 function Flows:withPending(detail)
+  -- What Hardcover (or the saved copy) said before any offline overlay below. A removal
+  -- asked for from this screen must compare against this, not against the reader's own
+  -- not-yet-sent rating, review or shelf change.
+  if detail and detail.book and not detail._server_base then
+    detail._server_base = {
+      status_id = detail.status_id, user_rating = detail.user_rating,
+      user_review = detail.user_review, review_spoilers = detail.review_spoilers,
+      review_known = detail.review_known,
+    }
+  end
   if self.sync_queue and detail and detail.book then
     BookActions.withPendingShelf(detail,
       PendingStatus.get(self.sync_queue, detail.book.book_id, User:getId()))
@@ -975,7 +1004,10 @@ function Flows:removeFromShelf(dialog)
 
   local waiting = self.sync_queue and book_id and self.sync_queue:shelfOp(book_id, User:getId())
   -- What this device last knew of the record, so a later replay can tell whether Hardcover
-  -- gained work the reader never saw. Unknown review/progress still count as a question then.
+  -- gained work the reader never saw. Use the values before `withPending` laid the reader's
+  -- own not-yet-sent shelf, rating and review changes over them.
+  local server = detail._server_base or detail
+  local queued = self.sync_queue and book_id and self.sync_queue:get(book_id)
   local status = self.state and self.state.book_status or {}
   -- The reader's open book is not necessarily this one; only use its reads when it is.
   if status.book_id ~= nil and detail.book and tonumber(status.book_id) ~= tonumber(detail.book.book_id) then
@@ -984,25 +1016,46 @@ function Flows:removeFromShelf(dialog)
   if status.id ~= nil and user_book_id ~= nil and tonumber(status.id) ~= tonumber(user_book_id) then
     status = {}
   end
+  -- A queued page has already been laid over the open book's saved reads. Use the last
+  -- synced snapshot instead, so the reader's own offline page is not mistaken for an
+  -- online change.
+  local reads = type(status.user_book_reads) == "table" and status.user_book_reads or nil
+  local reads_known = type(reads) == "table"
+  if (queued and queued.mapped_page ~= nil) or not reads then
+    local file = book_id and self:deviceFile(book_id)
+    local snapshot = file and self.settings and self.settings.bookStatusFromSnapshot
+      and self.settings:bookStatusFromSnapshot(file) or nil
+    if snapshot and type(snapshot.user_book_reads) == "table" then
+      reads, reads_known = snapshot.user_book_reads, true
+    elseif queued and queued.mapped_page ~= nil then
+      reads, reads_known = nil, false
+    end
+  end
+  -- A queued status has already moved the saved shelf; its `from_status_id` is the shelf
+  -- Hardcover still has.
+  local online_status = server.status_id
+  if waiting and waiting.kind == "status" and waiting.from_status_id ~= nil then
+    online_status = waiting.from_status_id
+  end
   local base = {
-    status_id = detail.status_id or status.status_id,
-    status_known = detail.status_id ~= nil or status.status_id ~= nil,
-    rating = detail.user_rating,
+    status_id = online_status,
+    status_known = online_status ~= nil,
+    rating = server.user_rating,
     rating_known = true,
-    review_raw = detail.user_review,
-    review_has_spoilers = detail.review_spoilers,
-    review_known = detail.review_known == true,
+    review_raw = server.user_review,
+    review_has_spoilers = server.review_spoilers,
+    review_known = server.review_known == true,
     reads = self.sync_queue and self.sync_queue.readSignature
-      and self.sync_queue.readSignature(status.user_book_reads) or nil,
-    reads_known = type(status.user_book_reads) == "table"
-      and self.sync_queue and self.sync_queue.readSignature ~= nil,
+      and reads and self.sync_queue.readSignature(reads) or nil,
+    reads_known = reads_known and self.sync_queue and self.sync_queue.readSignature ~= nil,
   }
   -- offline, or a book that only went on a shelf offline (the connection may be back, but
   -- Hardcover has no record of it yet): kept, not sent
   if self.sync_queue and book_id and (not Network.connected() or (not user_book_id and waiting)) then
     if not (user_book_id or waiting) then return end
     -- a book that only went on a shelf offline has nothing on Hardcover to remove
-    local outcome = self.sync_queue:queueRemove(User:getId(), book_id, user_book_id, detail.book.title, old_status_id, base)
+    local outcome = self.sync_queue:queueRemove(User:getId(), book_id, user_book_id, detail.book.title,
+      old_status_id, base, self:deviceFile(book_id))
     self:shelfChanged(book_id, old_status_id, nil, nil, true)
     if Live.shown(dialog) then dialog:setStatus(nil, nil) end
     if outcome == "dropped" then

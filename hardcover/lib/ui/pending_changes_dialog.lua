@@ -41,11 +41,11 @@ function PendingChangesDialog.show(opts)
         callback = function()
           require("hardcover/lib/ui/sync_conflict_dialog").show {
             decision = row.decision,
-            on_done = function(resolved)
+            on_done = function(resolved, choice, outcome)
               if resolved == 0 then return end
               if screen then UIManager:close(screen) end
               if opts.on_resolved then
-                opts.on_resolved(row.decision)
+                opts.on_resolved(row.decision, outcome, choice)
               else
                 open() -- the list again, without the answered question
               end

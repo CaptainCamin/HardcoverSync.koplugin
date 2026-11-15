@@ -965,7 +965,8 @@ end
 
 local function removalQueue(book_id, record_id, base)
   local q = newQueue()
-  q:queueRemove(1, book_id, record_id, "Dune", HARDCOVER.STATUS.READING, base or removalBase())
+  q:queueRemove(1, book_id, record_id, "Dune", HARDCOVER.STATUS.READING, base or removalBase(),
+    "/books/a.epub")
   return q
 end
 
@@ -1076,6 +1077,71 @@ check("removing anyway rechecks once more before deleting", function()
   eq(q:flush(api, { user_id = 1 }), true, "flush result")
   eq(removed, 1, "deleted")
   eq(#q:keys(), 0)
+end)
+
+check("a shelf change made while a removal lookup runs is kept", function()
+  local q = removalQueue(7, 70)
+  local api = fakeApi()
+  local removed = 0
+  api.removeUserBook = function() removed = removed + 1 return true end
+  local first = true
+  api.findUserBookForRemoval = function()
+    if first then
+      first = false
+      q:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.READING, book_id = 7, title = "Dune" })
+      return nil
+    end
+    return nil
+  end
+  eq(q:flush(api, { user_id = 1 }), false, "the canceled removal did not count as sent")
+  eq(removed, 0, "nothing deleted")
+  local entry = q:get("/books/a.epub")
+  eq(entry and entry.remove, nil, "the removal was canceled")
+  eq(entry and entry.status_id, HARDCOVER.STATUS.READING, "the new shelf change survived")
+  -- the next pass sends the shelf change, not nothing
+  local api2 = fakeApi()
+  api2.findUserBook = function() return { id = 70, status_id = HARDCOVER.STATUS.TO_READ, user_book_reads = {} } end
+  local sent_status = false
+  api2.updateUserBookStatus = function(_, id, status)
+    sent_status = true
+    return { id = id, status_id = status, user_book_reads = {} }
+  end
+  eq(q:flush(api2, { user_id = 1 }), true, "the new shelf change goes")
+  eq(sent_status, true, "the status was sent")
+  eq(q:get("/books/a.epub"), nil, "nothing left")
+end)
+
+check("a shelf change made while a removal lookup finds a record is kept too", function()
+  local q = removalQueue(7, 70)
+  local api = fakeApi()
+  local removed = 0
+  api.removeUserBook = function() removed = removed + 1 return true end
+  api.findUserBookForRemoval = function()
+    q:enqueueStatus("/books/a.epub", { status_id = HARDCOVER.STATUS.FINISHED, book_id = 7, title = "Dune" })
+    return removalRecord({ rating = 5 })
+  end
+  eq(q:flush(api, { user_id = 1 }), false, "the canceled removal did not count as sent")
+  eq(removed, 0, "nothing deleted")
+  local entry = q:get("/books/a.epub")
+  eq(entry and entry.remove, nil, "the removal was canceled")
+  eq(entry and entry.status_id, HARDCOVER.STATUS.FINISHED, "the new shelf change survived")
+  eq(q:conflictCount(), 0, "the old record's change did not become a question")
+end)
+
+check("keeping a removal reports the shelf and rating to put back", function()
+  local q = removalQueue(7, 70, removalBase({ rating = 4 }))
+  local api = fakeApi()
+  api.findUserBookForRemoval = function()
+    return removalRecord({ status_id = HARDCOVER.STATUS.FINISHED, rating = 4 })
+  end
+  q:flush(api, { user_id = 1 })
+  local saved, outcome = q:resolve(7, "keep")
+  eq(saved, true, "kept")
+  eq(outcome and outcome.kind, "shelf", "outcome kind")
+  eq(outcome and outcome.book_id, 7, "book")
+  eq(outcome and outcome.user_book_id, 70, "record")
+  eq(outcome and outcome.status_id, HARDCOVER.STATUS.FINISHED, "the shelf Hardcover has")
+  eq(outcome and outcome.rating, 4, "the rating Hardcover has")
 end)
 
 check("a waiting conflict is a decision that can be answered through one interface", function()

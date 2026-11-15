@@ -502,6 +502,47 @@ check("a removal is sent by the record, and the shelf it left is marked", functi
   assert(shelves:meta(1, 1).fingerprint == nil)
 end)
 
+check("keeping a book after a removal question puts it back on its saved shelf", function()
+  local m = newManager()
+  online = false
+  local d = detailScreen(m, SHELVED())
+  tap(showing(function() m:chooseShelf(d) end), "Remove from library")
+  confirms[1].ok_callback()
+  assert(shelves:findEntry(1, 1) == nil, "the book is still on the saved shelf")
+  local entry = sync_queue:get(1)
+  assert(entry and entry.remove, "no removal was queued")
+  entry.conflict = { kind = "remove", changes = { "a rating" },
+    online = { id = 51, status_id = 1, rating = 4 }, current_user_book_id = 51 }
+  local ok, outcome = sync_queue:resolve(1, "keep")
+  assert(ok and outcome and outcome.kind == "shelf", "no shelf outcome")
+  m:removalKept(outcome)
+  local row = shelves:findEntry(1, 1)
+  assert(row and row.status_id == 1 and row.user_rating == 4, "the shelf row was not restored")
+  assert(d.detail.status_id == 1 and d.detail.user_book_id == 51, "the open details did not go back")
+  assert(sync_queue:get(1) == nil, "the removal is still queued")
+end)
+
+check("a removal baseline uses Hardcover's values, not the reader's queued edits", function()
+  local m = newManager()
+  online = false
+  local d = detailScreen(m, SHELVED()) -- online: Want to Read, rating 4
+  rating_queue:queue(51, 2, "Book 1", 1, 1)
+  sync_queue:enqueueStatus("/books/a.epub", {
+    user_id = 1, book_id = 1, status_id = 2, -- Currently Reading
+    user_book_id = 51, from_status_id = 1, title = "Book 1", -- from Want to Read
+  })
+  d.detail = m:withPending(d.detail)
+  assert(d.detail.user_rating == 2 and d.detail.status_id == 2,
+    "the queued edits did not show on screen")
+  tap(showing(function() m:chooseShelf(d) end), "Remove from library")
+  confirms[1].ok_callback()
+  local entry = sync_queue:get(1)
+  assert(entry and entry.remove, "no removal was queued")
+  assert(entry.remove_base.rating == 4, "the queued rating leaked into the removal baseline")
+  assert(entry.remove_base.status_id == 1,
+    "the queued shelf change leaked into the removal baseline")
+end)
+
 check("changing the shelf online preserves the offline change ahead of it", function()
   local m = newManager()
   sync_queue:enqueueStatus(1, { user_id = 1, book_id = 1, status_id = 3, user_book_id = 51, from_status_id = 1 })

@@ -345,6 +345,19 @@ check("old persisted library-only reviews still send without a lookup", function
   eq(api.sent[1].spoilers, true)
 end)
 
+check("parkedCount counts a review that is both held and blocked once", function()
+  local q = newQueue()
+  q:queue(907, "Dune words", false, "Dune", 101, 42)
+  q:queue(908, "Emma words", false, "Emma", 202, 42)
+  for _, op in pairs(q:ops()) do
+    op.blocked = true
+    if op.book_id == 101 then op.held = true end
+  end
+  eq(q:heldCount(42), 1, "held")
+  eq(q:blockedCount(42), 2, "blocked")
+  eq(q:parkedCount(42), 2, "the overlap is not counted twice")
+end)
+
 check("a review waits for its book's removal without counting as a failure", function()
   local q, settings = newQueue()
   q:queue(907, "Dune words", false, "Dune", 101, 42)

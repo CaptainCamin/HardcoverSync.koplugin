@@ -335,6 +335,12 @@ end
 function SyncQueue:enqueueStatus(filepath, payload)
   local held = self:shelfChangeWaiting(filepath)
   local before = held and self:get(filepath)
+  -- A removal may have been recorded by book id (no file) or from another file of the same
+  -- book. A new shelf change from this file still answers that removal.
+  if not before and payload.book_id then
+    local by_book = self:get(tonumber(payload.book_id) or payload.book_id)
+    if type(by_book) == "table" and by_book.remove then before = by_book end
+  end
   local origin = before and before.from_status_id
   local previous = before and before.status_id or payload.from_status_id
   local reread = payload.status_id == HARDCOVER.STATUS.READING
@@ -389,7 +395,7 @@ end
 -- removal instead. (A change already on its way is not dropped: the book will exist, so the
 -- removal follows it and looks the record up.)
 --
-function SyncQueue:queueRemove(user_id, book_id, user_book_id, title, from_status_id, base)
+function SyncQueue:queueRemove(user_id, book_id, user_book_id, title, from_status_id, base, file)
   local key = tostring(tonumber(book_id) or book_id)
   local pending = self:pending()
   local before = pending[key]
@@ -421,8 +427,12 @@ function SyncQueue:queueRemove(user_id, book_id, user_book_id, title, from_statu
   entry.conflict = nil
   entry.failures, entry.held, entry.reason = nil, nil, nil
   entry.updated_at = now
-  entry.file = before and before.file
-  entry.files = before and before.files
+  entry.file = (before and before.file) or file
+  entry.files = before and before.files or (file and {} or nil)
+  if file then
+    entry.files = entry.files or {}
+    entry.files[file] = true
+  end
   pending[key] = entry
   self:persist()
   return "queued"
@@ -874,13 +884,24 @@ function SyncQueue:resolve(filepath, choice)
   local kind, seq = entry.conflict.kind, entry.conflict.seq
 
   if kind == "remove" and choice == "keep" then
+    local conflict = entry.conflict
+    local online = conflict.online or {}
+    local from = tonumber(entry.from_status_id)
+    local status_id = tonumber(online.status_id) or (from and from ~= 0 and from) or nil
     entry.remove, entry.remove_at, entry.remove_seq = nil, nil, nil
     entry.remove_base, entry.remove_force = nil, nil
     entry.failures = nil
     entry.conflict = nil
     if self:isEmpty(entry) then self:_drop(filepath) end
     self:persist()
-    return true
+    -- The caller puts the book back on the shelf it had online; the queued removal had
+    -- already taken it out of the saved shelves.
+    local outcome = status_id and {
+      kind = "shelf", book_id = tonumber(entry.book_id),
+      user_book_id = tonumber(online.id) or entry.user_book_id,
+      status_id = status_id, rating = online.rating, title = entry.title,
+    } or nil
+    return true, outcome
   elseif kind == "remove" and choice == "remove" then
     local conflict = entry.conflict
     entry.user_book_id = conflict.current_user_book_id or entry.user_book_id
@@ -1046,6 +1067,7 @@ function SyncQueue:_sendStatus(api, key, entry, op, user_book, status, info)
       from_status = user_book and user_book.status_id or 0 }
     self:persist()
     result, err = StatusSender.upsert(api, user_book, status, info)
+    if hasUserBook(result) then self.last_flush_sent = true end
     if not hasUserBook(result) then
       if err ~= nil and not OfflineQueue.transient(err) then
         op.status_attempt = nil -- a definite refusal, not an ambiguous outcome
@@ -1104,6 +1126,9 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
     -- record may have gained work since the reader asked for it.
     local current, lookup_err = findRemovalRecord(api, book_id, opts)
     if lookup_err ~= nil then return false, "transient" end
+    -- The reader may have put the book back while the lookup yielded: that is no longer a
+    -- removal, and its new shelf change must not be dropped with the old request.
+    if self:get(filepath) ~= entry or not entry.remove then return false end
     if not (type(current) == "table" and current.id) then
       -- not in the library: the removal has nothing left to do
       local now = self:get(filepath)
@@ -1133,6 +1158,7 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
 
     local removed, err = api:removeUserBook(current.id)
     if not removed then return failed(self, filepath, err) end
+    self.last_flush_sent = true
     -- a status made while this was out is what is left to send
     local now = self:get(filepath)
     if now == entry and entry.remove then
@@ -1294,6 +1320,7 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
             countRejection(self, filepath)
             return false
           end
+          self.last_flush_sent = true
           user_book = result
           op.read_id = op.read_id or (latestRead(result) and latestRead(result).id)
           op.applied = true
@@ -1325,6 +1352,7 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
         if op.at and op.at > 0 then dates.action_at = os.date("!%Y-%m-%dT%H:%M:%SZ", op.at) end
         local result, err = api:updateReadDates(target.id, dates)
         if not hasUserBook(result) then return failed(self, filepath, err) end
+        self.last_flush_sent = true
         if result.status_id ~= user_book.status_id then
           holdChangedReading(self, entry)
           return false
@@ -1440,7 +1468,6 @@ function SyncQueue:flush(api, opts)
       local ok, sent, reason = pcall(self._flushEntry, self, api, filepath, opts, prefetched)
       self.sending_key = nil
       if ok and sent then
-        self.last_flush_sent = true
         consecutive_failures = 0
       else
         all_sent = false

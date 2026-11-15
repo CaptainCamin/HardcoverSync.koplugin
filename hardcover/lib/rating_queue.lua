@@ -68,6 +68,19 @@ function RatingQueue:blockedCount(user_id)
   return n
 end
 
+-- Ratings parked for any reason (held or blocked), counting one that is both only once:
+-- the number the flush result must not exceed to call the pass complete.
+function RatingQueue:parkedCount(user_id)
+  local n = 0
+  for _, op in pairs(self:ops()) do
+    if valid(op) and (op.held or op.blocked)
+      and (user_id == nil or OfflineQueue.bookOpForUser(op, user_id)) then
+      n = n + 1
+    end
+  end
+  return n
+end
+
 -- Cancel the rating waiting for one book.
 function RatingQueue:cancel(user_book_id, book_id, user_id)
   local ops = self:ops()
