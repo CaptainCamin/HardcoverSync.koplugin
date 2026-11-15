@@ -887,9 +887,15 @@ local function ringCard(ctx, cards, reason)
     VerticalGroup:new{ align = "left", ringText(ctx, card, col, h, { value_pts = 20 }) } }
 end
 
--- Render entry points for the pack specs in bookshelf_modules/. The specs find
--- the plugin instance themselves (Kit.plugin); a nil instance means it is off,
--- and the card says so rather than sitting empty.
+function Modules.app(dir)
+  local Kit = require("lib/bookshelf_module_kit")
+  local ok, instance = pcall(Kit.plugin, dir)
+  return ok and instance or nil
+end
+
+-- Render entry points for the pack specs in bookshelf_modules/. The specs pass
+-- their module dir to Modules.app; a nil instance means it is off, and the
+-- card says so rather than sitting empty.
 -- The host re-renders a card repeatedly to fit its cell, changing only the
 -- size. Build each card's data once per fit, not once per font size, in
 -- `a._bookshelf_<slot>`. Short-lived: anything saved meanwhile, even outside

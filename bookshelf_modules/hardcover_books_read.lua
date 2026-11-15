@@ -4,16 +4,12 @@ local _ = require("gettext")
 local Kit = require("lib/bookshelf_module_kit")
 if not Kit.plugin then return {} end
 local M = require("hardcover/lib/bookshelf_modules")
-local function app()
-  local ok, instance = pcall(Kit.plugin, MODULE_DIR)
-  return ok and instance or nil
-end
 return {
   key = "hardcover_books_read",
   title = _("Hardcover books read"),
   summary = _("Distinct books finished, all time. Works offline after loading Stats."),
   aspect = "square", min_w = 1,
-  render = function(ctx) return M.totalWidget(app(), ctx, "books") end,
-  on_tap = function(ctx) M.cardTap(app(), ctx, "showStats") end,
-  show_settings = function(ctx) M.cardSettings(app(), ctx, "books") end,
+  render = function(ctx) return M.totalWidget(M.app(MODULE_DIR), ctx, "books") end,
+  on_tap = function(ctx) M.cardTap(M.app(MODULE_DIR), ctx, "showStats") end,
+  show_settings = function(ctx) M.cardSettings(M.app(MODULE_DIR), ctx, "books") end,
 }

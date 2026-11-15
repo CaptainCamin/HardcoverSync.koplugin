@@ -15,11 +15,6 @@ if not Kit.plugin then return {} end
 
 local M = require("hardcover/lib/bookshelf_modules")
 
-local function app()
-  local ok, instance = pcall(Kit.plugin, MODULE_DIR)
-  return ok and instance or nil
-end
-
 return {
   key = "hardcover_goal_ring",
   title = _("Hardcover goal ring"),
@@ -28,13 +23,13 @@ return {
   -- cell is too short for a name, so the reader can shrink it to a tile.
   min_w = 1,
   render = function(ctx)
-    return M.goalRingWidget(app(), ctx)
+    return M.goalRingWidget(M.app(MODULE_DIR), ctx)
   end,
   on_tap = function(ctx)
-    M.cardTap(app(), ctx, "showGoals")
+    M.cardTap(M.app(MODULE_DIR), ctx, "showGoals")
   end,
   -- Long press -> Module settings: which running goal this ring shows.
   show_settings = function(ctx)
-    M.cardSettings(app(), ctx, "goal_ring")
+    M.cardSettings(M.app(MODULE_DIR), ctx, "goal_ring")
   end,
 }

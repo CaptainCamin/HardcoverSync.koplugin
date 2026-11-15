@@ -15,24 +15,19 @@ if not Kit.plugin then return {} end
 
 local M = require("hardcover/lib/bookshelf_modules")
 
-local function app()
-  local ok, instance = pcall(Kit.plugin, MODULE_DIR)
-  return ok and instance or nil
-end
-
 return {
   key = "hardcover_goal",
   title = _("Hardcover goal"),
   summary = _("Your current reading goal. Works offline."),
   min_w = 2,
   render = function(ctx)
-    return M.goalWidget(app(), ctx)
+    return M.goalWidget(M.app(MODULE_DIR), ctx)
   end,
   on_tap = function(ctx)
-    M.cardTap(app(), ctx, "showGoals")
+    M.cardTap(M.app(MODULE_DIR), ctx, "showGoals")
   end,
   -- Long press -> Module settings: which running goal this card shows.
   show_settings = function(ctx)
-    M.cardSettings(app(), ctx, "goal")
+    M.cardSettings(M.app(MODULE_DIR), ctx, "goal")
   end,
 }
