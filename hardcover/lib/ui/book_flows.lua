@@ -225,6 +225,37 @@ function Flows:removalKept(op)
   local on = screen and screen.detail and screen.detail.book and screen.detail.book.book_id
   if on and tonumber(on) == tonumber(op.book_id) then
     screen:setStatus(op.status_id, op.user_book_id)
+    -- setStatus clears the rating with the shelf; the book was kept, so put its rating
+    -- back too (a rating set offline and not sent is still what the reader chose).
+    local waiting = self.rating_queue
+      and self.rating_queue:get(op.user_book_id, op.book_id, user_id)
+    if waiting ~= nil then
+      screen:setRating(waiting)
+    elseif op.rating ~= nil then
+      screen:setRating(op.rating)
+    end
+  end
+end
+
+-- Hardcover confirmed values for the book open on its details screen. A removal baseline
+-- must include edits it has accepted, but never the overlays of edits still waiting.
+-- `opts.status` / `opts.rating` say which fields this answer settles; `opts.book_id` is for
+-- an answer that names the library record but not the catalog book.
+function Flows:rememberServerDetail(user_book, opts)
+  if type(user_book) ~= "table" then return end
+  opts = opts or {}
+  local book_id = tonumber(opts.book_id or user_book.book_id)
+  local screen = self:screens():open("book")
+  local detail = screen and screen.detail
+  local on = detail and detail.book and tonumber(detail.book.book_id)
+  local base = detail and detail._server_base
+  if not (book_id and on == book_id and base) then return end
+  if opts.status and user_book.status_id ~= nil then
+    base.status_id, base.status_known = tonumber(user_book.status_id), true
+  end
+  if opts.rating then
+    -- updateRating answers with the rating as well, nil when it was cleared
+    base.user_rating, base.rating_known = tonumber(user_book.rating), true
   end
 end
 
@@ -929,6 +960,7 @@ function Flows:ratingSent(_user_book_id, user_book)
   if shelves and type(user_book) == "table" and user_book.book_id then
     shelves:rateBook(User:getId(), user_book.book_id, user_book.rating)
   end
+  self:rememberServerDetail(user_book, { status = true, rating = true })
   self:forgetShelves(user_book and user_book.status_id, nil)
 end
 
@@ -989,6 +1021,7 @@ function Flows:saveShelf(dialog, status_id)
       end
 
       -- A change queued while the request was out is newer and must remain queued.
+      self:rememberServerDetail(user_book, { status = true })
       self:shelfChanged(request.book_id, old_status_id, status_id, user_book.id or detail.user_book_id)
       if Live.shown(dialog) then
         dialog:setStatus(status_id, user_book.id or detail.user_book_id)
@@ -1098,6 +1131,7 @@ function Flows:shelfSent(op, user_book)
   if shelves and op.from_status_id then shelves:markStale(user_id, op.from_status_id) end
   local status_id = op.kind == "status" and op.status_id or nil
   local user_book_id = type(user_book) == "table" and tonumber(user_book.id) or nil
+  self:rememberServerDetail(user_book, { status = true })
   self:shelfChanged(op.book_id, op.from_status_id, status_id, user_book_id)
 
   local screen = self:screens():open("book")
@@ -1245,6 +1279,8 @@ function Flows:applyAbout(dialog, book_id, about)
   if self.book_store then self.book_store:updateNumbers(book_id, about) end
 
   local mine = about.user_book
+  -- Refresh is also what Hardcover has: keep a later removal comparison current.
+  self:rememberServerDetail(mine, { book_id = book_id, status = true, rating = true })
   local status_id = mine and tonumber(mine.status_id) or nil
   local user_book_id = mine and tonumber(mine.id) or nil
   -- a shelf change made here and not sent yet is what the screen shows, not Hardcover's

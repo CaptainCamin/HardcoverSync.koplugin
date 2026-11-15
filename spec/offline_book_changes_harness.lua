@@ -230,13 +230,17 @@ local check = r.test
 
 -- a details screen that records what it is told
 local function detailScreen(m, detail)
-  local d = { detail = detail, status_updates = {}, synced = {} }
+  local d = { detail = detail, status_updates = {}, rating_updates = {}, synced = {} }
   function d:setStatus(status_id, user_book_id)
     self.status_updates[#self.status_updates + 1] = { status_id, user_book_id }
     self.detail.status_id, self.detail.user_book_id = status_id, user_book_id
+    if not status_id then self.detail.user_rating = nil end
   end
   function d:setLists(rows) self.synced[#self.synced + 1] = rows end
-  function d:setRating() end
+  function d:setRating(rating)
+    self.rating_updates[#self.rating_updates + 1] = rating
+    self.detail.user_rating = (tonumber(rating) or 0) > 0 and rating or nil
+  end
   UIM:show(d)
   m:screens():track("book", d)
   return d
@@ -515,10 +519,12 @@ check("keeping a book after a removal question puts it back on its saved shelf",
     online = { id = 51, status_id = 1, rating = 4 }, current_user_book_id = 51 }
   local ok, outcome = sync_queue:resolve(1, "keep")
   assert(ok and outcome and outcome.kind == "shelf", "no shelf outcome")
+  assert(d.detail.user_rating == nil, "the removal did not clear the open rating")
   m:removalKept(outcome)
   local row = shelves:findEntry(1, 1)
   assert(row and row.status_id == 1 and row.user_rating == 4, "the shelf row was not restored")
   assert(d.detail.status_id == 1 and d.detail.user_book_id == 51, "the open details did not go back")
+  assert(d.detail.user_rating == 4, "the open details rating was not restored")
   assert(sync_queue:get(1) == nil, "the removal is still queued")
 end)
 
@@ -541,6 +547,57 @@ check("a removal baseline uses Hardcover's values, not the reader's queued edits
   assert(entry.remove_base.rating == 4, "the queued rating leaked into the removal baseline")
   assert(entry.remove_base.status_id == 1,
     "the queued shelf change leaked into the removal baseline")
+end)
+
+check("a rating sent from the details screen updates a later removal baseline", function()
+  local m = newManager()
+  local d = detailScreen(m, SHELVED()) -- online: Want to Read, rating 4
+  d.detail = m:withPending(d.detail)
+  assert(d.detail._server_base.user_rating == 4, "no server baseline")
+
+  local stepper = real_require("hardcover/lib/ui/components/stepper_dialog")
+  local show, form = stepper.show
+  stepper.show = function(opts) form = opts end
+  m:rateBook(d, 2)
+  stepper.show = show
+  form.on_save(2)
+  assert(rating_queue:get(51, 1, 1) == 2, "the rating was not queued")
+
+  local api = serverApi()
+  function api:updateRating(id, rating)
+    return { id = id, book_id = 1, status_id = 1, rating = rating, user_book_reads = {} }
+  end
+  assert(rating_queue:flush(api, function(id, ub) m:ratingSent(id, ub) end, 1) == 0)
+  assert(d.detail._server_base.user_rating == 2,
+    "the accepted rating did not update the removal baseline")
+
+  online = false
+  tap(showing(function() m:chooseShelf(d) end), "Remove from library")
+  confirms[1].ok_callback()
+  local entry = sync_queue:get(1)
+  assert(entry and entry.remove, "no removal was queued")
+  assert(entry.remove_base.rating == 2,
+    "the removal baseline kept the stale rating: " .. tostring(entry.remove_base.rating))
+end)
+
+check("a shelf change sent from the details screen updates a later removal baseline", function()
+  local m = newManager()
+  local d = detailScreen(m, SHELVED()) -- online: Want to Read, rating 4
+  d.detail = m:withPending(d.detail)
+  assert(d.detail._server_base.status_id == 1, "no server baseline")
+  tap(showing(function() m:chooseShelf(d) end), "Currently Reading")
+  assert(update_cb, "no shelf request")
+  update_cb({ id = 51, book_id = 1, status_id = 2, rating = 4, user_book_reads = {} })
+  assert(d.detail._server_base.status_id == 2,
+    "the accepted shelf change did not update the removal baseline")
+
+  online = false
+  tap(showing(function() m:chooseShelf(d) end), "Remove from library")
+  confirms[1].ok_callback()
+  local entry = sync_queue:get(1)
+  assert(entry and entry.remove, "no removal was queued")
+  assert(entry.remove_base.status_id == 2,
+    "the removal baseline kept the stale shelf: " .. tostring(entry.remove_base.status_id))
 end)
 
 check("changing the shelf online preserves the offline change ahead of it", function()
