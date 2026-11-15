@@ -15,6 +15,8 @@
 -- plugin is not installed, or a version of it no longer has these methods, the
 -- feature reports that rather than raising.
 
+local TextUtil = require("hardcover/lib/text_util")
+
 local Zlibrary = {}
 
 --
@@ -32,7 +34,7 @@ function Zlibrary.query(book)
 
   local author = type(book.authors) == "string" and book.authors or ""
   author = author:match("^([^,]+)") or ""
-  author = author:gsub("^%s+", ""):gsub("%s+$", "")
+  author = TextUtil.trim(author)
 
   if author ~= "" then
     return title .. " " .. author

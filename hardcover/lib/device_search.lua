@@ -5,6 +5,8 @@
 -- opens its search box with the text filled in, and the reader picks the folder. No
 -- Hardcover-side data is involved, so this is plain data plus one call.
 
+local TextUtil = require("hardcover/lib/text_util")
+
 local DeviceSearch = {}
 
 --
@@ -17,7 +19,7 @@ function DeviceSearch.query(book)
   local title = book.title:gsub("%s+", " ")
   local head = title:match("^([^:%(%[]+)")
   if head and head:find("%S") then title = head end
-  title = title:gsub("^%s+", ""):gsub("%s+$", "")
+  title = TextUtil.trim(title)
   if title == "" then return nil end
   return title
 end

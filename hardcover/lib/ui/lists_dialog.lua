@@ -150,16 +150,8 @@ function ListsDialog:buildContent(width, viewport)
     table.insert(content, text(self.message, "body", { grey = true, width = width }))
     return content
   end
-  local function matches(rows)
-    local found = {}
-    for _, row in ipairs(rows or {}) do
-      if LocalSearch.matches(self.search_query, { row.name, row.owner }) then
-        found[#found + 1] = row
-      end
-    end
-    return found
-  end
-  local mine, following = matches(self.mine), matches(self.following)
+  local mine = LocalSearch.filter(self.mine, self.search_query, { "name", "owner" })
+  local following = LocalSearch.filter(self.following, self.search_query, { "name", "owner" })
   if self.search_query:match("%S") and #mine == 0 and #following == 0 then
     table.insert(content, text(_("No lists found"), "body", { grey = true, width = width }))
     return content
@@ -174,7 +166,7 @@ function ListsDialog:promptSearch(initial)
     input = initial or self.search_query,
     hint = _("Search lists"),
     on_submit = function(query)
-      self.search_query = type(query) == "string" and query:gsub("^%s+", ""):gsub("%s+$", "") or ""
+      self.search_query = LocalSearch.clean(query)
       self:rebuild()
       return true
     end,

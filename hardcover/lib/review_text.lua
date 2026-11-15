@@ -6,12 +6,14 @@
 --
 -- Plain data, no KOReader requires, so it runs under stock Lua in the spec suite.
 
+local TextUtil = require("hardcover/lib/text_util")
+
 local ReviewText = {}
 
 -- What the writer typed, with the line ends of any platform made "\n", and nothing around it.
 function ReviewText.clean(text)
   text = tostring(text or ""):gsub("\r\n", "\n"):gsub("\r", "\n")
-  return (text:gsub("^%s+", ""):gsub("%s+$", ""))
+  return TextUtil.trim(text)
 end
 
 --

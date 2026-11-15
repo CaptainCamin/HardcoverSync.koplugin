@@ -25,6 +25,7 @@ local Api = require("hardcover/lib/hardcover_api")
 local Journal = require("hardcover/lib/journal")
 local Network = require("hardcover/lib/network")
 local PendingStatus = require("hardcover/lib/pending_status")
+local ReviewText = require("hardcover/lib/review_text")
 local Reviews = require("hardcover/lib/reviews")
 local User = require("hardcover/lib/user")
 
@@ -32,11 +33,6 @@ local AuthScope = require("hardcover/lib/ui/auth_scope")
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 
 local Flows = {}
-
-local function trim(text)
-  text = tostring(text or ""):gsub("\r\n", "\n"):gsub("\r", "\n")
-  return (text:gsub("^%s+", ""):gsub("%s+$", ""))
-end
 
 -- A response to the initial fetch may arrive after a send or a delete on this screen.
 local function journalChanged(state, key, fields)
@@ -180,7 +176,7 @@ function Flows:editJournalEntry(entry, done)
     buttons = {
       { label = _("Cancel"), callback = function() UIManager:close(input) end },
       { label = _("Save"), primary = true, callback = function()
-          local text = trim(input:getInputText())
+          local text = ReviewText.clean(input:getInputText())
           if text == "" then
             StatusDialogs.info(quote and _("A quote can't be empty. Use Delete to remove it.")
               or _("A note can't be empty. Use Delete to remove it."))
