@@ -38,7 +38,14 @@ function User:refreshAccountPrivacy(done, now)
     if done then done(nil) end
     return
   end
-  if User.privacy_pending or (User.privacy_retry_at and now < User.privacy_retry_at) then
+  if User.privacy_pending then
+    if done then
+      User.privacy_waiters = User.privacy_waiters or {}
+      table.insert(User.privacy_waiters, done)
+    end
+    return
+  end
+  if User.privacy_retry_at and now < User.privacy_retry_at then
     if done then done(self:getAccountPrivacy()) end
     return
   end
@@ -47,9 +54,20 @@ function User:refreshAccountPrivacy(done, now)
     return
   end
 
+  local generation = User.account_generation or 0
   User.privacy_pending = true
+  User.privacy_waiters = {}
+  local waiters = User.privacy_waiters
   Api:meAsync(function(me)
-    User.privacy_pending = nil
+    if generation ~= (User.account_generation or 0) then
+      User.privacy_pending, User.privacy_waiters = nil, nil
+      local value = self:getAccountPrivacy()
+      if done then done(value) end
+      for _, cb in ipairs(waiters) do cb(value) end
+      return
+    end
+
+    User.privacy_pending, User.privacy_waiters = nil, nil
     local privacy = tonumber(me and me.account_privacy_setting_id)
     if privacy then
       User.privacy_retry_at = nil
@@ -57,7 +75,9 @@ function User:refreshAccountPrivacy(done, now)
     else
       User.privacy_retry_at = now + User.RETRY_AFTER
     end
-    if done then done(self:getAccountPrivacy()) end
+    local value = self:getAccountPrivacy()
+    if done then done(value) end
+    for _, cb in ipairs(waiters) do cb(value) end
   end)
 end
 
@@ -81,9 +101,14 @@ function User:refreshName(done, now)
   if User.name_retry_at and now < User.name_retry_at then return end
   if not Network.connected() then return end
 
+  local generation = User.account_generation or 0
   User.name_pending = true
   Api:meAsync(function(me)
     User.name_pending = nil
+    if generation ~= (User.account_generation or 0) then
+      if done then done(self:getName()) end
+      return
+    end
     local name = type(me) == "table" and me.username
     if type(name) == "string" and name ~= "" then
       User.name_retry_at = nil
@@ -104,6 +129,8 @@ function User:forget()
   self.settings:updateSetting(SETTING.ACCOUNT_PRIVACY, nil)
   User.name_pending, User.name_retry_at = nil, nil
   User.privacy_pending, User.privacy_retry_at = nil, nil
+  User.privacy_waiters = nil
+  User.account_generation = (User.account_generation or 0) + 1
 end
 
 return User

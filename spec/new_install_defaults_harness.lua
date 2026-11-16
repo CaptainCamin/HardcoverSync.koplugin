@@ -125,6 +125,13 @@ check("a missing settings file is a new install", function()
   assert(HardcoverSettings.newInstall(path) == true)
 end)
 
+check("a path that exists but cannot be opened is not a new install", function()
+  local path = os.tmpname()
+  local f = assert(io.open(path, "w")); f:write("return {}\n"); f:close()
+  assert(HardcoverSettings.newInstall(path .. "/child") == false)
+  os.remove(path)
+end)
+
 print("\n== per-book overrides ==")
 
 check("a book without an override inherits the new global default", function()

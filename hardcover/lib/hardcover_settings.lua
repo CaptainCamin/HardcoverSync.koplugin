@@ -11,14 +11,17 @@ HardcoverSettings.__index = HardcoverSettings
 
 -- A settings file that does not exist yet is a new installation. Existing files,
 -- even empty ones, are upgrades: their absent keys keep the old off defaults.
+local ENOENT = 2 -- POSIX "No such file or directory"
 function HardcoverSettings.newInstall(path)
   if not path then return true end
-  local file = io.open(path, "r")
+  local file, _, errno = io.open(path, "r")
   if file then
     file:close()
     return false
   end
-  return true
+  -- A permission or other open failure is not a new install: treating it as one
+  -- would overwrite an existing reader's choices with the new defaults.
+  return errno == ENOENT
 end
 
 -- The defaults a clean installation starts with. They are written once, on the

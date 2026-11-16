@@ -23,6 +23,7 @@ package.preload["hardcover/lib/hardcover_api"] = function()
 end
 
 local User = dofile(PLUGIN .. "/hardcover/lib/user.lua")
+local Api = require("hardcover/lib/hardcover_api")
 
 local function settings(initial)
   local store = initial or {}
@@ -66,6 +67,7 @@ local function fresh(initial)
   User.settings = s
   User.name_pending, User.name_retry_at = nil, nil
   User.privacy_pending, User.privacy_retry_at = nil, nil
+  User.privacy_waiters, User.account_generation = nil, nil
   asked, answer, online = 0, nil, true
   return store
 end
@@ -141,15 +143,54 @@ check("privacy refresh offline asks nothing and keeps the saved value", function
   assert(asked == 0 and store.account_privacy_setting_id == 2 and got == 2)
 end)
 
+check("a form opened while privacy is pending gets the answer too", function()
+  local store = fresh({ user_id = 7, user_name = "old" })
+  local saved = Api.meAsync
+  local pending
+  Api.meAsync = function(_, cb) pending = cb end
+  local first, second
+  User:refreshAccountPrivacy(function(value) first = value end)
+  User:refreshAccountPrivacy(function(value) second = value end)
+  assert(pending and first == nil and second == nil)
+  pending({ id = 7, username = "old", account_privacy_setting_id = 2 })
+  assert(first == 2 and second == 2 and store.account_privacy_setting_id == 2)
+  Api.meAsync = saved
+end)
+
+check("a privacy response from the old account is ignored", function()
+  local store = fresh({ user_id = 7, user_name = "old" })
+  local saved = Api.meAsync
+  local pending
+  Api.meAsync = function(_, cb) pending = cb end
+  local got
+  User:refreshAccountPrivacy(function(value) got = value end)
+  User:forget()
+  pending({ id = 7, username = "old", account_privacy_setting_id = 1 })
+  assert(store.account_privacy_setting_id == nil and got == nil)
+  Api.meAsync = saved
+end)
+
+check("a name response from the old account is ignored", function()
+  local store = fresh({ user_id = 7 })
+  local saved = Api.meAsync
+  local pending
+  Api.meAsync = function(_, cb) pending = cb end
+  User:refreshName()
+  User:forget()
+  pending({ id = 7, username = "old", account_privacy_setting_id = 1 })
+  assert(store.user_name == nil and store.account_privacy_setting_id == nil)
+  Api.meAsync = saved
+end)
+
 check("a new sign-in forgets the old account", function()
-  local s, store = settings({ user_id = 7, user_name = "old", account_privacy_setting_id = 3 })
-  User.settings = s
+  local store = fresh({ user_id = 7, user_name = "old", account_privacy_setting_id = 3 })
   User.name_pending, User.name_retry_at = true, 99
   User.privacy_pending, User.privacy_retry_at = true, 99
   User:forget()
   assert(store.user_id == nil and store.user_name == nil and store.account_privacy_setting_id == nil
     and User.name_pending == nil and User.name_retry_at == nil
-    and User.privacy_pending == nil and User.privacy_retry_at == nil)
+    and User.privacy_pending == nil and User.privacy_retry_at == nil
+    and User.privacy_waiters == nil and User.account_generation == 1)
 end)
 
 r.finish()
