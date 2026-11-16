@@ -621,18 +621,18 @@ end)
 check("a shelf change with no answer is kept at once and sent when the connection returns", function()
   local m = newManager()
   local d = detailScreen(m, SHELVED())
-  tap(showing(function() m:chooseShelf(d) end), "Paused")
+  tap(showing(function() m:chooseShelf(d) end), "Read")
   assert(update_cb, "no shelf request")
   update_cb(nil, { completed = false })
 
   local op = m.sync_queue:shelfOp(1)
-  assert(op and op.kind == "status" and op.status_id == 4 and op.from_status_id == 1,
+  assert(op and op.kind == "status" and op.status_id == 3 and op.from_status_id == 1,
     "the unanswered change was not queued")
   assert(op.user_book_id == 51, "the library record was lost")
-  assert(d.detail.status_id == 4 and d.detail.user_book_id == 51, "the screen did not change")
-  assert(shelves:member(1, 1).status_id == 4, "the saved shelf did not change")
+  assert(d.detail.status_id == 3 and d.detail.user_book_id == 51, "the screen did not change")
+  assert(shelves:member(1, 1).status_id == 3, "the saved shelf did not change")
   assert(shelves:member(1, 1).rating == 4, "the rating did not survive")
-  assert(countOf(m, 1) == 0 and countOf(m, 4) == 1, "the counts did not follow")
+  assert(countOf(m, 1) == 0 and countOf(m, 3) == 2, "the counts did not follow")
   assert(#retries == 0, "an unreachable API still offered only a retry")
   assert(lastInfo():find("kept", 1, true), "no visible acknowledgement: " .. lastInfo())
 
@@ -649,7 +649,7 @@ check("a shelf change with no answer is kept at once and sent when the connectio
   end
   assert(sync_queue:flush(api, { user_id = 1, on_status_sent = function(sent, user_book) m:shelfSent(sent, user_book) end }))
   assert(#server_calls == 1 and server_calls[1].name == "updateUserBookStatus"
-    and server_calls[1].id == 51 and server_calls[1].status_id == 4, "the queued change was not sent")
+    and server_calls[1].id == 51 and server_calls[1].status_id == 3, "the queued change was not sent")
   assert(sync_queue:count() == 0, "the sent change is still queued")
 end)
 
