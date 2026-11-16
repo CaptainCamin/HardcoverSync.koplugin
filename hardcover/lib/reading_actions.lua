@@ -87,7 +87,8 @@ function Actions.refresh(entry)
   if #days > 0 then entry.page_days = days end
 end
 
-local READ_KINDS = { read_dates = true, read_edition = true, add_read = true, remove_read = true }
+local READ_KINDS = { read_dates = true, read_edition = true, add_read = true, remove_read = true,
+  abandon_reread = true }
 
 function Actions.isRead(action)
   return type(action) == "table" and READ_KINDS[action.kind] == true
@@ -108,6 +109,10 @@ local function readAction(entry, kind, fields)
     local_id = fields.local_id, base = fields.base or {}, change = fields.change or {},
     clear = fields.clear or {},
   })
+  -- An abandon carries the read it must leave alone and the shelf to restore. Keep them on the
+  -- action so a restart and every retry use the same snapshot.
+  action.previous_read = fields.previous_read
+  action.restore_status_id = fields.restore_status_id
   Actions.refresh(entry)
   return action
 end
@@ -134,6 +139,15 @@ end
 -- One read to remove. `base` is the read as it was when the reader asked.
 function Actions.removeRead(entry, read_id, base, at)
   return readAction(entry, "remove_read", { read_id = read_id, base = base, at = at })
+end
+
+-- Abandon the active reread: delete `read_id`, then put the library back on `restore_status_id`.
+-- `previous_read` is the finished read that must remain untouched.
+function Actions.abandonReread(entry, read_id, base, previous_read, restore_status_id, at)
+  return readAction(entry, "abandon_reread", {
+    read_id = read_id, base = base, previous_read = previous_read,
+    restore_status_id = restore_status_id, at = at,
+  })
 end
 
 function Actions.status(entry, status, at, finished_date, reread)
@@ -178,6 +192,7 @@ end
 function Actions.started(action)
   return action.status_attempt ~= nil or action.status_sent or action.page_attempt or action.applied
     or action.read_attempt ~= nil or action.read_sent or action.checking
+    or (action.kind == "abandon_reread" and (action.deleted or action.status_restored))
 end
 
 -- Journal rows and grouped pending controls must validate the same reading dependencies.
@@ -248,6 +263,13 @@ function Actions.rejectPages(entry, seq)
   end
   entry.actions = kept
   Actions.refresh(entry)
+end
+
+function Actions.hasAbandon(entry)
+  for _, action in ipairs(Actions.list(entry)) do
+    if action.kind == "abandon_reread" then return true end
+  end
+  return false
 end
 
 function Actions.statusCount(entry)

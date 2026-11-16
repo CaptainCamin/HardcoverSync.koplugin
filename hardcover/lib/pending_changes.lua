@@ -71,6 +71,7 @@ local function readActionText(action)
   if action.kind == "read_edition" then return _("Edition waiting to send") end
   if action.kind == "add_read" then return _("New read waiting to send") end
   if action.kind == "remove_read" then return _("Removal waiting to send") end
+  if action.kind == "abandon_reread" then return _("Abandoning reread") end
   local fields = {}
   for field in pairs(action.change or {}) do fields[field] = true end
   for field in pairs(action.clear or {}) do fields[field] = true end

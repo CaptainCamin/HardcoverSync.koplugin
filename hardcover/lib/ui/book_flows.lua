@@ -16,6 +16,7 @@ local UIManager = require("ui/uimanager")
 local Live = require("hardcover/lib/ui/live")
 
 local Api = require("hardcover/lib/hardcover_api")
+local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local Background = require("hardcover/lib/background")
 local BookActions = require("hardcover/lib/book_actions")
 local BookSyncState = require("hardcover/lib/book_sync_state")
@@ -519,6 +520,7 @@ end
 -- The words for one queued read edit, at the start of its row: what will change and that it is
 -- waiting. A question, a request in flight and a held older read keep the queue's own words.
 local function readStateText(action)
+  if action.kind == "abandon_reread" then return _("Abandoning reread") end
   if action.kind == "remove_read" then return _("Removal waiting to send") end
   if action.kind == "add_read" then return _("Read waiting to send") end
   local fields = {}
@@ -664,7 +666,16 @@ function Flows:readHistoryProjection(context)
     and self.sync_queue:readActions(context.book_id) or {}
   local reads = context.reads
   if reads ~= nil then reads = ReadHistory.project(reads, actions) end
-  return reads, self:readStates(actions)
+  local pending = self.sync_queue and self.sync_queue.pendingReread
+    and self.sync_queue:pendingReread(context.book_id, reads) or nil
+  local states = self:readStates(actions)
+  if pending then
+    reads = reads or {}
+    reads[#reads + 1] = pending
+    states[pending.id] = { text = pending.pending_abandon and _("Abandoning reread")
+      or _("Waiting to send"), kind = "waiting" }
+  end
+  return reads, states
 end
 
 function Flows:refreshReadHistory(history)
@@ -718,7 +729,9 @@ function Flows:showLinkedReadHistory(opts)
 end
 
 function Flows:openReadHistoryWhenAvailable(context)
-  if context.reads ~= nil or not Network.connected() then
+  local pending = self.sync_queue and self.sync_queue.pendingReread
+    and self.sync_queue:pendingReread(context.book_id, context.reads) or nil
+  if context.reads ~= nil or pending or not Network.connected() then
     return self:openReadHistory(context)
   end
   local loading = StatusDialogs.loading(_("Loading reading history…"))
@@ -750,6 +763,7 @@ function Flows:openReadHistory(context)
     on_open_read = function(read)
       self:editRead(context, history, read)
     end,
+    on_abandon = function(read) self:abandonReread(context, history, read) end,
     on_add = function() self:addRead(context, history) end,
   }
   history.context = context
@@ -827,6 +841,10 @@ function Flows:editRead(context, history, read)
       end
     end
   end
+  local previous
+  for _, candidate in ipairs(context.reads or {}) do
+    if candidate ~= read and candidate.finished_at then previous = candidate end
+  end
   form = require("hardcover/lib/ui/read_edit_dialog"):new {
     book = context.book, read = read, on_save = on_save,
     choose_edition = function(edition_id, callback)
@@ -841,6 +859,9 @@ function Flows:editRead(context, history, read)
       if history then self:refreshReadHistory(history) end
       if context.screen then context.screen:refreshState() end
     end,
+    on_abandon = (read.finished_at == nil and previous and not read.pending_abandon) and function()
+      self:abandonReread(context, history, read, previous)
+    end or nil,
   }
   UIManager:show(form, "full")
 end
@@ -884,6 +905,78 @@ function Flows:addRead(context, history)
     end,
   }
   UIManager:show(form, "full")
+end
+
+-- Abandon the active reread. A reread still only in the queue is cancelled locally; one that
+-- exists on Hardcover is deleted and the previous shelf is restored without a finish-date write.
+function Flows:abandonReread(context, history, read, previous)
+  local book_id, user_id = tonumber(context.book_id), User:getId()
+  local file = self:deviceFile(book_id)
+  local queue = self.sync_queue
+  if not (queue and book_id) then
+    StatusDialogs.info(_("Could not abandon this reread. Try again."))
+    return
+  end
+  local entry = queue:get(file or book_id)
+  local from = entry and (entry.reread_restore_status_id or entry.from_status_id)
+  local pending = read.pending_reread or not tonumber(read.id)
+
+  if pending then
+    StatusDialogs.confirm {
+      title = _("Abandon this reread?"),
+      text = _("This reread has not been sent to Hardcover yet. It will be discarded from this device. Your previous read and its dates stay."),
+      ok_text = _("Abandon reread"),
+      cancel_text = _("Keep reading"),
+      ok_callback = function()
+        local saved, outcome = queue:abandonReread(file or book_id, {})
+        if not saved then
+          StatusDialogs.info(_("Could not abandon this reread. Try again."))
+          return
+        end
+        local restore = outcome and tonumber(outcome.from_status_id) or tonumber(from)
+        if not restore or restore == 0 then restore = HARDCOVER.STATUS.FINISHED end
+        self:shelfChanged(book_id, HARDCOVER.STATUS.READING, restore, outcome and outcome.user_book_id, true)
+        local shelves = self:shelves()
+        if shelves and restore then shelves:markStale(user_id, restore) end
+        if history then self:refreshReadHistory(history) end
+        if context.screen then context.screen:refreshState() end
+        StatusDialogs.info(_("Reread discarded. Your previous read is still there."), 3)
+      end,
+    }
+    return
+  end
+
+  previous = previous or (function()
+    for _, candidate in ipairs(context.reads or {}) do
+      if candidate ~= read and candidate.finished_at then return candidate end
+    end
+  end)()
+  if not previous then
+    StatusDialogs.info(_("There is no earlier finished read to restore."))
+    return
+  end
+  local restore = entry and tonumber(entry.reread_restore_status_id)
+  if not restore or restore == 0 then
+    restore = previous.finished_at and HARDCOVER.STATUS.FINISHED or HARDCOVER.STATUS.DNF
+  end
+  local saved, action = queue:abandonReread(file or book_id, {
+    book_id = book_id, read_id = read.id, base = readBase(read), previous_read = readBase(previous),
+    restore_status_id = restore, user_book_id = context.user_book_id,
+    user_id = user_id, title = context.book and context.book.title,
+    edition_id = context.book and context.book.edition_id,
+  })
+  if not saved then
+    StatusDialogs.info(_("Could not keep the abandon request. Try again."))
+    return
+  end
+  if history then self:refreshReadHistory(history) end
+  if context.screen then context.screen:refreshState() end
+  if Network.connected() then
+    if self.flush_goals then self.flush_goals() end
+  else
+    StatusDialogs.info(_("You're offline. Abandoning the reread is kept and will be sent when you're connected."), 3)
+  end
+  return action
 end
 
 function Flows:removeRead(context, history, read)

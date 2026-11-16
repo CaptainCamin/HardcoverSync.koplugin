@@ -10,6 +10,8 @@
 
 - **The rating dialog no longer invents 2.5 stars.** It opens at the rating already on the book, or at no rating; tapping a star opens that star, and half-star positions are available. Closing without saving writes nothing, and 0 still clears the rating.
 
+- **Abandon a reread without losing the earlier read.** The active reread's Reading history row now offers **Abandon reread**. It removes only that reread, restores the book's previous Read or Did Not Finish shelf, and leaves the earlier read, its dates, rating and review alone. It also works from a reread that has not synced yet. Journal entries from the reread may remain on Hardcover.
+
 - **Book details now leads with your reading.** The cover's column holds the shelf chip and your stars, one action row holds the ways to open, download or list the book, and a reading row with progress and the current read's edition opens Reading history. About is three lines, and the Reviews section opens the full reviews page.
 
 - **Change the edition of any read.** Reading history's Edition row opens the edition picker, audiobooks included, and converts the page to the chosen edition's numbering. The current read also moves the book's linked edition and page count at once, so pages turned afterwards are sent in the right units. Cancelling the change in Pending changes puts the old edition back.

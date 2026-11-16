@@ -45,6 +45,7 @@ local ReadEditDialog = InputContainer:extend {
   adding = false,  -- an empty form for a past read; Finished is required
   default_edition = nil, -- the edition preselected on an addition
   on_remove = nil, -- function(read) after Remove this read is confirmed
+  on_abandon = nil, -- function(read) after Abandon reread is confirmed
   today = nil,     -- YYYY-MM-DD, for a test; the device's day otherwise
   -- function(current_edition_id, callback) that shows the edition picker and calls back with the
   -- chosen edition (the normalized row: edition_id, pages, edition_format, reading_format_id)
@@ -167,6 +168,9 @@ function ReadEditDialog:rows()
     rows[#rows + 1] = { key = "remove", label = self.read.pending_add and _("Discard this read")
       or _("Remove this read"), remove = true }
   end
+  if self.read and self:inProgress() and self.on_abandon then
+    rows[#rows + 1] = { key = "abandon", label = _("Abandon reread"), remove = true }
+  end
   return rows
 end
 
@@ -250,7 +254,8 @@ function ReadEditDialog:buildRemoveRow(row, width, viewport, divider)
     viewport = viewport,
     strong = true,
     callback = function()
-      if not self.busy then self:confirmRemove() end
+      if self.busy then return end
+      if row.key == "abandon" then self:confirmAbandon() else self:confirmRemove() end
     end,
   }
   item.text = row.label
@@ -517,6 +522,20 @@ function ReadEditDialog:confirmRemove()
     ok_callback = function()
       self:close()
       if self.on_remove then self.on_remove(read) end
+    end,
+  }
+end
+
+function ReadEditDialog:confirmAbandon()
+  local read = self.read or {}
+  StatusDialogs.confirm {
+    title = _("Abandon this reread?"),
+    text = _("The reread and its progress will be removed. Your previous read, its dates, rating and review stay, and the book stays on its shelf. Journal entries from the reread may remain."),
+    ok_text = _("Abandon reread"),
+    cancel_text = _("Keep reading"),
+    ok_callback = function()
+      self:close()
+      if self.on_abandon then self.on_abandon(read) end
     end,
   }
 end

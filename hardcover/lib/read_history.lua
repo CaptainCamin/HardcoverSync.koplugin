@@ -374,6 +374,10 @@ function ReadHistory.project(reads, actions)
       for _, read in ipairs(out) do
         if actionMatches(read, action) then read.pending_removal = true; break end
       end
+    elseif action.kind == "abandon_reread" then
+      for _, read in ipairs(out) do
+        if actionMatches(read, action) then read.pending_abandon = true; break end
+      end
     end
   end
   return out
