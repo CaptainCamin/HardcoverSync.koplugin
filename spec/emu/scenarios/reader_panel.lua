@@ -183,7 +183,7 @@ return {
     emu.UIManager:show(detail)
     emu:pump()
     emu:screenNodes()
-    local shelf_button = detail.add_button.dimen
+    local shelf_button = detail.shelf_tap.dimen
     emu:tapExpecting(shelf_button.x + math.floor(shelf_button.w / 2), shelf_button.y + math.floor(shelf_button.h / 2))
     emu:pump()
     tapText("Currently Reading")

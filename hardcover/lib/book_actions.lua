@@ -42,6 +42,27 @@ function BookActions.withPendingRating(detail, waiting)
   return detail
 end
 
+-- What the device last saw on Hardcover before a rating edit: { rating, known = true }, or
+-- "unknown" when the copy on screen never carried it. A pending overlay is not the baseline;
+-- `_server_base` is what the screen held before the overlay.
+function BookActions.ratingBase(detail)
+  local source = detail and (detail._server_base or detail)
+  if not source then return "unknown" end
+  -- A book with no library record has no rating on Hardcover yet: that is a known
+  -- empty value, not an unknown one.
+  if source.rating_known ~= true and source.user_book_id ~= nil then return "unknown" end
+  return { rating = tonumber(source.user_rating), known = true }
+end
+
+-- The same for a review: { text, spoilers, known = true }, or "unknown".
+function BookActions.reviewBase(detail)
+  local source = detail and (detail._server_base or detail)
+  if not source then return "unknown" end
+  -- A book with no library record has no review on Hardcover yet: a known empty value.
+  if source.review_known ~= true and detail and detail.user_book_id ~= nil then return "unknown" end
+  return { text = source.user_review or "", spoilers = source.review_spoilers == true, known = true }
+end
+
 -- A review written offline and not yet sent shows in place of the one on record. `waiting` is the
 -- review queue's { text, spoilers } for the book, or nil; empty text is a review waiting to be cleared.
 function BookActions.withPendingReview(detail, waiting)

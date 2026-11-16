@@ -120,6 +120,41 @@ Some immediate reads returned stale values. The diagnostics polled until the ack
 
 Correcting dates can move existing `user_book_read_started` and `user_book_read_finished` rows while retaining their IDs; it does not necessarily append a correction event. A start-only correction left the finish row's `metadata.started_at` stale in one observation, whereas changing both dates updated it. Together with progress merging above, this means the remote journal is neither an immutable audit log nor a complete source of reading state. Identify the read through `user_book_read_id` and fetch its current values before offering an edit.
 
+## Read edits: insert, update and delete (checked 2026-11-15)
+
+The read editor sends three mutations besides the date correction above:
+
+| Purpose | Mutation | Sent fields |
+| --- | --- | --- |
+| Change one read's dates, precision or edition | `update_user_book_read(id: Int!, object: DatesReadInput!)` | only the changed fields; a clear is `json.util.null` |
+| Add a past read | `insert_user_book_read(user_book_id: Int!, user_book_read: DatesReadInput!)` | `started_at`, `finished_at`, `finished_at_precision`, `edition_id`, `progress_pages` as the form set them |
+| Remove one read | `delete_user_book_read(id: Int!)` | the read's id |
+
+The update shape was verified on 2026-11-02 (see above): `DatesReadInput` has `started_at`, `finished_at`, `finished_at_precision`, `edition_id`, `progress_pages`, `progress_seconds`, `action_at`, `action` and `id`, and no expected-version argument. The insert argument name and `{ error user_book_read { … } }` answer follow `insert_reading_journal` and `createRead`; the live insert probe below confirmed both. The delete shape (`delete_user_book_read(id: $id) { error id }`) came from another client and was confirmed by the live probe below. Treat `error == nil` as accepted and verify by reading the history again, because the answer cannot distinguish a deleted read from one already gone.
+
+**Read-only check (2026-11-15, repository dev account `Chan_Devbot`, id 187161).** Introspection is not available to this token, so the mutation signatures cannot be read from the schema. A direct `user_book_reads` query with `finished_at_precision`, `edition_id` and `edition { id pages edition_format reading_format_id audio_seconds }` succeeded. The account's five sampled library records held one unfinished read (`started_at` set, `finished_at` and `finished_at_precision` null, page 300, edition set). The new read fields are therefore readable with the plugin's token; the write answers were then checked by the live probes below.
+
+### Write probes (2026-11-15, dev account `Chan_Devbot`, id 187161)
+
+`spec/live/read_edits_live.lua --write` ran on the repository dev account with `HARDCOVER_API_KEY`. It created private library records for catalogue books that were not in the library, recorded each answer, and removed the eight library records and the 38 journal rows they wrote. The final audit found no records and no journal rows left, and all 8 checks passed. What it found:
+
+- **Insert (`insert_user_book_read`)**: the read kept `finished_at_precision` 1, 2 and 3. Its `progress_pages` became the edition's page count (19, 377 and 166) when the form sent none. The library record stayed Currently Reading (2) and went from 1 to 2 reads. Hardcover wrote a `user_book_read_started` row at the read's start day (local midnight, stored as the previous day in UTC), and `progress_updated` and `user_book_read_finished` rows at the finish day's local end (23:59:59.999999). The read's dates, not the arrival time, drive these rows.
+- **An older read's dates while a newer read is unfinished**: a start-only change was accepted and visible after 1–2 s. The shelf stayed Currently Reading (2) on the first correction and on an identical repeat in this run. Earlier runs (2026-11-02) changed it to Read twice, so the side effect is real but not reproducible on demand; keep the older-read-while-reading guard.
+- **Delete (`delete_user_book_read`)**: the answer is `{ id = <read id> }`; the read was gone from a fresh lookup in 1–2 s. Deleting a finished read, the only read and the active read each left the library record and its shelf unchanged (Currently Reading, 2) with one fewer read. **No journal rows were removed**: the rows before and after the delete were identical. The plan's "Hardcover also removes the journal entries this read wrote" is wrong; the removal copy must not promise that. Deleting the active read was accepted, but whether to offer it is still a product decision.
+- **Edition and page (`edition_id` + `progress_pages`)**: sending both kept the page exactly (`151`) and changed the edition; a fresh read showed the new edition, the page and no finish after 1 s. In an earlier pass, a page equal to the new edition's page count (`300` of 300) made Hardcover set `finished_at` to the update day (precision 1) even though the mutation did not send a finish. A converted page at the new edition's last page therefore finishes an in-progress read; the editor must not send it, or must say so and confirm.
+- **Read-after-write lag**: 1–2 s for the read and the shelf in these probes; earlier runs saw up to the 30 s poll limit.
+
+Run the read-only schema check with no writes:
+
+```bash
+HARDCOVER_API_KEY=<token> luajit spec/live/read_edits_live.lua .
+```
+
+The script accepts the repository dev account's `HARDCOVER_API_KEY` or the live check's
+`HARDCOVER_DEV_KEY`.
+
+Only after the account and catalogue books are agreed, run the probes with `--write`. They create private library records for catalogue books, print every request, answer, shelf and journal row, and remove the records at the end. Journal rows Hardcover itself wrote are left on the throwaway account for inspection.
+
 ### Proposed offline correction flow (not implemented)
 
 1. Choose an identified read, edit dates, then review the old and requested dates before saving. Initially offer this only for reads already identified on Hardcover; a local-only start must sync first. Save the account, book and read IDs, baseline dates and reading context, and only the requested changes. Validate the resulting date range locally.

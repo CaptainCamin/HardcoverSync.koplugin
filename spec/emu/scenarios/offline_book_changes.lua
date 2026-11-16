@@ -108,9 +108,9 @@ return {
       emu:tapExpecting(d.x + math.floor(d.w / 2), d.y + math.floor(d.h / 2))
       emu:pump()
     end
-    -- Shelf and Lists are buttons of their own: `row` is "Lists", or a shelf row's text for Shelf
+    -- Shelf is the chip beside the cover; Lists is still its own button.
     local function tapAdd(dialog, row)
-      tapButton(row == "Lists" and dialog.lists_button or dialog.add_button)
+      tapButton(row == "Lists" and dialog.lists_button or dialog.shelf_tap)
     end
     -- close the message on top (an InfoMessage waits for its timeout, which does not run here)
     local function dismiss(expected_under)

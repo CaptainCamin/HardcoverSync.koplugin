@@ -30,12 +30,14 @@ local function divider(kind, width)
   end
 end
 
--- opts { width, label, support, trailing (a drawn widget: switch, radio, chevron...), lead (a
--- widget before the label), divider ("dotted" | "solid" | nil), divider_x (where the divider starts,
--- default the side padding), h (default H, or H_SINGLE with no supporting line), callback, hold_callback (a shortcut only: the
--- same action must be reachable another way), viewport, strong (label in Black, default true; false
--- for a choice list's plain labels), dim (unavailable: Medium and secondary, never grey alone, so give
--- the trailing control a dotted look or say why in `support`) }
+-- opts { width, label, support, support_icon (a drawn/theme icon in front of the support line),
+-- support_strong (the support in Black, for a state in words, instead of secondary), trailing (a
+-- drawn widget: switch, radio, chevron...), lead (a widget before the label), divider ("dotted" |
+-- "solid" | nil), divider_x (where the divider starts, default the side padding), h (default H, or
+-- H_SINGLE with no supporting line), callback, hold_callback (a shortcut only: the same action must
+-- be reachable another way), viewport, strong (label in Black, default true; false for a choice
+-- list's plain labels), dim (unavailable: Medium and secondary, never grey alone, so give the
+-- trailing control a dotted look or say why in `support`) }
 function ListItem.new(opts)
   local h = opts.h or (opts.support and ListItem.H or ListItem.H_SINGLE)
   local rule = divider(opts.divider, opts.width)
@@ -50,8 +52,20 @@ function ListItem.new(opts)
     Theme.mmdText(opts.label, (opts.strong == false or opts.dim) and "text" or "strong", 21,
       { width = label_w, secondary = opts.dim }) }
   if opts.support then
+    local support_icon = opts.support_icon
+    local support_w = support_icon and math.max(0, label_w - support_icon:getSize().w - px(8))
+      or label_w
     block[#block + 1] = Theme.span(Theme.mmd.row.gap)
-    block[#block + 1] = Theme.mmdText(opts.support, "text", 18, { secondary = true, width = label_w })
+    -- a state in words is black, not the secondary grey; it is not made bold, so it keeps the
+    -- same weight as every other supporting line
+    local support = Theme.mmdText(opts.support, "text", 18,
+      { secondary = not opts.support_strong, width = support_w })
+    if support_icon then
+      block[#block + 1] = HorizontalGroup:new { align = "center", support_icon,
+        Theme.hspan(px(8)), support }
+    else
+      block[#block + 1] = support
+    end
   end
 
   local line = HorizontalGroup:new { align = "center", Theme.hspan(ListItem.PAD) }

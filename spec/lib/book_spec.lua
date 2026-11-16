@@ -20,6 +20,24 @@ describe("Book", function()
       assert.are.equal(2, Book:currentRead(reads).id)
       assert.is_nil(Book:currentRead({}))
     end)
+
+    it("uses the latest finish when adding a past read gives it a higher id", function()
+      local reads = {
+        { id = 1, finished_at = "2020-01-01" },
+        { id = 2, finished_at = "2026-03-20" },
+        { id = 3, finished_at = "2020-02-01" },
+      }
+      assert.are.equal(2, Book:currentRead(reads).id)
+    end)
+
+    it("orders an unsent local addition without comparing nil ids", function()
+      local reads = {
+        { id = 1, finished_at = "2020-01-01" },
+        { id = "local:1", finished_at = "2020-01-02" },
+      }
+      assert.are.equal("local:1", Book:currentRead(reads).id)
+      assert.are.equal(2, Book.readIdOrder("local:2") - 1000000000)
+    end)
   end)
 
   describe("parseIdentifiers", function()

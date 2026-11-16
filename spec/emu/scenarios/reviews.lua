@@ -145,14 +145,14 @@ return {
     manager:showBookDetail(103)
     emu:pump()
     local details = emu.UIManager:getTopmostVisibleWidget()
-    assert(details and details.reviews_button, "the details screen has no Reviews button")
+    assert(details and details.reviews_heading, "the details screen has no Reviews heading")
     assert(#review_calls() == 0, "reviews were fetched before the reader asked")
 
     -- The button is under About, in the scrolling body: it must be inside what is visible
     -- (nothing is clipped away from a tap on it).
     emu:expectText("Reviews")
     emu:shot("reviews_details")
-    assert(emu:tap(centre(details.reviews_button.dimen)), "tapping Reviews did nothing")
+    assert(emu:tap(centre(details.reviews_heading.dimen)), "tapping Reviews did nothing")
     emu:pump()
 
     local dialog = emu.UIManager:getTopmostVisibleWidget()
@@ -199,9 +199,11 @@ return {
     emu:shot("reviews_spoiler_shown")
     scroll_top(emu, dialog)
 
-    -- a long review is cut in the list; the end of it is not drawn
+    -- a long review is cut in the list; the end of it is not drawn. On a short screen the
+    -- first card's button may be below the fold, so bring the card into view before tapping.
     gone(emu, "(6)")
     assert(#review_calls() == 1, "tapping a row fetched something")
+    scroll_to(emu, dialog, "Read more")
     tap_button(emu, dialog, "Read more")
     local viewer = emu.UIManager:getTopmostVisibleWidget()
     assert(viewer ~= dialog, "Read more did not open the full review")
@@ -302,6 +304,15 @@ return {
     emu:pump()
     emu:expectText("No reviews saved")
     emu:shot("reviews_offline")
+    emu:closeAll()
+
+    -- Offline with no saved community page, your own block is still there.
+    manager:showReviews(999, nil, { rating = 4, text = "", rating_state = "Waiting to send" }, nil)
+    emu:pump()
+    for _, expected in ipairs({ "Your review", "No written review", "Write your review" }) do
+      emu:expectText(expected)
+    end
+    emu:shot("reviews_offline_mine")
     emu:closeAll()
     assert(#review_calls() == before, "asked for reviews while offline")
 
@@ -424,6 +435,39 @@ return {
     NetworkManager.isConnected = was
     NetworkManager.getConnectionState = was_state
     Api.getReviewsAsync = async
+
+    -- The combined page: your review and rating above the community list.
+    manager:showReviews(103, { title = "The Left Hand of Darkness", rating = 4.2, count = 120 },
+      { rating = 4, text = "My own words", rating_state = "Waiting to send",
+        review_state = "Saved on this device" }, nil)
+    emu:pump()
+    for _, expected in ipairs({ "Your review", "Your rating", "My own words",
+      "Saved on this device", "Edit your review" }) do
+      emu:expectText(expected)
+    end
+    emu:shot("reviews_mine")
+    emu:closeAll()
+
+    manager:showReviews(105, { title = "The Hundred Thousand Kingdoms", rating = 3.8, count = 40 },
+      { rating = 4, text = "", rating_state = "Waiting to send" }, nil)
+    emu:pump()
+    for _, expected in ipairs({ "No written review", "Write your review", "Waiting to send" }) do
+      emu:expectText(expected)
+    end
+    emu:shot("reviews_mine_no_review")
+    emu:closeAll()
+
+    manager:showReviews(103, { title = "The Left Hand of Darkness", rating = 4.2, count = 120 },
+      { rating = 4, text = "My own words", spoilers = true,
+        rating_state = "Needs your decision", review_state = "Needs your decision" }, nil)
+    emu:pump()
+    for _, expected in ipairs({ "Needs your decision", "Your review", "Contains spoilers",
+      "Your rating", "My own words" }) do
+      emu:expectText(expected)
+    end
+    emu:shot("reviews_mine_conflict")
+    emu:closeAll()
+
     db:close()
   end,
 }

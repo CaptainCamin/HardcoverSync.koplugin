@@ -27,6 +27,19 @@ local function assert_no_sideways_scroll(dialog, label)
     label, scroll._max_scroll_offset_x or -1))
 end
 
+local function find_button(root, label, seen)
+  seen = seen or {}
+  if type(root) ~= "table" or seen[root] then return end
+  seen[root] = true
+  if root.text == label and root.callback and root.dimen and root.dimen.w and root.dimen.w > 0 then
+    return root
+  end
+  for _, child in pairs(root) do
+    local found = find_button(child, label, seen)
+    if found then return found end
+  end
+end
+
 local function build_detail(emu, opts)
   local settings = fixtures.real_settings(emu)
   -- fixture covers are three synthetic pictures, served from the real cover
@@ -46,8 +59,17 @@ local function build_detail(emu, opts)
   })
 
   local DialogManager = require("hardcover/lib/ui/dialog_manager")
+  local queue = opts.sync_queue
+  if queue == nil then
+    local store = {}
+    queue = require("hardcover/lib/sync_queue"):new { settings = {
+      readSetting = function(_, key) return store[key] end,
+      saveSetting = function(_, key, value) store[key] = value end,
+      flush = function() end,
+    } }
+  end
 
-  local manager = DialogManager:new{ settings = settings, sync_queue = opts.sync_queue }
+  local manager = DialogManager:new{ settings = settings, sync_queue = queue }
   manager:showBookDetail(opts.book_id, opts.edition_id)
   emu:pump()
 
@@ -196,17 +218,20 @@ return {
     emu:pump()
     zero_year_book.release_year = saved_year
 
-    -- the action bar sits inside the page margins (the buttons used to run a few
+    -- the action row sits inside the page margins (the buttons used to run a few
     -- pixels past the right one) and its buttons are comfortably tall
     local Theme = require("hardcover/lib/ui/theme")
     local M = Theme.margin
-    for _, name in ipairs({ "add_button", "reviews_button" }) do
-      local b = typical[name]
-      assert(b and b.dimen and b.dimen.w > 0, name .. " is not on screen")
-      assert(b.dimen.x >= M, name .. " starts left of the margin")
-      assert(b.dimen.x + b.dimen.w <= emu.Screen:getWidth() - M, name .. " runs past the right margin")
-      assert(b.dimen.h >= emu.Screen:scaleBySize(48), name .. " is under 48 units tall")
+    for _, b in ipairs({ typical.find_button or typical.open_button, typical.zlibrary_button, typical.lists_button }) do
+      if b then
+        assert(b.dimen and b.dimen.w > 0, "an action button is not on screen")
+        assert(b.dimen.x >= M, "an action starts left of the margin")
+        assert(b.dimen.x + b.dimen.w <= emu.Screen:getWidth() - M, "an action runs past the right margin")
+        assert(b.dimen.h >= emu.Screen:scaleBySize(48), "an action is under 48 units tall")
+      end
     end
+    assert(typical.add_button == nil and typical.reviews_button == nil and typical.edition_button == nil,
+      "a round action button survived layout A")
 
     -- the author and the series are plain text under the title (not links)
     emu:expectText("Ursula K. Le Guin")
@@ -215,8 +240,10 @@ return {
 
     -- the page is the same size for every book: About is cut and Read more opens the whole
     -- synopsis on a screen of its own
-    emu:expectText("Shelf")
     emu:expectText("Currently Reading")
+    emu:expectText("Page 120 of " .. tostring(typical.detail.book.pages))
+    emu:expectText("Since 3 Nov · Paperback")
+    assert(typical.reviews_heading, "no Reviews heading")
     local function open_and_close(button, expect, shot)
       emu:screenNodes() -- paint first: a tap range is only real once painted
       local d = button.dimen
@@ -243,6 +270,39 @@ return {
       end
       error("never scrolled to the button")
     end
+    -- The reading row opens Reading history, with the saved reads and their offline note.
+    assert(typical.reading_row, "no reading row on a book in the library")
+    emu:screenNodes()
+    local reading = typical.reading_row.dimen
+    assert(reading and reading.w > 0, "the reading row is not painted")
+    emu:tapExpecting(reading.x + math.floor(reading.w / 2), reading.y + math.floor(reading.h / 2))
+    emu:pump()
+    local history = emu.UIManager:getTopmostVisibleWidget()
+    assert(history and history.name == "hardcover_read_history", "the reading row opened nothing")
+    for _, text in ipairs({ "Reading history", "1 read", "Started 3 Nov 2026", "Works offline." }) do
+      emu:expectText(text)
+    end
+    emu:shot("book_detail_reading_history")
+
+    -- Changing a date from the history keeps the edit on the device at once: the row says what is
+    -- waiting instead of its format and pages.
+    emu:tapExpecting(history.items[1].row.dimen.x + math.floor(history.items[1].row.dimen.w / 2),
+      history.items[1].row.dimen.y + math.floor(history.items[1].row.dimen.h / 2))
+    emu:pump()
+    local form = emu.UIManager:getTopmostVisibleWidget()
+    assert(form and form.name == "hardcover_read_edit", "the history row opened no form")
+    form:setDate("started_at", 2026, 11, 4)
+    form:save()
+    emu:pump()
+    assert(history.items[1].state and history.items[1].state.text == "Start date waiting to send",
+      "the saved edit is not on the history row")
+    emu:shot("book_detail_reading_history_saved")
+    emu.UIManager:close(history)
+    emu:pump()
+    -- saving refreshed the details page, so the strip is a new widget
+    carousel = typical.carousel
+    assert(carousel, "the refreshed page lost its series strip")
+
     if typical.about_more then
       reach(typical.about_more)
       open_and_close(typical.about_more, { "About" }, "book_detail_about_full")
@@ -375,17 +435,17 @@ return {
     all_actions.on_lists = noop
     all_actions.on_reviews = noop
     all_actions.on_review = noop
-    all_actions.on_edition = noop
     all_actions:rebuild(true)
     emu:pump()
     emu:shot("book_detail_all_actions")
-    assert_no_sideways_scroll(all_actions, "all six actions")
-    emu:expectText("Your review")
+    assert_no_sideways_scroll(all_actions, "all actions")
+    assert(all_actions.reviews_heading and all_actions.review_button, "no reviews section")
+    assert(all_actions.add_button == nil and all_actions.edition_button == nil,
+      "a round action button survived layout A")
     local targets = {}
-    for _, field in ipairs({ "zlibrary_button", "add_button", "lists_button",
-        "reviews_button", "review_button", "edition_button" }) do
+    for _, field in ipairs({ "find_button", "zlibrary_button", "lists_button" }) do
       local d = all_actions[field].dimen
-      assert(d.w >= Theme.mmd.round_button.size.medium, field .. " is too small")
+      assert(d.w >= Theme.TOUCH_MIN, field .. " is too small")
       assert(d.x >= Theme.margin and d.x + d.w <= W - Theme.margin, field .. " is outside the margins")
       for _, other in ipairs(targets) do
         assert(d.x + d.w <= other.x or other.x + other.w <= d.x
@@ -394,7 +454,8 @@ return {
       targets[#targets + 1] = d
     end
 
-    -- A book with a sync question has one visible way to answer it here.
+    -- A book with a sync question has one visible way to answer it here: the dotted note and its
+    -- Review button, not a round action.
     emu:closeAll()
     local SyncQueue = require("hardcover/lib/sync_queue")
     local store = {}
@@ -408,13 +469,78 @@ return {
     queue:get("/books/decision.epub").conflict = { kind = "page", local_page = 40, cloud_page = 120, seq = 1 }
     local _, decision_detail = build_detail(emu, { book_id = 101, sync_queue = queue })
     emu:pump()
-    emu:expectText("Decide")
+    emu:expectText("Needs your decision")
+    assert(decision_detail.decision_button == nil, "the old Decide button came back")
     emu:shot("book_detail_decide")
-    local d = decision_detail.decision_button.dimen
-    emu:tapExpecting(d.x + math.floor(d.w / 2), d.y + math.floor(d.h / 2))
+    local review = find_button(decision_detail, "Review")
+    assert(review, "the note has no Review button")
+    emu:tapExpecting(review.dimen.x + math.floor(review.dimen.w / 2),
+      review.dimen.y + math.floor(review.dimen.h / 2))
     emu:pump()
     emu:expectText("Use Hardcover (page 120)")
     emu:shot("book_detail_decision_question")
+
+    -- Mockup A2: a read's finish date needs a decision, and the rating is waiting to be sent.
+    emu:closeAll()
+    local BookDetailDialog = require("hardcover/lib/ui/book_detail_dialog")
+    local detail = {
+      book = fixtures.books_by_id[101], user_book_id = 9101, status_id = 2, user_rating = 4,
+      reads = { { id = 6101, started_at = "2026-11-03", progress_pages = 120, edition_id = 10101,
+        edition = { id = 10101, pages = 304, edition_format = "Paperback", reading_format_id = 1 } } },
+    }
+    local read_decision = { title = "The Dispossessed", kind = "read_changed",
+      conflict = { kind = "read_changed", fields = { { field = "finished_at" } } } }
+    local state_detail = BookDetailDialog:new {
+      detail = detail,
+      on_rating = noop, on_decision = noop, on_reads = noop,
+      state_opts = {
+        queues = {
+          sync_queue = {
+            decisionForBook = function() return read_decision end,
+            readActions = function() return { { seq = 1, read_id = 6101, conflict = read_decision.conflict } } end,
+            keys = function() return {} end,
+          },
+          rating_queue = {
+            get = function() return 4 end,
+            list = function() return { { book_id = 101, user_book_id = 9101 } } end,
+          },
+        },
+        book_id = 101, user_id = fixtures.USER_ID,
+      },
+    }
+    emu.UIManager:show(state_detail, "full")
+    emu:pump()
+    for _, text in ipairs({ "Needs your decision", "Waiting to send", "Page 120 of 304" }) do
+      emu:expectText(text)
+    end
+    emu:shot("book_detail_read_decision")
+
+    -- A rating changed on another device is the book's decision even when the reading
+    -- queue has no question of its own; the note names it and the stars say what it needs.
+    emu:closeAll()
+    local rating_decision = { title = "The Dispossessed", kind = "rating",
+      entry = { title = "The Dispossessed", conflict = { kind = "rating", online = 5, proposed = 4 } } }
+    local rating_state = BookDetailDialog:new {
+      detail = detail,
+      on_rating = noop, on_decision = noop, on_reads = noop,
+      state_opts = {
+        queues = {
+          rating_queue = {
+            get = function() return 4 end,
+            list = function() return { { book_id = 101, user_book_id = 9101, parked = true } } end,
+            decisionForBook = function() return rating_decision end,
+          },
+        },
+        book_id = 101, user_id = fixtures.USER_ID,
+      },
+    }
+    emu.UIManager:show(rating_state, "full")
+    emu:pump()
+    for _, expected in ipairs({ "Needs your decision", "rating changed on Hardcover",
+      "Both ratings are kept until you answer." }) do
+      emu:expectText(expected)
+    end
+    emu:shot("book_detail_rating_decision")
 
     print(string.format("  detail rendered in both menu modes"))
   end,

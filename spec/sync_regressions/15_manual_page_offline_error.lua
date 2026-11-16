@@ -129,6 +129,7 @@ KB.check("online, Hardcover answers: sent straight away, nothing queued", functi
   local rq = RatingQueue:new { settings = KB.fakeSettings() }
   menu.rating_queue = rq
   menu.dialog_manager.flush_goals = function() rq:flush(Api, nil, User:getId()) end
+  Api.findUserBook = function() return { id = 500, book_id = 7, status_id = 2, rating = nil } end
   Api.updateRating = function() return { id = 500, status_id = 2, rating = 3 } end
   menu:saveRating(3, mi)
   KB.eq(rq:count(), 0, "queued")

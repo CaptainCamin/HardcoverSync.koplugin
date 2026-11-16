@@ -3,6 +3,7 @@ local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local Book = require("hardcover/lib/book")
 local OfflineQueue = require("hardcover/lib/offline_queue")
 local StatusSender = require("hardcover/lib/status_sender")
+local ReadSender = require("hardcover/lib/read_sender")
 local Actions = require("hardcover/lib/reading_actions")
 local _t = require("hardcover/lib/table_util")
 
@@ -163,7 +164,9 @@ end
 -- A malformed entry (a hand edit, a merged settings file) counts as empty so
 -- one bad value cannot make every queue check throw.
 function SyncQueue:isEmpty(entry)
-  return type(entry) ~= "table" or (entry.mapped_page == nil and entry.status_id == nil and not entry.remove)
+  if type(entry) ~= "table" then return true end
+  if entry.mapped_page ~= nil or entry.status_id ~= nil or entry.remove then return false end
+  return #Actions.readActions(entry) == 0
 end
 
 function SyncQueue:hasPending(filepath)
@@ -230,6 +233,7 @@ function SyncQueue:changeCount()
     if entry.mapped_page ~= nil then count = count + 1 end
     -- Pending changes groups a book's statuses under one cancellation control.
     if Actions.statusCount(entry) > 0 or entry.remove then count = count + 1 end
+    count = count + #Actions.readActions(entry)
   end
   return count
 end
@@ -297,6 +301,106 @@ function SyncQueue:enqueuePage(filepath, payload)
   -- behind it. (The question is answered in Pending changes, not by a later page turn.)
   self:persist()
   return entry
+end
+
+--
+-- Record one read edit (dates, edition, an addition or a removal) for a book. `file_or_book` is the
+-- book's file when it is open, or its Hardcover book id when it is not. `payload` carries
+-- { kind, user_id, user_book_id, title, edition_id, read_id, local_id, base, change, clear, at }.
+-- The action keeps its place behind everything already queued for the book.
+--
+function SyncQueue:enqueueReadEdit(file_or_book, payload)
+  payload = payload or {}
+  local book_id = tonumber(payload.book_id) or tonumber(file_or_book)
+  if not book_id then return nil end
+  local file = type(file_or_book) == "string" and file_or_book or nil
+  local entry = self:_ensure(file, {
+    book_id = book_id, user_id = payload.user_id, user_book_id = payload.user_book_id,
+    title = payload.title, edition_id = payload.edition_id,
+  })
+  if not entry then return nil end
+
+  local at = tonumber(payload.at) or os.time()
+  -- An addition still waiting is changed in place: the reader is editing the same read, not
+  -- adding a second one behind it.
+  if payload.kind == "add_read" and payload.local_id then
+    for _i, existing in ipairs(Actions.readActions(entry)) do
+      if existing.kind == "add_read" and tostring(existing.local_id) == tostring(payload.local_id) then
+        if Actions.started(existing) then return nil end
+        -- The form sends only what changed: lay the change over the addition, never replace it,
+        -- or an untouched finish date would be lost and the read would be inserted unfinished.
+        local merged = {}
+        for key, value in pairs(existing.change or {}) do merged[key] = value end
+        for key, value in pairs(payload.change or {}) do merged[key] = value end
+        for field in pairs(payload.clear or {}) do merged[field] = nil end
+        existing.change, existing.clear = merged, {}
+        existing.edition = payload.edition or existing.edition
+        existing.at = at
+        entry.failures, entry.held, entry.reason = nil, nil, nil
+        self:persist()
+        return entry, existing
+      end
+    end
+  end
+  local action
+  if payload.kind == "read_dates" then
+    action = Actions.readDates(entry, payload.read_id, payload.base, payload.change, payload.clear, at,
+      payload.local_id)
+  elseif payload.kind == "read_edition" then
+    action = Actions.readEdition(entry, payload.read_id, payload.base, payload.change, payload.clear, at,
+      payload.local_id)
+  elseif payload.kind == "add_read" then
+    action = Actions.addRead(entry, payload.change, at, payload.local_id)
+    action.local_id = action.local_id or ("local:" .. tostring(action.seq))
+  elseif payload.kind == "remove_read" then
+    action = Actions.removeRead(entry, payload.read_id, payload.base, at)
+  else
+    return nil
+  end
+  if payload.force then action.force = true end
+  if payload.kind == "add_read" then action.edition = payload.edition end
+  if payload.kind == "read_edition" then
+    action.current = payload.current == true
+    action.target_edition_id = tonumber(payload.target_edition_id or action.change.edition_id)
+    action.target_page = tonumber(payload.target_page or action.change.progress_pages)
+    action.old_edition_id = tonumber(payload.old_edition_id)
+    action.old_pages = tonumber(payload.old_pages)
+    action.old_format = payload.old_format
+    action.new_pages = tonumber(payload.new_pages)
+    action.edition_format = payload.edition_format
+    action.edition = payload.edition
+    action.file = payload.file or (type(file_or_book) == "string" and file_or_book)
+  end
+  entry.failures, entry.held, entry.reason = nil, nil, nil
+  self:persist()
+  return entry, action
+end
+
+-- The read edits still waiting for this book, in queue order.
+function SyncQueue:readActions(book_id)
+  local entry = self:get(book_id)
+  return entry and Actions.readActions(entry) or {}
+end
+
+-- Cancel one unsent read edit. An edit whose request may already have landed (`checking`) is
+-- refused, like a page in flight. An unsent addition with an edit behind it is refused too: the
+-- editor should change the addition in place instead.
+function SyncQueue:cancelReadEdit(book_id, seq, user_id, expected_entry)
+  local entry = self:get(book_id)
+  if not entry or (expected_entry and entry ~= expected_entry) or not SyncQueue.ownedBy(entry, user_id) then
+    return false, "missing"
+  end
+  if self.sending_key == self:keyOf(book_id) then return false, "sending" end
+  local found
+  for _, action in ipairs(Actions.readActions(entry)) do
+    if action.seq == seq then found = action; break end
+  end
+  if not found then return false, "missing" end
+  if Actions.started(found) then return false, "started" end
+  local removed, reason = Actions.cancel(entry, nil, seq)
+  if not removed then return false, reason end
+  self:save(book_id, entry)
+  return true
 end
 
 -- A page that starts the book again. The flush changes status and writes the read Hardcover creates.
@@ -652,8 +756,16 @@ end
 SyncQueue.MAX_REJECTIONS = 3
 
 function SyncQueue:isHeld(entry)
-  return type(entry) == "table"
-    and ((entry.failures or 0) >= SyncQueue.MAX_REJECTIONS or entry.conflict ~= nil or entry.held == true)
+  if type(entry) ~= "table" then return false end
+  if (entry.failures or 0) >= SyncQueue.MAX_REJECTIONS or entry.conflict ~= nil or entry.held == true then
+    return true
+  end
+  -- A parked read edit holds the book; an action checking a lost response does not: the next
+  -- pass reads again to find out whether it landed, without sending it again.
+  for _, action in ipairs(Actions.readActions(entry)) do
+    if action.conflict then return true end
+  end
+  return false
 end
 
 -- When the cloud is ahead of a queued page by this many pages or more the user
@@ -674,7 +786,7 @@ function SyncQueue:conflicts()
 end
 
 function SyncQueue:conflictCount()
-  return #self:conflicts()
+  return #self:decisions()
 end
 
 -- What every conflict is, in a stable string: a notice can tell a genuinely new or changed
@@ -682,14 +794,11 @@ end
 -- right now.
 function SyncQueue:conflictSignature(exclude)
   local parts = {}
-  for _, conflict in ipairs(self:conflicts()) do
-    local shown = exclude and (conflict.filepath == exclude
-      or (type(conflict.entry.files) == "table" and conflict.entry.files[exclude]))
-    if not shown then
-      local c = conflict.entry.conflict
-      parts[#parts + 1] = table.concat({ tostring(conflict.key), tostring(c.kind),
-        tostring(c.seq or c.at or "") }, ":")
-    end
+  for _, decision in ipairs(self:decisions()) do
+    local entry = decision.entry
+    local shown = exclude and (decision.filepath == exclude
+      or (type(entry and entry.files) == "table" and entry.files[exclude]))
+    if not shown then parts[#parts + 1] = tostring(decision.id) end
   end
   table.sort(parts)
   return table.concat(parts, "|")
@@ -698,6 +807,15 @@ end
 -- The decisions waiting for `user_id` (nil: any), in the shared shape a review list uses:
 -- { id, kind, key, filepath, book_id, user_book_id, title, entry, resolve(choice) }.
 -- Other queues add their own decisions() method and appear in the same list.
+-- The book's name for a decision, without pulling the UI's words module into this pure queue.
+local function entryTitle(entry, key)
+  if type(entry) == "table" and type(entry.title) == "string" and entry.title ~= "" then
+    return entry.title
+  end
+  local name = tostring((type(entry) == "table" and entry.file) or key or ""):match("([^/]+)$") or ""
+  return (name:gsub("%.[%w]+$", ""))
+end
+
 function SyncQueue:decisions(user_id)
   local out = {}
   for _, conflict in ipairs(self:conflicts()) do
@@ -714,7 +832,122 @@ function SyncQueue:decisions(user_id)
       }
     end
   end
+
+  -- Read edits keep their own questions on the action: one book can have a page question and a
+  -- read question at the same time, and the read one names the field the reader is deciding.
+  for _, key in ipairs(self:keys()) do
+    local entry = self:get(key)
+    if type(entry) == "table" and (user_id == nil or SyncQueue.ownedBy(entry, user_id)) then
+      for _, action in ipairs(Actions.readActions(entry)) do
+        if action.conflict then
+          out[#out + 1] = {
+            id = tostring(key) .. ":read:" .. tostring(action.seq),
+            kind = action.conflict.kind, key = key, filepath = entry.file or key,
+            book_id = tonumber(entry.book_id), user_book_id = entry.user_book_id,
+            title = entryTitle(entry, key), entry = entry,
+            action = action, conflict = action.conflict,
+            resolve = function(choice) return self:resolveRead(key, action.seq, choice) end,
+          }
+        end
+      end
+    end
+  end
   return out
+end
+
+-- The answer to one read edit's question.
+--   read_changed: keep_hardcover drops the disputed fields, use_device sends the device's values.
+--   read_gone:    add_again turns the edit into an addition, discard drops it.
+--   read_reading: send_anyway sends it, wait holds it until the newer read finishes, discard drops it.
+function SyncQueue:resolveRead(key, seq, choice)
+  local entry = self:get(key)
+  if type(entry) ~= "table" then return false end
+  local action
+  for _, candidate in ipairs(Actions.readActions(entry)) do
+    if candidate.seq == seq then action = candidate; break end
+  end
+  if not action or not action.conflict then return false end
+  local conflict = action.conflict
+  local outcome
+  local function restoreLink()
+    -- If this was the current read's edition, the screen already moved the linked file. Dropping
+    -- the action must put the file back on Hardcover's edition, or later pages use the wrong units.
+    if action.kind == "read_edition" and action.current then
+      outcome = { kind = "edition_link", action = action, book_id = tonumber(entry.book_id) }
+    end
+  end
+  local function remove()
+    Actions.ack(entry, action.seq)
+  end
+  local function empty()
+    return next(action.change or {}) == nil and next(action.clear or {}) == nil
+  end
+
+  if conflict.kind == "read_changed" then
+    if choice == "keep_hardcover" then
+      for _, field in ipairs(conflict.fields or {}) do
+        if action.change then action.change[field.field] = nil end
+        if action.clear then action.clear[field.field] = nil end
+        -- a kept Hardcover value must not be sent again through the edition move's stored target
+        if field.field == "edition_id" then
+          -- The queued page was converted into the edition Hardcover did not keep. Its page
+          -- count for the kept edition is unknown here, so sending that number would record
+          -- new-edition units against a different edition. Drop the converted page with the
+          -- edition; the reader's next page turn is in the restored link's units.
+          if action.change then action.change.progress_pages = nil end
+          action.target_page = nil
+          action.target_edition_id = nil
+          restoreLink()
+        end
+        if field.field == "progress_pages" then action.target_page = nil end
+      end
+      action.conflict = nil
+      if empty() then remove() end
+    elseif choice == "use_device" then
+      action.base = action.base or {}
+      for _, field in ipairs(conflict.fields or {}) do
+        -- The reader chose this device: make the online value the baseline, so the sender
+        -- sends the proposed value rather than asking again.
+        action.base[field.field] = field.online
+      end
+      action.conflict = nil
+    else
+      return false
+    end
+  elseif conflict.kind == "read_gone" then
+    if choice == "add_again" then
+      local full = {}
+      for field, value in pairs(action.base or {}) do full[field] = value end
+      for field, value in pairs(action.change or {}) do full[field] = value end
+      for field in pairs(action.clear or {}) do full[field] = nil end
+      action.kind, action.read_id = "add_read", nil
+      action.local_id = action.local_id or ("local:" .. tostring(action.seq))
+      action.change, action.clear, action.base = full, {}, {}
+      action.conflict = nil
+    elseif choice == "discard" then
+      restoreLink()
+      remove()
+    else
+      return false
+    end
+  elseif conflict.kind == "read_reading" then
+    if choice == "send_anyway" then
+      action.force, action.conflict = true, nil
+    elseif choice == "wait" then
+      action.wait, action.conflict = true, nil
+    elseif choice == "discard" then
+      restoreLink()
+      remove()
+    else
+      return false
+    end
+  else
+    return false
+  end
+
+  Actions.refresh(entry)
+  self:save(key, entry)
+  return true, outcome
 end
 
 -- The first decision about this book, or nil.
@@ -731,21 +964,26 @@ end
 -- (a connection that failed, or a pass stopped early).
 function SyncQueue:waitingCounts(user_id)
   local counts = { decisions = 0, waiting = 0, failed = 0 }
+  local decided = {}
+  for _, decision in ipairs(self:decisions(user_id)) do
+    counts.decisions = counts.decisions + 1
+    decided[decision.key] = true
+  end
   for _, key in ipairs(self:keys()) do
     local entry = self:get(key)
     if user_id == nil or SyncQueue.ownedBy(entry, user_id) then
-      if type(entry) == "table" and entry.conflict then
-        counts.decisions = counts.decisions + 1
-      elseif self:isHeld(entry) then
-        -- a reading whose identity changed waits for a decision; a refusal or a missing
-        -- permission is a failed send, not a dependant
-        if entry.reason == "reading_changed" then
-          counts.waiting = counts.waiting + 1
+      if not decided[key] then
+        if self:isHeld(entry) then
+          -- a reading whose identity changed waits for a decision; a refusal or a missing
+          -- permission is a failed send, not a dependant
+          if entry.reason == "reading_changed" then
+            counts.waiting = counts.waiting + 1
+          else
+            counts.failed = counts.failed + 1
+          end
         else
           counts.failed = counts.failed + 1
         end
-      else
-        counts.failed = counts.failed + 1
       end
     end
   end
@@ -1189,6 +1427,44 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
     local pending = false
     for _, action in ipairs(entry.actions) do if action.seq == op.seq then pending = true break end end
     if pending then
+      if Actions.isRead(op) then
+        entry.sending_seq = op.seq
+        local status, detail = ReadSender.send(api, entry, op, {
+          user_id = opts.user_id,
+          persist = function() self:persist() end,
+          settings = opts.settings, cache = opts.cache, state = opts.state,
+          file = op.file or entry.file,
+        })
+        entry.sending_seq = nil
+        if status == "sent" then
+          self.last_flush_sent = true
+          if self:get(filepath) == entry and not entry.remove then
+            if type(detail) == "table" and detail.id then
+              user_book = detail
+              entry.user_book_id = detail.id
+            end
+            if opts.on_read_sent then opts.on_read_sent(entry.book_id, detail, op) end
+            Actions.ack(entry, op.seq)
+            if self:isEmpty(entry) then self:_drop(filepath) end
+            self:persist()
+          end
+        elseif status == "parked" then
+          self:persist()
+          return false, "conflict"
+        elseif status == "checking" then
+          self:persist()
+          return false, "checking"
+        elseif status == "waiting" then
+          self:persist()
+          return false, "waiting"
+        elseif status == "held" then
+          entry.held, entry.reason = true, detail or "library_gone"
+          self:persist()
+          return false
+        else
+          return failed(self, filepath, detail)
+        end
+      else
       entry.sending_seq = op.seq
       info.at = op.at
       local current = hasUserBook(user_book) and user_book.status_id
@@ -1372,6 +1648,7 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
         Actions.ack(entry, op.seq)
         if self:isEmpty(entry) then self:_drop(filepath) end
         self:persist()
+      end
       end
     end
   end

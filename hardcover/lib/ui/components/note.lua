@@ -9,6 +9,7 @@ local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local LeftContainer = require("ui/widget/container/leftcontainer")
 local OverlapGroup = require("ui/widget/overlapgroup")
+local TextBoxWidget = require("ui/widget/textboxwidget")
 local VerticalGroup = require("ui/widget/verticalgroup")
 
 local Button = require("hardcover/lib/ui/components/button")
@@ -23,20 +24,22 @@ local Note = {}
 
 Note.MIN_H = px(62)
 
--- opts { width, icon_name (an SVG in icons/), title, text, dotted, action = { label, callback }, h, on_tap }
+-- opts { width, icon_name (an SVG in icons/) or icon (a widget), title, text, text_wrap (the text
+-- may take more than one line), dotted, action = { label, callback }, h, on_tap }
 -- `h` makes the box at least that tall (give both looks the taller one's height). `on_tap` makes the
 -- whole box a touch target too; the action's button still takes the taps on it.
 function Note.new(opts)
   local pad_x, pad_y, radius = px(14), px(12), px(10)
   local w = opts.width
-  local icon = Theme.icon(opts.icon_name, px(26))
+  local icon = opts.icon or Theme.icon(opts.icon_name, px(26))
 
   local button
   if opts.action then
     local label = Theme.mmdText(opts.action.label, "strong", 18)
     local bw = label:getSize().w + px(32)
     label:free()
-    button = Button.new { label = opts.action.label, w = bw, h = px(40), size = 18, callback = opts.action.callback }
+    button = Button.new { label = opts.action.label, w = bw,
+      h = math.max(px(40), Theme.TOUCH_MIN), size = 18, callback = opts.action.callback }
   end
 
   local text_w = w - 2 * pad_x - icon:getSize().w - px(12) - (button and (button:getSize().w + px(12)) or 0)
@@ -44,7 +47,13 @@ function Note.new(opts)
     Theme.mmdText(opts.title, "strong", 21, { width = text_w }) }
   if opts.text then
     words[#words + 1] = Theme.span(px(3))
-    words[#words + 1] = Theme.mmdText(opts.text, "text", 18, { secondary = true, width = text_w })
+    if opts.text_wrap then
+      local face, bold = Theme.mmdFace("text", 18)
+      words[#words + 1] = TextBoxWidget:new { text = opts.text, face = face, bold = bold,
+        width = text_w, fgcolor = Theme.secondary() }
+    else
+      words[#words + 1] = Theme.mmdText(opts.text, "text", 18, { secondary = true, width = text_w })
+    end
   end
   -- the words take the room, so the button sits at the far end of the box
   local row = HorizontalGroup:new { align = "center", icon, Theme.hspan(px(12)),
@@ -67,6 +76,8 @@ function Note.new(opts)
   end)
   local inside = LeftContainer:new { dimen = Geom:new { w = w, h = h }, HorizontalGroup:new { Theme.hspan(pad_x), row } }
   local box = OverlapGroup:new { dimen = Geom:new { w = w, h = h }, allow_mirroring = false, border, inside }
+  -- the caller may put the action in a keyboard/d-pad layout without reaching into the row
+  box.action_button = button
   if opts.on_tap then
     -- Last, so the button (in `inside`) is offered the tap first. Not wrapped around the button: a
     -- tap row hands its tap to every tap row inside it, whatever the position, so the button would

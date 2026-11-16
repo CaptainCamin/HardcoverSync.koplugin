@@ -115,6 +115,7 @@ local cases = {
   { "getBookDetailAsync", "getBookDetail", { 7, 1, 3 } },
   { "findBooksAsync", "findBooks", { "title", "author", 1 } },
   { "findEditionsAsync", "findEditions", { 7, 1 } },
+  { "findEditionsAsync", "findEditions", { 7, 1, true } },
   { "findDefaultEditionAsync", "findDefaultEdition", { 7, 1 } },
   { "findBookByIdentifiersAsync", "findBookByIdentifiers", { { isbn = "1" }, 1 } },
 }

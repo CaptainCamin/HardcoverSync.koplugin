@@ -308,6 +308,11 @@ function HardcoverMenu:showReaderPanel()
     if linked then
       menu_rows[#menu_rows + 1] = { text = _("Change edition"), enabled = enabled(edition_item),
         run = function() run(edition_item) end }
+      menu_rows[#menu_rows + 1] = { text = _("Reading history"), enabled = self.enabled,
+        run = function()
+          if panel and UIManager:isWidgetShown(panel) then panel:onClose() end
+          self.dialog_manager:showLinkedReadHistory()
+        end }
     end
     menu_rows[#menu_rows + 1] = { text = _("All Hardcover settings"),
       run = function() self.dialog_manager:showSettings() end }
@@ -435,32 +440,15 @@ function HardcoverMenu:getSubMenuItems(book_view)
         return self.enabled and self.settings:bookLinked()
       end,
       callback = function(menu_instance)
-        -- Show the dialog before listing editions. This fetch used to run here,
-        -- so tapping "Change edition" did nothing for the length of a request
-        -- (up to six seconds with no route to the API), which on e-ink is
-        -- indistinguishable from a crash. The dialog opens on a loading list and
-        -- fills in from the callback.
-        self.dialog_manager:buildLoadingSearchDialog(
-          _("Select edition"),
-          function(callback)
-            Api:findEditionsAsync(self.settings:getLinkedBookId(), User:getId(), callback)
-          end,
-          {
-            edition_id = self.settings:getLinkedEditionId()
-          },
-          function(book)
-            Background.run(function()
-              local changed = book.edition_id ~= self.settings:getLinkedEditionId()
-              if self.hardcover:linkBook(book) and changed then
-                StatusDialogs.info(_("Edition changed. Page numbers and progress may have moved."))
-              end
-              menu_instance:updateItems()
-            end)
-          end,
-          nil,
-          nil,
-          true
-        )
+        -- The edition belongs to one read now, so the history opens on the current read's form.
+        -- A linked book with no read has no form to open: fall back to the link picker, which can
+        -- still choose the book's edition without losing the link.
+        local status = self.state and self.state.book_status
+        if status and status.id and Book:currentRead(status.user_book_reads) then
+          self.dialog_manager:showLinkedReadHistory { edit_current = true }
+        else
+          self.hardcover:showLinkBookDialog(true, function() menu_instance:updateItems() end)
+        end
       end,
       keep_menu_open = true,
       separator = true
@@ -738,9 +726,25 @@ function HardcoverMenu:showPendingChanges(menu_instance)
       if outcome and outcome.kind == "shelf" and self.dialog_manager
           and self.dialog_manager.removalKept then
         self.dialog_manager:removalKept(outcome)
+      elseif outcome and outcome.kind == "edition_link" and self.dialog_manager
+          and self.dialog_manager.restoreEditionLink then
+        self.dialog_manager:restoreEditionLink(outcome.action, outcome.book_id)
+      end
+      if outcome and outcome.kind == "combine" and self.dialog_manager
+          and self.dialog_manager.combineReview then
+        self:queueChanged()
+        self.dialog_manager:combineReview(outcome)
+        return
       end
       self:queueChanged()
-      if self:pendingTotal() > 0 then
+      if decision and decision.book_id and self.dialog_manager
+          and self.dialog_manager.refreshBookState then
+        self.dialog_manager:refreshBookState(decision.book_id)
+      end
+      if outcome and (outcome.kind == "rating" or outcome.kind == "review")
+          and not Network.connected() then
+        StatusDialogs.info(_("Choice saved; will check Hardcover when connected."), 2)
+      elseif self:pendingTotal() > 0 then
         self:sendPending()
       else
         StatusDialogs.info(_("Choice saved."), 2)
@@ -1485,7 +1489,8 @@ function HardcoverMenu:saveRating(value, menu_instance, quiet)
     if self.rating_queue and (self.state.book_status.id or self.settings:bookLinked()) then
       self.rating_queue:queue(self.state.book_status.id, value,
         self.settings and self.settings.getLinkedTitle and self.settings:getLinkedTitle() or nil,
-        self.settings:getLinkedBookId(), User:getId())
+        self.settings:getLinkedBookId(), User:getId(),
+        { rating = self.state.book_status.rating, known = true })
       self.state.book_status.rating = value > 0 and value or nil
       menu_instance:updateItems()
       if Network.connected() then

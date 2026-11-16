@@ -123,6 +123,62 @@ check("the notice counts the books", function()
   has(SyncConflicts.menuText(2), "(2)")
 end)
 
+check("a changed read names the field, both values, and the three answers", function()
+  local conflict = { kind = "read_changed", read = { id = 10, started_at = "2024-03-13" },
+    fields = { { field = "started_at", online = "2024-03-13", base = "2024-03-12",
+      proposed = "2024-03-14" } } }
+  local d = SyncConflicts.describeRead({ title = "Dune" }, conflict)
+  has(d.title, "Dune"); has(d.title, "13 Mar 2024"); has(d.title, "12 Mar 2024")
+  eq(d.rows[1].id, "keep_hardcover", "Hardcover first")
+  eq(d.rows[2].id, "use_device", "then this device")
+  eq(d.rows[3].id, "later", "then later")
+  has(SyncConflicts.decisionText("Dune", { conflict = conflict }), "start date changed on Hardcover")
+  has(SyncConflicts.decisionNote({ conflict = conflict }), "another device")
+end)
+
+check("a read gone from Hardcover offers add_again and discard", function()
+  local d = SyncConflicts.describeRead({ title = "Dune" }, { kind = "read_gone",
+    read = { id = 10, started_at = "2024-03-12", finished_at = "2024-03-20" } })
+  has(d.title, "no longer on Hardcover")
+  has(d.title, "12 – 20 Mar 2024")
+  eq(d.rows[1].id, "add_again", "add again first")
+  eq(d.rows[2].id, "discard", "then discard")
+  eq(d.rows[3].id, "later", "then later")
+end)
+
+check("an older read while a newer one is in progress offers send, wait and discard", function()
+  local d = SyncConflicts.describeRead({ title = "Dune" }, { kind = "read_reading",
+    read = { id = 10 }, current = { id = 11, started_at = "2026-11-03" } })
+  has(d.title, "older read"); has(d.title, "still in progress")
+  eq(d.rows[1].id, "send_anyway", "send first")
+  eq(d.rows[2].id, "wait", "then wait")
+  eq(d.rows[3].id, "discard", "then discard")
+  eq(d.rows[4].id, "later", "then later")
+end)
+
+check("a rating or review changed online asks with both values", function()
+  local rating = SyncConflicts.describe(nil, { title = "Dune",
+    conflict = { kind = "rating", online = 5, proposed = 4.5 } })
+  has(rating.title, "Dune"); has(rating.title, "5 stars"); has(rating.title, "4.5 stars")
+  eq(rating.rows[1].text, "Keep Hardcover's")
+  eq(rating.rows[2].text, "Use this device's")
+  has(SyncConflicts.decisionText("Dune", { entry = { conflict = { kind = "rating" } } }), "rating changed")
+
+  local review = SyncConflicts.describe(nil, { title = "Dune", conflict = { kind = "review",
+    online = { text = "their words", spoilers = true },
+    proposed = { text = "my words", spoilers = false } } })
+  has(review.title, "their words"); has(review.title, "my words"); has(review.title, "spoilers")
+  eq(review.rows[1].text, "Keep Hardcover's")
+  eq(review.rows[2].text, "Use this device's")
+  eq(review.rows[3].text, "Combine in the editor")
+
+  local delete = SyncConflicts.describe(nil, { title = "Dune", conflict = { kind = "review",
+    online = { text = "edited", spoilers = false }, proposed = { text = "", spoilers = false },
+    delete = true } })
+  eq(delete.rows[2].text, "Remove my review anyway")
+  eq(#delete.rows, 3, "a delete has no combine row")
+end)
+
 check("an edition page becomes a position in the file", function()
   eq(SyncConflicts.documentPage(150, 300, 600), 300, "halfway")
   eq(SyncConflicts.documentPage(999, 300, 600), 600, "never past the end")

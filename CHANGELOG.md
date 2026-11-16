@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Improved
+
+- **Book details now leads with your reading.** The cover's column holds the shelf chip and your stars, one action row holds the ways to open, download or list the book, and a reading row with progress and the current read's edition opens Reading history. About is three lines, and the Reviews section opens the full reviews page.
+
+- **Change the edition of any read.** Reading history's Edition row opens the edition picker, audiobooks included, and converts the page to the chosen edition's numbering. The current read also moves the book's linked edition and page count at once, so pages turned afterwards are sent in the right units. Cancelling the change in Pending changes puts the old edition back.
+
+- **Add or remove a read.** Add a past read from Reading history, with its dates and edition; the finish date is required. A finished read can be removed while the book stays on its shelf. Both changes are kept offline and can be cancelled before they are sent.
+
+- **Your review sits at the top of the reviews page.** Your rating and review now come before other readers', with a state line when the rating or review is waiting to send, and Write/Edit opens the same editor as before. Your review no longer appears twice in the community list, and the page opens offline with your own block even when no community reviews are saved.
+
+- **A rating or review changed elsewhere is never silently replaced.** Before sending an offline rating or review, Hardcover is checked again. If it changed on another device, both versions are kept and the book asks which to use; a review can also be combined in the editor. Removing a review that changed online asks before deleting it.
+
 ## 2.4.0
 
 ### Added

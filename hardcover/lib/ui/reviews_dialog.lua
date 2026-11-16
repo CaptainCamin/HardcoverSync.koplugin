@@ -32,11 +32,13 @@ local TextBoxWidget = require("ui/widget/textboxwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
+local T = require("ffi/util").template
 
 local Button = require("hardcover/lib/ui/components/button")
 local Clamp = require("hardcover/lib/ui/clamp")
 local Reviews = require("hardcover/lib/reviews")
 local ScrollBody = require("hardcover/lib/ui/scroll_body")
+local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
 local TopBar = require("hardcover/lib/ui/components/top_bar")
 
@@ -57,6 +59,9 @@ local ReviewsDialog = InputContainer:extend {
   page_size = Reviews.PAGE_SIZE,
   fetch_page = nil,    -- function(offset, limit, callback(rows, err))
   close_callback = nil,
+  mine = nil,          -- { rating, text, spoilers, posted_at, rating_state, review_state, review_id }
+  on_rating = nil,     -- function(stars)
+  on_review = nil,     -- function()
 }
 
 function ReviewsDialog:init()
@@ -77,7 +82,7 @@ function ReviewsDialog:buildItems()
     items[1] = { text = self.message, message = true }
     return items
   end
-  for _, review in ipairs(self.reviews) do
+  for _, review in ipairs(self:communityReviews()) do
     local text, action = Reviews.rowText(review, self.revealed[review.id or review])
     items[#items + 1] = { text = text, review = review, action = action }
   end
@@ -121,6 +126,104 @@ end
 
 local CARD_LINES = 3
 
+-- True when a community row is the reader's own review: the same id when we have one, or the
+-- same words (the server's row and the saved draft are often the same text).
+function ReviewsDialog:isOwnReview(review)
+  local mine = self.mine
+  if type(mine) ~= "table" or type(review) ~= "table" then return false end
+  if mine.review_id and review.id and tostring(mine.review_id) == tostring(review.id) then return true end
+  local text = type(mine.text) == "string" and mine.text or ""
+  return text ~= "" and review.text == text
+end
+
+function ReviewsDialog:communityReviews()
+  local out = {}
+  for _, review in ipairs(self.reviews or {}) do
+    if not self:isOwnReview(review) then out[#out + 1] = review end
+  end
+  return out
+end
+
+function ReviewsDialog:communityHeader(width, count)
+  local right = count > 0 and Theme.mmdText(T(count == 1 and _("1 review") or _("%1 reviews"), count),
+    "text", 18, { secondary = true }) or nil
+  return Theme.sectionHeader(_("Community reviews"), width, right)
+end
+
+-- Your own review and rating, before the community list. The heading says when it was posted,
+-- that it is saved on this device, or that it needs a decision; the stars are the same control as
+-- on the book's page.
+function ReviewsDialog:buildYourBlock(width)
+  local mine = self.mine
+  if type(mine) ~= "table" then return nil end
+  local state = mine.review_state
+  if not state and mine.posted_at then state = T(_("Posted %1"), tostring(mine.posted_at)) end
+  local state_widget = state and Theme.mmdText(state, "text", 18,
+    { secondary = true, width = math.max(0, width - Theme.space.m) }) or nil
+  local heading = Theme.sectionHeader(_("Your review"), width, state_widget)
+
+  local label_w = math.max(0, width - 5 * Theme.TOUCH_MIN)
+  local rating = tonumber(mine.rating)
+  local rating_state = mine.rating_state or (rating and _("Tap to change") or _("Tap a star"))
+  local label = VerticalGroup:new { align = "left",
+    Theme.mmdText(_("Your rating"), "strong", 21, { width = label_w }),
+    Theme.span(Theme.px(2)),
+    Theme.mmdText(rating_state, "text", 18, { secondary = true, width = label_w }),
+  }
+  if self.on_rating then
+    label = TapRow:new { callback = function() self.on_rating(nil) end,
+      LeftContainer:new { dimen = Geom:new { w = label_w, h = Theme.TOUCH_MIN }, label } }
+  end
+  local stars = HorizontalGroup:new { align = "center" }
+  for i = 1, 5 do
+    local name = rating and (rating >= i and "star-filled" or (rating >= i - 0.5 and "star-half" or "star"))
+      or "star"
+    local star = CenterContainer:new {
+      dimen = Geom:new { w = Theme.TOUCH_MIN, h = Theme.TOUCH_MIN },
+      Theme.icon(name, Theme.px(28)),
+    }
+    if self.on_rating then
+      star = TapRow:new { callback = function() self.on_rating(i) end, star }
+    end
+    stars[#stars + 1] = star
+  end
+  local rating_row = HorizontalGroup:new { align = "center", label }
+  for _, star in ipairs(stars) do rating_row[#rating_row + 1] = star end
+
+  local review_text = type(mine.text) == "string" and mine.text or ""
+  local body
+  if review_text ~= "" then
+    body = Clamp.text { text = review_text, face = Theme.face("small"), width = width, lines = 3 }
+  else
+    body = Theme.mmdText(_("No written review. Your rating counts on its own; add words any time."),
+      "text", 18, { secondary = true, width = width })
+  end
+  local spoiler_note
+  if review_text ~= "" and mine.spoilers then
+    spoiler_note = Theme.mmdText(_("Contains spoilers"), "small", 18, { secondary = true, width = width })
+  end
+  local button = Button.new {
+    label = review_text ~= "" and _("Edit your review") or _("Write your review"),
+    w = width, h = Theme.TOUCH_MIN, primary = review_text == "",
+    callback = function() if self.on_review then self.on_review() end end,
+  }
+  self.your_review_button = button
+  self.your_rating_row = rating_row
+  self.your_rating_stars = stars
+  self.your_review_text = review_text
+  self.your_review_state = state
+  self.your_rating_state = rating_state
+  local block = VerticalGroup:new { align = "left",
+    heading, Theme.span("s"), rating_row, Theme.span("m"), body,
+  }
+  if spoiler_note then block[#block + 1] = Theme.span("xs"); block[#block + 1] = spoiler_note end
+  block[#block + 1] = Theme.span("m")
+  block[#block + 1] = button
+  block[#block + 1] = Theme.span("m")
+  self.your_review_block = block
+  return block
+end
+
 -- The height one card is always given, so the cards line up and the page steps are even: the rule
 -- and room above, the head line, three lines of text, the foot and room below.
 function ReviewsDialog:cardMetrics(width)
@@ -130,7 +233,7 @@ function ReviewsDialog:cardMetrics(width)
   local line_h = probe.line_height_px or math.floor(face.size * 1.3)
   probe:free()
   local head_h = text("Ag", "title", { bold = true }):getSize().h
-  local foot_h = Screen:scaleBySize(48)
+  local foot_h = Theme.TOUCH_MIN
   local gap_s, gap_m = Theme.space.s, Theme.space.m
   self.metrics = {
     width = width, line_h = line_h, head_h = head_h, foot_h = foot_h,
@@ -169,7 +272,7 @@ function ReviewsDialog:buildCard(review, width)
     table.insert(card, TopContainer:new {
       dimen = Geom:new { w = width, h = body_h },
       Button.new {
-        label = Reviews.SPOILER_PROMPT, w = width, h = Screen:scaleBySize(48), size = 18,
+        label = Reviews.SPOILER_PROMPT, w = width, h = Theme.TOUCH_MIN, size = 18,
         callback = function()
           self.revealed[review.id or review] = true
           self:refresh()
@@ -187,7 +290,7 @@ function ReviewsDialog:buildCard(review, width)
   local likes = text(review.likes or " ", "small", { bold = true })
   local foot
   if (cut or review.truncated) and not hidden then
-    local more = Button.new { label = _(Reviews.READ_MORE), w = Screen:scaleBySize(120), h = Screen:scaleBySize(40),
+    local more = Button.new { label = _(Reviews.READ_MORE), w = Theme.px(120), h = Theme.TOUCH_MIN,
       size = 18, callback = function() self:showFull(review) end }
     foot = rowOf(likes, more, width)
   else
@@ -203,7 +306,7 @@ function ReviewsDialog:buildFooter(width)
   local group = VerticalGroup:new { align = "left", Theme.rule(width, false), Theme.span("m") }
   if self.has_more and not self.offline then
     table.insert(group, Button.new { label = self.loading and _("Loading reviews\226\128\166") or _(Reviews.LOAD_MORE),
-      w = width, h = Screen:scaleBySize(56), callback = function() self:loadMore() end })
+      w = width, h = Theme.mmd.button.height.medium, callback = function() self:loadMore() end })
     self.more_button = group[#group]
   else
     self.more_button = nil
@@ -270,19 +373,42 @@ function ReviewsDialog:buildContent(width)
   table.insert(content, Theme.span("m"))
   local summary = self:buildSummary(width)
   if summary then table.insert(content, summary) end
-  for _i, review in ipairs(self.reviews) do
+  local own = self:buildYourBlock(width)
+  if own then table.insert(content, own) end
+  local community = self:communityReviews()
+  if own or #community > 0 or self.message then
+    table.insert(content, self:communityHeader(width, #community))
+    if #community == 0 then
+      table.insert(content, Theme.span("s"))
+      table.insert(content, Theme.mmdText(self.message or _("No community reviews yet."),
+        "text", 18, { secondary = true, width = width }))
+      table.insert(content, Theme.span("m"))
+    end
+  end
+  for _i, review in ipairs(community) do
     table.insert(content, self:buildCard(review, width))
   end
-  table.insert(content, self:buildFooter(width))
+  if #community > 0 or self.has_more then
+    table.insert(content, self:buildFooter(width))
+  end
   return content
 end
 
 -- How tall buildContent(width) comes out, without building the cards: each is cardMetrics' height.
 -- Past `limit` the summary and footer are not built to be counted.
 function ReviewsDialog:contentHeight(width, limit)
-  local h = Theme.space.m + #self.reviews * self:cardMetrics(width).height
+  local community = self:communityReviews()
+  local h = Theme.space.m + #community * self:cardMetrics(width).height
+  local own = self:buildYourBlock(width)
+  if own then h = h + own:getSize().h; pcall(own.free, own) end
+  if own or #community > 0 or self.message then
+    local header = self:communityHeader(width, #community)
+    h = h + header:getSize().h
+    pcall(header.free, header)
+  end
   if limit and h > limit then return h end
-  for _i, block in ipairs({ self:buildSummary(width) or false, self:buildFooter(width) }) do
+  local footer = (#community > 0 or self.has_more) and self:buildFooter(width) or false
+  for _i, block in ipairs({ self:buildSummary(width) or false, footer }) do
     if block then
       h = h + block:getSize().h
       if type(block.free) == "function" then pcall(block.free, block) end
@@ -300,7 +426,7 @@ function ReviewsDialog:build()
   local room = self.height - bar:getSize().h
   local body
   self.scroll = nil
-  if self.message then
+  if self.message and not self.mine then
     body = CenterContainer:new { dimen = Geom:new { w = self.width, h = room },
       TextBoxWidget:new {
         text = self.message .. (self.cache_note and ("\n\n" .. self.cache_note) or ""),
@@ -339,6 +465,15 @@ function ReviewsDialog:setMessage(message)
   self:refresh()
 end
 
+-- A rating or review just saved: update the own section without closing the page.
+function ReviewsDialog:setMine(values)
+  self.mine = self.mine or {}
+  for key, value in pairs(values or {}) do
+    if value == false then self.mine[key] = nil else self.mine[key] = value end
+  end
+  self:refresh()
+end
+
 --
 -- Show the first page, or append a later one.
 --
@@ -352,7 +487,7 @@ function ReviewsDialog:addPage(rows, raw_count, offset)
   self.offset = offset + (raw_count or #rows)
   self.has_more = Reviews.hasMore(raw_count, self.page_size)
 
-  if #self.reviews == 0 and not self.has_more then
+  if #self.reviews == 0 and not self.has_more and not self.mine then
     self:setMessage(_("No reviews yet"))
     return
   end

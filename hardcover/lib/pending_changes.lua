@@ -55,7 +55,7 @@ end
 -- synthetic start a reread records; a status row does not, because that start cancels with the page.
 local function startedState(entry, kind)
   local state
-  for _, action in ipairs(Actions.list(entry)) do
+  for _i, action in ipairs(Actions.list(entry)) do
     local selected = kind == "page" and (action.kind == "page" or action.from_page)
       or kind == "status" and action.kind == "status" and not action.from_page
     if selected and Actions.started(action) then
@@ -64,6 +64,21 @@ local function startedState(entry, kind)
     end
   end
   return state
+end
+
+-- One read edit's words: which field it will write.
+local function readActionText(action)
+  if action.kind == "read_edition" then return _("Edition waiting to send") end
+  if action.kind == "add_read" then return _("New read waiting to send") end
+  if action.kind == "remove_read" then return _("Removal waiting to send") end
+  local fields = {}
+  for field in pairs(action.change or {}) do fields[field] = true end
+  for field in pairs(action.clear or {}) do fields[field] = true end
+  if fields.started_at and fields.finished_at then return _("Read dates waiting to send") end
+  if fields.finished_at then return _("Finish date waiting to send") end
+  if fields.started_at then return _("Start date waiting to send") end
+  if fields.finished_at_precision then return _("Finish precision waiting to send") end
+  return _("Read edit waiting to send")
 end
 
 -- what the saved shelves need to put the book back where it was if this entry's status is cancelled
@@ -130,6 +145,35 @@ function PendingChanges.list(queues)
           }
         end
       end
+
+      -- One row per read edit. A question about it is also in the decisions group; the row
+      -- stays so the reader can see (and cancel) the waiting work behind it.
+      for _i, action in ipairs(Actions.readActions(entry)) do
+        local blocked = false
+        for _j, earlier in ipairs(Actions.list(entry)) do
+          if earlier.seq == action.seq then break end
+          if earlier.conflict or earlier.checking or not earlier.applied then blocked = true end
+        end
+        local read_note
+        if action.conflict then
+          read_note = _("Needs your decision")
+        elseif action.checking then
+          read_note = _("Checking what synced")
+        elseif action.wait then
+          read_note = _("Waiting for the current read to finish")
+        elseif blocked or entry.conflict then
+          read_note = _("Waiting for an earlier change")
+        end
+        local seq = action.seq
+        rows[#rows + 1] = {
+          kind = "read", title = title, note = read_note, op = action,
+          file = entry.file, book_id = tonumber(entry.book_id),
+          text = T(_("%1: %2"), title, readActionText(action)),
+          cancel = function()
+            return sync:cancelReadEdit(entry.book_id, seq, entry.user_id or queues.user_id, entry)
+          end,
+        }
+      end
     end
   end
 
@@ -141,7 +185,8 @@ function PendingChanges.list(queues)
         kind = "rating", title = title,
         text = (r.rating or 0) > 0 and T(_("%1: rating %2"), title, tostring(r.rating))
           or T(_("%1: clear the rating"), title),
-        note = heldNote(r) or (r.blocked and _("waiting for an earlier change") or nil),
+        note = heldNote(r) or (r.parked and _("Needs your decision")
+          or (r.blocked and _("waiting for an earlier change") or nil)),
         cancel = function() return ratings:cancel(r.user_book_id, r.book_id, queues.user_id) end,
       }
     end
@@ -198,7 +243,8 @@ function PendingChanges.list(queues)
       rows[#rows + 1] = {
         kind = "review", title = title,
         text = r.text ~= "" and T(_("%1: review"), title) or T(_("%1: remove the review"), title),
-        note = heldNote(r) or (r.blocked and _("waiting for an earlier change") or nil),
+        note = heldNote(r) or (r.parked and _("Needs your decision")
+          or (r.blocked and _("waiting for an earlier change") or nil)),
         cancel = function() return reviews:cancel(r.user_book_id, r.book_id, queues.user_id) end,
       }
     end

@@ -14,6 +14,7 @@ local _ = require("gettext")
 local T = require("ffi/util").template
 
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
+local ReadHistory = require("hardcover/lib/read_history")
 
 local SyncConflicts = {}
 
@@ -44,26 +45,143 @@ function SyncConflicts.changesText(changes)
   return table.concat(changes, ", ", 1, #changes - 1) .. " and " .. changes[#changes]
 end
 
+-- A rating as words for a comparison: "4.5 stars", "1 star" or "No rating".
+function SyncConflicts.ratingText(rating)
+  rating = tonumber(rating) or 0
+  if rating <= 0 then return _("No rating") end
+  return rating == 1 and _("1 star") or T(_("%1 stars"), tostring(rating))
+end
+
+-- A review's text for a comparison, or the words for no review.
+function SyncConflicts.reviewText(value)
+  local text = type(value) == "table" and value.text or ""
+  if type(text) ~= "string" or text == "" then return _("No review") end
+  return text
+end
+
 -- The one-line description of a decision in the review list.
 function SyncConflicts.decisionText(title, decision)
-  local conflict = decision and (decision.entry and decision.entry.conflict or decision.conflict)
+  local conflict = decision and (decision.conflict or (decision.entry and decision.entry.conflict))
   if not conflict then return T(_("%1: needs your decision"), title) end
-  if conflict.kind == "remove" then
+  if conflict.kind == "rating" then
+    return T(_("%1: rating changed on Hardcover"), title)
+  elseif conflict.kind == "review" then
+    return conflict.delete and T(_("%1: remove your review?"), title)
+      or T(_("%1: review changed on Hardcover"), title)
+  elseif conflict.kind == "remove" then
     return T(_("%1: remove anyway?"), title)
   elseif conflict.kind == "reread" then
     return T(_("%1: read again?"), title)
+  elseif conflict.kind == "read_changed" then
+    local first = conflict.fields and conflict.fields[1]
+    return first and T(_("%1: %2 changed on Hardcover"), title, SyncConflicts.fieldName(first.field, true))
+      or T(_("%1: read changed on Hardcover"), title)
+  elseif conflict.kind == "read_gone" then
+    return T(_("%1: this read is no longer on Hardcover"), title)
+  elseif conflict.kind == "read_reading" then
+    return T(_("%1: change an older read?"), title)
   end
   return T(_("%1: page %2 here, page %3 on Hardcover"), title, conflict.local_page, conflict.cloud_page)
 end
 
 -- Why a removal is being asked about, under its line. The full detail is in the question.
 function SyncConflicts.decisionNote(decision)
-  local conflict = decision and (decision.entry and decision.entry.conflict or decision.conflict)
+  local conflict = decision and (decision.conflict or (decision.entry and decision.entry.conflict))
   if not conflict then return nil end
+  if conflict.kind == "rating" then return _("Both ratings are kept until you answer.") end
+  if conflict.kind == "review" then return _("Both versions are kept until you answer.") end
   if conflict.kind == "remove" then return _("Changed on Hardcover since you asked.") end
   if conflict.kind == "reread" then
     return T(_("Hardcover has it as %1."), SyncConflicts.statusName(conflict.cloud_status))
+  elseif conflict.kind == "read_changed" then
+    return _("The read changed on another device since you started.")
+  elseif conflict.kind == "read_gone" then
+    return _("It was removed on another device.")
+  elseif conflict.kind == "read_reading" then
+    return _("The book is still being read on Hardcover.")
   end
+end
+
+local FIELD_NAMES = {
+  started_at = _("start date"), finished_at = _("finish date"),
+  finished_at_precision = _("finish precision"), edition_id = _("edition"),
+  progress_pages = _("page"),
+}
+
+-- "start date" (lowercase for a sentence) or "Start date" for a label.
+function SyncConflicts.fieldName(field, lower)
+  local name = FIELD_NAMES[field] or tostring(field)
+  if lower then return name:sub(1, 1):lower() .. name:sub(2) end
+  return name
+end
+
+local function precisionName(value)
+  value = tonumber(value) or 1
+  if value == 2 then return _("month") end
+  if value == 3 then return _("year") end
+  return _("day")
+end
+
+local function fieldValue(field, value, read)
+  if value == nil then return _("not set") end
+  if field == "started_at" or field == "finished_at" then
+    local precision = field == "finished_at" and read and read.finished_at_precision or 1
+    local text = ReadHistory.dateText(value, precision)
+    return text ~= "" and text or tostring(value)
+  elseif field == "finished_at_precision" then
+    return precisionName(value)
+  elseif field == "edition_id" then
+    return T(_("edition %1"), tostring(value))
+  end
+  return tostring(value)
+end
+
+-- One read edit's question: a field changed on Hardcover, the read is gone, or an older read is
+-- being changed while a newer one is in progress.
+function SyncConflicts.describeRead(entry, conflict)
+  local name = SyncConflicts.title(type(entry) == "table" and entry.file, entry)
+  if conflict.kind == "read_gone" then
+    local read = conflict.read or conflict.base
+    local range = read and ReadHistory.rangeText(read) or _("this read")
+    return {
+      title = T(_("%1\n\nThis read (%2) is no longer on Hardcover.\n\nAdd it again, or discard this change?"),
+        name, range),
+      rows = {
+        { id = "add_again", text = _("Add it again") },
+        { id = "discard", text = _("Discard this change") },
+        { id = "later", text = _("Decide later") },
+      },
+    }
+  end
+  if conflict.kind == "read_reading" then
+    local current = conflict.current and ReadHistory.rangeText(conflict.current) or _("a newer read")
+    return {
+      title = T(_("%1\n\nYou changed an older read while %2 is still in progress on Hardcover. Changing it can move the book's shelf.\n\nWhat should happen?"),
+        name, current),
+      rows = {
+        { id = "send_anyway", text = _("Send it anyway") },
+        { id = "wait", text = _("Wait until the newer read finishes") },
+        { id = "discard", text = _("Discard this change") },
+        { id = "later", text = _("Decide later") },
+      },
+    }
+  end
+
+  local lines = {}
+  for _i, field in ipairs(conflict.fields or {}) do
+    lines[#lines + 1] = T(_("%1: Hardcover has %2; you started from %3."),
+      SyncConflicts.fieldName(field.field), fieldValue(field.field, field.online, conflict.read),
+      fieldValue(field.field, field.base, conflict.read))
+  end
+  return {
+    title = T(_("%1\n\nThis read changed on Hardcover since you started:\n\n%2\n\nWhich should be kept?"),
+      name, table.concat(lines, "\n")),
+    rows = {
+      { id = "keep_hardcover", text = _("Use Hardcover's") },
+      { id = "use_device", text = _("Use this device's") },
+      { id = "later", text = _("Decide later") },
+    },
+  }
 end
 
 -- { title, rows = { { id, text }... } } for one conflict. The ids are what
@@ -74,6 +192,43 @@ function SyncConflicts.describe(filepath, entry)
     return nil
   end
   local name = SyncConflicts.title(filepath, entry)
+
+  if conflict.kind == "rating" then
+    return {
+      title = T(_("%1\n\nYour rating changed on Hardcover since this device last checked.\n\nHardcover: %2\nThis device: %3\n\nWhich should be kept?"),
+        name, SyncConflicts.ratingText(conflict.online), SyncConflicts.ratingText(conflict.proposed)),
+      rows = {
+        { id = "keep_hardcover", text = _("Keep Hardcover's") },
+        { id = "use_device", text = _("Use this device's") },
+        { id = "later", text = _("Decide later") },
+      },
+    }
+  end
+
+  if conflict.kind == "review" then
+    local lines = {
+      T(_("Hardcover:\n%1"), SyncConflicts.reviewText(conflict.online)),
+      T(_("This device:\n%1"), SyncConflicts.reviewText(conflict.proposed)),
+    }
+    if conflict.online.spoilers ~= conflict.proposed.spoilers then
+      lines[#lines + 1] = T(_("Hardcover spoilers: %1\nThis device spoilers: %2"),
+        conflict.online.spoilers and _("yes") or _("no"),
+        conflict.proposed.spoilers and _("yes") or _("no"))
+    end
+    local rows = {
+      { id = "keep_hardcover", text = _("Keep Hardcover's") },
+      { id = "use_device", text = conflict.delete and _("Remove my review anyway") or _("Use this device's") },
+    }
+    if not conflict.delete then
+      rows[#rows + 1] = { id = "combine", text = _("Combine in the editor") }
+    end
+    rows[#rows + 1] = { id = "later", text = _("Decide later") }
+    return {
+      title = T(_("%1\n\nYour review changed on Hardcover since this device last checked.\n\n%2\n\nWhich should be kept?"),
+        name, table.concat(lines, "\n\n")),
+      rows = rows,
+    }
+  end
 
   if conflict.kind == "remove" then
     local why

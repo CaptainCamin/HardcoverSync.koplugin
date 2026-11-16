@@ -380,5 +380,99 @@ check("a review waits for its book's removal without counting as a failure", fun
   eq(#api.sent, 2, "both sent")
 end)
 
+
+print("\n== risk 2: a review changed online ==")
+
+local function reviewApi(text, spoilers)
+  local api = fakeApi()
+  api.found = { id = 907, book_id = 101, review_raw = text, review_has_spoilers = spoilers == true }
+  function api:findUserBookForRemoval(book_id, user_id)
+    eq(book_id, 101, "preflight catalog ID"); eq(user_id, 42, "preflight user")
+    return self.found
+  end
+  return api
+end
+
+check("an unchanged online review sends, and a changed one parks", function()
+  local q = newQueue()
+  q:queue(907, "my words", false, "Dune", 101, 42,
+    { text = "old words", spoilers = false, known = true })
+  local api = reviewApi("old words", false)
+  eq(q:flush(api, { user_id = 42 }), 0)
+  eq(#api.sent, 1); eq(api.sent[1].text, "my words")
+
+  local changed = newQueue()
+  changed:queue(907, "my words", false, "Dune", 101, 42,
+    { text = "old words", spoilers = false, known = true })
+  local changed_api = reviewApi("online words", true)
+  eq(changed:flush(changed_api, { user_id = 42 }), 1)
+  eq(#changed_api.sent, 0, "no write before the reader answers")
+  local row = changed:list(42)[1]
+  eq(row.parked, true); eq(row.decision.online.text, "online words")
+  eq(row.decision.online.spoilers, true); eq(row.decision.proposed.text, "my words")
+  local decision = changed:decisions(42)[1]
+  eq(decision.kind, "review"); eq(decision.title, "Dune")
+end)
+
+check("using this device's review keeps its spoiler flag and rechecks first", function()
+  local q = newQueue()
+  q:queue(907, "my words", true, "Dune", 101, 42,
+    { text = "old words", spoilers = false, known = true })
+  local api = reviewApi("online words", false)
+  eq(q:flush(api, { user_id = 42 }), 1)
+  assert(q:decisions(42)[1].resolve("use_device"))
+  eq(#q:decisions(42), 0)
+  eq(q:flush(api, { user_id = 42 }), 0)
+  eq(#api.sent, 1); eq(api.sent[1].text, "my words"); eq(api.sent[1].spoilers, true)
+
+  local changed = newQueue()
+  changed:queue(907, "my words", false, "Dune", 101, 42,
+    { text = "old words", spoilers = false, known = true })
+  local online = reviewApi("online words", true)
+  eq(changed:flush(online, { user_id = 42 }), 1)
+  assert(changed:decisions(42)[1].resolve("use_device"))
+  online.found.review_raw, online.found.review_has_spoilers = "newer words", false
+  eq(changed:flush(online, { user_id = 42 }), 1, "the changed online text asks again")
+  eq(#online.sent, 0, "the stale answer is not sent")
+  local again = changed:decisions(42)[1]
+  eq(again.entry.conflict.online.text, "newer words")
+  assert(again.resolve("use_device"))
+  eq(changed:flush(online, { user_id = 42 }), 0)
+  eq(#online.sent, 1); eq(online.sent[1].text, "my words")
+end)
+
+check("removing a review that changed online asks first, and cannot combine", function()
+  local q = newQueue()
+  q:queue(907, "", false, "Dune", 101, 42, { text = "old words", spoilers = false, known = true })
+  local api = reviewApi("edited online", false)
+  eq(q:flush(api, { user_id = 42 }), 1)
+  eq(#api.sent, 0, "the online review is not deleted without an answer")
+  local decision = q:decisions(42)[1]
+  eq(decision.entry.conflict.delete, true)
+  assert(not decision.resolve("combine"), "a delete has no text to combine")
+  assert(decision.resolve("use_device"))
+  eq(q:flush(api, { user_id = 42 }), 0)
+  eq(#api.sent, 1); eq(api.sent[1].text, "")
+end)
+
+check("combining uses Hardcover's text as the new baseline", function()
+  local q = newQueue()
+  q:queue(907, "my words", false, "Dune", 101, 42,
+    { text = "old words", spoilers = false, known = true })
+  local api = reviewApi("online words", false)
+  eq(q:flush(api, { user_id = 42 }), 1)
+  local decision = q:decisions(42)[1]
+  local saved, outcome = decision.resolve("combine")
+  assert(saved and outcome.kind == "combine")
+  eq(outcome.online.text, "online words"); eq(outcome.device.text, "my words")
+
+  q:queue(907, "online words\n\nmy words", false, "Dune", 101, 42)
+  local _, op = next(q:ops())
+  eq(op.base.text, "online words", "the combined draft starts from the online review")
+  eq(op.base.spoilers, false)
+  eq(q:flush(api, { user_id = 42 }), 0)
+  eq(#api.sent, 1); eq(api.sent[1].text, "online words\n\nmy words")
+end)
+
 print(string.format("\n%d passed, %d failed", results.passed, results.failed))
 os.exit(results.failed == 0 and 0 or 1)
