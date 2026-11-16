@@ -195,6 +195,7 @@ return {
     tapText("Rate")
     emu:expectText("Set rating")
     emu:expectText("0.0")
+    emu:shot("reader_first_sync_rating_unrated")
     for _ = 1, 5 do tapText("plus") end
     emu:expectText("2.5")
     emu:shot("reader_first_sync_rating")
