@@ -462,6 +462,38 @@ check("rating a book before its first shelf sync is kept, restored and sent afte
   assert(rating_queue:flush(api, nil, 1) == 0, "rating did not follow the shelf")
 end)
 
+check("an unrated book's untouched rating dialog writes nothing", function()
+  local m = newManager()
+  online = false
+  local detail = SHELVED()
+  detail.user_rating = nil
+  local d = detailScreen(m, detail)
+  local stepper = real_require("hardcover/lib/ui/components/stepper_dialog")
+  local show, form = stepper.show
+  stepper.show = function(opts) form = opts end
+  m:rateBook(d)
+  stepper.show = show
+  assert(form and form.value == 0, "an unrated book did not open at 0")
+  form.on_save(0)
+  assert(rating_queue:count() == 0, "an untouched unrated dialog queued a rating")
+  assert(#d.rating_updates == 0, "an untouched unrated dialog changed the screen")
+end)
+
+check("a deliberate 0 clears a rating from the details screen", function()
+  local m = newManager()
+  online = false
+  local d = detailScreen(m, SHELVED())
+  local stepper = real_require("hardcover/lib/ui/components/stepper_dialog")
+  local show, form = stepper.show
+  stepper.show = function(opts) form = opts end
+  m:rateBook(d)
+  stepper.show = show
+  assert(form and form.value == 4, "a rated book did not open at its rating")
+  form.on_save(0)
+  assert(rating_queue:get(51, 1, 1) == 0, "the clear was not queued")
+  assert(d.detail.user_rating == nil, "the clear was not shown")
+end)
+
 print("\n== a shelf, when the connection is back ==")
 
 check("the change is sent once, the shelves are marked out of date, the open screen gets the record", function()

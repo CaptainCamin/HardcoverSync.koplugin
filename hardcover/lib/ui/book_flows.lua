@@ -1381,12 +1381,13 @@ function Flows:rateBook(dialog, stars, on_set)
     return
   end
 
-  local rating = tonumber(detail.user_rating)
+  local rating = BookActions.ratingValue(detail.user_rating)
   require("hardcover/lib/ui/components/stepper_dialog").show {
     title = _("Set rating"),
     text = _("0 clears the rating."),
-    value = stars or rating or 2.5, min = 0, max = 5, step = 0.5,
+    value = stars or rating, min = 0, max = 5, step = 0.5,
     on_save = function(value)
+      if not BookActions.ratingChanged(rating, value) then return end
       queue:queue(detail.user_book_id, value, detail.book.title, detail.book.book_id, User:getId(),
         BookActions.ratingBase(detail))
       if Live.shown(dialog) then dialog:setRating(value) end

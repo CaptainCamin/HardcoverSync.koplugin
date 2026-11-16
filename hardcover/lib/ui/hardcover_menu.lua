@@ -17,6 +17,7 @@ local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
 local Book = require("hardcover/lib/book")
+local BookActions = require("hardcover/lib/book_actions")
 local Network = require("hardcover/lib/network")
 local Github = require("hardcover/lib/github")
 local Updater = require("hardcover/lib/updater")
@@ -1310,10 +1311,12 @@ function HardcoverMenu:showEndPage()
     }
     if status.id or (status_id and self.rating_queue) then
       m.rows[#m.rows + 1] = { text = _("Your rating"), rating = true, run = function()
+        local rating = BookActions.ratingValue(status.rating)
         require("hardcover/lib/ui/components/stepper_dialog").show {
           title = _("Set rating"), text = _("0 clears the rating."),
-          value = status.rating or 2.5, min = 0, max = 5, step = 0.5,
+          value = rating, min = 0, max = 5, step = 0.5,
           on_save = function(value)
+            if not BookActions.ratingChanged(rating, value) then return end
             self:saveRating(value, { updateItems = function() if page then page:render() end end })
           end,
         }
@@ -1745,13 +1748,15 @@ function HardcoverMenu:getStatusSubMenuItems()
           or (self.rating_queue ~= nil and self.settings:bookLinked() and self:bookShelfStatus() ~= nil))
       end,
       callback = function(menu_instance)
-        local rating = self.state.book_status.rating
+        local rating = BookActions.ratingValue(self.state.book_status.rating)
 
         require("hardcover/lib/ui/components/stepper_dialog").show {
           title = _("Set rating"),
           text = _("0 clears the rating."),
-          value = rating or 2.5, min = 0, max = 5, step = 0.5,
-          on_save = function(value) self:saveRating(value, menu_instance) end,
+          value = rating, min = 0, max = 5, step = 0.5,
+          on_save = function(value)
+            if BookActions.ratingChanged(rating, value) then self:saveRating(value, menu_instance) end
+          end,
         }
       end,
       hold_callback = function(menu_instance)

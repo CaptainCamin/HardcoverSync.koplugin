@@ -42,6 +42,15 @@ function BookActions.withPendingRating(detail, waiting)
   return detail
 end
 
+-- No rating and 0 are the same clear value.
+function BookActions.ratingValue(rating)
+  return tonumber(rating) or 0
+end
+
+function BookActions.ratingChanged(current, value)
+  return BookActions.ratingValue(current) ~= BookActions.ratingValue(value)
+end
+
 -- What the device last saw on Hardcover before a rating edit: { rating, known = true }, or
 -- "unknown" when the copy on screen never carried it. A pending overlay is not the baseline;
 -- `_server_base` is what the screen held before the overlay.
