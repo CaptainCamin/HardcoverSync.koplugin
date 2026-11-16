@@ -670,9 +670,8 @@ function DialogManager:showHomeBody(host)
     end or function() return 0 end,
     signed_out = not signed_in,
     sign_in_cb = function()
-      if self.sign_in then
-        self.sign_in(function() self:refreshHome() end)
-      end
+      -- signIn refreshes Home itself when it succeeds; this only starts the flow.
+      if self.sign_in then self.sign_in() end
     end,
     held_fn = function()
       return PendingChanges.heldCounts({

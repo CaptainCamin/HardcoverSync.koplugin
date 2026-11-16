@@ -112,12 +112,10 @@ function PendingChangesDialog.show(opts)
         text = PendingChanges.line(row),
         help = row.detail,
         callback = function()
-          if row.started then
-            StatusDialogs.info(_("Sync has already started for this change, so it cannot be cancelled. Some work may already be on Hardcover; discarding remaining work does not undo anything already sent."))
-            return
-          end
           if row.held and row.detail then
             showHeld(row)
+          elseif row.started then
+            StatusDialogs.info(_("Sync has already started for this change, so it cannot be cancelled. Some work may already be on Hardcover; discarding remaining work does not undo anything already sent."))
           else
             askCancel(row)
           end

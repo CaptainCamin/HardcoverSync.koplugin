@@ -412,6 +412,7 @@ function HardcoverApp:signIn(on_done)
   dialog.success_callback = function()
     User:forget()
     BookshelfSources.changed(self)
+    if self.dialog_manager then self.dialog_manager:refreshHome() end
     if on_done then on_done() end
   end
 

@@ -177,7 +177,7 @@ function HomeBody:syncNote(width)
     if count > 0 then
       return Note.new { width = width, h = h, dotted = true, icon_name = "sync", action = action, on_tap = on_tap,
         title = count == 1 and _("1 change waiting") or string.format(_("%d changes waiting"), count),
-        text = online and _("Sync now sends them.") or _("They sync when you are online.") }
+        text = online and _("They send now.") or _("They sync when you are online.") }
     end
     return Note.new { width = width, h = h, dotted = true, icon_name = "check", action = action, on_tap = on_tap,
       title = _("All synced"), text = _("Nothing is waiting to send.") }

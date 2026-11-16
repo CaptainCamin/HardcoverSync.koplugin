@@ -187,7 +187,8 @@ function PendingChanges.list(queues)
         end
         local seq = action.seq
         rows[#rows + 1] = {
-          kind = "read", title = title, note = read_note, op = action,
+          kind = "read", title = title, note = heldNote(entry) or read_note, op = action,
+          held = entry.held, reason = entry.reason, detail = heldDetail("read", entry),
           file = entry.file, book_id = tonumber(entry.book_id),
           text = T(_("%1: %2"), title, readActionText(action)),
           cancel = function()

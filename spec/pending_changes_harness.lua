@@ -79,6 +79,35 @@ check("a read edit has its own row, its state in words, and its own cancel", fun
   assert(#q.sync_queue:readActions(7) == 0)
 end)
 
+check("a held read edit says why and counts as held-by-permission", function()
+  local q = queues()
+  q.sync_queue:enqueueReadEdit(7, {
+    kind = "read_dates", user_id = 1, user_book_id = 507, title = "Dune", read_id = 10,
+    base = { started_at = "2024-03-12" }, change = { finished_at = "2024-03-20" },
+  })
+  local entry = q.sync_queue:get(7)
+  entry.held, entry.reason = true, "scope"
+  local row = PendingChanges.list(q)[1]
+  assert(row and row.kind == "read" and row.held and row.reason == "scope", "the held read edit lost its state")
+  assert(row.detail:find("sign-in does not include", 1, true), row.detail)
+  assert(PendingChanges.line(row):find("permission needed; sign in again", 1, true), PendingChanges.line(row))
+  local held = PendingChanges.heldCounts({ sync_queue = q.sync_queue })
+  assert(held.total == 1 and held.scope == 1, "held counts: " .. held.total)
+end)
+
+check("a partly synced held change keeps both its started state and its held reason", function()
+  local q = queues()
+  q.sync_queue:enqueueStatus("/b/dune.epub", { status_id = HARDCOVER.STATUS.READING, book_id = 7, title = "Dune" })
+  local entry = q.sync_queue:get("/b/dune.epub")
+  Actions.list(entry)[1].status_sent = true
+  entry.held, entry.reason = true, "refused"
+  local row = PendingChanges.list(q)[1]
+  assert(row and row.started and row.held and row.reason == "refused", "started/held state: " .. tostring(row and row.kind))
+  assert(row.detail:find("repeated attempts", 1, true), row.detail)
+  assert(PendingChanges.line(row):find("Finishing sync", 1, true), PendingChanges.line(row))
+  assert(PendingChanges.line(row):find("Hardcover refused it", 1, true), PendingChanges.line(row))
+end)
+
 check("a parked read edit says Needs your decision and appears in the decision group", function()
   local q = queues()
   q.sync_queue:enqueueReadEdit(7, {
