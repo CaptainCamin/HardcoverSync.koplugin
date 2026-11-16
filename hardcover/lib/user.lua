@@ -13,9 +13,52 @@ function User:getId()
     if type(me.username) == "string" and me.username ~= "" then
       self.settings:updateSetting(SETTING.USER_NAME, me.username)
     end
+    local privacy = tonumber(me.account_privacy_setting_id)
+    if privacy then self.settings:updateSetting(SETTING.ACCOUNT_PRIVACY, privacy) end
   end
 
   return user_id
+end
+
+-- The account's default visibility for new notes, quotes and other entries, as
+-- last seen from Hardcover. nil when it has not been seen yet; callers must not
+-- turn that into a public default.
+function User:getAccountPrivacy()
+  return self.settings and tonumber(self.settings:readSetting(SETTING.ACCOUNT_PRIVACY))
+end
+
+-- Ask Hardcover for the account's default visibility, independently of the
+-- cached id and username. Called when a new journal entry needs it, so an
+-- account that was already signed in before this setting existed gets a value
+-- too. Offline or unanswered, the saved value stays; with none, callers get nil
+-- and use Private.
+function User:refreshAccountPrivacy(done, now)
+  now = now or os.time()
+  if not self.settings then
+    if done then done(nil) end
+    return
+  end
+  if User.privacy_pending or (User.privacy_retry_at and now < User.privacy_retry_at) then
+    if done then done(self:getAccountPrivacy()) end
+    return
+  end
+  if not Network.connected() or type(Api.meAsync) ~= "function" then
+    if done then done(self:getAccountPrivacy()) end
+    return
+  end
+
+  User.privacy_pending = true
+  Api:meAsync(function(me)
+    User.privacy_pending = nil
+    local privacy = tonumber(me and me.account_privacy_setting_id)
+    if privacy then
+      User.privacy_retry_at = nil
+      self.settings:updateSetting(SETTING.ACCOUNT_PRIVACY, privacy)
+    else
+      User.privacy_retry_at = now + User.RETRY_AFTER
+    end
+    if done then done(self:getAccountPrivacy()) end
+  end)
 end
 
 -- The signed-in account's username as last seen, or nil. Reads the saved copy only, so a
@@ -45,6 +88,8 @@ function User:refreshName(done, now)
     if type(name) == "string" and name ~= "" then
       User.name_retry_at = nil
       self.settings:updateSetting(SETTING.USER_NAME, name)
+      local privacy = tonumber(me.account_privacy_setting_id)
+      if privacy then self.settings:updateSetting(SETTING.ACCOUNT_PRIVACY, privacy) end
       if done then done(name) end
     else
       User.name_retry_at = now + User.RETRY_AFTER
@@ -56,7 +101,9 @@ end
 function User:forget()
   self.settings:updateSetting(SETTING.USER_ID, nil)
   self.settings:updateSetting(SETTING.USER_NAME, nil)
+  self.settings:updateSetting(SETTING.ACCOUNT_PRIVACY, nil)
   User.name_pending, User.name_retry_at = nil, nil
+  User.privacy_pending, User.privacy_retry_at = nil, nil
 end
 
 return User

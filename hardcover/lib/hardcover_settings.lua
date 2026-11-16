@@ -9,7 +9,31 @@ local UiPrefs = require("hardcover/lib/ui_prefs")
 local HardcoverSettings = {}
 HardcoverSettings.__index = HardcoverSettings
 
-function HardcoverSettings:new(path, ui)
+-- A settings file that does not exist yet is a new installation. Existing files,
+-- even empty ones, are upgrades: their absent keys keep the old off defaults.
+function HardcoverSettings.newInstall(path)
+  if not path then return true end
+  local file = io.open(path, "r")
+  if file then
+    file:close()
+    return false
+  end
+  return true
+end
+
+-- The defaults a clean installation starts with. They are written once, on the
+-- first run only, so an existing reader's saved choices (including an explicit
+-- false) are never changed by an upgrade.
+function HardcoverSettings:applyNewInstallDefaults()
+  for _, key in ipairs({ SETTING.ALWAYS_SYNC, SETTING.LINK_BY_ISBN, SETTING.LINK_BY_HARDCOVER }) do
+    if self.settings:readSetting(key) == nil then
+      self.settings:saveSetting(key, true)
+    end
+  end
+  self.settings:flush()
+end
+
+function HardcoverSettings:new(path, ui, opts)
   local o = {}
   setmetatable(o, self)
 
@@ -19,6 +43,10 @@ function HardcoverSettings:new(path, ui)
   o.ui = ui
   o.subscribers = {}
   UiPrefs.pure_black_text = o.settings:readSetting(SETTING.PURE_BLACK_TEXT) == true
+
+  if opts and opts.new_install then
+    o:applyNewInstallDefaults()
+  end
 
   if KoreaderVersion:getNormalizedCurrentVersion() < 202403010000 then
     if o.settings:readSetting(SETTING.COMPATIBILITY_MODE) == nil then

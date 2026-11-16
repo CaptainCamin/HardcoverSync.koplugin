@@ -37,6 +37,22 @@ check("the first id lookup keeps the username too", function()
   assert(store.user_id == 7 and store.user_name == "ChananyaMinster" and User:getName() == "ChananyaMinster")
 end)
 
+check("the first id lookup keeps the account privacy default", function()
+  local s, store = settings()
+  User.settings = s
+  answer = { id = 7, username = "ChananyaMinster", account_privacy_setting_id = 2 }
+  assert(User:getId() == 7)
+  assert(store.account_privacy_setting_id == 2)
+  assert(User:getAccountPrivacy() == 2)
+end)
+
+check("no account privacy default stays nil, not Public", function()
+  local s, store = settings({ user_id = 7 })
+  User.settings = s
+  assert(User:getAccountPrivacy() == nil)
+  assert(store.account_privacy_setting_id == nil)
+end)
+
 check("getName only reads: no name is nil, and it asks for nothing", function()
   User.settings = settings()
   asked = 0
@@ -49,6 +65,7 @@ local function fresh(initial)
   local s, store = settings(initial)
   User.settings = s
   User.name_pending, User.name_retry_at = nil, nil
+  User.privacy_pending, User.privacy_retry_at = nil, nil
   asked, answer, online = 0, nil, true
   return store
 end
@@ -93,12 +110,46 @@ check("a known name is never asked for", function()
   assert(asked == 0)
 end)
 
+check("privacy refresh works with a cached id and name", function()
+  local store = fresh({ user_id = 7, user_name = "old" })
+  answer = { id = 7, username = "old", account_privacy_setting_id = 2 }
+  local got
+  User:refreshAccountPrivacy(function(value) got = value end)
+  assert(asked == 1 and store.account_privacy_setting_id == 2 and got == 2)
+end)
+
+check("privacy refresh replaces an older saved default", function()
+  local store = fresh({ user_id = 7, user_name = "old", account_privacy_setting_id = 2 })
+  answer = { id = 7, username = "old", account_privacy_setting_id = 3 }
+  User:refreshAccountPrivacy()
+  assert(store.account_privacy_setting_id == 3)
+end)
+
+check("privacy refresh keeps the saved value when Hardcover has no answer", function()
+  local store = fresh({ user_id = 7, user_name = "old", account_privacy_setting_id = 3 })
+  answer = { id = 7, username = "old" }
+  local got
+  User:refreshAccountPrivacy(function(value) got = value end)
+  assert(store.account_privacy_setting_id == 3 and got == 3, "a saved Private default was lost")
+end)
+
+check("privacy refresh offline asks nothing and keeps the saved value", function()
+  local store = fresh({ user_id = 7, user_name = "old", account_privacy_setting_id = 2 })
+  online = false
+  local got
+  User:refreshAccountPrivacy(function(value) got = value end)
+  assert(asked == 0 and store.account_privacy_setting_id == 2 and got == 2)
+end)
+
 check("a new sign-in forgets the old account", function()
-  local s, store = settings({ user_id = 7, user_name = "old" })
+  local s, store = settings({ user_id = 7, user_name = "old", account_privacy_setting_id = 3 })
   User.settings = s
   User.name_pending, User.name_retry_at = true, 99
+  User.privacy_pending, User.privacy_retry_at = true, 99
   User:forget()
-  assert(store.user_id == nil and store.user_name == nil and User.name_pending == nil and User.name_retry_at == nil)
+  assert(store.user_id == nil and store.user_name == nil and store.account_privacy_setting_id == nil
+    and User.name_pending == nil and User.name_retry_at == nil
+    and User.privacy_pending == nil and User.privacy_retry_at == nil)
 end)
 
 r.finish()
