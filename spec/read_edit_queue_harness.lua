@@ -151,6 +151,18 @@ check("an unchanged read sends one sparse write", function()
   assert(#q:readActions(7) == 0, "the action was not acknowledged")
 end)
 
+check("a sent read edit is acknowledged before the screen is told", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { read() })
+  local queued_when_told
+  enqueue(q, 7, { read_id = 10, base = { started_at = "2024-03-12", finished_at = "2024-03-20" },
+    change = { started_at = "2024-03-14" } })
+  assert(q:flush(api, { user_id = 1, on_read_sent = function()
+    queued_when_told = #q:readActions(7)
+  end }) == true)
+  assert(queued_when_told == 0, "the history was refreshed while the edit still looked queued")
+end)
+
 check("a changed field parks, with no write and a decision", function()
   local q, api = queue(), fakeApi()
   local row = read { started_at = "2024-03-13" }
