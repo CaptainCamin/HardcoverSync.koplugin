@@ -293,6 +293,8 @@ function SyncQueue:enqueuePage(filepath, payload)
   end
   local entry = self:_ensure(filepath, payload)
   if not entry then return nil end
+  -- An abandon is a barrier: a page turned after it must not be sent to the read it removes.
+  if Actions.hasAbandon(entry) then return entry end
   local at = os.time()
   Actions.page(entry, payload.mapped_page, at, entry.reread, payload.force_page)
   entry.first_page_date = entry.first_page_date or os.date("%Y-%m-%d", at)
@@ -403,11 +405,65 @@ function SyncQueue:cancelReadEdit(book_id, seq, user_id, expected_entry)
   return true
 end
 
+-- Abandon the active reread. With no read_id, only the queued start/page exist: cancel them
+-- locally and return the shelf to restore. With a server read, append the durable action.
+function SyncQueue:abandonReread(file_or_book, payload)
+  payload = payload or {}
+  local entry = self:get(file_or_book)
+  if not entry and payload.read_id then
+    entry = self:_ensure(file_or_book, {
+      book_id = tonumber(payload.book_id) or tonumber(file_or_book),
+      user_id = payload.user_id, user_book_id = payload.user_book_id,
+      title = payload.title, edition_id = payload.edition_id,
+    })
+  end
+  if not entry then return nil, "missing" end
+  entry.user_book_id = entry.user_book_id or payload.user_book_id
+  entry.title = entry.title or payload.title
+  entry.edition_id = entry.edition_id or payload.edition_id
+  local from = tonumber(entry.reread_restore_status_id) or tonumber(entry.from_status_id)
+  if not payload.read_id then
+    local ok, reason = Actions.cancel(entry, "page")
+    if not ok then return nil, reason end
+    entry.reread, entry.first_page_date = nil, nil
+    self:save(file_or_book, entry)
+    return entry, { cancelled = true, book_id = tonumber(entry.book_id),
+      user_book_id = entry.user_book_id, from_status_id = from }
+  end
+  local restore = tonumber(payload.restore_status_id) or from
+  if not restore or restore == 0 then restore = HARDCOVER.STATUS.FINISHED end
+  local action = Actions.abandonReread(entry, payload.read_id, payload.base,
+    payload.previous_read, restore, os.time())
+  action.user_book_id = entry.user_book_id
+  entry.failures, entry.held, entry.reason = nil, nil, nil
+  self:persist()
+  return entry, action
+end
+
+-- A reread that is still only in this device's queue, for Reading history to show before sync.
+-- `reads` is the saved server history: when it already has an unfinished read, that row is real.
+function SyncQueue:pendingReread(book_id, reads)
+  local entry = self:get(book_id)
+  if type(entry) ~= "table" or not entry.reread then return nil end
+  for _, read in ipairs(reads or {}) do
+    if not read.finished_at then return nil end
+  end
+  return {
+    id = entry.read_id or ("pending:" .. tostring(book_id)),
+    started_at = entry.started_at or entry.first_page_date,
+    progress_pages = entry.mapped_page,
+    edition_id = entry.edition_id,
+    pending_reread = true,
+    pending_abandon = Actions.hasAbandon(entry),
+  }
+end
+
 -- A page that starts the book again. The flush changes status and writes the read Hardcover creates.
 function SyncQueue:startReread(filepath, payload)
   local entry = self:_ensure(filepath, payload)
   if not entry then return nil end
   entry.from_status_id = entry.from_status_id or payload.from_status_id or 0
+  entry.reread_restore_status_id = entry.reread_restore_status_id or payload.from_status_id
   local at = os.time()
   local start = Actions.status(entry, HARDCOVER.STATUS.READING, at, nil, true)
   start.from_page = true
@@ -467,6 +523,7 @@ function SyncQueue:enqueueStatus(filepath, payload)
   if reread then
     entry.read_id, entry.started_at = nil, nil
     entry.first_page_date = os.date("%Y-%m-%d", at)
+    entry.reread_restore_status_id = previous
   end
   entry.failures = nil
   self:persist()

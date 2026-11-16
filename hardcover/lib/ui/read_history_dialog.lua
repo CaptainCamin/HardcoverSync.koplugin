@@ -40,6 +40,7 @@ local ReadHistoryDialog = InputContainer:extend {
   checked_at = nil,  -- when Hardcover last confirmed these reads (os.time)
   today = nil,       -- YYYY-MM-DD, for a test; the device's day otherwise
   on_open_read = nil,
+  on_abandon = nil,  -- an active reread: open its abandon confirmation
   on_add = nil,
   on_close = nil,
 }
@@ -101,18 +102,26 @@ function ReadHistoryDialog:readRow(read, width, viewport)
   local state = stateOf(self.states, read)
   local support = state and state.text or ReadHistoryDialog.supportFor(read)
   local icon = state and stateIcon(state.kind) or nil
+  local callback
+  if read.pending_reread then
+    if not read.pending_abandon and self.on_abandon then
+      callback = function() self.on_abandon(read) end
+    end
+  elseif self.on_open_read then
+    callback = function() self.on_open_read(read) end
+  end
   local item = ListItem.new {
     width = width,
     label = ReadHistory.rangeText(read),
     support = support,
     support_icon = icon,
     support_strong = state ~= nil,
-    trailing = Draw.chevron("right"),
+    trailing = callback and Draw.chevron("right") or nil,
     divider = "dotted",
     viewport = viewport,
-    callback = self.on_open_read and function() self.on_open_read(read) end or nil,
+    callback = callback,
   }
-  if not self.on_open_read then item.ges_events = {} end
+  if not callback then item.ges_events = {} end
   -- what the row shows, for a test to read without walking the widget tree
   item.support_strong = state ~= nil
   item.support_icon = icon

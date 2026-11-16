@@ -20,6 +20,7 @@
 -- Plain data over the injected `api`, no KOReader requires, so it runs under stock Lua.
 
 local Book = require("hardcover/lib/book")
+local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local Actions = require("hardcover/lib/reading_actions")
 local OfflineQueue = require("hardcover/lib/offline_queue")
 local ReadHistory = require("hardcover/lib/read_history")
@@ -186,6 +187,123 @@ local function park(action, conflict)
   return "parked", conflict
 end
 
+local function sameRead(left, right)
+  if type(left) ~= "table" or type(right) ~= "table" then return false end
+  for _, field in ipairs({ "id", "started_at", "finished_at", "finished_at_precision", "edition_id" }) do
+    if not same(valueOf(left, field), valueOf(right, field)) then return false end
+  end
+  return true
+end
+
+local function previousRead(user_book, action)
+  if type(action.previous_read) ~= "table" or action.previous_read.id == nil then return nil end
+  return findRead(user_book, action.previous_read.id)
+end
+
+local function abandonConflict(action, read)
+  return park(action, { kind = "read_changed", read_id = action.read_id,
+    read = read or action.base, fields = {} })
+end
+
+-- Delete the reread, then restore the library shelf without sending a finish date. The two
+-- requests are deliberately separate: the status-only update must not touch the previous read.
+local function sendAbandon(api, entry, action, opts)
+  local user_book, lookup_err = api:findUserBook(entry.book_id, opts.user_id)
+  if lookup_err ~= nil then return "transient", lookup_err end
+  if type(user_book) ~= "table" or not user_book.id then return "held", "library_gone" end
+  if action.user_book_id and tostring(action.user_book_id) ~= tostring(user_book.id) then
+    return abandonConflict(action, action.base)
+  end
+
+  local target = findRead(user_book, action.read_id)
+  local previous = previousRead(user_book, action)
+  if action.previous_read and (not previous or not previous.finished_at) then
+    return abandonConflict(action, target or action.base)
+  end
+  if target and action.deleted then
+    -- A different read with the same id is not the one the reader asked to abandon.
+    return abandonConflict(action, target)
+  end
+
+  if target then
+    if target.finished_at or tonumber(user_book.status_id) ~= HARDCOVER.STATUS.READING then
+      return abandonConflict(action, target)
+    end
+    if not action.deleted then
+      local result, err = api:deleteRead(action.read_id)
+      if not result then
+        if err ~= nil and not OfflineQueue.transient(err) then return "failed", err end
+        action.checking = true
+        if opts.persist then opts.persist() end
+        return "checking", user_book
+      end
+      action.deleted = true
+      dropRead(user_book, action.read_id)
+      if opts.persist then opts.persist() end
+    end
+  elseif not action.deleted then
+    -- Another device already removed it. Restore only when the shelf is still Reading; a
+    -- changed or replaced record is a question, not permission to overwrite it.
+    if tonumber(user_book.status_id) ~= HARDCOVER.STATUS.READING
+        and tonumber(user_book.status_id) ~= tonumber(action.restore_status_id) then
+      return abandonConflict(action, action.base)
+    end
+    action.deleted = true
+    if opts.persist then opts.persist() end
+  end
+
+  if action.previous_read and not sameRead(previous, action.previous_read) then
+    return abandonConflict(action, target or action.base)
+  end
+
+  local restore = tonumber(action.restore_status_id) or HARDCOVER.STATUS.FINISHED
+  if tonumber(user_book.status_id) == restore then
+    local fresh, err = api:findUserBook(entry.book_id, opts.user_id)
+    if err ~= nil then
+      action.checking = true
+      if opts.persist then opts.persist() end
+      return "checking", user_book
+    end
+    if fresh and not findRead(fresh, action.read_id) then
+      if action.previous_read and not sameRead(previousRead(fresh, action), action.previous_read) then
+        return abandonConflict(action, action.base)
+      end
+      action.checking, action.status_restored = nil, true
+      if opts.persist then opts.persist() end
+      return "sent", fresh
+    end
+    action.checking = true
+    if opts.persist then opts.persist() end
+    return "checking", fresh or user_book
+  end
+
+  local result, err = api:updateUserBookStatus(user_book.id, restore, user_book.privacy_setting_id, nil)
+  if not result then
+    if err ~= nil and not OfflineQueue.transient(err) then return "failed", err end
+    action.checking = true
+    if opts.persist then opts.persist() end
+    return "checking", user_book
+  end
+
+  local fresh, verify_err = api:findUserBook(entry.book_id, opts.user_id)
+  if verify_err ~= nil then
+    action.checking = true
+    if opts.persist then opts.persist() end
+    return "checking", result
+  end
+  if fresh and tonumber(fresh.status_id) == restore and not findRead(fresh, action.read_id) then
+    if action.previous_read and not sameRead(previousRead(fresh, action), action.previous_read) then
+      return abandonConflict(action, action.base)
+    end
+    action.checking, action.status_restored = nil, true
+    if opts.persist then opts.persist() end
+    return "sent", fresh
+  end
+  action.checking = true
+  if opts.persist then opts.persist() end
+  return "checking", fresh or result
+end
+
 -- The one edition move: the read first (its page converted to the new edition), then the library
 -- record. `opts` is { read_id, book_id, edition_id, fields, status_id, privacy_setting_id,
 -- optional settings, filename, edition_format, pages, state }. Returns the library record (with
@@ -249,6 +367,7 @@ end
 -- durable change to the action, so a crash cannot turn a sent write into a second one).
 function ReadSender.send(api, entry, action, opts)
   opts = opts or {}
+  if action.kind == "abandon_reread" then return sendAbandon(api, entry, action, opts) end
   local user_book, lookup_err = api:findUserBook(entry.book_id, opts.user_id)
   if lookup_err ~= nil then return "transient", lookup_err end
   if type(user_book) ~= "table" or not user_book.id then return "held", "library_gone" end
