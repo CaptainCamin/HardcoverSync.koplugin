@@ -99,6 +99,10 @@ local function fakeApi()
   function api:updateUserBookStatus(user_book_id, status_id, privacy_setting_id)
     self.calls[#self.calls + 1] = { op = "updateUserBookStatus", user_book_id = user_book_id,
       status_id = status_id, privacy_setting_id = privacy_setting_id }
+    if self.fail_status_once then
+      self.fail_status_once = false
+      return nil, { completed = false }
+    end
     for _, record in pairs(self.records) do
       if tostring(record.id) == tostring(user_book_id) then
         record.status_id = status_id
@@ -548,6 +552,7 @@ check("a lost delete is checked, then the shelf is restored without a second del
     base = activeReread(), previous_read = finishedRead(), restore_status_id = 3 })
   assert(q:flush(api, { user_id = 1 }) == false)
   assert(q:readActions(7)[1].checking == true, "the lost delete was not held for checking")
+  q = SyncQueue:new { settings = q.settings }
   assert(q:flush(api, { user_id = 1 }) == true)
   assert(#api.calls == 2 and api.calls[1].op == "deleteRead"
     and api.calls[2].op == "updateUserBookStatus")
@@ -555,7 +560,7 @@ check("a lost delete is checked, then the shelf is restored without a second del
   assert(#q:readActions(7) == 0)
 end)
 
-check("abandon parks when the previous read is no longer finished", function()
+check("abandon parks before deletion when the previous read changed", function()
   local q, api = queue(), fakeApi()
   api.records[7] = record(7, { activeReread(), { id = 10, started_at = "2020-01-01" } }, 2)
   q:abandonReread(7, { read_id = 11,
@@ -563,7 +568,80 @@ check("abandon parks when the previous read is no longer finished", function()
   assert(q:flush(api, { user_id = 1 }) == false)
   assert(#api.calls == 0, "a changed previous read must not be deleted")
   local action = q:readActions(7)[1]
-  assert(action.conflict and action.conflict.kind == "read_changed")
+  assert(action.conflict and action.conflict.kind == "abandon_changed")
+  assert(q:bookBarrier(7, 507, 1, "rating") == "abandon")
+  assert(q:resolveRead(7, action.seq, "keep_hardcover") == false,
+    "a generic answer removed the abandon barrier")
+  assert(q:hasPending(7) and q:bookBarrier(7, 507, 1, "rating") == "abandon")
+end)
+
+check("abandon parks before deletion when the target changed", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { finishedRead(), activeReread() }, 2)
+  api.records[7].user_book_reads[2].progress_pages = 50
+  q:abandonReread(7, { read_id = 11,
+    base = activeReread(), previous_read = finishedRead(), restore_status_id = 3 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(#api.calls == 0, "a changed target must not be deleted")
+  assert(q:readActions(7)[1].conflict.kind == "abandon_changed")
+end)
+
+check("another unfinished read blocks abandon before deletion", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { finishedRead(), activeReread(),
+    { id = 12, started_at = "2026-11-12", progress_pages = 25 } }, 2)
+  q:abandonReread(7, { read_id = 11,
+    base = activeReread(), previous_read = finishedRead(), restore_status_id = 3 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(#api.calls == 0, "the target was deleted with another active read present")
+  assert(q:readActions(7)[1].conflict.kind == "abandon_changed")
+end)
+
+check("a partial delete never overwrites a shelf changed on Hardcover", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { finishedRead(), activeReread() }, 2)
+  api.fail_status_once = true
+  q:abandonReread(7, { read_id = 11,
+    base = activeReread(), previous_read = finishedRead(), restore_status_id = 3 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  local action = q:readActions(7)[1]
+  assert(action.deleted and action.checking and not action.conflict)
+  api.records[7].status_id = 5
+  q = SyncQueue:new { settings = q.settings }
+  action = q:readActions(7)[1]
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(action.conflict and action.conflict.kind == "abandon_shelf")
+  assert(api.records[7].status_id == 5, "the changed DNF shelf was overwritten")
+  assert(q:resolveRead(7, action.seq, "restore"))
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(api.records[7].status_id == 3)
+end)
+
+check("a DNF predecessor is restored as DNF, not Finished", function()
+  local q, api = queue(), fakeApi()
+  local dnf = { id = 10, started_at = "2020-01-01", edition_id = 7 }
+  api.records[7] = record(7, { dnf, activeReread() }, 2)
+  q:abandonReread(7, { read_id = 11, base = activeReread(), previous_read = dnf,
+    restore_status_id = 5 })
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(api.records[7].status_id == 5)
+  assert(#api.records[7].user_book_reads == 1 and api.records[7].user_book_reads[1].id == 10)
+end)
+
+check("a pending library removal blocks abandon until the reader chooses", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { finishedRead(), activeReread() }, 2)
+  q:queueRemove(1, 7, 507, "Book 7", 2, SyncQueue.removalSnapshot(api.records[7]))
+  q:abandonReread(7, { read_id = 11,
+    base = activeReread(), previous_read = finishedRead(), restore_status_id = 3 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(#api.calls == 0, "the whole library record was removed")
+  assert(q:get(7).conflict.kind == "abandon_remove")
+  assert(q:resolve(7, "abandon"))
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(#api.calls == 2 and api.calls[1].op == "deleteRead"
+    and api.calls[2].op == "updateUserBookStatus")
+  assert(api.records[7] and #api.records[7].user_book_reads == 1)
 end)
 
 check("pre-sync abandon cancels the queued start and page locally", function()
@@ -576,6 +654,27 @@ check("pre-sync abandon cancels the queued start and page locally", function()
   assert(entry and outcome and outcome.cancelled)
   assert(outcome.from_status_id == 3, "the previous shelf was not kept")
   assert(not q:hasPending("/b/7.epub"), "the queued reread survived")
+end)
+
+check("pre-sync abandon removes an explicit Reading start too", function()
+  local q = queue()
+  q:enqueueStatus("/b/7.epub", { book_id = 7, user_id = 1, status_id = 2, from_status_id = 3 })
+  q:enqueuePage("/b/7.epub", { book_id = 7, mapped_page = 12 })
+  local entry, outcome = q:abandonReread("/b/7.epub", {})
+  assert(entry and outcome and outcome.cancelled)
+  assert(not q:hasPending(7), "the explicit Reading start survived")
+end)
+
+check("pre-sync abandon keeps pages from an earlier reading segment", function()
+  local q = queue()
+  q:enqueuePage("/b/7.epub", { book_id = 7, mapped_page = 299 })
+  q:enqueueStatus("/b/7.epub", { book_id = 7, status_id = 3, from_status_id = 2 })
+  q:startReread("/b/7.epub", { book_id = 7, from_status_id = 3, mapped_page = 12 })
+  assert(q:abandonReread("/b/7.epub", {}))
+  local actions = q:get(7).actions
+  assert(#actions == 2, "the earlier segment was removed: " .. tostring(#actions))
+  assert(actions[1].kind == "page" and actions[1].value == 299)
+  assert(actions[2].kind == "status" and actions[2].value == 3)
 end)
 
 check("a page turned after abandon is not queued for the reread", function()

@@ -265,6 +265,28 @@ function Actions.rejectPages(entry, seq)
   Actions.refresh(entry)
 end
 
+-- Cancel only the last reread segment: its explicit or synthetic start and everything queued
+-- after it. Earlier pages and their status boundaries belong to earlier readings and stay.
+function Actions.cancelReread(entry)
+  local actions = Actions.list(entry)
+  local start
+  for index = #actions, 1, -1 do
+    local action = actions[index]
+    if action.kind == "status" and action.reread then start = index; break end
+  end
+  if not start then return false, "missing" end
+  for index = start, #actions do
+    local action = actions[index]
+    if Actions.started(action) then return false, "started" end
+    if index > start and action.kind == "status" and not action.reread then
+      return false, "dependent"
+    end
+  end
+  for index = #actions, start, -1 do table.remove(actions, index) end
+  Actions.refresh(entry)
+  return true
+end
+
 function Actions.hasAbandon(entry)
   for _, action in ipairs(Actions.list(entry)) do
     if action.kind == "abandon_reread" then return true end

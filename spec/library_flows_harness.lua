@@ -77,6 +77,8 @@ local BookStore = real_require("hardcover/lib/book_store")
 local ShelfStore = real_require("hardcover/lib/shelf_store")
 local ShelfCache = real_require("hardcover/lib/shelf_cache")
 local DialogManager = real_require("hardcover/lib/ui/dialog_manager")
+local SyncQueue = real_require("hardcover/lib/sync_queue")
+local HARDCOVER = real_require("hardcover/lib/constants/hardcover")
 local MemoryStore = dofile(PLUGIN .. "/spec/lib/memory_store.lua")
 real_require("hardcover/lib/background").sleep = function() end
 User.getId = function() return 1 end
@@ -664,5 +666,142 @@ for _, case in ipairs({
     if #expected == 0 then assert(dialog.empty, "no empty state") end
   end)
 end
+
+print("\n== abandon reread through the real flow ==")
+
+local function flowSettings()
+  local store = {}
+  return { readSetting = function(_, key) return store[key] end,
+    saveSetting = function(_, key, value) store[key] = value end,
+    flush = function() end,
+    readBookSetting = function(_, _, key)
+      return ({ book_id = 7, edition_id = 7, title = "Example" })[key]
+    end,
+    saveBookSnapshot = function() end,
+    getLinkedBookId = function() return 7 end,
+    getLinkedTitle = function() return "Example" end }
+end
+
+local function abandonFlow()
+  local m = newManager()
+  local q = SyncQueue:new { settings = flowSettings() }
+  m.sync_queue, m.deviceFile, m.shelfChanged = q, function() return "/b/7.epub" end, function() end
+  m.cache = { saveSnapshot = function() end }
+  m.state = { book_status = {} }
+  return m, q
+end
+
+local function clone(value)
+  if type(value) ~= "table" then return value end
+  local out = {}
+  for key, item in pairs(value) do out[key] = clone(item) end
+  return out
+end
+
+check("the real flow stores the predecessor id and deletes only the reread", function()
+  local m, q = abandonFlow()
+  local old = { id = 10, started_at = "2020-01-01", finished_at = "2020-01-10",
+    finished_at_precision = 1, edition_id = 7 }
+  local active = { id = 11, started_at = "2026-11-01", edition_id = 7 }
+  local record = { id = 507, book_id = 7, status_id = HARDCOVER.STATUS.READING,
+    user_book_reads = { clone(old), clone(active) } }
+  local calls = {}
+  local find, del, status = Api.findUserBook, Api.deleteRead, Api.updateUserBookStatus
+  Api.findUserBook = function() return clone(record) end
+  Api.deleteRead = function(_, id)
+    calls[#calls + 1] = { op = "delete", id = id }
+    for index = #record.user_book_reads, 1, -1 do
+      if record.user_book_reads[index].id == id then table.remove(record.user_book_reads, index) end
+    end
+    return { id = id }
+  end
+  Api.updateUserBookStatus = function(_, id, status_id)
+    calls[#calls + 1] = { op = "status", id = id, status_id = status_id }
+    record.status_id = status_id
+    return clone(record)
+  end
+  Api.findUserBooks = nil
+  m:abandonReread({ book_id = 7, user_book_id = 507, reads = { old, active } }, nil, active)
+  local action = q:readActions(7)[1]
+  assert(action and action.previous_read and action.previous_read.id == 10,
+    "the flow lost the predecessor id")
+  assert(q:flush(Api, { user_id = 1 }) == true)
+  assert(calls[1].op == "delete" and calls[1].id == 11, "the reread was not deleted")
+  assert(calls[2].op == "status" and calls[2].status_id == HARDCOVER.STATUS.FINISHED)
+  assert(#record.user_book_reads == 1 and record.user_book_reads[1].id == 10)
+  Api.findUserBook, Api.deleteRead, Api.updateUserBookStatus = find, del, status
+end)
+
+check("a pre-sync flow abandon clears the reader's synthetic Reading state", function()
+  local m, q = abandonFlow()
+  local old = { id = 10, started_at = "2020-01-01", finished_at = "2020-01-10",
+    finished_at_precision = 1, edition_id = 7 }
+  q:startReread("/b/7.epub", { book_id = 7, user_id = 1, user_book_id = 507,
+    from_status_id = HARDCOVER.STATUS.FINISHED, mapped_page = 12 })
+  m.state.book_status = { id = 507, book_id = 7, status_id = HARDCOVER.STATUS.READING,
+    user_book_reads = { { started_at = "2026-11-16", progress_pages = 12, edition_id = 7 } } }
+  local confirm = StatusDialogs.confirm
+  StatusDialogs.confirm = function(options) options.ok_callback() end
+  m:abandonReread({ book_id = 7, reads = { old } }, nil, q:pendingReread(7, { old }))
+  StatusDialogs.confirm = confirm
+  assert(not q:hasPending(7))
+  assert(m.state.book_status.status_id == HARDCOVER.STATUS.FINISHED)
+  assert(#m.state.book_status.user_book_reads == 1
+    and m.state.book_status.user_book_reads[1].id == 10)
+  local BookActions = real_require("hardcover/lib/book_actions")
+  assert(BookActions.pageWrite(m.state.book_status.status_id) == "block",
+    "tracking can still create a read after the abandon")
+end)
+
+check("the reader-panel offline history exposes the pending reread", function()
+  local m, q = abandonFlow()
+  local old = { id = 10, started_at = "2020-01-01", finished_at = "2020-01-10",
+    finished_at_precision = 1, edition_id = 7 }
+  q:startReread("/b/7.epub", { book_id = 7, user_id = 1, user_book_id = 507,
+    from_status_id = HARDCOVER.STATUS.FINISHED, mapped_page = 12 })
+  m.state.book_status = { id = 507, book_id = 7, status_id = HARDCOVER.STATUS.READING,
+    user_book_reads = { { started_at = "2026-11-16", progress_pages = 12 } } }
+  m.read_store = { get = function() return { reads = { old } } end }
+  m.settings.getLinkedBookId = function() return 7 end
+  m.settings.getLinkedTitle = function() return "Example" end
+  local context
+  m.openReadHistoryWhenAvailable = function(_, c) context = c end
+  m:showLinkedReadHistory()
+  local reads = m:readHistoryProjection(context)
+  assert(#reads == 2, "the saved read and pending reread were not both shown")
+  assert(reads[1].id == 10 and reads[2].pending_reread)
+  local Edit = real_require("hardcover/lib/ui/read_edit_dialog")
+  local original, form = Edit.new, nil
+  Edit.new = function(_, options) form = options; return options end
+  m:editRead(context, nil, reads[2])
+  Edit.new = original
+  assert(form and form.on_abandon, "the pending reread offered no Abandon action")
+end)
+
+check("a DNF predecessor offers Abandon and restores its shelf", function()
+  local m = abandonFlow()
+  local old = { id = 10, started_at = "2020-01-01", edition_id = 7 }
+  local active = { id = 11, started_at = "2026-11-01", edition_id = 7 }
+  local Edit = real_require("hardcover/lib/ui/read_edit_dialog")
+  local original, form = Edit.new, nil
+  Edit.new = function(_, options) form = options; return options end
+  m:editRead({ book_id = 7, user_book_id = 507, reads = { old, active } }, nil, active)
+  Edit.new = original
+  assert(form and form.on_abandon, "a DNF predecessor offered no Abandon action")
+end)
+
+check("the success callback moves the details and shelf off Reading", function()
+  local m = abandonFlow()
+  local shelf_call
+  m.shelfChanged = function(_, book_id, old, new, id) shelf_call = { book_id, old, new, id } end
+  local old = { id = 10, started_at = "2020-01-01", finished_at = "2020-01-10" }
+  local screen = { detail = { book = { book_id = 7 }, status_id = HARDCOVER.STATUS.READING,
+    reads = { old, { id = 11, started_at = "2026-11-01" } } }, refreshState = function() end }
+  m.screens = function() return { open = function(_, name) if name == "book" then return screen end end } end
+  m:readSent(7, { id = 507, book_id = 7, status_id = HARDCOVER.STATUS.FINISHED,
+    user_book_reads = { old } }, { kind = "abandon_reread" })
+  assert(#screen.detail.reads == 1 and screen.detail.status_id == HARDCOVER.STATUS.FINISHED)
+  assert(shelf_call and shelf_call[3] == HARDCOVER.STATUS.FINISHED)
+end)
 
 r.finish()
