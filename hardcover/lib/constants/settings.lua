@@ -1,4 +1,5 @@
 local Settings = {
+  ACCOUNT_PRIVACY = "account_privacy_setting_id",
   ALWAYS_SYNC = "always_sync",
   BOOKS = "books",
   COMPATIBILITY_MODE = "compatibility_mode",

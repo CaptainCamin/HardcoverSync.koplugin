@@ -279,19 +279,112 @@ return {
     assert(kept == 10 and switched == true, "the toggle state was " .. tostring(switched))
     assert(UIManager:getTopmostVisibleWidget() == page, "the stepper with a switch stayed open")
 
-    -- date picker: a month back, a day chosen, Set date hands over the date
+    -- date picker: the steppers keep their targets on their drawings, move only their own value,
+    -- keep the labels centred, and leave the dialog the same size from one month to the next
     local DatePicker = require("hardcover/lib/ui/components/date_picker")
+    local function step_rows()
+      emu:screenNodes() -- paint first: tap ranges are only real once painted
+      local rows = {}
+      local seen = {}
+      local function walk(widget)
+        if type(widget) ~= "table" or seen[widget] then return end
+        seen[widget] = true
+        if widget.name == "hardcover_tap_row" and widget.callback and widget.dimen
+          and (widget.text == "minus" or widget.text == "plus") then
+          rows[#rows + 1] = widget
+        end
+        for k, child in pairs(widget) do
+          if type(k) == "number" and type(child) == "table" then walk(child) end
+        end
+      end
+      walk(UIManager:getTopmostVisibleWidget())
+      table.sort(rows, function(a, b)
+        return a.dimen.y < b.dimen.y or (a.dimen.y == b.dimen.y and a.dimen.x < b.dimen.x)
+      end)
+      return rows
+    end
+    local function tap_step(index)
+      local row = step_rows()[index]
+      assert(row, "missing date picker stepper " .. index)
+      emu:tapExpecting(row.dimen.x + math.floor(row.dimen.w / 2),
+        row.dimen.y + math.floor(row.dimen.h / 2))
+      emu:pump()
+    end
+    local function step_center(row)
+      return row.dimen.y + row.dimen.h / 2
+    end
+    local function text_center_y(text)
+      for _, node in ipairs(emu:screenNodes()) do
+        if node.text == text and not node.relative then return node.y + node.h / 2 end
+      end
+      error("missing date picker label " .. text, 2)
+    end
+    local function rect_snapshot(rows)
+      local snap = {}
+      for i, row in ipairs(rows) do
+        snap[i] = { x = row.dimen.x, y = row.dimen.y, w = row.dimen.w, h = row.dimen.h }
+      end
+      return snap
+    end
+    local function same_rects(a, b)
+      for i = 1, #a do
+        for _, k in ipairs({ "x", "y", "w", "h" }) do
+          assert(math.abs(a[i][k] - b[i][k]) <= 1,
+            string.format("stepper %d moved on %s: %s -> %s", i, k, a[i][k], b[i][k]))
+        end
+      end
+    end
+    local function same_region(a, b)
+      for _, k in ipairs({ "x", "y", "w", "h" }) do
+        assert(math.abs(a.region[k] - b.region[k]) <= 1,
+          string.format("the date picker dialog moved on %s: %s -> %s", k, a.region[k], b.region[k]))
+      end
+    end
+
     local picked
-    DatePicker.show { title = "First day", year = 2026, month = 10, day = 2, save_label = "Set date",
+    DatePicker.show { title = "First day", year = 2024, month = 3, day = 14, save_label = "Set date",
       on_save = function(y, m, d) picked = y .. "-" .. m .. "-" .. d end }
     emu:pump()
-    emu:expectText("October")
+    emu:expectText("March")
+    local rows = step_rows()
+    assert(#rows == 4, "the date picker has " .. #rows .. " steppers, not 4")
+    local top = UIManager:getTopmostVisibleWidget()
+    for i, row in ipairs(rows) do
+      local face = row[1]
+      assert(face and face.dimen, "stepper " .. i .. " has no painted face")
+      for _, k in ipairs({ "x", "y", "w", "h" }) do
+        assert(math.abs(row.dimen[k] - face.dimen[k]) <= 1,
+          string.format("stepper %d target %s is %s but drawn at %s", i, k, row.dimen[k], face.dimen[k]))
+      end
+      assert(math.min(row.dimen.w, row.dimen.h) >= Theme.TOUCH_MIN,
+        "stepper " .. i .. " is under the touch minimum")
+    end
+    local month_center = (step_center(rows[1]) + step_center(rows[2])) / 2
+    local year_center = (step_center(rows[3]) + step_center(rows[4])) / 2
+    assert(math.abs(text_center_y("March") - month_center) <= 2, "the month label is not centred on its steppers")
+    assert(math.abs(text_center_y("2024") - year_center) <= 2, "the year label is not centred on its steppers")
+    local before = { region = top.region, steps = rect_snapshot(rows) }
     emu:shot("components_date_picker")
-    tapText("minus")
-    emu:expectText("September")
+
+    tap_step(3) -- year minus: the month stays, the dialog does not move
+    emu:expectText("2023")
+    emu:expectText("March")
+    local after_year = { region = UIManager:getTopmostVisibleWidget().region,
+      steps = rect_snapshot(step_rows()) }
+    same_region(before, after_year)
+    same_rects(before.steps, after_year.steps)
+
+    tap_step(1) -- month minus: the year stays, the dialog still does not move
+    emu:expectText("February")
+    emu:expectText("2023")
+    local after_month = { region = UIManager:getTopmostVisibleWidget().region,
+      steps = rect_snapshot(step_rows()) }
+    same_region(before, after_month)
+    same_rects(before.steps, after_month.steps)
+
     tapText("15")
     tapText("Set date")
-    assert(picked == "2026-9-15", "the date picker returned " .. tostring(picked))
+    assert(picked == "2023-2-15", "the date picker returned " .. tostring(picked))
     assert(UIManager:getTopmostVisibleWidget() == page, "the date picker stayed open")
 
     -- snackbar: the rest of the screen keeps working; only the bar takes taps, and its action runs

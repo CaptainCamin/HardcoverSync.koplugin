@@ -73,6 +73,7 @@ local User = real_require("hardcover/lib/user")
 local StatusDialogs = real_require("hardcover/lib/ui/status_dialogs")
 local ShelfCache = real_require("hardcover/lib/shelf_cache")
 local DialogManager = real_require("hardcover/lib/ui/dialog_manager")
+local ReadHistory = real_require("hardcover/lib/read_history")
 -- waiting is the real thing's job (it yields to KOReader); here it is counted
 local slept = 0
 real_require("hardcover/lib/background").sleep = function(seconds) slept = slept + seconds end
@@ -437,6 +438,42 @@ check("offline: says so, shows no picker and sends nothing", function()
   assert(#update_calls == 0 and #remove_calls == 0)
 end)
 
+check("a finish answer makes the details' reading row show the finished read", function()
+  online = true
+  local m = newManager()
+  local edition = { id = 7, pages = 256, edition_format = "Paperback", reading_format_id = 1 }
+  local d = detailScreen(SHELVED())
+  d.detail.status_id, d.detail.reads = 2, { { id = 1, started_at = "2026-11-01",
+    progress_pages = 40, edition_id = 7, edition = edition } }
+  press(picker(m, d), "Read")
+  update_cb({ id = 55, status_id = 3, user_book_reads = { { id = 1, started_at = "2026-11-01",
+    finished_at = "2026-11-16", finished_at_precision = 1, progress_pages = 256, edition_id = 7 } } })
+  local summary = ReadHistory.summary(d.detail.reads, { pages = 256, format = "Paperback" })
+  assert(summary.label == "Finished 16 Nov 2026" and summary.pct == 100,
+    "the reading row kept the unfinished read: " .. tostring(summary.label))
+  assert(d.detail.reads[1].edition == edition, "the answer lost the edition's format and pages")
+end)
+
+check("a reread answer makes the details show the new read at 0%", function()
+  online = true
+  local m = newManager()
+  local edition = { id = 7, pages = 256, edition_format = "Paperback", reading_format_id = 1 }
+  local first = { id = 1, started_at = "2026-11-01", finished_at = "2026-11-16",
+    finished_at_precision = 1, progress_pages = 256, edition_id = 7, edition = edition }
+  local d = detailScreen(SHELVED())
+  d.detail.status_id, d.detail.reads = 3, { first }
+  press(picker(m, d), "Currently Reading")
+  update_cb({ id = 55, status_id = 2, user_book_reads = {
+    { id = 1, started_at = "2026-11-01", finished_at = "2026-11-16", finished_at_precision = 1,
+      progress_pages = 256, edition_id = 7 },
+    { id = 2, started_at = "2026-11-16", edition_id = 7 },
+  } })
+  local summary = ReadHistory.summary(d.detail.reads, { pages = 256, format = "Paperback" })
+  assert(summary.label == "Page 0 of 256" and summary.pct == 0,
+    "the reading row kept the finished read: " .. tostring(summary.label))
+  assert(d.detail.reads[2].edition == edition, "the reread lost its edition")
+end)
+
 print("\n== removing ==")
 
 check("Remove asks first and sends nothing until confirmed", function()
@@ -445,7 +482,9 @@ check("Remove asks first and sends nothing until confirmed", function()
   local d = detailScreen(SHELVED())
   press(picker(m, d), "Remove from library")
   assert(#remove_calls == 0, "removed without asking")
-  assert(#confirms == 1 and confirms[1].text:find("Obelisk", 1, true), "no confirmation naming the book")
+  assert(#confirms == 1 and confirms[1].text ==
+    "Remove \"Obelisk\" from your library? Your status, rating and reading history for it are deleted.",
+    "no shared removal confirmation: " .. tostring(confirms[1] and confirms[1].text))
   confirms[1].ok_callback()
   assert(#remove_calls == 1 and remove_calls[1] == 55, "removed the wrong record")
 end)

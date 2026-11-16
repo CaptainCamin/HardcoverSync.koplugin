@@ -42,15 +42,6 @@ function BookActions.withPendingRating(detail, waiting)
   return detail
 end
 
--- No rating and 0 are the same clear value.
-function BookActions.ratingValue(rating)
-  return tonumber(rating) or 0
-end
-
-function BookActions.ratingChanged(current, value)
-  return BookActions.ratingValue(current) ~= BookActions.ratingValue(value)
-end
-
 -- What the device last saw on Hardcover before a rating edit: { rating, known = true }, or
 -- "unknown" when the copy on screen never carried it. A pending overlay is not the baseline;
 -- `_server_base` is what the screen held before the overlay.
@@ -149,6 +140,16 @@ function BookActions.pageWrite(status_id)
   if status_id == HARDCOVER.STATUS.READING then return "allow" end
   if status_id == nil or status_id == HARDCOVER.STATUS.TO_READ then return "ask" end
   return "block"
+end
+
+-- Whether saving a rating dialog changed anything. An untouched dialog must
+-- write nothing: an unrated book is still 0, and a rated book is still the same
+-- rating. A 0 from a rated book is a real clear.
+function BookActions.ratingChange(rating, value)
+  local before, after = tonumber(rating), tonumber(value)
+  if after == nil then return false end
+  if before == nil then before = 0 end
+  return before ~= after
 end
 
 --

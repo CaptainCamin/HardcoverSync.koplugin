@@ -908,36 +908,58 @@ function Flows:removeRead(context, history, read)
   end
 end
 
+-- The library record's reads are thinner than the details screen's saved copy: they name an
+-- edition but do not carry its format and page count. Put the richer edition back before the
+-- reads are shown or stored, so a status or read answer cannot make the history forget it.
+local function readsWithEditions(reads, previous_reads, op)
+  if type(reads) ~= "table" then return nil end
+  local editions, read_ids = {}, {}
+  for _i, old in ipairs(previous_reads or {}) do
+    if type(old) == "table" then
+      if old.id ~= nil then read_ids[tostring(old.id)] = true end
+      local edition = type(old.edition) == "table" and old.edition or nil
+      local edition_id = edition and (edition.edition_id or edition.id) or old.edition_id
+      if edition and edition_id ~= nil then editions[tostring(edition_id)] = edition end
+    end
+  end
+
+  local op_edition_id = op and (op.target_edition_id or (op.change and op.change.edition_id)) or nil
+  for _i, row in ipairs(reads) do
+    if type(row) == "table" and row.edition == nil then
+      local edition
+      if op and op.kind == "read_edition" and tostring(row.id) == tostring(op.read_id)
+        and tonumber(row.edition_id) == tonumber(op_edition_id) then
+        edition = op.edition or {
+          id = op_edition_id, pages = op.new_pages,
+          edition_format = op.edition_format, reading_format_id = op.reading_format_id,
+        }
+      elseif op and op.kind == "add_read" and op.edition and not read_ids[tostring(row.id)]
+        and tonumber(row.edition_id) == tonumber(op.edition.edition_id or op.edition.id) then
+        edition = op.edition
+      elseif row.edition_id ~= nil then
+        edition = editions[tostring(row.edition_id)]
+      end
+      row.edition = edition
+    end
+  end
+  return reads
+end
+
+-- Save the reads a Hardcover answer carried, with their editions filled back in. Returns the
+-- reads to show, or nil when the answer did not carry any.
+function Flows:saveUserBookReads(book_id, user_book, op, previous_reads)
+  local reads = readsWithEditions(type(user_book) == "table" and user_book.user_book_reads or nil,
+    previous_reads, op)
+  if not reads then return nil end
+  if self.read_store then self.read_store:put(User:getId(), tonumber(book_id), reads) end
+  return reads
+end
+
 -- A read edit reached Hardcover: save what it answered, and refresh the open history and page.
 function Flows:readSent(book_id, user_book, op)
   local user_id = User:getId()
-  local reads = type(user_book) == "table" and user_book.user_book_reads or nil
-  if reads and self.read_store then
-    -- findUserBook carries a read's edition_id but not its edition row. Keep the richer saved
-    -- edition when the id still matches, or use the edition the action just moved to; otherwise
-    -- a later past-read conversion would fall back to the book's page count.
-    local saved = self.read_store:get(user_id, tonumber(book_id))
-    local old_by_id = {}
-    for _, row in ipairs(saved and saved.reads or {}) do old_by_id[tostring(row.id)] = row end
-    for _, row in ipairs(reads) do
-      if not row.edition then
-        if op and op.kind == "read_edition" and tostring(row.id) == tostring(op.read_id)
-            and tonumber(row.edition_id) == tonumber(op.target_edition_id) then
-          row.edition = { id = op.target_edition_id, pages = op.new_pages,
-            edition_format = op.edition_format }
-        elseif op and op.kind == "add_read" and op.edition
-            and tonumber(row.edition_id) == tonumber(op.edition.edition_id or op.edition.id) then
-          row.edition = op.edition
-        else
-          local old = old_by_id[tostring(row.id)]
-          if old and old.edition and tostring(old.edition_id) == tostring(row.edition_id) then
-            row.edition = old.edition
-          end
-        end
-      end
-    end
-    self.read_store:put(user_id, tonumber(book_id), reads)
-  end
+  local saved = self.read_store and self.read_store:get(user_id, tonumber(book_id))
+  local reads = self:saveUserBookReads(book_id, user_book, op, saved and saved.reads)
 
   local screen = self:screens():open("book")
   local on = screen and screen.detail and screen.detail.book and screen.detail.book.book_id
@@ -993,12 +1015,7 @@ function Flows:chooseShelf(dialog)
       text = _("Remove from library"),
       callback = function()
         UIManager:close(picker)
-        StatusDialogs.confirm {
-          text = string.format(_("Remove \"%s\" from your library? Your status, rating and reading history for it are deleted."),
-            tostring(detail.book.title or "")),
-          ok_text = _("Remove"),
-          ok_callback = function() self:removeFromShelf(dialog) end,
-        }
+        StatusDialogs.confirmBookRemoval(detail.book.title, function() self:removeFromShelf(dialog) end)
       end,
     }
   end
@@ -1381,13 +1398,16 @@ function Flows:rateBook(dialog, stars, on_set)
     return
   end
 
-  local rating = BookActions.ratingValue(detail.user_rating)
+  local rating = tonumber(detail.user_rating)
+  local function ratingText(value)
+    return value == 0 and _("No rating") or string.format("%.1f", value)
+  end
   require("hardcover/lib/ui/components/stepper_dialog").show {
     title = _("Set rating"),
     text = _("0 clears the rating."),
-    value = stars or rating, min = 0, max = 5, step = 0.5,
+    value = stars or rating or 0, min = 0, max = 5, step = 0.5, format = ratingText,
     on_save = function(value)
-      if not BookActions.ratingChanged(rating, value) then return end
+      if not stars and not BookActions.ratingChange(rating, value) then return end
       queue:queue(detail.user_book_id, value, detail.book.title, detail.book.book_id, User:getId(),
         BookActions.ratingBase(detail))
       if Live.shown(dialog) then dialog:setRating(value) end
@@ -1561,7 +1581,9 @@ function Flows:saveShelf(dialog, status_id)
       -- A change queued while the request was out is newer and must remain queued.
       self:rememberServerDetail(user_book, { status = true })
       self:shelfChanged(request.book_id, old_status_id, status_id, user_book.id or detail.user_book_id)
+      local reads = self:saveUserBookReads(request.book_id, user_book, nil, detail.reads)
       if Live.shown(dialog) then
+        if reads then dialog.detail.reads = reads end
         dialog:setStatus(status_id, user_book.id or detail.user_book_id)
       end
     end)
@@ -1674,8 +1696,13 @@ function Flows:shelfSent(op, user_book)
 
   local screen = self:screens():open("book")
   local on = screen and screen.detail and screen.detail.book and screen.detail.book.book_id
-  if on and tonumber(on) == tonumber(op.book_id) and screen.detail.status_id == status_id and status_id then
-    screen:setStatus(status_id, user_book_id or screen.detail.user_book_id)
+  if on and tonumber(on) == tonumber(op.book_id) then
+    local reads = self:saveUserBookReads(op.book_id, user_book, nil,
+      screen.detail and screen.detail.reads)
+    if reads then screen.detail.reads = reads end
+    if screen.detail.status_id == status_id and status_id then
+      screen:setStatus(status_id, user_book_id or screen.detail.user_book_id)
+    end
   end
 end
 

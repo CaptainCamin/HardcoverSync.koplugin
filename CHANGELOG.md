@@ -4,6 +4,12 @@
 
 ### Improved
 
+- **New installs start with tracking and exact-identifier linking on.** A fresh install tracks progress by default and links a book by ISBN or Hardcover identifier when there is exactly one match. Title/author auto-linking stays off, and an ambiguous match is left for you to choose. Existing readers keep their saved settings, including an explicit off.
+
+- **Notes and quotes use your account's visibility default.** A new note or quote starts with the default visibility from your Hardcover account instead of always Public. If that default cannot be read, it starts Private.
+
+- **The rating dialog no longer invents 2.5 stars.** It opens at the rating already on the book, or at no rating; tapping a star opens that star, and half-star positions are available. Closing without saving writes nothing, and 0 still clears the rating.
+
 - **Book details now leads with your reading.** The cover's column holds the shelf chip and your stars, one action row holds the ways to open, download or list the book, and a reading row with progress and the current read's edition opens Reading history. About is three lines, and the Reviews section opens the full reviews page.
 
 - **Change the edition of any read.** Reading history's Edition row opens the edition picker, audiobooks included, and converts the page to the chosen edition's numbering. The current read also moves the book's linked edition and page count at once, so pages turned afterwards are sent in the right units. Cancelling the change in Pending changes puts the old edition back.
