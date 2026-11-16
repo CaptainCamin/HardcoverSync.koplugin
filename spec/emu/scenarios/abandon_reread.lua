@@ -3,7 +3,7 @@ Reading history's Abandon reread flow with real KOReader widgets: a pending rere
 reread form, the confirmation, a decision state, and the partial-failure row in Pending changes.
 
 Screens: abandon_history, abandon_form, abandon_confirm, abandon_pending_confirm,
-abandon_decision, abandon_partial.
+abandon_decision, abandon_decision_question, abandon_partial.
 ]]--
 
 local fixtures = require("fixtures")
@@ -145,6 +145,26 @@ return {
     UIManager:close(decision)
     emu:pump()
 
+    local PendingChangesDialog = require("hardcover/lib/ui/pending_changes_dialog")
+    local q_decision = SyncQueue:new { settings = settings() }
+    q_decision:startReread("/b/dune.epub", { book_id = 7, user_book_id = 507, title = "Dune",
+      from_status_id = 3, mapped_page = 12 })
+    local _, decision_action = q_decision:abandonReread("/b/dune.epub", {
+      book_id = 7, read_id = 11, base = active, previous_read = original, restore_status_id = 3,
+    })
+    decision_action.conflict = { kind = "abandon_changed", reason = "previous_changed",
+      target = active, previous = original }
+    PendingChangesDialog.show { queues = { sync_queue = q_decision, user_id = 1 } }
+    emu:pump()
+    emu:expectText("Dune: abandon reread changed on Hardcover")
+    emu:shot("abandon_decision")
+    tap_text(emu, "Dune: abandon reread changed on Hardcover")
+    emu:expectText("The reread could not be abandoned safely")
+    emu:expectText("Abandon the reread anyway")
+    emu:shot("abandon_decision_question")
+    tap_text(emu, "Decide later")
+    emu:closeAll()
+
     local q = SyncQueue:new { settings = settings() }
     q:startReread("/b/dune.epub", { book_id = 7, user_book_id = 507, title = "Dune",
       from_status_id = 3, mapped_page = 12 })
@@ -152,7 +172,6 @@ return {
       book_id = 7, read_id = 11, base = active, previous_read = original, restore_status_id = 3,
     })
     action.checking = true
-    local PendingChangesDialog = require("hardcover/lib/ui/pending_changes_dialog")
     PendingChangesDialog.show { queues = { sync_queue = q, user_id = 1 } }
     emu:pump()
     emu:expectText("Abandoning reread")

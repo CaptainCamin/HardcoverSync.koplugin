@@ -294,7 +294,7 @@ function SyncQueue:enqueuePage(filepath, payload)
   local entry = self:_ensure(filepath, payload)
   if not entry then return nil end
   -- An abandon is a barrier: a page turned after it must not be sent to the read it removes.
-  if Actions.hasAbandon(entry) then return entry end
+  if entry.abandon_barrier or Actions.hasAbandon(entry) then return entry end
   local at = os.time()
   Actions.page(entry, payload.mapped_page, at, entry.reread, payload.force_page)
   entry.first_page_date = entry.first_page_date or os.date("%Y-%m-%d", at)
@@ -321,6 +321,7 @@ function SyncQueue:enqueueReadEdit(file_or_book, payload)
     title = payload.title, edition_id = payload.edition_id,
   })
   if not entry then return nil end
+  if entry.abandon_barrier then return nil end
 
   local at = tonumber(payload.at) or os.time()
   -- An addition still waiting is changed in place: the reader is editing the same read, not
@@ -423,9 +424,9 @@ function SyncQueue:abandonReread(file_or_book, payload)
   entry.edition_id = entry.edition_id or payload.edition_id
   local from = tonumber(entry.reread_restore_status_id) or tonumber(entry.from_status_id)
   if not payload.read_id then
-    local ok, reason = Actions.cancel(entry, "page")
+    local ok, reason = Actions.cancelReread(entry)
     if not ok then return nil, reason end
-    entry.reread, entry.first_page_date = nil, nil
+    entry.reread, entry.first_page_date, entry.abandon_barrier = nil, nil, nil
     self:save(file_or_book, entry)
     return entry, { cancelled = true, book_id = tonumber(entry.book_id),
       user_book_id = entry.user_book_id, from_status_id = from }
@@ -435,6 +436,13 @@ function SyncQueue:abandonReread(file_or_book, payload)
   local action = Actions.abandonReread(entry, payload.read_id, payload.base,
     payload.previous_read, restore, os.time())
   action.user_book_id = entry.user_book_id
+  entry.abandon_barrier = true
+  -- A whole-library removal and an abandon are contradictory destructive requests. Keep the
+  -- removal and the abandon action, but require an explicit choice before either proceeds.
+  if entry.remove then
+    entry.conflict = { kind = "abandon_remove", at = os.time(), action_seq = action.seq,
+      from_status_id = from }
+  end
   entry.failures, entry.held, entry.reason = nil, nil, nil
   self:persist()
   return entry, action
@@ -446,7 +454,9 @@ function SyncQueue:pendingReread(book_id, reads)
   local entry = self:get(book_id)
   if type(entry) ~= "table" or not entry.reread then return nil end
   for _, read in ipairs(reads or {}) do
-    if not read.finished_at then return nil end
+    -- The reader's local state uses an ID-less synthetic read for an unsynced start; that is
+    -- exactly the pending reread this projection is meant to show.
+    if read.id ~= nil and not read.finished_at then return nil end
   end
   return {
     id = entry.read_id or ("pending:" .. tostring(book_id)),
@@ -507,6 +517,7 @@ function SyncQueue:enqueueStatus(filepath, payload)
     and (previous == HARDCOVER.STATUS.FINISHED or previous == HARDCOVER.STATUS.DNF) or nil
   local entry = self:_ensure(filepath, payload)
   if not entry then return nil end
+  if entry.abandon_barrier then return entry end
   -- back from a waiting removal: the record is still there, so this is not a book new to the library
   if before and before.remove then
     entry.remove, entry.remove_at, entry.edition_id = nil, nil, nil
@@ -935,12 +946,32 @@ function SyncQueue:resolveRead(key, seq, choice)
   end
   local function remove()
     Actions.ack(entry, action.seq)
+    if not Actions.hasAbandon(entry) then entry.abandon_barrier = nil end
   end
   local function empty()
     return next(action.change or {}) == nil and next(action.clear or {}) == nil
   end
 
-  if conflict.kind == "read_changed" then
+  if conflict.kind == "abandon_changed" then
+    if choice == "keep" then
+      if action.deleted or conflict.reason == "target_gone" then return false end
+      remove()
+    elseif choice == "abandon" then
+      if conflict.target then action.base = conflict.target end
+      if conflict.previous then action.previous_read = conflict.previous end
+      action.conflict, action.checking, action.deleted = nil, nil, false
+    elseif choice == "restore" then
+      action.deleted, action.force_restore, action.conflict, action.checking = true, true, nil, nil
+    else
+      return false
+    end
+  elseif conflict.kind == "abandon_shelf" then
+    if choice == "restore" then
+      action.force_restore, action.conflict = true, nil
+    else
+      return false
+    end
+  elseif conflict.kind == "read_changed" then
     if choice == "keep_hardcover" then
       for _, field in ipairs(conflict.fields or {}) do
         if action.change then action.change[field.field] = nil end
@@ -1065,6 +1096,7 @@ function SyncQueue:bookBarrier(book_id, user_book_id, user_id, purpose)
     end
   end
   if type(entry) ~= "table" or not SyncQueue.ownedBy(entry, user_id) then return nil end
+  if entry.abandon_barrier then return "abandon" end
   if entry.remove then return "remove" end
   local conflict = entry.conflict
   if conflict and conflict.kind == "remove" then return "remove" end
@@ -1178,7 +1210,32 @@ function SyncQueue:resolve(filepath, choice)
   end
   local kind, seq = entry.conflict.kind, entry.conflict.seq
 
-  if kind == "remove" and choice == "keep" then
+  if kind == "abandon_remove" then
+    if choice == "abandon" then
+      local conflict = entry.conflict
+      local from = tonumber(conflict and conflict.from_status_id)
+      entry.remove, entry.remove_at, entry.remove_seq = nil, nil, nil
+      entry.remove_base, entry.remove_force = nil, nil
+      entry.conflict = nil
+      self:persist()
+      return true, {
+        kind = "shelf", book_id = tonumber(entry.book_id), user_book_id = entry.user_book_id,
+        status_id = (from and from ~= 0) and from or HARDCOVER.STATUS.READING,
+      }
+    elseif choice == "remove" then
+      for _, action in ipairs(Actions.list(entry)) do
+        if action.kind == "abandon_reread" then
+          Actions.ack(entry, action.seq)
+          break
+        end
+      end
+      entry.abandon_barrier, entry.conflict = nil, nil
+      Actions.refresh(entry)
+      self:save(filepath, entry)
+      return true
+    end
+    return false
+  elseif kind == "remove" and choice == "keep" then
     local conflict = entry.conflict
     local online = conflict.online or {}
     local from = tonumber(entry.from_status_id)
@@ -1417,6 +1474,7 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
   local privacy_setting_id = entry.privacy_setting_id
 
   if entry.remove then
+    if entry.conflict and entry.conflict.kind == "abandon_remove" then return false, "conflict" end
     -- Always look the record up, even when its id is known: a removal is a delete, and the
     -- record may have gained work since the reader asked for it.
     local current, lookup_err = findRemovalRecord(api, book_id, opts)
@@ -1501,6 +1559,7 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
               entry.user_book_id = detail.id
             end
             Actions.ack(entry, op.seq)
+            if op.kind == "abandon_reread" then entry.abandon_barrier = nil end
             if self:isEmpty(entry) then self:_drop(filepath) end
             self:persist()
             if opts.on_read_sent then opts.on_read_sent(entry.book_id, detail, op) end

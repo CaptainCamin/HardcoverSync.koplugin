@@ -189,7 +189,8 @@ end
 
 local function sameRead(left, right)
   if type(left) ~= "table" or type(right) ~= "table" then return false end
-  for _, field in ipairs({ "id", "started_at", "finished_at", "finished_at_precision", "edition_id" }) do
+  for _, field in ipairs({ "id", "started_at", "finished_at", "finished_at_precision",
+    "edition_id", "progress_pages" }) do
     if not same(valueOf(left, field), valueOf(right, field)) then return false end
   end
   return true
@@ -200,36 +201,87 @@ local function previousRead(user_book, action)
   return findRead(user_book, action.previous_read.id)
 end
 
-local function abandonConflict(action, read)
-  return park(action, { kind = "read_changed", read_id = action.read_id,
-    read = read or action.base, fields = {} })
+local function unfinishedReads(user_book)
+  local out = {}
+  for _, read in ipairs(user_book and user_book.user_book_reads or {}) do
+    if not read.finished_at then out[#out + 1] = read end
+  end
+  return out
 end
 
--- Delete the reread, then restore the library shelf without sending a finish date. The two
--- requests are deliberately separate: the status-only update must not touch the previous read.
+local function abandonConflict(action, reason, target, previous, user_book)
+  return park(action, {
+    kind = "abandon_changed", reason = reason, read_id = action.read_id,
+    target = target or action.base, previous = previous or action.previous_read,
+    deleted = action.deleted or nil,
+    status_id = user_book and tonumber(user_book.status_id),
+  })
+end
+
+local function abandonShelfConflict(action, status_id)
+  return park(action, { kind = "abandon_shelf", read_id = action.read_id, status_id = status_id })
+end
+
+-- Delete the reread, then restore the library shelf without sending a finish date. All identity
+-- checks happen before the delete; after it, only a status-only restore is allowed and a changed
+-- shelf is a decision rather than an overwrite.
 local function sendAbandon(api, entry, action, opts)
   local user_book, lookup_err = api:findUserBook(entry.book_id, opts.user_id)
   if lookup_err ~= nil then return "transient", lookup_err end
   if type(user_book) ~= "table" or not user_book.id then return "held", "library_gone" end
   if action.user_book_id and tostring(action.user_book_id) ~= tostring(user_book.id) then
-    return abandonConflict(action, action.base)
+    return abandonConflict(action, "library_changed", nil, nil, user_book)
   end
 
   local target = findRead(user_book, action.read_id)
   local previous = previousRead(user_book, action)
-  if action.previous_read and (not previous or not previous.finished_at) then
-    return abandonConflict(action, target or action.base)
-  end
-  if target and action.deleted then
-    -- A different read with the same id is not the one the reader asked to abandon.
-    return abandonConflict(action, target)
-  end
+  local restore = tonumber(action.restore_status_id) or HARDCOVER.STATUS.FINISHED
+  local status = tonumber(user_book.status_id)
 
-  if target then
-    if target.finished_at or tonumber(user_book.status_id) ~= HARDCOVER.STATUS.READING then
-      return abandonConflict(action, target)
+  if action.deleted then
+    if target then return abandonConflict(action, "target_reappeared", target, previous, user_book) end
+    if action.previous_read and not previous then
+      return abandonConflict(action, "previous_gone", nil, previous, user_book)
     end
-    if not action.deleted then
+  else
+    if not target then
+      if not action.checking then
+        return abandonConflict(action, "target_gone", nil, previous, user_book)
+      end
+      -- A lost delete response is checked: the target is gone, so continue to the restore.
+      action.deleted = true
+      if opts.persist then opts.persist() end
+    else
+      if not sameRead(target, action.base) then
+        return abandonConflict(action, "target_changed", target, previous, user_book)
+      end
+      if target.finished_at then
+        return abandonConflict(action, "target_finished", target, previous, user_book)
+      end
+      if action.previous_read and (not previous or not sameRead(previous, action.previous_read)) then
+        return abandonConflict(action, "previous_changed", target, previous, user_book)
+      end
+      if status ~= HARDCOVER.STATUS.READING then
+        return abandonShelfConflict(action, status)
+      end
+      local active = unfinishedReads(user_book)
+      local allowed = #active == 1
+      if not allowed and restore == HARDCOVER.STATUS.DNF and action.previous_read
+          and previous and not previous.finished_at and #active == 2 then
+        -- A prior DNF read can itself be unfinished. The exact target and predecessor must be
+        -- the only two active reads; anything else is ambiguous.
+        for _, read in ipairs(active) do
+          if tostring(read.id) ~= tostring(target.id) and tostring(read.id) ~= tostring(previous.id) then
+            allowed = false
+            break
+          end
+          allowed = true
+        end
+      end
+      if not allowed then
+        return abandonConflict(action, "another_read", target, previous, user_book)
+      end
+
       local result, err = api:deleteRead(action.read_id)
       if not result then
         if err ~= nil and not OfflineQueue.transient(err) then return "failed", err end
@@ -241,23 +293,15 @@ local function sendAbandon(api, entry, action, opts)
       dropRead(user_book, action.read_id)
       if opts.persist then opts.persist() end
     end
-  elseif not action.deleted then
-    -- Another device already removed it. Restore only when the shelf is still Reading; a
-    -- changed or replaced record is a question, not permission to overwrite it.
-    if tonumber(user_book.status_id) ~= HARDCOVER.STATUS.READING
-        and tonumber(user_book.status_id) ~= tonumber(action.restore_status_id) then
-      return abandonConflict(action, action.base)
-    end
-    action.deleted = true
-    if opts.persist then opts.persist() end
   end
 
-  if action.previous_read and not sameRead(previous, action.previous_read) then
-    return abandonConflict(action, target or action.base)
+  -- A status-only restore is safe for the predecessor; it never sends a finish date. A shelf
+  -- changed by another device is still a decision, unless the reader explicitly chose restore.
+  if status ~= restore and status ~= HARDCOVER.STATUS.READING and not action.force_restore then
+    return abandonShelfConflict(action, status)
   end
 
-  local restore = tonumber(action.restore_status_id) or HARDCOVER.STATUS.FINISHED
-  if tonumber(user_book.status_id) == restore then
+  if status == restore then
     local fresh, err = api:findUserBook(entry.book_id, opts.user_id)
     if err ~= nil then
       action.checking = true
@@ -265,8 +309,8 @@ local function sendAbandon(api, entry, action, opts)
       return "checking", user_book
     end
     if fresh and not findRead(fresh, action.read_id) then
-      if action.previous_read and not sameRead(previousRead(fresh, action), action.previous_read) then
-        return abandonConflict(action, action.base)
+      if action.previous_read and not previousRead(fresh, action) then
+        return abandonConflict(action, "previous_gone", nil, nil, fresh)
       end
       action.checking, action.status_restored = nil, true
       if opts.persist then opts.persist() end
@@ -292,8 +336,8 @@ local function sendAbandon(api, entry, action, opts)
     return "checking", result
   end
   if fresh and tonumber(fresh.status_id) == restore and not findRead(fresh, action.read_id) then
-    if action.previous_read and not sameRead(previousRead(fresh, action), action.previous_read) then
-      return abandonConflict(action, action.base)
+    if action.previous_read and not previousRead(fresh, action) then
+      return abandonConflict(action, "previous_gone", nil, nil, fresh)
     end
     action.checking, action.status_restored = nil, true
     if opts.persist then opts.persist() end

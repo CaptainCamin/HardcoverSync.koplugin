@@ -567,7 +567,7 @@ end
 
 local function readBase(read)
   local base = {}
-  for _i, field in ipairs({ "started_at", "finished_at", "finished_at_precision", "edition_id",
+  for _i, field in ipairs({ "id", "started_at", "finished_at", "finished_at_precision", "edition_id",
     "progress_pages" }) do
     base[field] = read and read[field] or nil
   end
@@ -670,7 +670,11 @@ function Flows:readHistoryProjection(context)
     and self.sync_queue:pendingReread(context.book_id, reads) or nil
   local states = self:readStates(actions)
   if pending then
-    reads = reads or {}
+    local filtered = {}
+    for _, read in ipairs(reads or {}) do
+      if read.id ~= nil then filtered[#filtered + 1] = read end
+    end
+    reads = filtered
     reads[#reads + 1] = pending
     states[pending.id] = { text = pending.pending_abandon and _("Abandoning reread")
       or _("Waiting to send"), kind = "waiting" }
@@ -718,12 +722,26 @@ function Flows:showLinkedReadHistory(opts)
   local user_id = User:getId()
   local status = self.state and self.state.book_status or {}
   local saved = self.read_store and self.read_store:get(user_id, book_id)
+  local reads = saved and saved.reads
+  if status.user_book_reads then
+    reads = reads or {}
+    local seen = {}
+    for _, read in ipairs(reads) do
+      if read.id ~= nil then seen[tostring(read.id)] = true end
+    end
+    for _, read in ipairs(status.user_book_reads) do
+      if read.id ~= nil and not seen[tostring(read.id)] then
+        reads[#reads + 1] = read
+        seen[tostring(read.id)] = true
+      end
+    end
+  end
   local context = {
     book = { book_id = book_id, title = self.settings:getLinkedTitle() or tostring(book_id),
       pages = self.settings.pages and self.settings:pages() or nil,
       edition_format = self.settings.getLinkedEditionFormat and self.settings:getLinkedEditionFormat() or nil },
     book_id = book_id, user_book_id = status.id, edit_current = opts.edit_current == true,
-    reads = status.user_book_reads or (saved and saved.reads), checked_at = saved and saved.checked_at,
+    reads = reads, checked_at = saved and saved.checked_at,
   }
   self:openReadHistoryWhenAvailable(context)
 end
@@ -841,9 +859,22 @@ function Flows:editRead(context, history, read)
       end
     end
   end
+  local entry = self.sync_queue and self.sync_queue:get(book_id)
+  local restore = entry and tonumber(entry.reread_restore_status_id)
   local previous
+  local unfinished = {}
   for _, candidate in ipairs(context.reads or {}) do
-    if candidate ~= read and candidate.finished_at then previous = candidate end
+    if candidate ~= read and candidate.pending_reread ~= true then
+      if candidate.finished_at then
+        if restore ~= HARDCOVER.STATUS.DNF then previous = candidate end
+      elseif candidate.id ~= nil then
+        unfinished[#unfinished + 1] = candidate
+      end
+    end
+  end
+  if restore == HARDCOVER.STATUS.DNF and #unfinished == 1 then previous = unfinished[1] end
+  if not previous and restore ~= HARDCOVER.STATUS.DNF and #unfinished == 1 then
+    previous = unfinished[1]
   end
   form = require("hardcover/lib/ui/read_edit_dialog"):new {
     book = context.book, read = read, on_save = on_save,
@@ -936,6 +967,23 @@ function Flows:abandonReread(context, history, read, previous)
         local restore = outcome and tonumber(outcome.from_status_id) or tonumber(from)
         if not restore or restore == 0 then restore = HARDCOVER.STATUS.FINISHED end
         self:shelfChanged(book_id, HARDCOVER.STATUS.READING, restore, outcome and outcome.user_book_id, true)
+        local state = self.state and self.state.book_status
+        if state and (tonumber(state.book_id) == book_id
+            or (outcome and outcome.user_book_id and tonumber(state.id) == tonumber(outcome.user_book_id))) then
+          state.status_id = restore
+          local kept = {}
+          for _, candidate in ipairs(context.reads or {}) do
+            if candidate.pending_reread ~= true
+                and tostring(candidate.id) ~= tostring(read.id) then
+              kept[#kept + 1] = candidate
+            end
+          end
+          state.user_book_reads = kept
+          self.state.book_status_fetched = true
+          if self.cache and self.cache.saveSnapshot and file then
+            self.cache:saveSnapshot(file, state)
+          end
+        end
         local shelves = self:shelves()
         if shelves and restore then shelves:markStale(user_id, restore) end
         if history then self:refreshReadHistory(history) end
@@ -1058,7 +1106,17 @@ function Flows:readSent(book_id, user_book, op)
   local on = screen and screen.detail and screen.detail.book and screen.detail.book.book_id
   if on and tonumber(on) == tonumber(book_id) then
     if reads then screen.detail.reads = reads end
+    if op and op.kind == "abandon_reread" and user_book and user_book.status_id then
+      local old = screen.detail.status_id
+      screen.detail.status_id = user_book.status_id
+      screen.detail.user_book_id = user_book.id or screen.detail.user_book_id
+      self:shelfChanged(book_id, old, user_book.status_id, user_book.id)
+    end
     if screen.refreshState then screen:refreshState() end
+  end
+  if op and op.kind == "abandon_reread" and self.state and self.state.book_status
+      and tonumber(self.state.book_status.book_id) == tonumber(book_id) and user_book then
+    for key, value in pairs(user_book) do self.state.book_status[key] = value end
   end
 
   local history = self:screens():open("reads")
