@@ -87,7 +87,8 @@ function DatePicker.show(opts)
       for col = 0, 6 do
         local day = week * 7 + col - first_wd + 1
         if day < 1 or day > count then
-          row[#row + 1] = Theme.hspan(cw)
+          -- a blank cell still takes a cell's height, so the grid is six weeks tall in every month
+          row[#row + 1] = Draw.drawn(cw, CELL, function() end)
         else
           local chosen = day == state.d
           local label = Theme.mmdText(tostring(day), chosen and "strong" or "text", 21,
