@@ -3,7 +3,7 @@ The changes waiting to be sent, each on its own row: a page, a status, a rating 
 Tapping a row asks to cancel just that change; cancelling it leaves the others, and the
 screen comes back without it. "Send them now" sends the rest.
 
-Screens: pending_changes, pending_changes_confirm.
+Screens: pending_changes, pending_changes_confirm, pending_held, pending_held_detail.
 ]]
 
 local fixtures = require("fixtures")
@@ -139,6 +139,35 @@ return {
     assert(not emu:screenText():find("Cancel this change?", 1, true), "partly synced work offered cancellation")
     emu:shot("pending_changes_partial_notice")
     assert(q.sync_queue:hasPending(), "the notice changed the queue")
+    emu:closeAll()
+
+    -- A held change says why on its row, and opening it offers sign-in instead of cancel-first.
+    local q2 = { sync_queue = SyncQueue:new { settings = settings() } }
+    q2.sync_queue:enqueueStatus("/b/held.epub", { status_id = HARDCOVER.STATUS.READING, book_id = 10,
+      title = "The Left Hand of Darkness" })
+    local held_entry = q2.sync_queue:get("/b/held.epub")
+    held_entry.held, held_entry.reason = true, "scope"
+    local retries, sign_ins = 0, 0
+    Dialog.show {
+      queues = q2,
+      on_retry = function() retries = retries + 1 end,
+      on_sign_in = function(done)
+        sign_ins = sign_ins + 1
+        if done then done() end
+      end,
+    }
+    emu:pump()
+    emu:expectText("The Left Hand of Darkness: mark as Currently Reading")
+    emu:expectText("permission needed; sign in again")
+    emu:shot("pending_held")
+    tap("The Left Hand of Darkness")
+    emu:expectText("Change held")
+    emu:expectText("does not include a needed permission")
+    emu:expectText("Sign in again")
+    emu:shot("pending_held_detail")
+    tap("Sign in again")
+    assert(sign_ins == 1 and retries == 0, "the held detail did not offer sign-in")
+    emu:expectText("The Left Hand of Darkness: mark as Currently Reading")
     emu:closeAll()
   end,
 }
