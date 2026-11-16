@@ -195,9 +195,13 @@ function ChartWidgets.columns(opts)
           local label = (i == opts.highlight and opts.emphasis) and strong(show(c.value)) or tw(show(c.value))
           local label_w, label_h = label:getSize().w, label:getSize().h
           local cx = plot_x + c.x + math.floor(c.w / 2)
+          local lx = cx - math.floor(label_w / 2)
           local ly = base_y - c.h - label_h - px(3)
           -- the marker's dashed line passes behind the figure, never through it
-          bb:paintRect(cx - math.floor(label_w / 2) - 1, ly - 1, label_w + 2, label_h + 2, WHITE)
+          if marker and marker.x >= lx - Theme.line.hair and marker.x <= lx + label_w + Theme.line.hair then
+            bb:paintRect(lx - Theme.line.hair, ly - Theme.line.hair,
+              label_w + 2 * Theme.line.hair, label_h + 2 * Theme.line.hair, WHITE)
+          end
           put(bb, label, cx, ly, "center")
         end
       end
