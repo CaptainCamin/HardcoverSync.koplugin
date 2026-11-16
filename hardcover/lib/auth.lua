@@ -30,6 +30,9 @@ local OAuthClient = require("hardcover/lib/oauth_client")
 -- write:goals: making, changing and archiving reading goals (Goals.WRITE_SCOPE).
 --   A sign-in from before this lacks it, and the goal editor then says to sign out
 --   and back in.
+-- write:reviews: publishing a review (ReviewQueue.WRITE_SCOPE). A sign-in from before
+--   this lacks it; the review stays queued and Pending changes says to sign in again
+--   with review access.
 --
 -- read:lists, read:goals: Hardcover's published scope map (capabilities.json) puts the
 --   lists, list_books, followed_lists and goals queries under these, not under
@@ -45,7 +48,7 @@ local OAuthClient = require("hardcover/lib/oauth_client")
 -- authorization with `invalid_scope`. Journal writes are part of
 -- write:library. Reading journals needs read:journal explicitly: read:library
 -- alone does not grant it (the Journal query is refused with HTTP 403).
-local DEFAULT_SCOPE = "read:catalog read:catalog:search read:me:content read:library read:journal read:social read:users read:vibes write:library read:lists write:lists read:goals write:goals"
+local DEFAULT_SCOPE = "read:catalog read:catalog:search read:me:content read:library read:journal read:social read:users read:vibes write:library write:reviews read:lists write:lists read:goals write:goals"
 
 local Auth = {}
 Auth.__index = Auth

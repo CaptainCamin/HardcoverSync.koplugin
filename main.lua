@@ -263,6 +263,7 @@ function HardcoverApp:init()
     -- Home's sync box: Sync now sends, and the rest of the box opens the list (the menu's)
     send_now = function() self.menu:sendPending() end,
     show_pending = function() self.menu:showPendingChanges() end,
+    sign_in = function(on_done) self:signIn(on_done) end,
     -- the settings, for the home screen's Settings button; read when asked, as
     -- the menu is built after this
     settings_items = function()
@@ -311,7 +312,9 @@ function HardcoverApp:init()
       self.read_store:invalidate()
       self.shelf_cache:clear()
       self.book_store:clear()
+      User:forget()
       self.auth:signOut()
+      if self.dialog_manager then self.dialog_manager:refreshHome() end
       BookshelfSources.changed(self)
     end,
   }

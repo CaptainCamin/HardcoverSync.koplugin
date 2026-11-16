@@ -9,6 +9,10 @@ local OfflineQueue = require("hardcover/lib/offline_queue")
 
 local ReviewQueue = OfflineQueue.extend({})
 ReviewQueue.store_key = "review_ops"
+-- Publishing a review needs this OAuth scope (ReviewQueue.WRITE_SCOPE is the one place
+-- its name is written down for the queues; auth.lua and default_config.lua spell it
+-- out in the scope they ask for, and a spec keeps the three in step).
+ReviewQueue.WRITE_SCOPE = "write:reviews"
 
 local function valid(op)
   return type(op) == "table" and (op.user_book_id ~= nil or op.book_id ~= nil) and type(op.text) == "string"

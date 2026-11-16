@@ -146,6 +146,31 @@ check("a change that is stuck says why", function()
   assert(#decisions == 1 and decisions[1].text:find("A", 1, true), decisions[1] and decisions[1].text)
 end)
 
+check("a scope-held review says the missing permission and counts as held-by-permission", function()
+  local q = queues()
+  q.user_id = 42
+  q.review_queue = ReviewQueue:new { settings = fakeSettings() }
+  q.review_queue:queue(nil, "good", false, "Dune", 101, 42)
+  for _, op in pairs(q.review_queue:ops()) do op.held, op.reason = true, "scope" end
+  local row
+  for _, r in ipairs(PendingChanges.list(q)) do if r.kind == "review" then row = r end end
+  assert(row and row.held and row.reason == "scope", "the held review lost its state")
+  assert(row.detail:find("write:reviews", 1, true), row.detail)
+  assert(PendingChanges.line(row):find("permission needed", 1, true), PendingChanges.line(row))
+  local held = PendingChanges.heldCounts(q)
+  assert(held.total == 1 and held.scope == 1 and held.refused == 0, "held counts: " .. held.total)
+end)
+
+check("sign-in asks for write:reviews in both scope sets", function()
+  assert(ReviewQueue.WRITE_SCOPE == "write:reviews")
+  for _, file in ipairs({ "hardcover/lib/auth.lua", "hardcover/lib/default_config.lua" }) do
+    local f = assert(io.open(PLUGIN .. "/" .. file)); local src = f:read("*a"); f:close()
+    local scope = src:match('scope = "([^"]+)"') or src:match('DEFAULT_SCOPE = "([^"]+)"')
+    assert(scope and (" " .. scope .. " "):find(" " .. ReviewQueue.WRITE_SCOPE .. " ", 1, true),
+      file .. " does not request " .. ReviewQueue.WRITE_SCOPE)
+  end
+end)
+
 print("\n== cancelling one ==")
 
 check("cancelling a page leaves the book's status waiting, and the other way round", function()
