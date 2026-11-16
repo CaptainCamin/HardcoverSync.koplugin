@@ -1015,12 +1015,7 @@ function Flows:chooseShelf(dialog)
       text = _("Remove from library"),
       callback = function()
         UIManager:close(picker)
-        StatusDialogs.confirm {
-          text = string.format(_("Remove \"%s\" from your library? Your status, rating and reading history for it are deleted."),
-            tostring(detail.book.title or "")),
-          ok_text = _("Remove"),
-          ok_callback = function() self:removeFromShelf(dialog) end,
-        }
+        StatusDialogs.confirmBookRemoval(detail.book.title, function() self:removeFromShelf(dialog) end)
       end,
     }
   end

@@ -482,7 +482,9 @@ check("Remove asks first and sends nothing until confirmed", function()
   local d = detailScreen(SHELVED())
   press(picker(m, d), "Remove from library")
   assert(#remove_calls == 0, "removed without asking")
-  assert(#confirms == 1 and confirms[1].text:find("Obelisk", 1, true), "no confirmation naming the book")
+  assert(#confirms == 1 and confirms[1].text ==
+    "Remove \"Obelisk\" from your library? Your status, rating and reading history for it are deleted.",
+    "no shared removal confirmation: " .. tostring(confirms[1] and confirms[1].text))
   confirms[1].ok_callback()
   assert(#remove_calls == 1 and remove_calls[1] == 55, "removed the wrong record")
 end)

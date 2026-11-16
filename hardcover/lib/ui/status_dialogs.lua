@@ -80,6 +80,17 @@ function SD.confirm(options)
   }
 end
 
+-- Removing a book deletes its status, rating and reading history, so every entry point asks
+-- with the same words and never depends on the optional status-change confirmation.
+function SD.confirmBookRemoval(title, ok_callback)
+  if type(title) ~= "string" or title == "" then title = _("This book") end
+  return SD.confirm {
+    text = string.format(_("Remove \"%s\" from your library? Your status, rating and reading history for it are deleted."), title),
+    ok_text = _("Remove"),
+    ok_callback = ok_callback,
+  }
+end
+
 -- The result of something that ran for a while and must be read: its first line is the title, the
 -- rest the text, and one outlined button closes it. For feedback on a tap, use SD.info.
 function SD.report(text)
