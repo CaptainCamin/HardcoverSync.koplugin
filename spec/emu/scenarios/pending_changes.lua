@@ -165,7 +165,7 @@ return {
     emu:expectText("does not include a needed permission")
     emu:expectText("Sign in again")
     emu:shot("pending_held_detail")
-    tap("Sign in again")
+    tapExact("Sign in again")
     assert(sign_ins == 1 and retries == 0, "the held detail did not offer sign-in")
     emu:expectText("The Left Hand of Darkness: mark as Currently Reading")
     emu:closeAll()
