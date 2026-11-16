@@ -978,8 +978,9 @@ end
 
 -- Put the book on the details screen on a shelf, or take it off.
 --
--- Online the change is sent at once and the screen is updated from the answer. Offline it
--- is kept (see saveShelfOffline), shown at once and sent when the connection is back.
+-- Online the change is sent at once and the screen is updated from the answer; if Hardcover
+-- does not answer it is kept like an offline change. Offline it is kept (see saveShelfOffline),
+-- shown at once and sent when the connection is back.
 --
 function Flows:chooseShelf(dialog)
   local detail = dialog.detail
@@ -1568,6 +1569,12 @@ function Flows:saveShelf(dialog, status_id)
       StatusDialogs.close(loading)
 
       if not user_book then
+        -- The request may have landed, but the answer did not: keep the change like an
+        -- offline one. The queue's flush reconciles before it sends anything again.
+        if self.sync_queue and type(err) == "table" and (err.completed == false or err.error == "no_response") then
+          self:saveShelfOffline(dialog, status_id)
+          return
+        end
         StatusDialogs.retry(err, _("Saving to your shelf"),
           function() self:saveShelf(dialog, status_id) end,
           function() end)
