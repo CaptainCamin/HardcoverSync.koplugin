@@ -38,11 +38,9 @@ function User:refreshAccountPrivacy(done, now)
     if done then done(nil) end
     return
   end
-  if User.privacy_pending then
-    if done then
-      User.privacy_waiters = User.privacy_waiters or {}
-      table.insert(User.privacy_waiters, done)
-    end
+  local pending = User.privacy_request
+  if pending then
+    if done then table.insert(pending.waiters, done) end
     return
   end
   if User.privacy_retry_at and now < User.privacy_retry_at then
@@ -54,20 +52,19 @@ function User:refreshAccountPrivacy(done, now)
     return
   end
 
-  local generation = User.account_generation or 0
-  User.privacy_pending = true
-  User.privacy_waiters = {}
-  local waiters = User.privacy_waiters
+  local request = { generation = User.account_generation or 0, waiters = {} }
+  User.privacy_request, User.privacy_pending = request, true
   Api:meAsync(function(me)
-    if generation ~= (User.account_generation or 0) then
-      User.privacy_pending, User.privacy_waiters = nil, nil
+    -- A request from another account must not clear the current request's
+    -- pending state or write its answer.
+    if User.privacy_request ~= request or request.generation ~= (User.account_generation or 0) then
       local value = self:getAccountPrivacy()
       if done then done(value) end
-      for _, cb in ipairs(waiters) do cb(value) end
+      for _, cb in ipairs(request.waiters) do cb(value) end
       return
     end
 
-    User.privacy_pending, User.privacy_waiters = nil, nil
+    User.privacy_request, User.privacy_pending = nil, nil
     local privacy = tonumber(me and me.account_privacy_setting_id)
     if privacy then
       User.privacy_retry_at = nil
@@ -77,7 +74,7 @@ function User:refreshAccountPrivacy(done, now)
     end
     local value = self:getAccountPrivacy()
     if done then done(value) end
-    for _, cb in ipairs(waiters) do cb(value) end
+    for _, cb in ipairs(request.waiters) do cb(value) end
   end)
 end
 
@@ -97,18 +94,18 @@ User.RETRY_AFTER = 300
 
 function User:refreshName(done, now)
   now = now or os.time()
-  if User:getName() or User.name_pending then return end
+  if User:getName() or User.name_request then return end
   if User.name_retry_at and now < User.name_retry_at then return end
   if not Network.connected() then return end
 
-  local generation = User.account_generation or 0
-  User.name_pending = true
+  local request = { generation = User.account_generation or 0 }
+  User.name_request, User.name_pending = request, true
   Api:meAsync(function(me)
-    User.name_pending = nil
-    if generation ~= (User.account_generation or 0) then
+    if User.name_request ~= request or request.generation ~= (User.account_generation or 0) then
       if done then done(self:getName()) end
       return
     end
+    User.name_request, User.name_pending = nil, nil
     local name = type(me) == "table" and me.username
     if type(name) == "string" and name ~= "" then
       User.name_retry_at = nil
@@ -127,9 +124,8 @@ function User:forget()
   self.settings:updateSetting(SETTING.USER_ID, nil)
   self.settings:updateSetting(SETTING.USER_NAME, nil)
   self.settings:updateSetting(SETTING.ACCOUNT_PRIVACY, nil)
-  User.name_pending, User.name_retry_at = nil, nil
-  User.privacy_pending, User.privacy_retry_at = nil, nil
-  User.privacy_waiters = nil
+  User.name_request, User.name_pending, User.name_retry_at = nil, nil, nil
+  User.privacy_request, User.privacy_pending, User.privacy_retry_at = nil, nil, nil
   User.account_generation = (User.account_generation or 0) + 1
 end
 

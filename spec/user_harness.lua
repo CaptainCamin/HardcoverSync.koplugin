@@ -67,7 +67,7 @@ local function fresh(initial)
   User.settings = s
   User.name_pending, User.name_retry_at = nil, nil
   User.privacy_pending, User.privacy_retry_at = nil, nil
-  User.privacy_waiters, User.account_generation = nil, nil
+  User.name_request, User.privacy_request, User.account_generation = nil, nil, nil
   asked, answer, online = 0, nil, true
   return store
 end
@@ -182,6 +182,49 @@ check("a name response from the old account is ignored", function()
   Api.meAsync = saved
 end)
 
+check("an old privacy reply does not clear the new account's request", function()
+  local store = fresh({ user_id = 7, user_name = "old" })
+  local saved = Api.meAsync
+  local old_cb, new_cb
+  local calls = 0
+  Api.meAsync = function(_, cb)
+    calls = calls + 1
+    if calls == 1 then old_cb = cb else new_cb = cb end
+  end
+  User:refreshAccountPrivacy()
+  User:forget()
+  User:refreshAccountPrivacy()
+  assert(User.privacy_pending and User.privacy_request)
+  old_cb({ id = 7, username = "old", account_privacy_setting_id = 1 })
+  assert(User.privacy_pending and User.privacy_request, "an old reply cleared the new request")
+  local third
+  User:refreshAccountPrivacy(function(value) third = value end)
+  assert(calls == 2, "a third request started after the stale reply")
+  new_cb({ id = 8, username = "new", account_privacy_setting_id = 2 })
+  assert(third == 2 and store.account_privacy_setting_id == 2)
+  Api.meAsync = saved
+end)
+
+check("an old name reply does not clear the new account's request", function()
+  local store = fresh({ user_id = 7 })
+  local saved = Api.meAsync
+  local old_cb, new_cb
+  local calls = 0
+  Api.meAsync = function(_, cb)
+    calls = calls + 1
+    if calls == 1 then old_cb = cb else new_cb = cb end
+  end
+  User:refreshName()
+  User:forget()
+  User:refreshName()
+  assert(User.name_pending and User.name_request)
+  old_cb({ id = 7, username = "old", account_privacy_setting_id = 1 })
+  assert(User.name_pending and User.name_request, "an old reply cleared the new request")
+  new_cb({ id = 8, username = "new", account_privacy_setting_id = 2 })
+  assert(store.user_name == "new" and store.account_privacy_setting_id == 2)
+  Api.meAsync = saved
+end)
+
 check("a new sign-in forgets the old account", function()
   local store = fresh({ user_id = 7, user_name = "old", account_privacy_setting_id = 3 })
   User.name_pending, User.name_retry_at = true, 99
@@ -190,7 +233,8 @@ check("a new sign-in forgets the old account", function()
   assert(store.user_id == nil and store.user_name == nil and store.account_privacy_setting_id == nil
     and User.name_pending == nil and User.name_retry_at == nil
     and User.privacy_pending == nil and User.privacy_retry_at == nil
-    and User.privacy_waiters == nil and User.account_generation == 1)
+    and User.name_request == nil and User.privacy_request == nil
+    and User.account_generation == 1)
 end)
 
 r.finish()
