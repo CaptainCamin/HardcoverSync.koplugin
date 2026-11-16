@@ -1632,12 +1632,12 @@ function HardcoverMenu:getStatusSubMenuItems()
         return self.enabled and self.state.book_status.status_id ~= nil
       end,
       callback = function(menu_instance)
-        self.dialog_manager:maybeConfirm({
-          text = "Remove current book status?",
-          ok_callback = function()
-            self:removeCurrentRead(menu_instance)
-          end
-        })
+        local title = self.settings:getLinkedTitle()
+          or (self.ui and self.ui.doc_props and self.ui.doc_props.display_title)
+          or _("This book")
+        StatusDialogs.confirmBookRemoval(title, function()
+          self:removeCurrentRead(menu_instance)
+        end)
       end,
       keep_menu_open = true,
       separator = true
