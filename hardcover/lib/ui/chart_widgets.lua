@@ -102,7 +102,9 @@ function ChartWidgets.columns(opts)
   local small = "label"
   local sample = text("0", small)
   local text_h = sample:getSize().h
-  local top_pad = text_h + px(6) -- room for the value on top of the tallest column
+  local value_pad = text_h + px(6) -- room for the value on top of the tallest column
+  local marker_pad = opts.marker and ((opts.marker.text and text_h or 0) + px(12)) or 0
+  local top_pad = value_pad + marker_pad -- the marker's words and pointer get their own lane
   local bottom = text_h + px(10) -- the labels under the baseline
   local plot_h = math.max(px(40), height - top_pad - bottom)
 
@@ -156,24 +158,22 @@ function ChartWidgets.columns(opts)
         put(bb, label, x + axis_w - px(6), base_y - t.y - math.floor(label:getSize().h / 2), "right")
       end
 
-      -- where the marker points (its position and words), worked out first: a dashed line
-      -- runs behind the columns and no value is written over its words
+      -- where the marker points (its position and words), worked out first so the
+      -- dashed line can run over the columns and the figures can keep clear of it
       local marker
       if opts.marker and cols[1] then
         local first, last = cols[1], cols[#cols]
         local step = #cols > 1 and (last.x - first.x) / (#cols - 1) or 0
         local mx = plot_x + first.x + math.floor(first.w / 2) + math.floor((opts.marker.at - 1) * step)
-        local tip = base_y - plot_h - px(2)
+        local tip = y + marker_pad - px(2)
         marker = { x = mx, tip = tip }
         if opts.marker.text then
           local label = tw(opts.marker.text)
           local lx = mx + px(10)
           if lx + label:getSize().w > x + width then lx = mx - px(10) - label:getSize().w end
-          marker.label, marker.lx = label, lx
-        end
-        local dash = px(6)
-        for yy = tip, base_y - dash, 2 * dash do
-          bb:paintRect(mx, yy, math.max(1, Theme.line.hair), dash, grey(0x88))
+          marker.label = label
+          marker.lx = lx
+          marker.ly = tip - px(6) - label:getSize().h - px(2)
         end
       end
 
@@ -181,15 +181,24 @@ function ChartWidgets.columns(opts)
         local level = 0x00
         if opts.emphasis and opts.highlight and i ~= opts.highlight then level = 0x77 end
         if c.h > 0 then column(bb, plot_x + c.x, base_y, c.w, c.h, level) end
+      end
+
+      if marker then
+        local dash = px(6)
+        for yy = marker.tip, base_y - dash, 2 * dash do
+          bb:paintRect(marker.x, yy, math.max(1, Theme.line.hair), dash, grey(0x88))
+        end
+      end
+
+      for i, c in ipairs(cols) do
         if c.value > 0 and (opts.all_values or i == peak or i == opts.highlight) then
           local label = (i == opts.highlight and opts.emphasis) and strong(show(c.value)) or tw(show(c.value))
+          local label_w, label_h = label:getSize().w, label:getSize().h
           local cx = plot_x + c.x + math.floor(c.w / 2)
-          local clash = marker and marker.label
-            and cx + math.floor(label:getSize().w / 2) + px(4) > marker.lx
-            and cx - math.floor(label:getSize().w / 2) - px(4) < marker.lx + marker.label:getSize().w
-          if not clash then
-            put(bb, label, cx, base_y - c.h - label:getSize().h - px(3), "center")
-          end
+          local ly = base_y - c.h - label_h - px(3)
+          -- the marker's dashed line passes behind the figure, never through it
+          bb:paintRect(cx - math.floor(label_w / 2) - 1, ly - 1, label_w + 2, label_h + 2, WHITE)
+          put(bb, label, cx, ly, "center")
         end
       end
 
@@ -209,7 +218,7 @@ function ChartWidgets.columns(opts)
         for row = 0, px(5) do
           bb:paintRect(marker.x - (px(5) - row), marker.tip - px(6) + row, 2 * (px(5) - row) + 1, 1, BLACK)
         end
-        if marker.label then put(bb, marker.label, marker.lx, marker.tip - px(6) - 2) end
+        if marker.label then put(bb, marker.label, marker.lx, marker.ly) end
       end
     end,
   }
