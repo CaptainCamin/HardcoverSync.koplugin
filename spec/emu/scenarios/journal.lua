@@ -89,6 +89,72 @@ return {
       and saved.page == 42 and saved.edition_id == 10600,
       "the entry was not handed over whole")
 
-    print("  journal form built, text edited, type chosen, entry saved")
+    UIManager:close(dialog)
+    emu:pump()
+
+    -- A new entry starts with the account's privacy default, and Private when
+    -- that default is not known. It never invents Public. The account has a
+    -- cached id and name here, so this exercises the independent privacy fetch.
+    local SETTING = require("hardcover/lib/constants/settings")
+    local User = require("hardcover/lib/user")
+    local Api = require("hardcover/lib/hardcover_api")
+    User.settings = settings
+    settings:updateSetting(SETTING.USER_ID, fixtures.USER_ID)
+    settings:updateSetting(SETTING.USER_NAME, "fixture_reader")
+    manager.page_mapper = { getMappedPage = function(_, page) return page end }
+    local document = { file = "/dune.epub", getPageCount = function() return 1200 end }
+
+    local function open_entry()
+      manager:journalEntryForm("A note", document, 42, 1200, 42, "note")
+      emu:pump()
+      emu:pump()
+      local form
+      for _, w in ipairs(UIManager._window_stack) do
+        if w.widget.name == "hardcover_journal_dialog" then form = w.widget end
+      end
+      assert(form, "the note form did not open")
+      return form
+    end
+
+    local function account_privacy(value)
+      Api.me = function()
+        return { id = fixtures.USER_ID, username = "fixture_reader", account_privacy_setting_id = value }
+      end
+      User.privacy_pending, User.privacy_retry_at = nil, nil
+    end
+
+    -- Clear only the cache: the value under test must come from the account.
+    settings:updateSetting(SETTING.ACCOUNT_PRIVACY, nil)
+    account_privacy(2)
+    local follows = open_entry()
+    assert(follows.privacy_setting_id == 2, "the account's Follows default was not used")
+    assert(not follows:dirty(), "the account default made an untouched form look edited")
+    emu:expectText("Follows")
+    UIManager:close(follows)
+    emu:pump()
+
+    account_privacy(3)
+    local private = open_entry()
+    assert(private.privacy_setting_id == 3, "the account's Private default was not used")
+    emu:expectText("Private")
+    UIManager:close(private)
+    emu:pump()
+
+    account_privacy(1)
+    local public = open_entry()
+    assert(public.privacy_setting_id == 1, "the account's Public default was not used")
+    emu:expectText("Public")
+    UIManager:close(public)
+    emu:pump()
+
+    settings:updateSetting(SETTING.ACCOUNT_PRIVACY, nil)
+    account_privacy(nil)
+    local fallback = open_entry()
+    assert(fallback.privacy_setting_id == 3, "an unknown account default did not fall back to Private")
+    emu:expectText("Private")
+    UIManager:close(fallback)
+    emu:pump()
+
+    print("  journal form built, text edited, type chosen, entry saved; privacy follows the account")
   end,
 }

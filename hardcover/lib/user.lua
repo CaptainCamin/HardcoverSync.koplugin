@@ -13,9 +13,69 @@ function User:getId()
     if type(me.username) == "string" and me.username ~= "" then
       self.settings:updateSetting(SETTING.USER_NAME, me.username)
     end
+    local privacy = tonumber(me.account_privacy_setting_id)
+    if privacy then self.settings:updateSetting(SETTING.ACCOUNT_PRIVACY, privacy) end
   end
 
   return user_id
+end
+
+-- The account's default visibility for new notes, quotes and other entries, as
+-- last seen from Hardcover. nil when it has not been seen yet; callers must not
+-- turn that into a public default.
+function User:getAccountPrivacy()
+  return self.settings and tonumber(self.settings:readSetting(SETTING.ACCOUNT_PRIVACY))
+end
+
+-- Ask Hardcover for the account's default visibility, independently of the
+-- cached id and username. Called when a new journal entry needs it, so an
+-- account that was already signed in before this setting existed gets a value
+-- too. Offline or unanswered, the saved value stays; with none, callers get nil
+-- and use Private.
+function User:refreshAccountPrivacy(done, now)
+  now = now or os.time()
+  if not self.settings then
+    if done then done(nil) end
+    return
+  end
+  local pending = User.privacy_request
+  if pending then
+    if done then table.insert(pending.waiters, done) end
+    return
+  end
+  if User.privacy_retry_at and now < User.privacy_retry_at then
+    if done then done(self:getAccountPrivacy()) end
+    return
+  end
+  if not Network.connected() or type(Api.meAsync) ~= "function" then
+    if done then done(self:getAccountPrivacy()) end
+    return
+  end
+
+  local request = { generation = User.account_generation or 0, waiters = {} }
+  User.privacy_request, User.privacy_pending = request, true
+  Api:meAsync(function(me)
+    -- A request from another account must not clear the current request's
+    -- pending state or write its answer.
+    if User.privacy_request ~= request or request.generation ~= (User.account_generation or 0) then
+      local value = self:getAccountPrivacy()
+      if done then done(value) end
+      for _, cb in ipairs(request.waiters) do cb(value) end
+      return
+    end
+
+    User.privacy_request, User.privacy_pending = nil, nil
+    local privacy = tonumber(me and me.account_privacy_setting_id)
+    if privacy then
+      User.privacy_retry_at = nil
+      self.settings:updateSetting(SETTING.ACCOUNT_PRIVACY, privacy)
+    else
+      User.privacy_retry_at = now + User.RETRY_AFTER
+    end
+    local value = self:getAccountPrivacy()
+    if done then done(value) end
+    for _, cb in ipairs(request.waiters) do cb(value) end
+  end)
 end
 
 -- The signed-in account's username as last seen, or nil. Reads the saved copy only, so a
@@ -34,17 +94,24 @@ User.RETRY_AFTER = 300
 
 function User:refreshName(done, now)
   now = now or os.time()
-  if User:getName() or User.name_pending then return end
+  if User:getName() or User.name_request then return end
   if User.name_retry_at and now < User.name_retry_at then return end
   if not Network.connected() then return end
 
-  User.name_pending = true
+  local request = { generation = User.account_generation or 0 }
+  User.name_request, User.name_pending = request, true
   Api:meAsync(function(me)
-    User.name_pending = nil
+    if User.name_request ~= request or request.generation ~= (User.account_generation or 0) then
+      if done then done(self:getName()) end
+      return
+    end
+    User.name_request, User.name_pending = nil, nil
     local name = type(me) == "table" and me.username
     if type(name) == "string" and name ~= "" then
       User.name_retry_at = nil
       self.settings:updateSetting(SETTING.USER_NAME, name)
+      local privacy = tonumber(me.account_privacy_setting_id)
+      if privacy then self.settings:updateSetting(SETTING.ACCOUNT_PRIVACY, privacy) end
       if done then done(name) end
     else
       User.name_retry_at = now + User.RETRY_AFTER
@@ -56,7 +123,10 @@ end
 function User:forget()
   self.settings:updateSetting(SETTING.USER_ID, nil)
   self.settings:updateSetting(SETTING.USER_NAME, nil)
-  User.name_pending, User.name_retry_at = nil, nil
+  self.settings:updateSetting(SETTING.ACCOUNT_PRIVACY, nil)
+  User.name_request, User.name_pending, User.name_retry_at = nil, nil, nil
+  User.privacy_request, User.privacy_pending, User.privacy_retry_at = nil, nil, nil
+  User.account_generation = (User.account_generation or 0) + 1
 end
 
 return User

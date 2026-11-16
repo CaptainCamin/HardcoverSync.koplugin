@@ -194,7 +194,10 @@ return {
     emu:pump()
     tapText("Rate")
     emu:expectText("Set rating")
+    emu:expectText("No rating")
     emu:shot("reader_first_sync_rating")
+    -- the dialog opens unrated; choose 2.5 deliberately
+    for _ = 1, 5 do tapText("plus") end
     tapText("Save")
     dismissNotes()
     assert(menu.rating_queue:get(nil, 328491) == 2.5, "rating was not kept without a library record")
