@@ -907,6 +907,23 @@ check("a backdated DNF does not block a later reread abandon", function()
   assert(#api.records[7].user_book_reads == 2)
 end)
 
+check("a backdated read that gains progress blocks the shelf restore", function()
+  local q, api = queue(), fakeApi()
+  local backdated = { id = 11, started_at = "2018-01-01", edition_id = 7 }
+  api.records[7] = record(7, { finishedRead(), backdated,
+    { id = 12, started_at = "2026-11-16", edition_id = 7 } }, 2)
+  api.fail_status_once = true
+  q:abandonReread(7, { read_id = 12, base = { id = 12, started_at = "2026-11-16", edition_id = 7 },
+    previous_read = finishedRead(), restore_status_id = 3 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(q:readActions(7)[1].deleted)
+  api.records[7].user_book_reads[2].progress_pages = 40
+  q = SyncQueue:new { settings = q.settings }
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(q:readActions(7)[1].conflict.reason == "another_read")
+  assert(api.records[7].status_id == 2)
+end)
+
 check("a deleted reread checks a higher-id active read even with an old start date", function()
   local q, api = partialQueue()
   table.insert(api.records[7].user_book_reads, { id = 12, started_at = "2019-01-01",
