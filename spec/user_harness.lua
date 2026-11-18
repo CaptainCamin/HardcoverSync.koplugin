@@ -23,6 +23,7 @@ package.preload["hardcover/lib/hardcover_api"] = function()
 end
 
 local User = dofile(PLUGIN .. "/hardcover/lib/user.lua")
+local Api = require("hardcover/lib/hardcover_api")
 
 local function settings(initial)
   local store = initial or {}
@@ -37,6 +38,22 @@ check("the first id lookup keeps the username too", function()
   assert(store.user_id == 7 and store.user_name == "ChananyaMinster" and User:getName() == "ChananyaMinster")
 end)
 
+check("the first id lookup keeps the account privacy default", function()
+  local s, store = settings()
+  User.settings = s
+  answer = { id = 7, username = "ChananyaMinster", account_privacy_setting_id = 2 }
+  assert(User:getId() == 7)
+  assert(store.account_privacy_setting_id == 2)
+  assert(User:getAccountPrivacy() == 2)
+end)
+
+check("no account privacy default stays nil, not Public", function()
+  local s, store = settings({ user_id = 7 })
+  User.settings = s
+  assert(User:getAccountPrivacy() == nil)
+  assert(store.account_privacy_setting_id == nil)
+end)
+
 check("getName only reads: no name is nil, and it asks for nothing", function()
   User.settings = settings()
   asked = 0
@@ -49,6 +66,8 @@ local function fresh(initial)
   local s, store = settings(initial)
   User.settings = s
   User.name_pending, User.name_retry_at = nil, nil
+  User.privacy_pending, User.privacy_retry_at = nil, nil
+  User.name_request, User.privacy_request, User.account_generation = nil, nil, nil
   asked, answer, online = 0, nil, true
   return store
 end
@@ -93,12 +112,129 @@ check("a known name is never asked for", function()
   assert(asked == 0)
 end)
 
-check("a new sign-in forgets the old account", function()
-  local s, store = settings({ user_id = 7, user_name = "old" })
-  User.settings = s
-  User.name_pending, User.name_retry_at = true, 99
+check("privacy refresh works with a cached id and name", function()
+  local store = fresh({ user_id = 7, user_name = "old" })
+  answer = { id = 7, username = "old", account_privacy_setting_id = 2 }
+  local got
+  User:refreshAccountPrivacy(function(value) got = value end)
+  assert(asked == 1 and store.account_privacy_setting_id == 2 and got == 2)
+end)
+
+check("privacy refresh replaces an older saved default", function()
+  local store = fresh({ user_id = 7, user_name = "old", account_privacy_setting_id = 2 })
+  answer = { id = 7, username = "old", account_privacy_setting_id = 3 }
+  User:refreshAccountPrivacy()
+  assert(store.account_privacy_setting_id == 3)
+end)
+
+check("privacy refresh keeps the saved value when Hardcover has no answer", function()
+  local store = fresh({ user_id = 7, user_name = "old", account_privacy_setting_id = 3 })
+  answer = { id = 7, username = "old" }
+  local got
+  User:refreshAccountPrivacy(function(value) got = value end)
+  assert(store.account_privacy_setting_id == 3 and got == 3, "a saved Private default was lost")
+end)
+
+check("privacy refresh offline asks nothing and keeps the saved value", function()
+  local store = fresh({ user_id = 7, user_name = "old", account_privacy_setting_id = 2 })
+  online = false
+  local got
+  User:refreshAccountPrivacy(function(value) got = value end)
+  assert(asked == 0 and store.account_privacy_setting_id == 2 and got == 2)
+end)
+
+check("a form opened while privacy is pending gets the answer too", function()
+  local store = fresh({ user_id = 7, user_name = "old" })
+  local saved = Api.meAsync
+  local pending
+  Api.meAsync = function(_, cb) pending = cb end
+  local first, second
+  User:refreshAccountPrivacy(function(value) first = value end)
+  User:refreshAccountPrivacy(function(value) second = value end)
+  assert(pending and first == nil and second == nil)
+  pending({ id = 7, username = "old", account_privacy_setting_id = 2 })
+  assert(first == 2 and second == 2 and store.account_privacy_setting_id == 2)
+  Api.meAsync = saved
+end)
+
+check("a privacy response from the old account is ignored", function()
+  local store = fresh({ user_id = 7, user_name = "old" })
+  local saved = Api.meAsync
+  local pending
+  Api.meAsync = function(_, cb) pending = cb end
+  local got
+  User:refreshAccountPrivacy(function(value) got = value end)
   User:forget()
-  assert(store.user_id == nil and store.user_name == nil and User.name_pending == nil and User.name_retry_at == nil)
+  pending({ id = 7, username = "old", account_privacy_setting_id = 1 })
+  assert(store.account_privacy_setting_id == nil and got == nil)
+  Api.meAsync = saved
+end)
+
+check("a name response from the old account is ignored", function()
+  local store = fresh({ user_id = 7 })
+  local saved = Api.meAsync
+  local pending
+  Api.meAsync = function(_, cb) pending = cb end
+  User:refreshName()
+  User:forget()
+  pending({ id = 7, username = "old", account_privacy_setting_id = 1 })
+  assert(store.user_name == nil and store.account_privacy_setting_id == nil)
+  Api.meAsync = saved
+end)
+
+check("an old privacy reply does not clear the new account's request", function()
+  local store = fresh({ user_id = 7, user_name = "old" })
+  local saved = Api.meAsync
+  local old_cb, new_cb
+  local calls = 0
+  Api.meAsync = function(_, cb)
+    calls = calls + 1
+    if calls == 1 then old_cb = cb else new_cb = cb end
+  end
+  User:refreshAccountPrivacy()
+  User:forget()
+  User:refreshAccountPrivacy()
+  assert(User.privacy_pending and User.privacy_request)
+  old_cb({ id = 7, username = "old", account_privacy_setting_id = 1 })
+  assert(User.privacy_pending and User.privacy_request, "an old reply cleared the new request")
+  local third
+  User:refreshAccountPrivacy(function(value) third = value end)
+  assert(calls == 2, "a third request started after the stale reply")
+  new_cb({ id = 8, username = "new", account_privacy_setting_id = 2 })
+  assert(third == 2 and store.account_privacy_setting_id == 2)
+  Api.meAsync = saved
+end)
+
+check("an old name reply does not clear the new account's request", function()
+  local store = fresh({ user_id = 7 })
+  local saved = Api.meAsync
+  local old_cb, new_cb
+  local calls = 0
+  Api.meAsync = function(_, cb)
+    calls = calls + 1
+    if calls == 1 then old_cb = cb else new_cb = cb end
+  end
+  User:refreshName()
+  User:forget()
+  User:refreshName()
+  assert(User.name_pending and User.name_request)
+  old_cb({ id = 7, username = "old", account_privacy_setting_id = 1 })
+  assert(User.name_pending and User.name_request, "an old reply cleared the new request")
+  new_cb({ id = 8, username = "new", account_privacy_setting_id = 2 })
+  assert(store.user_name == "new" and store.account_privacy_setting_id == 2)
+  Api.meAsync = saved
+end)
+
+check("a new sign-in forgets the old account", function()
+  local store = fresh({ user_id = 7, user_name = "old", account_privacy_setting_id = 3 })
+  User.name_pending, User.name_retry_at = true, 99
+  User.privacy_pending, User.privacy_retry_at = true, 99
+  User:forget()
+  assert(store.user_id == nil and store.user_name == nil and store.account_privacy_setting_id == nil
+    and User.name_pending == nil and User.name_retry_at == nil
+    and User.privacy_pending == nil and User.privacy_retry_at == nil
+    and User.name_request == nil and User.privacy_request == nil
+    and User.account_generation == 1)
 end)
 
 r.finish()

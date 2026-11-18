@@ -214,7 +214,7 @@ end
 
 function Hardcover:autolinkBook(book)
   if not book then
-    return
+    return false
   end
 
   local linked = self:linkBook(book)
@@ -230,44 +230,49 @@ function Hardcover:autolinkBook(book)
       }
     end)
   end
+  return linked
 end
 
 function Hardcover:linkBookByIsbn(identifiers)
   if identifiers.isbn_10 or identifiers.isbn_13 then
     local user_id = User:getId()
-    local book_lookup = Api:findBookByIdentifiers({
+    local book_lookup, err = Api:findBookByIdentifiers({
       isbn_10 = identifiers.isbn_10,
       isbn_13 = identifiers.isbn_13
     },
-      user_id
+      user_id,
+      true
     )
     if book_lookup then
-      self:autolinkBook(book_lookup)
-      return true
+      return self:autolinkBook(book_lookup)
     end
+    return false, err
   end
 end
 
 function Hardcover:linkBookByHardcover(identifiers)
   if identifiers.book_slug or identifiers.edition_id then
     local user_id = User:getId()
-    local book_lookup = Api:findBookByIdentifiers(
-      { book_slug = identifiers.book_slug, edition_id = identifiers.edition_id }, user_id)
+    local book_lookup, err = Api:findBookByIdentifiers(
+      { book_slug = identifiers.book_slug, edition_id = identifiers.edition_id }, user_id, true)
     if book_lookup then
-      self:autolinkBook(book_lookup)
-      return true
+      return self:autolinkBook(book_lookup)
     end
+    return false, err
   end
 end
 
 function Hardcover:linkBookByTitle()
   local props = self.ui.document:getProps()
 
-  local results = Api:findBooks(props.title, props.authors, User:getId())
-  if results and #results > 0 then
-    self:autolinkBook(results[1])
-    return true
+  local results, err = Api:findBooks(props.title, props.authors, User:getId())
+  -- Title and author are not an exact identifier: only a single result is safe
+  -- to link without asking. Several results are ambiguous and are left alone.
+  if results and #results == 1 then
+    return self:autolinkBook(results[1])
   end
+  if results and #results > 1 then return false, { ambiguous = true } end
+  return false, err
 end
 
 function Hardcover:tryAutolink()
@@ -290,14 +295,19 @@ function Hardcover:tryAutolink()
 end
 
 function Hardcover:_runAutolink(identifiers)
-  local linked = false
+  local linked, err = false, nil
   if self.settings:readSetting(SETTING.LINK_BY_ISBN) then
-    linked = self:linkBookByIsbn(identifiers)
+    linked, err = self:linkBookByIsbn(identifiers)
   end
 
+  -- An exact identifier with several matches is ambiguous: do not fall through
+  -- to a looser identifier and choose one of them anyway.
+  if not linked and err and err.ambiguous then return end
+
   if not linked and self.settings:readSetting(SETTING.LINK_BY_HARDCOVER) then
-    linked = self:linkBookByHardcover(identifiers)
+    linked, err = self:linkBookByHardcover(identifiers)
   end
+  if not linked and err and err.ambiguous then return end
 
   if not linked and self.settings:readSetting(SETTING.LINK_BY_TITLE) then
     self:linkBookByTitle()

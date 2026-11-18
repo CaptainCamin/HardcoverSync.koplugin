@@ -17,6 +17,7 @@ local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
 local Book = require("hardcover/lib/book")
+local BookActions = require("hardcover/lib/book_actions")
 local Network = require("hardcover/lib/network")
 local Github = require("hardcover/lib/github")
 local Updater = require("hardcover/lib/updater")
@@ -172,6 +173,10 @@ local STATUS_LABELS = {
   [HARDCOVER.STATUS.FINISHED] = "Read",
   [HARDCOVER.STATUS.DNF] = "Did Not Finish",
 }
+
+local function ratingText(value)
+  return value == 0 and _("No rating") or string.format("%.1f", value)
+end
 
 function HardcoverMenu:showReaderPanel()
   if not (self.ui and self.ui.document) then
@@ -1310,10 +1315,12 @@ function HardcoverMenu:showEndPage()
     }
     if status.id or (status_id and self.rating_queue) then
       m.rows[#m.rows + 1] = { text = _("Your rating"), rating = true, run = function()
+        local rating = status.rating
         require("hardcover/lib/ui/components/stepper_dialog").show {
           title = _("Set rating"), text = _("0 clears the rating."),
-          value = status.rating or 2.5, min = 0, max = 5, step = 0.5,
+          value = rating or 0, min = 0, max = 5, step = 0.5, format = ratingText,
           on_save = function(value)
+            if not BookActions.ratingChange(rating, value) then return end
             self:saveRating(value, { updateItems = function() if page then page:render() end end })
           end,
         }
@@ -1750,8 +1757,11 @@ function HardcoverMenu:getStatusSubMenuItems()
         require("hardcover/lib/ui/components/stepper_dialog").show {
           title = _("Set rating"),
           text = _("0 clears the rating."),
-          value = rating or 2.5, min = 0, max = 5, step = 0.5,
-          on_save = function(value) self:saveRating(value, menu_instance) end,
+          value = rating or 0, min = 0, max = 5, step = 0.5, format = ratingText,
+          on_save = function(value)
+            if not BookActions.ratingChange(rating, value) then return end
+            self:saveRating(value, menu_instance)
+          end,
         }
       end,
       hold_callback = function(menu_instance)
