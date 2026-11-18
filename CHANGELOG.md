@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Fixes
+
+- **Progress percentages match Hardcover's journal.** The reader panel, book details and Home truncate the page share the way Hardcover does, so page 50 of 322 reads 15% everywhere instead of 16% on the device and 15% in the journal.
+
+- **A one-book goal says "1 book".** The goal card and its detail use the singular for one book or one page, including "1 book left in 20 days".
+
+- **Long titles can be read in full.** Holding the reader panel's title, or Stats' Shortest or Longest line, shows the whole title (and its length) in a dialog, the way Settings' help lines already do.
+
+- **The last-page switches no longer contradict each other.** Turning on "Mark as Read automatically on the last page" turns off "Ask to mark as Read", and turning the question on turns automatic marking off; the two never show on together.
+
+- **Reads that finish on the same day are told apart.** When a book has more than one read, Reading history's rows say which read each one is ("2nd read · Paperback · 304 pages"), so two reads of the same edition finishing on the same day are no longer identical.
+
+- **Reviewer names no longer show a missing-glyph box.** Emoji and other characters that no shipped font draws are stripped from reviewers' names; symbols the fallback fonts draw (a star, a heart) stay.
+
+- **Average rating by year is measured against 5.** The chart's axis ends at 5, not 6, so a 4.0 average reaches four fifths of the height instead of two thirds.
+
+- **Home's card keeps its height at zero progress.** A currently-reading book with no page yet keeps its progress bar and percent line (at 0), so the sync box and shelves below it stay put.
+
+- **The page editor is titled "Edition page", and typing replaces the value.** The nested editor under Set current page opens on the numeric keyboard with the current value as if selected: the first digit typed replaces it instead of appending to it.
+
+- **A journal entry with no visibility set is kept Private.** The queue's fallback is Private, never Public; the note form itself already starts from the account's default.
+
 ## 2.5.0
 
 ### Improved

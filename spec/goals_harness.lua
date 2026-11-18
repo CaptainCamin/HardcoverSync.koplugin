@@ -102,6 +102,14 @@ check("the chip is filled for good news and outlined for the rest, never a grey 
   assert(label == "Upcoming" and filled == false)
 end)
 
+check("the unit word agrees with its count: 1 book, 2 books", function()
+  assert(Goals.unitWord("books", 1) == "book")
+  assert(Goals.unitWord("books", 0) == "books")
+  assert(Goals.unitWord("books", 2) == "books")
+  assert(Goals.unitWord("pages", 1) == "page")
+  assert(Goals.unitWord("pages", 300) == "pages")
+end)
+
 check("the words beside the chip say how far from pace in the goal's own unit, and what is left", function()
   local function words(r) return Goals.paceText(Goals.pace(Goals.normalize({ r })[1], TODAY)) end
   assert(words(row()) == "6 books behind  \194\183  91 days left", words(row()))

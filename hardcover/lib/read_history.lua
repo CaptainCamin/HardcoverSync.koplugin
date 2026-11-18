@@ -311,7 +311,8 @@ function ReadHistory.summary(reads, opts)
       format = nil
     elseif pages and pages > 0 then
       label = string.format("Page %d of %d", page, pages)
-      pct = math.floor(page * 100 / pages + 0.5)
+      -- truncated, as Hardcover's journal truncates it: the same pages say the same percent
+      pct = math.floor(page * 100 / pages)
       pct = math.max(0, math.min(100, pct))
     elseif page > 0 then
       label = string.format("Page %d", page)

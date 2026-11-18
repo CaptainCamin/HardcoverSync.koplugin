@@ -37,7 +37,7 @@ function GoalWidgets.figure(p, width)
     align = "bottom",
     Theme.mmdText(string.format("%d", p.progress), "strong", 44),
     Theme.hspan("s"),
-    Theme.mmdText(string.format(_("of %d %s"), p.target, p.unit), "text", 21, { secondary = true }),
+    Theme.mmdText(string.format(_("of %d %s"), p.target, Goals.unitWord(p.unit, p.target)), "text", 21, { secondary = true }),
   }
   if p.extra and p.extra > 0 then
     table.insert(row, Theme.hspan("m"))

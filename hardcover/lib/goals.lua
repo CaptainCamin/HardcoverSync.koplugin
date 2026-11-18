@@ -180,11 +180,16 @@ function Goals.chip(p)
   return "On track", true
 end
 
+-- The unit word for a count: "1 book" but "2 books". `unit` is "books" or "pages".
+function Goals.unitWord(unit, n)
+  return n == 1 and unit:gsub("s$", "") or unit
+end
+
 -- The line beside the chip: how far from where you should be, and how long is left. "3 books ahead",
 -- "850 pages behind", "On pace"; a goal that is done, ended or not started says that instead.
 function Goals.paceText(p)
   local n = math.floor(math.abs(p.delta))
-  local unit = n == 1 and p.unit:gsub("s$", "") or p.unit
+  local unit = Goals.unitWord(p.unit, n)
   local line
   if p.done then
     line = nil

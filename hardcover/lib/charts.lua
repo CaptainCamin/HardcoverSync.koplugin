@@ -15,6 +15,7 @@ local Charts = {}
 -- A clean top for an axis and the step between its ticks: 0..max in about four steps, each a
 -- 1, 2 or 5 times a power of ten. A max of 0 (nothing to plot) still gives a usable 0..4.
 --   niceScale(37)  -> 40, 10      niceScale(7) -> 8, 2      niceScale(0) -> 4, 1
+--   niceScale(5)   -> 5, 1        (a five-star axis ends at 5)
 -- (counts: the step is a whole number)
 --
 function Charts.niceScale(max)
@@ -23,7 +24,9 @@ function Charts.niceScale(max)
   local rough = max / 4
   local power = 10 ^ math.floor(math.log(rough) / math.log(10))
   local frac = rough / power
-  local nice = frac <= 1 and 1 or frac <= 2 and 2 or frac <= 2.5 and 2.5 or frac <= 5 and 5 or 10
+  -- up to 1.25 (not 1): a max of 5 gets a 0..5 axis in steps of 1, not 0..6 in steps of 2, so a
+  -- five-star rating is measured against 5 and a count of 5 against 5
+  local nice = frac <= 1.25 and 1 or frac <= 2 and 2 or frac <= 2.5 and 2.5 or frac <= 5 and 5 or 10
   -- 2.5 is only a clean step when it divides cleanly (25, 250...); at 2.5 itself use 2
   if nice == 2.5 and (nice * power) % 1 ~= 0 then nice = 2 end
   -- these are counts (books, pages): whole steps, never a tick at 0.5

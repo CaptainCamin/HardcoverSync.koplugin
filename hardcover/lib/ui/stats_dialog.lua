@@ -22,6 +22,8 @@ local Hosted = require("hardcover/lib/ui/hosted")
 local ScrollBody = require("hardcover/lib/ui/scroll_body")
 local Section = require("hardcover/lib/ui/components/section")
 local Stats = require("hardcover/lib/stats")
+local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
+local TapRow = require("hardcover/lib/ui/tap_row")
 local Theme = require("hardcover/lib/ui/theme")
 local TopBar = require("hardcover/lib/ui/components/top_bar")
 
@@ -78,6 +80,24 @@ local function fact(label, value, width)
   local right = Theme.mmdText(value, "strong", 18)
   local left = Theme.mmdText(label, "text", 18, { width = width - right:getSize().w - Theme.space.l })
   return HorizontalGroup:new { align = "center", left, Theme.hspan(math.max(0, width - left:getSize().w - right:getSize().w)), right }
+end
+
+-- The Shortest / Longest line: the title cut to fit, and a hold that shows the whole title with
+-- its length (as a settings help line does). `fmt` is the line's format ("Shortest: %s").
+function StatsDialog:lengthLine(fmt, name, book, width)
+  local pages = book.pages == 1 and _("1 page") or string.format(_("%d pages"), book.pages)
+  local line = text(string.format(fmt, book.title), "small", { grey = true, width = width })
+  -- pad the hold target to at least the minimum touch height
+  local pad = math.max(0, math.ceil((Theme.TOUCH_MIN - line:getSize().h) / 2))
+  local padded = VerticalGroup:new { align = "left", Theme.span(pad), line, Theme.span(pad) }
+  return TapRow:new {
+    hold_callback = function()
+      StatusDialogs.confirm { title = name, text = book.title .. "\n" .. pages,
+        ok_text = _("Close"), cancel_text = false }
+    end,
+    viewport = function() return self.scroll and self.scroll.dimen or self.dimen end,
+    padded,
+  }
 end
 
 -- A month's first letter (the characters of a translation can be more than one byte)
@@ -373,10 +393,10 @@ function StatsDialog:buildContent(width)
       table.insert(b, Theme.span("s"))
     end
     if s.shortest and s.shortest.title and s.shortest.pages ~= (s.longest and s.longest.pages) then
-      table.insert(b, text(string.format(_("Shortest: %s"), s.shortest.title), "small", { grey = true, width = width }))
+      table.insert(b, self:lengthLine(_("Shortest: %s"), _("Shortest"), s.shortest, width))
     end
     if s.longest and s.longest.title then
-      table.insert(b, text(string.format(_("Longest: %s"), s.longest.title), "small", { grey = true, width = width }))
+      table.insert(b, self:lengthLine(_("Longest: %s"), _("Longest"), s.longest, width))
     end
     add(b)
   end

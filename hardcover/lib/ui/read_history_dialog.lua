@@ -74,14 +74,22 @@ local function stateIcon(kind)
   return Theme.icon("sync", Theme.px(18))
 end
 
--- What a read's second line says when it is not a state: its format and pages.
-function ReadHistoryDialog.supportFor(read)
+-- What a read's second line says when it is not a state: its format and pages, led by which
+-- read it is when the book has more than one (two reads can finish on the same day in the same
+-- edition, and the dates alone would not tell them apart). `position` is the read's place in
+-- time, 1 for the first; `count` how many reads the book has.
+function ReadHistoryDialog.supportFor(read, position, count)
   local format = ReadHistory.formatName(read)
   local pages = ReadHistory.editionPages(read)
-  if format and pages then return string.format(_("%s · %d pages"), format, pages) end
-  if format then return format end
-  if pages then return string.format(_("%d pages"), pages) end
-  return _("Edition not recorded")
+  local edition
+  if format and pages then edition = string.format(_("%s · %d pages"), format, pages)
+  elseif format then edition = format
+  elseif pages then edition = string.format(_("%d pages"), pages)
+  else edition = _("Edition not recorded") end
+  if count and count > 1 and position then
+    return ReadHistory.ordinal(position) .. " " .. _("read") .. " · " .. edition
+  end
+  return edition
 end
 
 function ReadHistoryDialog:init()
@@ -98,9 +106,17 @@ function ReadHistoryDialog:headerSupport()
   return checked and (count .. " · " .. checked) or count
 end
 
-function ReadHistoryDialog:readRow(read, width, viewport)
+function ReadHistoryDialog:readRow(read, width, viewport, position, count)
   local state = stateOf(self.states, read)
-  local support = state and state.text or ReadHistoryDialog.supportFor(read)
+  local support
+  if state then
+    support = state.text
+    if count and count > 1 and position then
+      support = ReadHistory.ordinal(position) .. " " .. _("read") .. " · " .. support
+    end
+  else
+    support = ReadHistoryDialog.supportFor(read, position, count)
+  end
   local icon = state and stateIcon(state.kind) or nil
   local callback
   if read.pending_reread then
@@ -160,8 +176,13 @@ function ReadHistoryDialog:buildContent(width, viewport)
   end
 
   local rows = ReadHistory.normalize(self.reads)
-  for _, read in ipairs(rows) do
-    c[#c + 1] = self:readRow(read, width, viewport)
+  for i, read in ipairs(rows) do
+    -- number by the original (id-ordered) position, matching ReadHistory.summary on book details
+    local position
+    for j, orig in ipairs(self.reads) do
+      if orig.id == read.id then position = j; break end
+    end
+    c[#c + 1] = self:readRow(read, width, viewport, position or (#rows - i + 1), #rows)
   end
 
   self.add_row = ListItem.new {

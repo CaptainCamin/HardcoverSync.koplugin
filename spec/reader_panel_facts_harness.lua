@@ -29,6 +29,9 @@ r.check("reading is not paused", describe { status_id = S.READING, status_label 
 print("\n== Currently Reading ==")
 local reading = describe { status_id = S.READING, saved_page = 120, status_label = "Currently Reading" }
 r.check("page line: where you are", reading.line == "Page 120 of 387" .. DOT .. "31%", reading.line)
+r.check("percent truncates, as Hardcover's journal does (50 of 322 is 15%, not 16%)",
+  describe { status_id = S.READING, saved_page = 50, pages = 322, status_label = "Currently Reading" }.line
+    == "Page 50 of 322" .. DOT .. "15%")
 r.check("no shelf line", reading.shelf == nil, reading.shelf)
 r.check("switch offered, no note", reading.track == true and reading.track_note == nil)
 r.check("not finished: no Read again", not reading.finished)

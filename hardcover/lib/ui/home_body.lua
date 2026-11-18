@@ -91,15 +91,16 @@ function HomeBody:readingCard(card, width)
     info[#info + 1] = Theme.span(px(6))
     info[#info + 1] = Theme.mmdText(card.author, "text", 18, { secondary = true, width = text_w })
   end
-  if card.fraction then
+  if card.total then
     info[#info + 1] = Theme.span(px(14))
-    info[#info + 1] = Theme.progress { width = text_w, height = px(12), percentage = card.fraction }
+    info[#info + 1] = Theme.progress { width = text_w, height = px(12), percentage = card.fraction or 0 }
   end
   local line
-  if card.fraction and card.current and card.total then
-    line = string.format(_("%d%% · page %d of %d"), math.floor(card.fraction * 100 + 0.5), card.current, card.total)
-  elseif card.total then
-    line = string.format(_("%d pages"), card.total)
+  if card.total then
+    -- a book with no progress yet keeps its bar and percent line (at 0), so the card is the same
+    -- height as one with progress and what is below it never moves; the percent truncates, as
+    -- Hardcover's journal does
+    line = string.format(_("%d%% · page %d of %d"), math.min(100, math.max(0, math.floor((card.current or 0) * 100 / card.total))), card.current or 0, card.total)
   end
   if line then
     info[#info + 1] = Theme.span(px(6))

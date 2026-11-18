@@ -388,4 +388,42 @@ check("KOReader's own touch menu, a real widget, is still closed so progress can
   end
 end)
 
+print("\n== the last-page switches: ask or automatic, never both ==")
+
+check("turning one on turns the other off, and the switches show it", function()
+  _G.G_reader_settings = _G.G_reader_settings or { readSetting = function() return nil end }
+  local SETTING = real_require("hardcover/lib/constants/settings")
+  local store = {}
+  local menu = newMenu()
+  menu.settings.readSetting = function(_, k) return store[k] end
+  menu.settings.updateSetting = function(_, k, v) store[k] = v end
+  menu.settings.endPrompt = function()
+    local v = store[SETTING.END_PROMPT]
+    if v == nil then return nil end
+    return v == true
+  end
+  menu.settings.endAutoMark = function() return store[SETTING.END_AUTO_MARK] == true end
+
+  local ask, auto
+  for _, item in ipairs(menu:getSettingsSubMenuItems()) do
+    if item.text == "Ask to mark as Read on the last page" then ask = item end
+    if item.text == "Mark as Read automatically on the last page" then auto = item end
+  end
+  assert(ask and auto, "the two last-page switches are not both in Settings")
+
+  -- left alone: the question is on (KOReader's own end action), automatic off
+  assert(ask.checked_func() == true and auto.checked_func() == false)
+
+  auto.callback() -- automatic on: the question goes off
+  assert(auto.checked_func() == true and ask.checked_func() == false, "both switches show on")
+  assert(store[SETTING.END_PROMPT] == false)
+
+  ask.callback() -- the question on: automatic goes off
+  assert(ask.checked_func() == true and auto.checked_func() == false)
+  assert(store[SETTING.END_AUTO_MARK] == false)
+
+  ask.callback() -- the question off: neither is on
+  assert(ask.checked_func() == false and auto.checked_func() == false)
+end)
+
 r.finish()
