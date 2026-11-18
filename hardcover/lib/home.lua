@@ -75,10 +75,9 @@ end
 --
 -- Each card carries what the screen draws and nothing it has to work out:
 -- `fraction` is how far through the book you are, clamped to 0..1, or nil when
--- the page count or the progress is unknown (the bar is then left out rather
--- than drawn empty, which would say "not started"). `progress_text` is
--- "p / pages"; with no progress yet only the page count is shown, and with
--- neither there is no text.
+-- the page count or the progress is unknown. Home draws the bar at 0 in that
+-- case, so a book just started keeps the card's height (the fixed-row rule);
+-- `progress_text` is "p / pages", or only the page count with no progress yet.
 --
 function Home.cards(entries)
   local cards = {}

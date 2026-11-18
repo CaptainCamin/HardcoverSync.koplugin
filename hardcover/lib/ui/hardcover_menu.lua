@@ -1693,9 +1693,9 @@ function HardcoverMenu:getStatusSubMenuItems()
         local remote_pages = self.settings:pages() or document_pages
         local mapped_page = self.page_mapper:getMappedPage(document_page, document_pages, remote_pages)
 
-        local left_text = "Edition"
+        local left_text = _("Edition page")
         if last_hardcover_page > 0 then
-          left_text = left_text .. ": was " .. last_hardcover_page
+          left_text = left_text .. ": " .. T(_("was %1"), last_hardcover_page)
         end
 
         local was_tracking = self.settings:syncEnabled()
@@ -2052,13 +2052,17 @@ function HardcoverMenu:getSettingsSubMenuItems()
       section = SECTION.TRACKING,
       text = _("Ask to mark as Read on the last page"),
       checked_func = function()
-        return EndOfBook.promptOnLastPage(self.settings:endPrompt(), G_reader_settings:readSetting("end_document_action"))
+        -- automatic marking skips the question, so the two switches never show on together
+        return not self.settings:endAutoMark()
+          and EndOfBook.promptOnLastPage(self.settings:endPrompt(), G_reader_settings:readSetting("end_document_action"))
       end,
       callback = function()
-        local on = EndOfBook.promptOnLastPage(self.settings:endPrompt(), G_reader_settings:readSetting("end_document_action"))
+        local on = not self.settings:endAutoMark()
+          and EndOfBook.promptOnLastPage(self.settings:endPrompt(), G_reader_settings:readSetting("end_document_action"))
         self.settings:updateSetting(SETTING.END_PROMPT, not on)
+        if not on then self.settings:updateSetting(SETTING.END_AUTO_MARK, false) end
       end,
-      help = _("When you stay on a book's last page, ask whether to mark it Read. Off by default when an end page (Hardcover's or another plugin's) is chosen in KOReader's End of document action."),
+      help = _("When you stay on a book's last page, ask whether to mark it Read. Off by default when an end page (Hardcover's or another plugin's) is chosen in KOReader's End of document action. Turning it on turns off automatic marking."),
     },
     {
       section = SECTION.TRACKING,
@@ -2067,9 +2071,11 @@ function HardcoverMenu:getSettingsSubMenuItems()
         return self.settings:endAutoMark()
       end,
       callback = function()
-        self.settings:updateSetting(SETTING.END_AUTO_MARK, not self.settings:endAutoMark())
+        local on = not self.settings:endAutoMark()
+        self.settings:updateSetting(SETTING.END_AUTO_MARK, on)
+        if on then self.settings:updateSetting(SETTING.END_PROMPT, false) end
       end,
-      help = _("Skip the question: reaching the last page marks the book Read. A book already Read is left alone, and Did not finish still asks."),
+      help = _("Skip the question: reaching the last page marks the book Read. A book already Read is left alone, and Did not finish still asks. Turning it on turns off the question."),
     },
     {
       section = SECTION.DISPLAY,

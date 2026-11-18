@@ -127,6 +127,9 @@ return {
 
   run = function(emu)
     local settings = fixtures.real_settings(emu)
+    -- a reviewer whose name carries an emoji: no shipped font draws the rat, so the name
+    -- must reach the screen without it (a missing-glyph box otherwise)
+    fixtures.reviews[4].user = { username = "ratreader", name = "Rat \240\159\144\128" }
     fixtures.install({ settings = settings, overrides = { getShelf = function() return {}, nil, false end } })
     for _, id in ipairs({ 103, 105, 301, 302, 303, 304, 305, 306, 101 }) do
       fixtures.seed_cover(fixtures.cover_url(id), id % 3 + 1)
@@ -187,6 +190,32 @@ return {
     scroll_top(emu, dialog)
     assert(dialog.scroll:getScrolledOffset().y == 0, "the up triangle did not return to the top")
     emu:expectText("Maya Okafor")
+
+    -- the emoji reviewer: the name is drawn, the rat is not (no font has it). Bring the fourth
+    -- card to the top of the scroll: its place is the fixed blocks above it plus three cards.
+    local Theme = require("hardcover/lib/ui/theme")
+    local cw = dialog.width - 2 * Theme.margin - require("hardcover/lib/ui/components/scroll_control").gutter()
+    local function block_h(w)
+      local s = w:getSize().h
+      if type(w.free) == "function" then pcall(w.free, w) end
+      return s
+    end
+    local top = Theme.space.m
+    local summary = dialog:buildSummary(cw)
+    if summary then top = top + block_h(summary) end
+    local own = dialog:buildYourBlock(cw)
+    if own then top = top + block_h(own) end
+    top = top + block_h(dialog:communityHeader(cw, #dialog:communityReviews()))
+    top = top + 3 * dialog:cardMetrics(cw).height
+    local scroll = dialog.scroll
+    local crop, max = scroll._crop_h, scroll._max_scroll_offset_y
+    local target = math.max(0, math.min(max, top - 20))
+    scroll:scrollToRatio(0, (target + math.floor(crop / 2 + 0.5)) / (max + crop))
+    emu:pump()
+    emu:expectText("Rat")
+    assert(not emu:screenText():find("\240\159\144\128", 1, true), "the emoji reached the screen")
+    emu:shot("reviews_emoji_name")
+    scroll_top(emu, dialog)
 
     -- the spoiler is hidden by default, and its text is not drawn anywhere. The rating
     -- summary heads page 1, so the spoiler card (the second review) is dealt to a later page.

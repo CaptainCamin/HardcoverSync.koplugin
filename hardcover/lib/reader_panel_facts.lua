@@ -76,8 +76,10 @@ function Facts.describe(o)
     if reading or (saved and saved > 0) then
       local page = saved or 0
       out.progress = math.max(0, math.min(1, page / pages))
+      -- truncated, not rounded: Hardcover's journal truncates the same page count, and the two
+      -- must say the same percent (page 50 of 322 is 15% in both, not 16% here and 15% there)
       out.line = fill(_("Page %1 of %2"), page, pages)
-        .. "  \194\183  " .. fill(_("%1%"), math.floor(100 * page / pages + 0.5))
+        .. "  \194\183  " .. fill(_("%1%"), math.floor(100 * page / pages))
     elseif pages == 1 then
       out.line = _("1 page")
     else

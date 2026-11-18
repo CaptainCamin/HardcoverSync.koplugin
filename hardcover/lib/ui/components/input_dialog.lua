@@ -82,6 +82,36 @@ function InputDialog:init()
     scroll = height ~= nil,
     parent = self,
   }
+  -- A number field opens with its value as if selected: the first character typed replaces the
+  -- whole value instead of appending to it (KOReader's InputText has no select-on-focus). Enter
+  -- is not a character: it still runs the filled button with the value as it stands. A deletion
+  -- (backspace) or cursor move ends the selected state so subsequent typing appends.
+  if self.input_type == "number" and (self.input or "") ~= "" then
+    local widget = self._input_widget
+    local addChars = widget.addChars
+    local delChar = widget.delChar
+    local delNextChar = widget.delNextChar
+    local untouched = true
+    widget.addChars = function(w, chars)
+      if untouched then
+        -- only replace when the cursor is still at the end (the value is "selected");
+        -- a cursor move into the middle means the reader is editing, not replacing
+        if chars ~= "\n" and w.charpos == #w.charlist + 1 then
+          w:setText("")
+        end
+        untouched = false
+      end
+      return addChars(w, chars)
+    end
+    widget.delChar = function(w, ...)
+      untouched = false
+      return delChar(w, ...)
+    end
+    widget.delNextChar = function(w, ...)
+      untouched = false
+      return delNextChar(w, ...)
+    end
+  end
   -- the field sits at the left edge of the column, the buttons are as wide as the column
   local tface, tbold = Theme.mmdFace("strong", 25)
   local col = VerticalGroup:new { align = "left", Theme.span(Theme.px(8)) }

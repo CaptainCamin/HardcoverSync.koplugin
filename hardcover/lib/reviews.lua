@@ -34,15 +34,18 @@ local DOT = " \194\183 "
 
 --
 -- A reader's name. Falls back to "A reader" when the account is private (no
--- `user`) or has neither a display name nor a username.
+-- `user`) or has neither a display name nor a username. Astral characters (emoji)
+-- are stripped: no shipped font draws them, and a name must not show a glyph box.
 --
 function Reviews.reviewer(user_book)
   local user = type(user_book) == "table" and user_book.user
   if type(user) == "table" then
     for _, key in ipairs({ "name", "username" }) do
       local value = user[key]
-      if type(value) == "string" and TextUtil.trim(value) ~= "" then
-        return TextUtil.trim(value)
+      if type(value) == "string" then
+        value = TextUtil.trim(TextUtil.stripAstral(value))
+        -- a name of only zero-width joiners (orphaned emoji remnants) is not a name
+        if value:gsub("\226\128\141", ""):match("%S") then return value end
       end
     end
   end

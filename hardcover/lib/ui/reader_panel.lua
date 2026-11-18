@@ -114,7 +114,16 @@ function ReaderPanel:render()
   local close = self:buildClose()
   local controls = (gear and gear:getSize().w + Theme.space.xs or 0) + close:getSize().w
   local title_w = math.max(1, text_w - controls)
-  local title = Theme.mmdText(model.title, "strong", 25, { width = title_w })
+  local title_text = Theme.mmdText(model.title, "strong", 25, { width = title_w })
+  -- a long title is cut to fit: holding it shows the whole title, as a settings help line does
+  local title = TapRow:new {
+    hold_callback = function()
+      require("hardcover/lib/ui/status_dialogs").confirm {
+        title = _("Book title"), text = model.title, ok_text = _("Close"), cancel_text = false,
+      }
+    end,
+    title_text,
+  }
   local head = HorizontalGroup:new { align = "center", title,
     Theme.hspan(math.max(0, title_w - title:getSize().w)) }
   if gear then table.insert(head, gear); table.insert(head, Theme.hspan("xs")) end
