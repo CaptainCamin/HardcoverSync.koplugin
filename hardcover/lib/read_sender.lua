@@ -201,10 +201,13 @@ local function previousRead(user_book, action)
   return findRead(user_book, action.previous_read.id)
 end
 
-local function unfinishedReads(user_book)
+-- Unfinished reads from the predecessor onward. An older DNF is not a competing active read.
+local function unfinishedFrom(user_book, previous)
   local out = {}
+  local started = previous == nil
   for _, read in ipairs(user_book and user_book.user_book_reads or {}) do
-    if not read.finished_at then out[#out + 1] = read end
+    if previous and sameRead(read, previous) then started = true end
+    if started and not read.finished_at then out[#out + 1] = read end
   end
   return out
 end
@@ -244,7 +247,7 @@ local function postDeleteConflict(user_book, action, restore)
   if action.previous_read and (not previous or not sameRead(previous, action.previous_read)) then
     return "previous_changed", previous
   end
-  local active = unfinishedReads(user_book)
+  local active = unfinishedFrom(user_book, previous)
   local allowed = #active == 0
   if not allowed and restore == HARDCOVER.STATUS.DNF and action.previous_read
       and previous and not previous.finished_at and #active == 1
@@ -318,7 +321,7 @@ local function sendAbandon(api, entry, action, opts)
       elseif status ~= HARDCOVER.STATUS.READING then
         return abandonShelfConflict(action, status, user_book.updated_at)
       end
-      local active = unfinishedReads(user_book)
+      local active = unfinishedFrom(user_book, previous)
       local allowed = #active == 1
       if not allowed and restore == HARDCOVER.STATUS.DNF and action.previous_read
           and previous and not previous.finished_at and #active == 2 then

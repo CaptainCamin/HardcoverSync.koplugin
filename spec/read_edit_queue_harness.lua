@@ -571,6 +571,15 @@ check("the delete is marked checking before the request", function()
   assert(seen == true, "the delete was not marked before the request")
 end)
 
+check("a synced reread records the read Hardcover created", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { finishedRead(), activeReread() }, 3)
+  q:startReread("/b/7.epub", { book_id = 7, user_id = 1, from_status_id = 3, mapped_page = 12 })
+  local entry = q:get(7)
+  q:flush(api, { user_id = 1 })
+  assert(entry.read_id == 11, "the created reread id was not saved")
+end)
+
 check("a lost delete is checked, then the shelf is restored without a second delete", function()
   local q, api = queue(), fakeApi()
   api.records[7] = record(7, { finishedRead(), activeReread() }, 2)
@@ -687,6 +696,35 @@ check("a finished target does not offer Abandon again", function()
     assert(row.id ~= "abandon", "a finished read was offered Abandon")
   end
   assert(q:resolveRead(7, action.seq, "abandon") == false)
+end)
+
+check("an abandon on a linked book is visible by filename", function()
+  local q = queue()
+  q:abandonReread("/b/7.epub", { book_id = 7, read_id = 11, base = activeReread(),
+    previous_read = finishedRead(), restore_status_id = 3 })
+  assert(q:hasPending("/b/7.epub"), "the reader's filename lookup missed the abandon")
+end)
+
+check("an older DNF does not block a later reread abandon", function()
+  local q, api = queue(), fakeApi()
+  local old_dnf = { id = 5, started_at = "2018-01-01", edition_id = 7 }
+  api.records[7] = record(7, { old_dnf, finishedRead(), activeReread() }, 2)
+  q:abandonReread(7, { read_id = 11, base = activeReread(), previous_read = finishedRead(),
+    restore_status_id = 3 })
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(api.records[7].status_id == 3)
+  assert(#api.records[7].user_book_reads == 2)
+end)
+
+check("cancelling an abandon clears its removal question", function()
+  local q = queue()
+  q:abandonReread(7, { read_id = 11, base = activeReread(), previous_read = finishedRead(),
+    restore_status_id = 3 })
+  q:queueRemove(1, 7, 507, "Book 7", 2, {})
+  local action = q:readActions(7)[1]
+  assert(q:get(7).conflict.kind == "abandon_remove")
+  assert(q:cancelReadEdit(7, action.seq, 1, q:get(7)))
+  assert(not q:get(7).conflict, "the stale removal question survived")
 end)
 
 check("a later library removal asks instead of deleting the earlier read", function()

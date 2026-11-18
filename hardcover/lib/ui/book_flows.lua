@@ -725,7 +725,7 @@ function Flows:showLinkedReadHistory(opts)
   local saved = self.read_store and self.read_store:get(user_id, book_id)
   local reads = {}
   local server = status.user_book_reads
-  local complete = type(server) == "table"
+  local complete = type(server) == "table" and status.reads_complete ~= false
   if complete then
     for _, read in ipairs(server) do
       if read.id == nil then complete = false; break end
@@ -740,10 +740,10 @@ function Flows:showLinkedReadHistory(opts)
     end
     for _, read in ipairs(server) do
       local old = saved_by_id[tostring(read.id)]
-      if old then
-        for key, value in pairs(old) do
-          if read[key] == nil then read[key] = value end
-        end
+      if old and read.edition == nil then
+        -- Only the edition details are missing from the reader's thin read rows. Never fill a
+        -- nullable date or progress from an older snapshot: the fresh row may have cleared it.
+        read.edition = old.edition
       end
       reads[#reads + 1] = read
     end
@@ -1048,7 +1048,9 @@ function Flows:abandonReread(context, history, read)
   if not restore or restore == 0 then
     restore = previous.finished_at and HARDCOVER.STATUS.FINISHED or HARDCOVER.STATUS.DNF
   end
-  local saved, action = queue:abandonReread(book_id, {
+  -- Keep the book-id lookup for an existing entry, but associate a new entry with the linked file
+  -- so the reader's filename-based pending checks see the abandon barrier.
+  local saved, action = queue:abandonReread(entry and book_id or entry_file or book_id, {
     book_id = book_id, read_id = read.id, base = readBase(read), previous_read = readBase(previous),
     restore_status_id = restore, user_book_id = context.user_book_id,
     user_id = user_id, title = context.book and context.book.title,

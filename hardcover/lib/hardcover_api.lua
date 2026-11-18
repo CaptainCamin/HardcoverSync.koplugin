@@ -563,6 +563,7 @@ function HardcoverApi:normalizeUserBookRead(user_book_read)
   local user_book = user_book_read.user_book
   user_book_read.user_book = nil
   user_book.user_book_reads = { user_book_read }
+  user_book.reads_complete = false
   return user_book
 end
 

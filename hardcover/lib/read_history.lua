@@ -149,23 +149,18 @@ function ReadHistory.current(reads)
   return Book:currentRead(reads)
 end
 
-local function older(left, right)
-  local left_start, right_start = left.started_at or "", right.started_at or ""
-  if left_start ~= right_start then return left_start < right_start end
-  return Book.readIdOrder(left.id) < Book.readIdOrder(right.id)
-end
-
 local function sameRead(left, right)
   if type(left) ~= "table" or type(right) ~= "table" then return false end
   if left == right then return true end
   return left.id ~= nil and right.id ~= nil and tostring(left.id) == tostring(right.id)
 end
 
--- The newest read of any kind, by the order Hardcover uses (oldest first).
+-- Hardcover sends reads oldest first. Keep that session order for which read is active; display
+-- dates are a separate, newest-first concern in normalize().
 function ReadHistory.latest(reads)
   local latest
   for _, read in ipairs(reads or {}) do
-    if type(read) == "table" and (not latest or older(latest, read)) then latest = read end
+    if type(read) == "table" then latest = read end
   end
   return latest
 end
@@ -174,22 +169,17 @@ end
 function ReadHistory.latestUnfinished(reads)
   local latest
   for _, read in ipairs(reads or {}) do
-    if type(read) == "table" and not read.finished_at and (not latest or older(latest, read)) then
-      latest = read
-    end
+    if type(read) == "table" and not read.finished_at then latest = read end
   end
   return latest
 end
 
--- The read immediately before `target` in Hardcover's order, or nil.
+-- The read immediately before `target` in Hardcover's session order, or nil.
 function ReadHistory.previous(reads, target)
-  local ordered = {}
+  local previous
   for _, read in ipairs(reads or {}) do
-    if type(read) == "table" then ordered[#ordered + 1] = read end
-  end
-  table.sort(ordered, older)
-  for index, read in ipairs(ordered) do
-    if sameRead(read, target) then return index > 1 and ordered[index - 1] or nil end
+    if sameRead(read, target) then return previous end
+    if type(read) == "table" then previous = read end
   end
 end
 

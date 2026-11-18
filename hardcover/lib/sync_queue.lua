@@ -402,7 +402,10 @@ function SyncQueue:cancelReadEdit(book_id, seq, user_id, expected_entry)
   if Actions.started(found) then return false, "started" end
   local removed, reason = Actions.cancel(entry, nil, seq)
   if not removed then return false, reason end
-  if not Actions.hasAbandon(entry) then entry.abandon_barrier = nil end
+  if not Actions.hasAbandon(entry) then
+    entry.abandon_barrier = nil
+    if entry.conflict and entry.conflict.kind == "abandon_remove" then entry.conflict = nil end
+  end
   self:save(book_id, entry)
   return true
 end
@@ -1667,6 +1670,10 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
           return failed(self, filepath, err)
         end
         user_book = result
+        if op.reread then
+          local created = Book:currentRead(result.user_book_reads)
+          if created and created.id then entry.read_id = created.id end
+        end
         op.applied = true
         self:persist()
       elseif not op.applied then
@@ -1744,6 +1751,7 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
           user_book = reading
           reads = user_book.user_book_reads
           current_read = reads and reads[#reads]
+          if current_read and current_read.id then entry.read_id = current_read.id end
         end
 
         if not skip then
@@ -1754,6 +1762,7 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
           local action_at = op.at and op.at > 0 and os.date("!%Y-%m-%dT%H:%M:%SZ", op.at) or nil
           local result
           op.read_id = current_read and current_read.id
+          if op.reread and op.read_id then entry.read_id = op.read_id end
           op.page_attempt = true
           self:persist()
           if current_read and current_read.id then

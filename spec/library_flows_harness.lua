@@ -797,6 +797,19 @@ check("a DNF predecessor offers Abandon and restores its shelf", function()
     "an older finished read was mistaken for the DNF predecessor")
 end)
 
+check("an undated reread still offers Abandon", function()
+  local m = abandonFlow()
+  local old = { id = 10, started_at = "2020-01-01", finished_at = "2020-01-10" }
+  local active = { id = 11, edition_id = 7 }
+  local Edit = real_require("hardcover/lib/ui/read_edit_dialog")
+  local original, form = Edit.new, nil
+  Edit.new = function(_, options) form = options; return options end
+  m:editRead({ book_id = 7, user_book_id = 507, status_id = HARDCOVER.STATUS.READING,
+    reads = { old, active } }, nil, active)
+  Edit.new = original
+  assert(form and form.on_abandon, "an undated reread offered no Abandon action")
+end)
+
 check("an older DNF row does not offer Abandon", function()
   local m = abandonFlow()
   local old = { id = 10, started_at = "2020-01-01", edition_id = 7 }
@@ -856,6 +869,37 @@ check("fresh state wins over stale saved fields for the same read", function()
   m.openReadHistoryWhenAvailable = function(_, c) context = c end
   m:showLinkedReadHistory()
   assert(context.reads[2].progress_pages == 50, "stale saved fields won")
+end)
+
+check("a partial reader snapshot keeps saved earlier reads", function()
+  local m = abandonFlow()
+  local old = { id = 10, started_at = "2020-01-01", finished_at = "2020-01-10" }
+  local active = { id = 11, started_at = "2026-11-01" }
+  m.read_store = { get = function() return { reads = { old, active } } end }
+  m.settings.getLinkedBookId = function() return 7 end
+  m.settings.getLinkedTitle = function() return "Example" end
+  m.state.book_status = { id = 507, book_id = 7, status_id = HARDCOVER.STATUS.READING,
+    reads_complete = false, user_book_reads = { active } }
+  local context
+  m.openReadHistoryWhenAvailable = function(_, c) context = c end
+  m:showLinkedReadHistory()
+  assert(#context.reads == 2 and context.reads[1].id == 10 and context.reads[2].id == 11,
+    "a partial reader snapshot hid the earlier read")
+end)
+
+check("a cleared start date is not filled from saved history", function()
+  local m = abandonFlow()
+  local saved = { id = 11, started_at = "2026-11-01", edition_id = 7 }
+  local fresh = { id = 11, started_at = nil, edition_id = 7 }
+  m.read_store = { get = function() return { reads = { saved } } end }
+  m.settings.getLinkedBookId = function() return 7 end
+  m.settings.getLinkedTitle = function() return "Example" end
+  m.state.book_status = { id = 507, book_id = 7, status_id = HARDCOVER.STATUS.READING,
+    user_book_reads = { fresh } }
+  local context
+  m.openReadHistoryWhenAvailable = function(_, c) context = c end
+  m:showLinkedReadHistory()
+  assert(context.reads[1].started_at == nil, "the saved start date came back")
 end)
 
 check("a newer reader history does not bring back a deleted read", function()
