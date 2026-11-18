@@ -20,6 +20,10 @@
 
 - **A rating or review changed elsewhere is never silently replaced.** Before sending an offline rating or review, Hardcover is checked again. If it changed on another device, both versions are kept and the book asks which to use; a review can also be combined in the editor. Removing a review that changed online asks before deleting it.
 
+### Fixes
+
+- **Removing a book says what stays.** The confirmation now says your status, rating and review are deleted, but the book's journal entries (notes, quotes, reading history and a copy of the review) stay on Hardcover, public ones still public. That is what Hardcover itself does; the old wording promised the reading history was deleted.
+
 ## 2.4.0
 
 ### Added
