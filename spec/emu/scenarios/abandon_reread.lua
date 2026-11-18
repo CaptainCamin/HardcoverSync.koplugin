@@ -3,7 +3,7 @@ Reading history's Abandon reread flow with real KOReader widgets: a pending rere
 reread form, the confirmation, a decision state, and the partial-failure row in Pending changes.
 
 Screens: abandon_history, abandon_form, abandon_confirm, abandon_pending_confirm,
-abandon_decision, abandon_decision_question, abandon_partial.
+abandon_checking_history, abandon_decision, abandon_decision_question, abandon_partial.
 ]]--
 
 local fixtures = require("fixtures")
@@ -62,7 +62,7 @@ return {
         title = "Abandon this reread?",
         text = pending_read
           and "This reread has not been sent to Hardcover yet. It will be discarded from this device. Your previous read and its dates stay."
-          or "The reread and its progress will be removed. Your previous read, its dates, rating and review stay, and the book stays on its shelf. Journal entries from the reread may remain.",
+          or "The reread and its progress will be removed. Your previous read, its dates, rating and review stay, and the book returns to its previous shelf. Journal entries from the reread may remain.",
         ok_text = "Abandon reread",
         cancel_text = "Keep reading",
         ok_callback = function() end,
@@ -141,7 +141,7 @@ return {
     UIManager:show(decision, "full")
     emu:pump()
     emu:expectText("Checking what synced")
-    emu:shot("abandon_decision")
+    emu:shot("abandon_checking_history")
     UIManager:close(decision)
     emu:pump()
 

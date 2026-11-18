@@ -262,6 +262,13 @@ local function freshBook(api, entry, opts)
   return fresh
 end
 
+-- Hardcover can show a just-deleted read for a moment. Keep checking an unchanged readback
+-- instead of parking it as a permanent conflict; a changed read is a real conflict.
+local function staleReadback(user_book, action)
+  local target = findRead(user_book, action.read_id)
+  return target and sameRead(target, action.base) and (action.verify_attempts or 0) < 3
+end
+
 -- Delete the reread, then restore the library shelf without sending a finish date. Every path
 -- that reaches a status write re-reads and validates the post-delete record first, including a
 -- lost delete response and a retry after restart.
@@ -287,16 +294,28 @@ local function sendAbandon(api, entry, action, opts)
       action.deleted = true
       if opts.persist then opts.persist() end
     else
-      if not sameRead(target, action.base) then
-        return abandonConflict(action, "target_changed", target, previous, user_book)
-      end
       if target.finished_at then
         return abandonConflict(action, "target_finished", target, previous, user_book)
       end
-      if action.previous_read and (not previous or not sameRead(previous, action.previous_read)) then
-        return abandonConflict(action, "previous_changed", target, previous, user_book)
+      if not sameRead(target, action.base) then
+        return abandonConflict(action, "target_changed", target, previous, user_book)
       end
-      if status ~= HARDCOVER.STATUS.READING and not approvalMatches(action, status, user_book) then
+      -- Only the newest read may be abandoned. An earlier DNF is unfinished too, but it is not
+      -- the reread, and a DNF shelf is not a reading session.
+      local latest = ReadHistory.latest(user_book.user_book_reads)
+      if not latest or tostring(latest.id) ~= tostring(target.id) or status == HARDCOVER.STATUS.DNF then
+        return abandonConflict(action, "target_not_active", target, previous, user_book)
+      end
+      local immediate = ReadHistory.previous(user_book.user_book_reads, target)
+      if action.previous_read and (not immediate or not sameRead(immediate, action.previous_read)) then
+        return abandonConflict(action, "previous_changed", target, immediate or previous, user_book)
+      end
+      previous = immediate or previous
+      if action.restore_approval then
+        if not approvalMatches(action, status, user_book) then
+          return abandonShelfConflict(action, status, user_book.updated_at)
+        end
+      elseif status ~= HARDCOVER.STATUS.READING then
         return abandonShelfConflict(action, status, user_book.updated_at)
       end
       local active = unfinishedReads(user_book)
@@ -315,14 +334,20 @@ local function sendAbandon(api, entry, action, opts)
         return abandonConflict(action, "another_read", target, previous, user_book)
       end
 
+      -- Persist the in-flight marker before the request. A restart after a lost response
+      -- must know this delete may already have landed.
+      action.checking = true
+      if opts.persist then opts.persist() end
       local result, err = api:deleteRead(action.read_id)
       if not result then
-        if err ~= nil and not OfflineQueue.transient(err) then return "failed", err end
-        action.checking = true
-        if opts.persist then opts.persist() end
+        if err ~= nil and not OfflineQueue.transient(err) then
+          action.checking = nil
+          if opts.persist then opts.persist() end
+          return "failed", err
+        end
         return "checking", user_book
       end
-      action.deleted = true
+      action.checking, action.deleted = nil, true
       if opts.persist then opts.persist() end
     end
   end
@@ -338,19 +363,30 @@ local function sendAbandon(api, entry, action, opts)
     return "checking", user_book
   end
   local post_reason, post_previous = postDeleteConflict(fresh, action, restore)
+  if post_reason == "target_reappeared" and staleReadback(fresh, action) then
+    action.verify_attempts = (action.verify_attempts or 0) + 1
+    action.checking = true
+    if opts.persist then opts.persist() end
+    return "checking", fresh
+  end
   if post_reason then
     return abandonConflict(action, post_reason, findRead(fresh, action.read_id), post_previous, fresh)
   end
+  action.verify_attempts = nil
   status = tonumber(fresh.status_id)
   previous = post_previous
 
-  if status ~= restore and status ~= HARDCOVER.STATUS.READING
-      and not approvalMatches(action, status, fresh) then
-    return abandonShelfConflict(action, status, fresh.updated_at)
-  end
-
   if status ~= restore then
-    local result, err = api:updateUserBookStatus(fresh.id, restore, fresh.privacy_setting_id, nil)
+    if action.restore_approval then
+      if not approvalMatches(action, status, fresh) then
+        return abandonShelfConflict(action, status, fresh.updated_at)
+      end
+    elseif status ~= HARDCOVER.STATUS.READING then
+      return abandonShelfConflict(action, status, fresh.updated_at)
+    end
+
+    -- Status only: never write back the privacy value from the earlier lookup.
+    local result, err = api:updateUserBookStatus(fresh.id, restore, nil, nil)
     if not result then
       if err ~= nil and not OfflineQueue.transient(err) then return "failed", err end
       action.checking = true
@@ -368,9 +404,16 @@ local function sendAbandon(api, entry, action, opts)
     return "checking", fresh
   end
   local final_reason, final_previous = postDeleteConflict(final, action, restore)
+  if final_reason == "target_reappeared" and staleReadback(final, action) then
+    action.verify_attempts = (action.verify_attempts or 0) + 1
+    action.checking = true
+    if opts.persist then opts.persist() end
+    return "checking", final
+  end
   if final_reason then
     return abandonConflict(action, final_reason, findRead(final, action.read_id), final_previous, final)
   end
+  action.verify_attempts = nil
   if tonumber(final.status_id) == restore then
     action.checking, action.status_restored = nil, true
     if opts.persist then opts.persist() end

@@ -7,6 +7,7 @@
 -- newest first.
 
 local Book = require("hardcover/lib/book")
+local HARDCOVER = require("hardcover/lib/constants/hardcover")
 
 local ReadHistory = {}
 
@@ -146,6 +147,63 @@ end
 -- Which read progress follows. The one rule, in Book:currentRead.
 function ReadHistory.current(reads)
   return Book:currentRead(reads)
+end
+
+local function older(left, right)
+  local left_start, right_start = left.started_at or "", right.started_at or ""
+  if left_start ~= right_start then return left_start < right_start end
+  return Book.readIdOrder(left.id) < Book.readIdOrder(right.id)
+end
+
+local function sameRead(left, right)
+  if type(left) ~= "table" or type(right) ~= "table" then return false end
+  if left == right then return true end
+  return left.id ~= nil and right.id ~= nil and tostring(left.id) == tostring(right.id)
+end
+
+-- The newest read of any kind, by the order Hardcover uses (oldest first).
+function ReadHistory.latest(reads)
+  local latest
+  for _, read in ipairs(reads or {}) do
+    if type(read) == "table" and (not latest or older(latest, read)) then latest = read end
+  end
+  return latest
+end
+
+-- The newest unfinished read, or nil when every read is finished.
+function ReadHistory.latestUnfinished(reads)
+  local latest
+  for _, read in ipairs(reads or {}) do
+    if type(read) == "table" and not read.finished_at and (not latest or older(latest, read)) then
+      latest = read
+    end
+  end
+  return latest
+end
+
+-- The read immediately before `target` in Hardcover's order, or nil.
+function ReadHistory.previous(reads, target)
+  local ordered = {}
+  for _, read in ipairs(reads or {}) do
+    if type(read) == "table" then ordered[#ordered + 1] = read end
+  end
+  table.sort(ordered, older)
+  for index, read in ipairs(ordered) do
+    if sameRead(read, target) then return index > 1 and ordered[index - 1] or nil end
+  end
+end
+
+-- The one read an Abandon reread action may remove: the newest read overall, while the book is
+-- Currently Reading, and it must be unfinished. The read before it is the one to keep. A DNF is
+-- unfinished too, but a DNF book is not reading, and an older DNF with a newer reread is not the
+-- active one.
+function ReadHistory.activeReread(reads, status_id)
+  if tonumber(status_id) ~= HARDCOVER.STATUS.READING then return nil end
+  local latest = ReadHistory.latest(reads)
+  if not latest or latest.finished_at then return nil end
+  local previous = ReadHistory.previous(reads, latest)
+  if not previous then return nil end
+  return latest, previous
 end
 
 function ReadHistory.ordinal(n)

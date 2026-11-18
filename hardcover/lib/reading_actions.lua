@@ -43,6 +43,19 @@ function Actions.list(entry)
     local status_first = entry.status_id == HARDCOVER.STATUS.READING or entry.status_id == HARDCOVER.STATUS.TO_READ
     return (a.kind == "status") == status_first
   end)
+  -- A legacy reread page may already have an explicit Reading status in front of it. That status
+  -- is this reread's start, not an earlier segment's, so tag it and let cancelReread find it.
+  for index, action in ipairs(old) do
+    if action.kind == "page" and action.reread then
+      for earlier = index - 1, 1, -1 do
+        if old[earlier].kind == "status" and old[earlier].value == HARDCOVER.STATUS.READING then
+          old[earlier].reread = true
+          break
+        end
+      end
+      break
+    end
+  end
   local reread_started = false
   for _, action in ipairs(old) do
     -- A legacy reread page already means "open another read". Make that known boundary

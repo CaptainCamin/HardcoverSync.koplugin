@@ -145,29 +145,47 @@ local function fieldValue(field, value, read)
   return tostring(value)
 end
 
+-- The choices for an abandon that could not finish. A deleted action has no reread left to keep;
+-- it still needs a way to finish or leave the shelf alone, so it never becomes a dead end.
+local function abandonRows(conflict)
+  local reason = conflict.reason
+  if conflict.deleted then
+    local rows = {}
+    if (reason == "target_gone" or reason == "previous_changed") and conflict.previous then
+      rows[#rows + 1] = { id = "restore", text = _("Restore the previous shelf") }
+    elseif reason == "target_reappeared" or reason == "target_changed"
+        or reason == "target_not_active" then
+      rows[#rows + 1] = { id = "check", text = _("Check again") }
+    end
+    rows[#rows + 1] = { id = "leave", text = _("Leave the shelf as it is") }
+    rows[#rows + 1] = { id = "later", text = _("Decide later") }
+    return rows
+  end
+  if reason == "target_gone" then
+    return {
+      { id = "restore", text = _("Restore the previous shelf") },
+      { id = "later", text = _("Decide later") },
+    }
+  end
+  local rows = {
+    { id = "keep", text = _("Keep the reread") },
+    { id = "later", text = _("Decide later") },
+  }
+  if conflict.target and conflict.previous and reason ~= "another_read"
+      and reason ~= "target_finished" and reason ~= "target_not_active" then
+    table.insert(rows, 2, { id = "abandon", text = _("Abandon the reread anyway") })
+  end
+  return rows
+end
+
 -- One read edit's question: a field changed on Hardcover, the read is gone, or an older read is
 -- being changed while a newer one is in progress.
 function SyncConflicts.describeRead(entry, conflict)
   local name = SyncConflicts.title(type(entry) == "table" and entry.file, entry)
   if conflict.kind == "abandon_changed" then
-    local rows
-    if conflict.deleted or conflict.reason == "target_gone" then
-      rows = { { id = "later", text = _("Decide later") } }
-    else
-      rows = {
-        { id = "keep", text = _("Keep the reread") },
-        { id = "later", text = _("Decide later") },
-      }
-    end
-    if not conflict.deleted and conflict.target and conflict.previous
-        and conflict.reason ~= "another_read" then
-      table.insert(rows, 2, { id = "abandon", text = _("Abandon the reread anyway") })
-    elseif conflict.reason == "target_gone" then
-      table.insert(rows, 2, { id = "restore", text = _("Restore the previous shelf") })
-    end
     return {
       title = T(_("%1\n\nThe reread could not be abandoned safely because it changed on Hardcover.\n\nWhat should happen?"), name),
-      rows = rows,
+      rows = abandonRows(conflict),
     }
   end
   if conflict.kind == "abandon_shelf" then
@@ -281,24 +299,9 @@ function SyncConflicts.describe(filepath, entry)
   end
 
   if conflict.kind == "abandon_changed" then
-    local rows
-    if conflict.deleted or conflict.reason == "target_gone" then
-      rows = { { id = "later", text = _("Decide later") } }
-    else
-      rows = {
-        { id = "keep", text = _("Keep the reread") },
-        { id = "later", text = _("Decide later") },
-      }
-    end
-    if not conflict.deleted and conflict.target and conflict.previous
-        and conflict.reason ~= "another_read" then
-      table.insert(rows, 2, { id = "abandon", text = _("Abandon the reread anyway") })
-    elseif conflict.reason == "target_gone" then
-      table.insert(rows, 2, { id = "restore", text = _("Restore the previous shelf") })
-    end
     return {
       title = T(_("%1\n\nThe reread could not be abandoned safely because it changed on Hardcover.\n\nWhat should happen?"), name),
-      rows = rows,
+      rows = abandonRows(conflict),
     }
   end
 

@@ -721,7 +721,8 @@ check("the real flow stores the predecessor id and deletes only the reread", fun
     return clone(record)
   end
   Api.findUserBooks = nil
-  m:abandonReread({ book_id = 7, user_book_id = 507, reads = { old, active } }, nil, active)
+  m:abandonReread({ book_id = 7, user_book_id = 507, status_id = HARDCOVER.STATUS.READING,
+    reads = { old, active } }, nil, active)
   local action = q:readActions(7)[1]
   assert(action and action.previous_read and action.previous_read.id == 10,
     "the flow lost the predecessor id")
@@ -786,7 +787,8 @@ check("a DNF predecessor offers Abandon and restores its shelf", function()
   local Edit = real_require("hardcover/lib/ui/read_edit_dialog")
   local original, form = Edit.new, nil
   Edit.new = function(_, options) form = options; return options end
-  m:editRead({ book_id = 7, user_book_id = 507, reads = { historic, old, active } }, nil, active)
+  m:editRead({ book_id = 7, user_book_id = 507, status_id = HARDCOVER.STATUS.READING,
+    reads = { historic, old, active } }, nil, active)
   Edit.new = original
   assert(form and form.on_abandon, "a DNF predecessor offered no Abandon action")
   form.on_abandon()
@@ -795,11 +797,39 @@ check("a DNF predecessor offers Abandon and restores its shelf", function()
     "an older finished read was mistaken for the DNF predecessor")
 end)
 
+check("an older DNF row does not offer Abandon", function()
+  local m = abandonFlow()
+  local old = { id = 10, started_at = "2020-01-01", edition_id = 7 }
+  local active = { id = 11, started_at = "2026-11-01", edition_id = 7 }
+  local historic = { id = 9, started_at = "2018-01-01", finished_at = "2018-01-10" }
+  local Edit = real_require("hardcover/lib/ui/read_edit_dialog")
+  local original, form = Edit.new, nil
+  Edit.new = function(_, options) form = options; return options end
+  m:editRead({ book_id = 7, user_book_id = 507, status_id = HARDCOVER.STATUS.READING,
+    reads = { historic, old, active } }, nil, old)
+  Edit.new = original
+  assert(form and not form.on_abandon, "an older DNF row offered Abandon")
+end)
+
+check("a DNF book offers no Abandon", function()
+  local m = abandonFlow()
+  local dnf = { id = 10, started_at = "2020-01-01", edition_id = 7 }
+  local historic = { id = 9, started_at = "2018-01-01", finished_at = "2018-01-10" }
+  local Edit = real_require("hardcover/lib/ui/read_edit_dialog")
+  local original, form = Edit.new, nil
+  Edit.new = function(_, options) form = options; return options end
+  m:editRead({ book_id = 7, user_book_id = 507, status_id = HARDCOVER.STATUS.DNF,
+    reads = { historic, dnf } }, nil, dnf)
+  Edit.new = original
+  assert(form and not form.on_abandon, "a DNF book offered Abandon")
+end)
+
 check("a projected DNF row offers Abandon by stable identity", function()
   local m, q = abandonFlow()
   local old = { id = 10, started_at = "2020-01-01", edition_id = 7 }
   local active = { id = 11, started_at = "2026-11-01", edition_id = 7 }
-  local context = { book_id = 7, user_book_id = 507, reads = { old, active } }
+  local context = { book_id = 7, user_book_id = 507, status_id = HARDCOVER.STATUS.READING,
+    reads = { old, active } }
   local rows = m:readHistoryProjection(context)
   local selected
   for _, row in ipairs(rows) do if row.id == 11 then selected = row end end
@@ -826,6 +856,22 @@ check("fresh state wins over stale saved fields for the same read", function()
   m.openReadHistoryWhenAvailable = function(_, c) context = c end
   m:showLinkedReadHistory()
   assert(context.reads[2].progress_pages == 50, "stale saved fields won")
+end)
+
+check("a newer reader history does not bring back a deleted read", function()
+  local m = abandonFlow()
+  local old = { id = 10, started_at = "2020-01-01", finished_at = "2020-01-10" }
+  local gone = { id = 12, started_at = "2026-11-01", finished_at = "2026-11-02" }
+  m.read_store = { get = function() return { reads = { old, gone } } end }
+  m.settings.getLinkedBookId = function() return 7 end
+  m.settings.getLinkedTitle = function() return "Example" end
+  m.state.book_status = { id = 507, book_id = 7, status_id = HARDCOVER.STATUS.FINISHED,
+    user_book_reads = { old } }
+  local context
+  m.openReadHistoryWhenAvailable = function(_, c) context = c end
+  m:showLinkedReadHistory()
+  assert(#context.reads == 1 and context.reads[1].id == 10,
+    "the saved copy brought back a deleted read")
 end)
 
 check("success updates the saved shelf without an open details screen", function()

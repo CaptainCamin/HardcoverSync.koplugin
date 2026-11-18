@@ -530,7 +530,7 @@ function ReadEditDialog:confirmAbandon()
   local read = self.read or {}
   StatusDialogs.confirm {
     title = _("Abandon this reread?"),
-    text = _("The reread and its progress will be removed. Your previous read, its dates, rating and review stay, and the book stays on its shelf. Journal entries from the reread may remain."),
+    text = _("The reread and its progress will be removed. Your previous read, its dates, rating and review stay, and the book returns to its previous shelf. Journal entries from the reread may remain."),
     ok_text = _("Abandon reread"),
     cancel_text = _("Keep reading"),
     ok_callback = function()
