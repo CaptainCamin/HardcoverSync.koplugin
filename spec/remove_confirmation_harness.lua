@@ -102,7 +102,7 @@ check("the status menu's Remove asks with the shared copy before removing", func
 
   assert(#confirms == 1, "Remove did not ask first")
   assert(confirms[1].text ==
-    "Remove \"Dune\" from your library? Your status, rating and reading history for it are deleted.",
+    "Remove \"Dune\" from your library? Its status, rating and review are deleted. Its journal entries stay on Hardcover: notes, quotes, reading history and a copy of the review. Public entries stay public.",
     "different removal copy: " .. tostring(confirms[1].text))
   assert(confirms[1].ok_text == "Remove", "the confirmation's action is not Remove")
   assert(removed_with == nil, "the book was removed before confirmation")

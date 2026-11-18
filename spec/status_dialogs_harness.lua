@@ -150,7 +150,7 @@ local removed = false
 SD.confirmBookRemoval("Dune", function() removed = true end)
 local removal = dialogs[#dialogs]
 r.check("book removal uses the shared warning", removal.text ==
-  "Remove \"Dune\" from your library? Your status, rating and reading history for it are deleted.")
+  "Remove \"Dune\" from your library? Its status, rating and review are deleted. Its journal entries stay on Hardcover: notes, quotes, reading history and a copy of the review. Public entries stay public.")
 r.check("book removal offers Remove", removal.buttons[2].label == "Remove" and removal.buttons[1].label == "Cancel")
 removal.buttons[2].callback()
 r.check("book removal runs its callback", removed)
