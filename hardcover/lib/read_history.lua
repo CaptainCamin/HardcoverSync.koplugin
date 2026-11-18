@@ -187,22 +187,28 @@ function ReadHistory.previous(reads, target)
     end
   end
   if not target_index then return nil end
+  local nearest = target_index > 1 and ordered[target_index - 1] or nil
+  -- An undated DNF immediately before the reread is the conservative predecessor; a dated
+  -- backfill earlier in the array must not displace it.
+  if nearest and not nearest.started_at and not nearest.finished_at then return nearest end
   if target.started_at then
-    local best, best_start
+    local best, best_when
     for index, read in ipairs(ordered) do
-      if index ~= target_index and read.started_at then
-        local before = read.started_at < target.started_at
-          or (read.started_at == target.started_at
+      -- A finish-only read still has a session date: use its finish when it has no start.
+      local when = read.started_at or read.finished_at
+      if index ~= target_index and when then
+        local before = when < target.started_at
+          or (when == target.started_at
             and Book.readIdOrder(read.id) < Book.readIdOrder(target.id))
-        if before and (not best or read.started_at > best_start
-            or (read.started_at == best_start and Book.readIdOrder(read.id) > Book.readIdOrder(best.id))) then
-          best, best_start = read, read.started_at
+        if before and (not best or when > best_when
+            or (when == best_when and Book.readIdOrder(read.id) > Book.readIdOrder(best.id))) then
+          best, best_when = read, when
         end
       end
     end
     if best then return best end
   end
-  return target_index > 1 and ordered[target_index - 1] or nil
+  return nearest
 end
 
 -- The one read an Abandon reread action may remove: the newest read overall, while the book is
