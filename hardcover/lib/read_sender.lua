@@ -201,21 +201,44 @@ local function previousRead(user_book, action)
   return findRead(user_book, action.previous_read.id)
 end
 
--- Unfinished reads from the predecessor onward. An older DNF is not a competing active read.
-local function unfinishedFrom(user_book, previous)
-  local out = {}
-  local started = previous == nil
-  for _, read in ipairs(user_book and user_book.user_book_reads or {}) do
-    if previous and sameRead(read, previous) then started = true end
-    if started and not read.finished_at then out[#out + 1] = read end
+-- The unfinished reads that matter for this abandon: the predecessor (when it is a DNF) and the
+-- target. An older DNF is not a competing active read, and a newer active read would already have
+-- failed the latestUnfinished check.
+local function unfinishedFrom(user_book, previous, target)
+  local reads = user_book and user_book.user_book_reads or {}
+  local previous_index
+  for index, read in ipairs(reads) do
+    if sameRead(read, previous) then previous_index = index; break end
   end
+  local out, seen = {}, {}
+  local function add(read)
+    if read and not read.finished_at and not seen[tostring(read.id)] then
+      seen[tostring(read.id)] = true
+      out[#out + 1] = read
+    end
+  end
+  for index, read in ipairs(reads) do
+    if previous then
+      local include = sameRead(read, previous) or index > (previous_index or 0)
+      if previous.started_at and read.started_at then
+        include = read.started_at > previous.started_at
+          or (read.started_at == previous.started_at
+            and Book.readIdOrder(read.id) >= Book.readIdOrder(previous.id))
+      end
+      if include then add(read) end
+    else
+      add(read)
+    end
+  end
+  -- A target with a later session may sit earlier in the array after a backfill.
+  add(target)
   return out
 end
 
 local function abandonConflict(action, reason, target, previous, user_book)
   return park(action, {
     kind = "abandon_changed", reason = reason, read_id = action.read_id,
-    target = target, previous = previous or action.previous_read,
+    target = target, previous = previous,
     deleted = action.deleted or nil,
     status_id = user_book and tonumber(user_book.status_id),
     updated_at = user_book and user_book.updated_at,
@@ -247,7 +270,7 @@ local function postDeleteConflict(user_book, action, restore)
   if action.previous_read and (not previous or not sameRead(previous, action.previous_read)) then
     return "previous_changed", previous
   end
-  local active = unfinishedFrom(user_book, previous)
+  local active = unfinishedFrom(user_book, previous, target)
   local allowed = #active == 0
   if not allowed and restore == HARDCOVER.STATUS.DNF and action.previous_read
       and previous and not previous.finished_at and #active == 1
@@ -294,9 +317,22 @@ local function sendAbandon(api, entry, action, opts)
         return abandonConflict(action, "target_gone", nil, previous, user_book)
       end
       -- A lost delete response is checked: the target is gone, so continue to the restore.
-      action.deleted = true
+      action.deleted, action.checking = true, nil
       if opts.persist then opts.persist() end
     else
+      -- A delete whose response was lost may still be visible for a moment. Do not send it
+      -- again; keep checking the unchanged read, then park for a decision if it stays.
+      if action.checking then
+        if sameRead(target, action.base) then
+          if (action.verify_attempts or 0) < 3 then
+            action.verify_attempts = (action.verify_attempts or 0) + 1
+            if opts.persist then opts.persist() end
+            return "checking", user_book
+          end
+          return abandonConflict(action, "target_reappeared", target, previous, user_book)
+        end
+        return abandonConflict(action, "target_changed", target, previous, user_book)
+      end
       if target.finished_at then
         return abandonConflict(action, "target_finished", target, previous, user_book)
       end
@@ -321,7 +357,7 @@ local function sendAbandon(api, entry, action, opts)
       elseif status ~= HARDCOVER.STATUS.READING then
         return abandonShelfConflict(action, status, user_book.updated_at)
       end
-      local active = unfinishedFrom(user_book, previous)
+      local active = unfinishedFrom(user_book, previous, target)
       local allowed = #active == 1
       if not allowed and restore == HARDCOVER.STATUS.DNF and action.previous_read
           and previous and not previous.finished_at and #active == 2 then
@@ -337,6 +373,7 @@ local function sendAbandon(api, entry, action, opts)
         return abandonConflict(action, "another_read", target, previous, user_book)
       end
 
+      if opts.guard and opts.guard() then return "checking", user_book end
       -- Persist the in-flight marker before the request. A restart after a lost response
       -- must know this delete may already have landed.
       action.checking = true
@@ -388,6 +425,7 @@ local function sendAbandon(api, entry, action, opts)
       return abandonShelfConflict(action, status, fresh.updated_at)
     end
 
+    if opts.guard and opts.guard() then return "checking", fresh end
     -- Status only: never write back the privacy value from the earlier lookup.
     local result, err = api:updateUserBookStatus(fresh.id, restore, nil, nil)
     if not result then

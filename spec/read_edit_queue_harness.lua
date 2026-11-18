@@ -573,7 +573,15 @@ end)
 
 check("a synced reread records the read Hardcover created", function()
   local q, api = queue(), fakeApi()
-  api.records[7] = record(7, { finishedRead(), activeReread() }, 3)
+  api.records[7] = record(7, { finishedRead() }, 3)
+  local update = api.updateUserBookStatus
+  api.updateUserBookStatus = function(self, id, status, ...)
+    local result = update(self, id, status, ...)
+    if status == 2 then
+      table.insert(result.user_book_reads, { id = 11, started_at = "2026-11-16", edition_id = 7 })
+    end
+    return result
+  end
   q:startReread("/b/7.epub", { book_id = 7, user_id = 1, from_status_id = 3, mapped_page = 12 })
   local entry = q:get(7)
   q:flush(api, { user_id = 1 })

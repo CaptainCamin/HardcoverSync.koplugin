@@ -60,8 +60,7 @@ function Hardcover:showLinkBookDialog(force_search, link_callback)
     },
     function(book)
       Background.run(function()
-        self:linkBook(book)
-        if link_callback then link_callback(book) end
+        if self:linkBook(book) and link_callback then link_callback(book) end
       end)
     end,
     -- Without this the dialog cannot be searched from, and the initial lookup

@@ -190,9 +190,12 @@ function ReadHistory.previous(reads, target)
   if target.started_at then
     local best, best_start
     for index, read in ipairs(ordered) do
-      if index ~= target_index and read.started_at and read.started_at < target.started_at then
-        if not best or read.started_at > best_start
-            or (read.started_at == best_start and Book.readIdOrder(read.id) > Book.readIdOrder(best.id)) then
+      if index ~= target_index and read.started_at then
+        local before = read.started_at < target.started_at
+          or (read.started_at == target.started_at
+            and Book.readIdOrder(read.id) < Book.readIdOrder(target.id))
+        if before and (not best or read.started_at > best_start
+            or (read.started_at == best_start and Book.readIdOrder(read.id) > Book.readIdOrder(best.id))) then
           best, best_start = read, read.started_at
         end
       end

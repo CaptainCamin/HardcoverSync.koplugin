@@ -471,15 +471,18 @@ end
 
 -- A reread that is still only in this device's queue, for Reading history to show before sync.
 -- `reads` is the saved server history: only the exact read this queue created is already real.
-function SyncQueue:pendingReread(book_id, reads)
+function SyncQueue:pendingReread(book_id, reads, user_id)
   local entry = self:get(book_id)
   if type(entry) ~= "table" or not entry.reread then return nil end
+  if user_id ~= nil and not SyncQueue.ownedBy(entry, user_id) then return nil end
   -- An earlier DNF is unfinished too, so its presence does not prove the queued start has reached
-  -- Hardcover. Only the read this queue actually created ends the pending row.
+  -- Hardcover. Once the queue knows the server read, only a refreshed history can show it; do not
+  -- offer local discard for a start that may already exist on the server.
   if entry.read_id ~= nil then
     for _, read in ipairs(reads or {}) do
       if tostring(read.id) == tostring(entry.read_id) and not read.finished_at then return nil end
     end
+    return nil
   end
   return {
     id = entry.read_id or ("pending:" .. tostring(book_id)),
@@ -701,7 +704,10 @@ function SyncQueue:cancelStatus(filepath)
   entry.privacy_setting_id, entry.failures = nil, nil
   entry.remove, entry.remove_at, entry.held, entry.reason = nil, nil, nil, nil
   entry.remove_seq, entry.remove_base, entry.remove_force = nil, nil, nil
-  if entry.conflict and entry.conflict.kind == "remove" then entry.conflict = nil end
+  if entry.conflict and (entry.conflict.kind == "remove"
+      or entry.conflict.kind == "abandon_remove") then
+    entry.conflict = nil
+  end
   if not entry.reread then entry.from_status_id = nil end
   self:save(filepath, entry)
   return true
@@ -1024,6 +1030,8 @@ function SyncQueue:resolveRead(key, seq, choice)
       action.conflict = nil
       action.restore_approval = { status_id = conflict.status_id,
         previous = action.previous_read, updated_at = conflict.updated_at }
+    elseif choice == "leave" then
+      remove()
     else
       return false
     end
@@ -1613,6 +1621,9 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
         local status, detail = ReadSender.send(api, entry, op, {
           user_id = opts.user_id,
           persist = function() self:persist() end,
+          guard = function()
+            return entry.remove or (entry.conflict and entry.conflict.kind == "abandon_remove")
+          end,
           settings = opts.settings, cache = opts.cache, state = opts.state,
           file = op.file or entry.file,
         })
@@ -1670,9 +1681,13 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
           return failed(self, filepath, err)
         end
         user_book = result
-        if op.reread then
-          local created = Book:currentRead(result.user_book_reads)
-          if created and created.id then entry.read_id = created.id end
+        if op.reread and op.read_id then
+          for _, read in ipairs(result.user_book_reads or {}) do
+            if tostring(read.id) == tostring(op.read_id) and not read.finished_at then
+              entry.read_id = op.read_id
+              break
+            end
+          end
         end
         op.applied = true
         self:persist()

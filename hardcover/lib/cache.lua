@@ -199,6 +199,10 @@ function Cache:shelfChanged(filename, old_status_id, status_id, unsent)
 end
 
 function Cache:updateBookStatus(filename, status, privacy_setting_id)
+  -- An abandon owns this book's shelf until it finishes or is answered. Do not change the reader
+  -- state or saved shelves for a write the queue will refuse.
+  local pending = self.sync_queue and self.sync_queue:get(filename)
+  if pending and pending.abandon_barrier then return nil, "abandon" end
   local book_status = self.state.book_status or {}
   local old_status_id = book_status.status_id
   local user_book_id = book_status.id

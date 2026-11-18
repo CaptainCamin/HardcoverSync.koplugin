@@ -936,6 +936,22 @@ check("an offline snapshot keeps the saved finish date", function()
     "the offline snapshot dropped the saved finish date")
 end)
 
+check("an offline snapshot does not attach another edition's details", function()
+  local m = abandonFlow()
+  local saved = { id = 11, started_at = "2024-03-01", edition_id = 7,
+    edition = { id = 7, pages = 200, edition_format = "Paperback" } }
+  local snapshot = { id = 11, started_at = "2024-03-01", edition_id = 8 }
+  m.read_store = { get = function() return { reads = { saved } } end }
+  m.settings.getLinkedBookId = function() return 7 end
+  m.settings.getLinkedTitle = function() return "Example" end
+  m.state.book_status = { id = 507, book_id = 7, status_id = HARDCOVER.STATUS.READING,
+    reads_complete = false, reads_snapshot = true, user_book_reads = { snapshot } }
+  local context
+  m.openReadHistoryWhenAvailable = function(_, c) context = c end
+  m:showLinkedReadHistory()
+  assert(context.reads[1].edition == nil, "the old edition was attached to the new one")
+end)
+
 check("a cleared start date is not filled from saved history", function()
   local m = abandonFlow()
   local saved = { id = 11, started_at = "2026-11-01", edition_id = 7 }

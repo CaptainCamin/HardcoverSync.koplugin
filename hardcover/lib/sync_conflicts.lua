@@ -193,6 +193,7 @@ function SyncConflicts.describeRead(entry, conflict)
       title = T(_("%1\n\nThe book's shelf changed on Hardcover while abandoning the reread. Restore the previous shelf without changing any read dates?"), name),
       rows = {
         { id = "restore", text = _("Restore the previous shelf") },
+        { id = "leave", text = _("Leave the shelf as it is") },
         { id = "later", text = _("Decide later") },
       },
     }
@@ -310,6 +311,7 @@ function SyncConflicts.describe(filepath, entry)
       title = T(_("%1\n\nThe book's shelf changed on Hardcover while abandoning the reread. Restore the previous shelf without changing any read dates?"), name),
       rows = {
         { id = "restore", text = _("Restore the previous shelf") },
+        { id = "leave", text = _("Leave the shelf as it is") },
         { id = "later", text = _("Decide later") },
       },
     }

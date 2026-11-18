@@ -667,7 +667,7 @@ function Flows:readHistoryProjection(context)
   local reads = context.reads
   if reads ~= nil then reads = ReadHistory.project(reads, actions) end
   local pending = self.sync_queue and self.sync_queue.pendingReread
-    and self.sync_queue:pendingReread(context.book_id, reads) or nil
+    and self.sync_queue:pendingReread(context.book_id, reads, User:getId()) or nil
   local states = self:readStates(actions)
   if pending then
     local filtered = {}
@@ -740,9 +740,10 @@ function Flows:showLinkedReadHistory(opts)
     end
     for _, read in ipairs(server) do
       local old = saved_by_id[tostring(read.id)]
-      if old and read.edition == nil then
-        -- Only the edition details are missing from the reader's thin read rows. Never fill a
-        -- nullable date or progress from an older snapshot: the fresh row may have cleared it.
+      if old and read.edition == nil
+          and tonumber(read.edition_id) == tonumber(old.edition_id) then
+        -- Only the same edition's display details are missing from the reader's thin read rows.
+        -- Never fill a nullable date or progress from an older snapshot.
         read.edition = old.edition
       end
       reads[#reads + 1] = read
@@ -762,8 +763,11 @@ function Flows:showLinkedReadHistory(opts)
         -- finish fields for that matching read; a mutation response is not a snapshot and its
         -- explicit clears remain authoritative.
         if status.reads_snapshot then
-          for _, key in ipairs({ "finished_at", "finished_at_precision", "edition" }) do
+          for _, key in ipairs({ "finished_at", "finished_at_precision" }) do
             if read[key] == nil then read[key] = reads[at][key] end
+          end
+          if read.edition == nil and tonumber(read.edition_id) == tonumber(reads[at].edition_id) then
+            read.edition = reads[at].edition
           end
         end
         reads[at] = read
@@ -772,6 +776,8 @@ function Flows:showLinkedReadHistory(opts)
       end
     end
   end
+  local had_source = type(server) == "table" or (saved and type(saved.reads) == "table")
+  if #reads == 0 and not had_source then reads = nil end
   local context = {
     book = { book_id = book_id, title = self.settings:getLinkedTitle() or tostring(book_id),
       pages = self.settings.pages and self.settings:pages() or nil,
@@ -784,7 +790,7 @@ end
 
 function Flows:openReadHistoryWhenAvailable(context)
   local pending = self.sync_queue and self.sync_queue.pendingReread
-    and self.sync_queue:pendingReread(context.book_id, context.reads) or nil
+    and self.sync_queue:pendingReread(context.book_id, context.reads, User:getId()) or nil
   if context.reads ~= nil or pending or not Network.connected() then
     return self:openReadHistory(context)
   end
@@ -796,6 +802,7 @@ function Flows:openReadHistoryWhenAvailable(context)
       return
     end
     context.reads = detail.reads
+    context.status_id = detail.status_id
     context.checked_at = os.time()
     context.user_book_id = context.user_book_id or detail.user_book_id
     if context.detail then
@@ -1031,6 +1038,18 @@ function Flows:abandonReread(context, history, read)
             self.cache:saveSnapshot(entry_file, state)
           end
         end
+        if history and type(history.context.reads) == "table" then
+          local kept = {}
+          for _, candidate in ipairs(history.context.reads) do
+            local same = candidate == read
+              or (candidate.id ~= nil and read.id ~= nil
+                and tostring(candidate.id) == tostring(read.id))
+              or (read.pending_reread and (candidate.pending_reread == true
+                or candidate.id == nil))
+            if not same then kept[#kept + 1] = candidate end
+          end
+          history.context.reads = kept
+        end
         local shelves = self:shelves()
         if shelves and restore then shelves:markStale(user_id, restore) end
         if history then self:refreshReadHistory(history) end
@@ -1053,7 +1072,8 @@ function Flows:abandonReread(context, history, read)
     StatusDialogs.info(_("There is no earlier read to restore."))
     return
   end
-  local restore = entry and tonumber(entry.reread_restore_status_id)
+  local restore = entry and (tonumber(entry.reread_restore_status_id)
+    or tonumber(entry.from_status_id))
   if not restore or restore == 0 then
     restore = previous.finished_at and HARDCOVER.STATUS.FINISHED or HARDCOVER.STATUS.DNF
   end
@@ -1068,6 +1088,12 @@ function Flows:abandonReread(context, history, read)
   if not saved then
     StatusDialogs.info(_("Could not keep the abandon request. Try again."))
     return
+  end
+  if entry_file then
+    saved.file = saved.file or entry_file
+    saved.files = saved.files or {}
+    saved.files[entry_file] = true
+    queue:save(book_id, saved)
   end
   if history then self:refreshReadHistory(history) end
   if context.screen then context.screen:refreshState() end
@@ -1179,6 +1205,10 @@ function Flows:readSent(book_id, user_book, op)
   local history = self:screens():open("reads")
   if history and tonumber(history.book_id) == tonumber(book_id) and history.context then
     if reads then history.context.reads = reads end
+    if user_book then
+      history.context.status_id = user_book.status_id
+      history.context.user_book_id = user_book.id or history.context.user_book_id
+    end
     history.context.checked_at = os.time()
     self:refreshReadHistory(history)
   end
