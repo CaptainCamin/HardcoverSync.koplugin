@@ -723,6 +723,87 @@ check("a restore approval cannot overwrite a later shelf change", function()
   assert(#api.calls == 2)
 end)
 
+check("a lost delete retry revalidates the predecessor", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { finishedRead(), activeReread() }, 2)
+  api.lose_deletes = true
+  q:abandonReread(7, { read_id = 11, base = activeReread(), previous_read = finishedRead(),
+    restore_status_id = 3 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  q = SyncQueue:new { settings = q.settings }
+  api.records[7].user_book_reads[1].finished_at = "2020-02-20"
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(#api.calls == 1)
+  assert(q:readActions(7)[1].conflict.kind == "abandon_changed")
+end)
+
+check("a lost delete retry rejects a new active read", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { finishedRead(), activeReread() }, 2)
+  api.lose_deletes = true
+  q:abandonReread(7, { read_id = 11, base = activeReread(), previous_read = finishedRead(),
+    restore_status_id = 3 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  q = SyncQueue:new { settings = q.settings }
+  table.insert(api.records[7].user_book_reads, { id = 12, started_at = "2026-11-17", progress_pages = 20 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(#api.calls == 1)
+  assert(q:readActions(7)[1].conflict.kind == "abandon_changed")
+end)
+
+check("a shelf change in the delete response is not overwritten", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { finishedRead(), activeReread() }, 2)
+  local delete = api.deleteRead
+  api.deleteRead = function(self, id)
+    local answer = delete(self, id)
+    self.records[7].status_id = 5
+    return answer
+  end
+  q:abandonReread(7, { read_id = 11, base = activeReread(), previous_read = finishedRead(),
+    restore_status_id = 3 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(#api.calls == 1 and api.records[7].status_id == 5)
+  assert(q:readActions(7)[1].conflict.kind == "abandon_shelf")
+end)
+
+check("a shelf change during an approved delete needs fresh approval", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { finishedRead(), activeReread() }, 2)
+  q:abandonReread(7, { read_id = 11, base = activeReread(), previous_read = finishedRead(),
+    restore_status_id = 3 })
+  api.records[7].status_id = 5
+  assert(q:flush(api, { user_id = 1 }) == false)
+  local action = q:readActions(7)[1]
+  assert(q:resolveRead(7, action.seq, "restore"))
+  q = SyncQueue:new { settings = q.settings }
+  local delete = api.deleteRead
+  api.deleteRead = function(self, id)
+    local answer = delete(self, id)
+    self.records[7].status_id = 1
+    return answer
+  end
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(api.records[7].status_id == 1)
+  assert(q:readActions(7)[1].conflict.kind == "abandon_shelf")
+end)
+
+check("the final readback revalidates the predecessor", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { finishedRead(), activeReread() }, 2)
+  local update = api.updateUserBookStatus
+  api.updateUserBookStatus = function(self, ...)
+    local answer = update(self, ...)
+    self.records[7].user_book_reads[1].finished_at = "2020-02-20"
+    return answer
+  end
+  q:abandonReread(7, { read_id = 11, base = activeReread(), previous_read = finishedRead(),
+    restore_status_id = 3 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(q:readActions(7)[1].conflict.kind == "abandon_changed")
+  assert(q:bookBarrier(7, 507, 1, "rating") == "abandon")
+end)
+
 check("a pre-delete shelf Restore is executable", function()
   local q, api = queue(), fakeApi()
   api.records[7] = record(7, { finishedRead(), activeReread() }, 2)

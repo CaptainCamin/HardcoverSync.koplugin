@@ -962,14 +962,16 @@ function SyncQueue:resolveRead(key, seq, choice)
       action.conflict, action.checking, action.deleted = nil, nil, false
     elseif choice == "restore" then
       action.deleted, action.conflict, action.checking = true, nil, nil
-      action.restore_approval = { status_id = conflict.status_id }
+      action.restore_approval = { status_id = conflict.status_id,
+        previous = action.previous_read, updated_at = conflict.updated_at }
     else
       return false
     end
   elseif conflict.kind == "abandon_shelf" then
     if choice == "restore" then
       action.conflict = nil
-      action.restore_approval = { status_id = conflict.status_id }
+      action.restore_approval = { status_id = conflict.status_id,
+        previous = action.previous_read, updated_at = conflict.updated_at }
     else
       return false
     end
