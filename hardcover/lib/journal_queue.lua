@@ -80,7 +80,9 @@ function JournalQueue:queue(entry)
     id = id, seq = seq, at = os.time(),
     user_id = entry.user_id, book_id = tonumber(entry.book_id) or entry.book_id,
     edition_id = tonumber(entry.edition_id), event = entry.event, text = entry.text or "",
-    privacy_setting_id = tonumber(entry.privacy_setting_id) or HARDCOVER.PRIVACY.PUBLIC,
+    -- an entry with no privacy set is private, never public: the form supplies the account's
+    -- default (or Private), so this only catches an entry that lost it on the way
+    privacy_setting_id = tonumber(entry.privacy_setting_id) or HARDCOVER.PRIVACY.PRIVATE,
     page = tonumber(entry.page), pages = tonumber(entry.pages),
     tags = copyStrings(entry.tags), hidden_tags = copyStrings(entry.hidden_tags),
     title = entry.title,

@@ -117,6 +117,19 @@ check("an empty display name falls back to the username, then to 'A reader'", fu
   assert(Reviews.reviewer({ user = { name = "  ", username = "pt" } }) == "pt")
   assert(Reviews.reviewer({ user = { name = "", username = "" } }) == "A reader")
 end)
+check("emoji in a name are stripped: no shipped font draws them (a glyph box otherwise)", function()
+  assert(Reviews.reviewer({ user = { name = "Rat \240\159\144\128" } }) == "Rat")
+  assert(Reviews.reviewer({ user = { name = "\240\159\144\128", username = "rat" } }) == "rat")
+  assert(Reviews.reviewer({ user = { name = "\240\159\144\128" } }) == "A reader")
+  -- a composite emoji (rainbow flag): astral chars + FE0F stripped, ZWJ-only remainder rejected
+  assert(Reviews.reviewer({ user = { name = "\240\159\143\179\239\184\143\226\128\141\240\159\140\136", username = "ratreader" } }) == "ratreader")
+  -- Malayalam chillu N (U+0D28 U+0D4D U+200D): ZWJ is legitimate, name preserved
+  assert(Reviews.reviewer({ user = { name = "\224\180\168\224\181\141\226\128\141" } }) == "\224\180\168\224\181\141\226\128\141")
+  -- CJK Extension B (𠮷田): the CJK fallback draws it, name preserved
+  assert(Reviews.reviewer({ user = { name = "\240\160\174\183\231\148\176" } }) == "\240\160\174\183\231\148\176")
+  -- a BMP symbol stays: the fallback fonts draw it
+  assert(Reviews.reviewer({ user = { name = "Star \226\152\133" } }) == "Star \226\152\133")
+end)
 
 print("\n== stars, likes, date ==")
 check("ratings read as 4.5* and 4*, and no rating is nothing", function()

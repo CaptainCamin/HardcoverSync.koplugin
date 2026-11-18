@@ -164,3 +164,18 @@ Only after the account and catalogue books are agreed, run the probes with `--wr
 5. After sending, verify both dates and shelf. A timeout means **Checking whether saved**, not definitely unsent: disable ordinary cancellation until the outcome is known. Do not blindly replay the mutation or automatically restore the shelf; setting Currently Reading can create a new read.
 
 A scratch prototype saved and reloaded a correction from JSON and exercised three cases against the live API: another client's changed start withheld the write; changed progress was preserved by a date-only patch; a newly created remote read withheld the correction. This did not exercise the plugin queue, a rendered correction UI, OAuth grants, or an atomic cross-device race. The API provides no verified compare-and-set mechanism here, so those races remain a limitation even with preflight checks.
+
+## Removing a book from the library (decided 2026-11-18, issue #309)
+
+**Live probe (disposable account, issue #309):** `delete_user_book(id: Int!)` removes the `user_books` row and its reads, but every `reading_journals` row for the book stays — started, progress, rated, note and finished entries alike — and a public note stays public on the account journal. `delete_reading_journal` and `delete_reading_journals_for_book(book_id: Int!)` are the only ways to remove journal rows.
+
+**Hardcover itself behaves the same way**, so this is the product's behavior, not an API gap. Evidence (researched 2026-11-18):
+
+- The official SDK's audit of the first-party clients (`hardcoverapp/hardcover-sdk`, `spec/02-app-usage.md`) says the web app does all writes through the same GraphQL actions — its removal is `DestroyUserBook` = `delete_user_book` — and the iOS/Android apps are Capacitor shells loading the website. The app's journal writes are only single-entry insert/update/delete; it never calls `delete_reading_journals_for_book`.
+- `reading_journals` has `user_id` and `book_id` but no `user_book_id`: journal rows are not attached to the library record, so nothing cascades from its deletion.
+- The SDK's `library.remove` sends only `delete_user_book`; clearing a book's journal is a separate, explicit `journal.clearForBook` with a warning that it also removes the server-written entries.
+- The product treats the journal as lasting history: a profile Journals tab across all books, and the team's own answer on the "Re-Review Book" request points to journals as the way to keep multiple reviews over time.
+
+**Reviews:** the review lives on the `user_books` row, so removal deletes it from the book page. The server's `reviewed` journal event survives removal with its privacy unchanged (live-checked 2026-10-22, see the journal-page section above). Its `metadata` can hold the full review text as written (`review`, `review_raw`, `review_slate`; present in the public entries sampled read-only on 2026-11-18, but the 2026-10-22 check also found `reviewed` rows without it, and an edit after the journal row was written is not reflected), so review text can remain readable through the journal API after removal — it is not guaranteed, and not guaranteed current. The Journals page itself reads the current review from the library record and shows only "Reviewed" once the book is gone.
+
+**Decision (owner, 2026-11-18): match Hardcover — removal keeps the journal.** No cascade and no opt-in journal cleanup for now. The shared removal confirmation (`SD.confirmBookRemoval`) and the offline removal conflict question say what is deleted (status, rating, review) and that journal entries — notes, quotes, reading history and the review record, which may keep the review text — stay on Hardcover, public ones still public.

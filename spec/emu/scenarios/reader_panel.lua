@@ -96,6 +96,43 @@ return {
     assert(not emu.UIManager:isWidgetShown(menu.reader_panel), "opening Home left the reader panel open")
     emu:closeAll()
 
+    -- The percent truncates, as Hardcover's journal does: page 50 of 322 is 15%, not 16%.
+    menu:showReaderPanel()
+    emu:pump()
+    menu.settings.pages = function() return 322 end
+    menu.state.book_status.user_book_reads = { { progress_pages = 50 } }
+    menu.reader_panel:render()
+    emu:pump()
+    emu:expectText("Page 50 of 322")
+    emu:expectText("15%")
+    assert(not emu:screenText():find("16%", 1, true), "the panel rounded where the journal truncates")
+    emu:shot("reader_panel_percent")
+
+    -- A long title is cut to fit; holding it shows the whole title in a dialog.
+    local long_title = "The Time Machine / The Invisible Man and Other Stories: A Very Long Title Indeed, With Even More Words To Overflow The Line, And Yet More Words After That"
+    menu.settings.getLinkedTitle = function() return long_title end
+    menu.reader_panel:render()
+    emu:pump()
+    local title_node
+    for _, node in ipairs(emu:screenNodes()) do
+      if node.text:find("The Time Machine", 1, true) then title_node = node end
+    end
+    assert(title_node, "the long title is not on the panel")
+    -- the node keeps the full string; truncation shows in its painted width
+    local Theme = require("hardcover/lib/ui/theme")
+    local probe = Theme.mmdText(long_title, "strong", 25)
+    assert(probe:getSize().w > title_node.w, "the long title was not cut")
+    probe:free()
+    emu:tapExpecting(title_node.x + 5, title_node.y + 5, { ges = emu.GESTURES.Hold })
+    emu:pump()
+    emu:expectText("Book title")
+    emu:expectText("And Yet More Words After That")
+    emu:shot("reader_panel_title_hold")
+    local close = emu:expectText("Close")
+    emu:tapExpecting(close.x + math.floor(close.w / 2), close.y + math.floor(close.h / 2))
+    emu:pump()
+    emu:closeAll()
+
     menu = build(emu, false)
     menu:showReaderPanel()
     emu:pump()

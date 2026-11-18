@@ -5,7 +5,8 @@
 -- opts: queues ({ sync_queue, goal_queue, rating_queue, list_queue, journal_queue, review_queue }),
 -- on_cancel(row) after a change was cancelled (so the screens that showed it can show
 -- Hardcover's version again), on_send() after the list is closed, on_discard() after the
--- queued changes were discarded, on_resolved(decision) after an answer was saved.
+-- queued changes were discarded, on_resolved(decision) after an answer was saved,
+-- on_retry() to send held work again, on_sign_in(done) to sign in again for a held permission.
 --
 -- Open questions come first, in their own "Needs your decision" group. Each opens one
 -- question; Back, the X and "Decide later" leave it waiting and do not open another.
@@ -15,6 +16,7 @@ local _ = require("gettext")
 local T = require("ffi/util").template
 
 local PendingChanges = require("hardcover/lib/pending_changes")
+local Dialog = require("hardcover/lib/ui/components/dialog")
 local SettingsDialog = require("hardcover/lib/ui/settings_dialog")
 local StatusDialogs = require("hardcover/lib/ui/status_dialogs")
 
@@ -54,30 +56,69 @@ function PendingChangesDialog.show(opts)
         end,
       }
     end
+    local function askCancel(row)
+      if row.started then
+        StatusDialogs.info(_("Sync has already started for this change, so it cannot be cancelled. Some work may already be on Hardcover; discarding remaining work does not undo anything already sent."))
+        return
+      end
+      StatusDialogs.confirm {
+        title = _("Cancel this change?"),
+        text = T(_("%1\n\nHardcover keeps what it has now."), row.text),
+        ok_text = _("Cancel the change"),
+        cancel_text = _("Keep it"),
+        ok_callback = function()
+          if not row.cancel() then
+            StatusDialogs.info(_("This change cannot be cancelled: it may already be syncing, or other queued changes depend on it. Discarding remaining work does not undo anything already sent."))
+            return
+          end
+          if opts.on_cancel then opts.on_cancel(row) end
+          if screen then UIManager:close(screen) end
+          open() -- the list again, without it
+        end,
+      }
+    end
+
+    local function showHeld(row)
+      local buttons
+      if row.reason == "scope" and opts.on_sign_in then
+        buttons = {
+          { label = _("Sign in again"), primary = true, callback = function()
+            if screen then UIManager:close(screen) end
+            opts.on_sign_in(function() open() end)
+          end },
+          { label = _("Cancel change"), callback = function() askCancel(row) end },
+        }
+      elseif opts.on_retry then
+        buttons = {
+          { label = _("Try again"), primary = true, callback = function()
+            if screen then UIManager:close(screen) end
+            opts.on_retry()
+          end },
+          { label = _("Cancel change"), callback = function() askCancel(row) end },
+        }
+      else
+        buttons = { { label = _("Cancel change"), callback = function() askCancel(row) end } }
+      end
+      Dialog.show {
+        title = _("Change held"),
+        text = row.detail or PendingChanges.line(row),
+        buttons = buttons,
+      }
+    end
+
     for _i, row in ipairs(rows) do
       items[#items + 1] = {
         section = row.section,
         text = PendingChanges.line(row),
+        help = row.detail,
         callback = function()
-          if row.started then
+          if row.held and row.detail then
+            showHeld(row)
+          elseif row.started then
             StatusDialogs.info(_("Sync has already started for this change, so it cannot be cancelled. Some work may already be on Hardcover; discarding remaining work does not undo anything already sent."))
-            return
+          else
+            askCancel(row)
           end
-          StatusDialogs.confirm {
-            title = _("Cancel this change?"),
-            text = T(_("%1\n\nHardcover keeps what it has now."), row.text),
-            ok_text = _("Cancel the change"),
-            cancel_text = _("Keep it"),
-            ok_callback = function()
-              if not row.cancel() then
-                StatusDialogs.info(_("This change cannot be cancelled: it may already be syncing, or other queued changes depend on it. Discarding remaining work does not undo anything already sent."))
-                return
-              end
-              if opts.on_cancel then opts.on_cancel(row) end
-              if screen then UIManager:close(screen) end
-              open() -- the list again, without it
-            end,
-          }
         end,
       }
     end

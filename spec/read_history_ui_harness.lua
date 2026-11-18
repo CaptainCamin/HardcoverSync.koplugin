@@ -158,6 +158,19 @@ check("one row per read, newest first, with the count and when Hardcover checked
   assert(opened and opened.id == 3, "tapping a row did not open its read")
 end)
 
+check("reads that finish on the same day are told apart by which read they are", function()
+  local same_day = {
+    read(1, { started_at = "2026-10-31", finished_at = "2026-10-31" }),
+    read(2, { started_at = "2026-10-31", finished_at = "2026-10-31" }),
+  }
+  local dialog = ReadHistoryDialog:new { book = { title = "Dune" }, reads = same_day, today = today }
+  assert(dialog.items[1].label == dialog.items[2].label, "the dates alone should not tell these apart")
+  assert(dialog.items[1].support == "2nd read · Paperback · 304 pages", dialog.items[1].support)
+  assert(dialog.items[2].support == "1st read · Paperback · 304 pages", dialog.items[2].support)
+  local single = ReadHistoryDialog:new { book = { title = "Dune" }, reads = { reads[3] }, today = today }
+  assert(single.items[1].support == "Paperback · 304 pages", single.items[1].support)
+end)
+
 check("a state replaces the support line, in black and with an icon", function()
   local dialog = ReadHistoryDialog:new {
     book = { title = "Dune" }, reads = reads, today = today,
@@ -165,7 +178,7 @@ check("a state replaces the support line, in black and with an icon", function()
     on_open_read = function() end, on_add = function() end,
   }
   local item = dialog.items[2]
-  assert(item.support == "Finish date waiting to send", item.support)
+  assert(item.support == "2nd read · Finish date waiting to send", item.support)
   assert(item.state and item.state.kind == "waiting")
   -- the state is the strong (black) support, with an icon in front
   assert(item.row.support_strong == true and item.row.support_icon ~= nil)
@@ -344,6 +357,34 @@ check("save does nothing with no changes", function()
     on_save = function() called = true end }
   dialog:save()
   assert(called == false)
+end)
+
+check("the active reread offers Abandon reread, not Remove this read", function()
+  local dialog = ReadEditDialog:new { book = { title = "Dune" },
+    read = read(3, { no_finish = true, started_at = "2026-11-03" }), today = today,
+    on_remove = function() end, on_abandon = function() end }
+  assert(dialog.row_taps.abandon ~= nil, "no Abandon reread row")
+  assert(dialog.row_taps.remove == nil, "the active reread offered Remove this read")
+end)
+
+check("a pending reread row opens Abandon reread from Reading history", function()
+  local abandoned, opened
+  local pending = { id = "pending:7", started_at = "2026-11-03", progress_pages = 0,
+    pending_reread = true }
+  local dialog = ReadHistoryDialog:new {
+    book = { title = "Dune" }, reads = { read(1), pending }, today = today,
+    on_open_read = function(row) opened = row end,
+    on_abandon = function(row) abandoned = row end,
+    on_add = function() end,
+  }
+  local item
+  for _, row in ipairs(dialog.items) do
+    if row.read.pending_reread then item = row; break end
+  end
+  assert(item, "the pending reread row is missing")
+  item.row.callback()
+  assert(abandoned and abandoned.id == pending.id and opened == nil,
+    "the pending row did not open Abandon reread")
 end)
 
 r.finish()

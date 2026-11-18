@@ -85,6 +85,14 @@ check("the request has the page, the tags and the privacy", function()
   eq(o.tags[2].tag, "ending"); eq(o.tags[2].spoiler, true)
 end)
 
+check("an entry that lost its privacy is kept private, never public", function()
+  local q = newQueue()
+  local entry = note()
+  entry.privacy_setting_id = nil
+  q:queue(entry)
+  eq(q:list()[1].privacy_setting_id, 3)
+end)
+
 check("no page means no position, and no tags are an empty list made by KOReader's json", function()
   local made = 0
   local json = { util = { InitArray = function(t) made = made + 1 return t end } }

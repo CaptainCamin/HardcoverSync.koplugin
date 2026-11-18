@@ -70,7 +70,9 @@ return {
     tapText("Remove")
 
     emu:expectText("Remove \"The Dispossessed\" from your library?")
-    emu:expectText("Your status, rating and reading history for it are deleted.")
+    emu:expectText("Its status, rating and review are deleted.")
+    emu:expectText("Its journal entries stay on Hardcover: notes, quotes, reading history and the review record, which may keep the review text.")
+    emu:expectText("Public entries stay public.")
     emu:shot("reader_panel_remove_confirm")
 
     tapText("Cancel")

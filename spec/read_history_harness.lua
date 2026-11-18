@@ -88,6 +88,12 @@ check("in progress: page, share and which read", function()
   assert(s.support == "3rd read · since 3 Nov · Paperback", s.support)
 end)
 
+check("the percent truncates, as Hardcover's journal does (50 of 322 is 15, not 16)", function()
+  local s = ReadHistory.summary({ read { id = 20, started_at = "2026-11-03", progress_pages = 50,
+    edition = { edition_format = "Paperback", pages = 322 } } }, { today = "2026-11-15" })
+  assert(s.label == "Page 50 of 322" and s.pct == 15, tostring(s.pct))
+end)
+
 check("one read says Since, not 1st read", function()
   local s = ReadHistory.summary({ three[3] }, { today = "2026-11-15" })
   assert(s.label == "Page 120 of 304" and s.support == "Since 3 Nov · Paperback", s.support)

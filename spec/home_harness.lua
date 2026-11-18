@@ -426,6 +426,14 @@ end)
 
 print("\n== launching it ==")
 
+check("signing out forgets the account and rebuilds Home signed out", function()
+  local main = read("main.lua")
+  assert(main:find("User:forget()", 1, true), "sign-out keeps the old account id/name")
+  assert(main:find("refreshHome()", 1, true), "sign-out leaves Home showing the old account")
+  local home = read("hardcover/lib/ui/home_body.lua")
+  assert(home:find("signedOutCard", 1, true) and home:find("Sign in to Hardcover", 1, true), "no signed-out Home state")
+end)
+
 check("a Dispatcher action opens the home screen, for gestures and other plugins", function()
   local main = read("main.lua")
   assert(main:find('registerAction%("hardcover_home"'), "no hardcover_home action is registered")

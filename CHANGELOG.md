@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Fixes
+
+- **Progress percentages match Hardcover's journal.** The reader panel, book details and Home truncate the page share the way Hardcover does, so page 50 of 322 reads 15% everywhere instead of 16% on the device and 15% in the journal.
+
+- **A one-book goal says "1 book".** The goal card and its detail use the singular for one book or one page, including "1 book left in 20 days".
+
+- **Long titles can be read in full.** Holding the reader panel's title, or Stats' Shortest or Longest line, shows the whole title (and its length) in a dialog, the way Settings' help lines already do.
+
+- **The last-page switches no longer contradict each other.** Turning on "Mark as Read automatically on the last page" turns off "Ask to mark as Read", and turning the question on turns automatic marking off; the two never show on together.
+
+- **Reads that finish on the same day are told apart.** When a book has more than one read, Reading history's rows say which read each one is ("2nd read · Paperback · 304 pages"), so two reads of the same edition finishing on the same day are no longer identical.
+
+- **Reviewer names no longer show a missing-glyph box.** Emoji and other characters that no shipped font draws are stripped from reviewers' names; symbols the fallback fonts draw (a star, a heart) stay.
+
+- **Average rating by year is measured against 5.** The chart's axis ends at 5, not 6, so a 4.0 average reaches four fifths of the height instead of two thirds.
+
+- **Home's card keeps its height at zero progress.** A currently-reading book with no page yet keeps its progress bar and percent line (at 0), so the sync box and shelves below it stay put.
+
+- **The page editor is titled "Edition page", and typing replaces the value.** The nested editor under Set current page opens on the numeric keyboard with the current value as if selected: the first digit typed replaces it instead of appending to it.
+
+- **A journal entry with no visibility set is kept Private.** The queue's fallback is Private, never Public; the note form itself already starts from the account's default.
+
+## 2.5.0
+
 ### Improved
 
 - **New installs start with tracking and exact-identifier linking on.** A fresh install tracks progress by default and links a book by ISBN or Hardcover identifier when there is exactly one match. Title/author auto-linking stays off, and an ambiguous match is left for you to choose. Existing readers keep their saved settings, including an explicit off.
@@ -9,6 +33,8 @@
 - **Notes and quotes use your account's visibility default.** A new note or quote starts with the default visibility from your Hardcover account instead of always Public. If that default cannot be read, it starts Private.
 
 - **The rating dialog no longer invents 2.5 stars.** It opens at the rating already on the book, or at no rating; tapping a star opens that star, and half-star positions are available. Closing without saving writes nothing, and 0 still clears the rating.
+
+- **Abandon a reread without losing the earlier read.** The active reread's Reading history row now offers **Abandon reread**. It removes only that reread, restores the book's previous Read or Did Not Finish shelf, and leaves the earlier read, its dates, rating and review alone. It also works from a reread that has not synced yet. Journal entries from the reread may remain on Hardcover.
 
 - **Book details now leads with your reading.** The cover's column holds the shelf chip and your stars, one action row holds the ways to open, download or list the book, and a reading row with progress and the current read's edition opens Reading history. About is three lines, and the Reviews section opens the full reviews page.
 
@@ -19,6 +45,10 @@
 - **Your review sits at the top of the reviews page.** Your rating and review now come before other readers', with a state line when the rating or review is waiting to send, and Write/Edit opens the same editor as before. Your review no longer appears twice in the community list, and the page opens offline with your own block even when no community reviews are saved.
 
 - **A rating or review changed elsewhere is never silently replaced.** Before sending an offline rating or review, Hardcover is checked again. If it changed on another device, both versions are kept and the book asks which to use; a review can also be combined in the editor. Removing a review that changed online asks before deleting it.
+
+### Fixes
+
+- **Removing a book says what stays.** The confirmation now says your status, rating and review are deleted, but the book's journal entries (notes, quotes, reading history and the review record, which may keep the review text) stay on Hardcover, public ones still public. That is what Hardcover itself does; the old wording promised the reading history was deleted.
 
 ## 2.4.0
 

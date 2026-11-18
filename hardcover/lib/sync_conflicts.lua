@@ -70,6 +70,12 @@ function SyncConflicts.decisionText(title, decision)
       or T(_("%1: review changed on Hardcover"), title)
   elseif conflict.kind == "remove" then
     return T(_("%1: remove anyway?"), title)
+  elseif conflict.kind == "abandon_remove" then
+    return T(_("%1: abandon reread or remove the book?"), title)
+  elseif conflict.kind == "abandon_changed" then
+    return T(_("%1: abandon reread changed on Hardcover"), title)
+  elseif conflict.kind == "abandon_shelf" then
+    return T(_("%1: shelf changed on Hardcover"), title)
   elseif conflict.kind == "reread" then
     return T(_("%1: read again?"), title)
   elseif conflict.kind == "read_changed" then
@@ -91,6 +97,9 @@ function SyncConflicts.decisionNote(decision)
   if conflict.kind == "rating" then return _("Both ratings are kept until you answer.") end
   if conflict.kind == "review" then return _("Both versions are kept until you answer.") end
   if conflict.kind == "remove" then return _("Changed on Hardcover since you asked.") end
+  if conflict.kind == "abandon_remove" then return _("Removing the book would also delete the earlier read.") end
+  if conflict.kind == "abandon_changed" then return _("The reread or the earlier read changed on Hardcover.") end
+  if conflict.kind == "abandon_shelf" then return _("The book's shelf changed while abandoning the reread.") end
   if conflict.kind == "reread" then
     return T(_("Hardcover has it as %1."), SyncConflicts.statusName(conflict.cloud_status))
   elseif conflict.kind == "read_changed" then
@@ -136,10 +145,62 @@ local function fieldValue(field, value, read)
   return tostring(value)
 end
 
+-- The choices for an abandon that could not finish. A deleted action has no reread left to keep;
+-- it still needs a way to finish or leave the shelf alone, so it never becomes a dead end.
+local function abandonRows(conflict)
+  local reason = conflict.reason
+  if conflict.deleted then
+    local rows = {}
+    if (reason == "target_gone" or reason == "previous_changed") and conflict.previous then
+      rows[#rows + 1] = { id = "restore", text = _("Restore the previous shelf") }
+    elseif reason == "target_reappeared" or reason == "target_changed"
+        or reason == "target_not_active" then
+      rows[#rows + 1] = { id = "check", text = _("Check again") }
+    end
+    rows[#rows + 1] = { id = "leave", text = _("Leave the shelf as it is") }
+    rows[#rows + 1] = { id = "later", text = _("Decide later") }
+    return rows
+  end
+  if reason == "target_gone" then
+    return {
+      { id = "restore", text = _("Restore the previous shelf") },
+      { id = "later", text = _("Decide later") },
+    }
+  end
+  local rows = {
+    { id = "keep", text = _("Keep the reread") },
+    { id = "later", text = _("Decide later") },
+  }
+  if conflict.target and conflict.previous and reason ~= "another_read"
+      and reason ~= "target_finished" and reason ~= "target_not_active" then
+    table.insert(rows, 2, { id = "abandon", text = _("Abandon the reread anyway") })
+  end
+  return rows
+end
+
 -- One read edit's question: a field changed on Hardcover, the read is gone, or an older read is
 -- being changed while a newer one is in progress.
 function SyncConflicts.describeRead(entry, conflict)
   local name = SyncConflicts.title(type(entry) == "table" and entry.file, entry)
+  if conflict.kind == "abandon_changed" then
+    return {
+      title = T(_("%1\n\nThe reread could not be abandoned safely because it changed on Hardcover.\n\nWhat should happen?"), name),
+      rows = abandonRows(conflict),
+    }
+  end
+  if conflict.kind == "abandon_shelf" then
+    local rows = { { id = "restore", text = _("Restore the previous shelf") } }
+    if conflict.deleted then
+      rows[#rows + 1] = { id = "leave", text = _("Leave the shelf as it is") }
+    else
+      rows[#rows + 1] = { id = "keep", text = _("Keep the reread") }
+    end
+    rows[#rows + 1] = { id = "later", text = _("Decide later") }
+    return {
+      title = T(_("%1\n\nThe book's shelf changed on Hardcover while abandoning the reread. Restore the previous shelf without changing any read dates?"), name),
+      rows = rows,
+    }
+  end
   if conflict.kind == "read_gone" then
     local read = conflict.read or conflict.base
     local range = read and ReadHistory.rangeText(read) or _("this read")
@@ -230,6 +291,38 @@ function SyncConflicts.describe(filepath, entry)
     }
   end
 
+  if conflict.kind == "abandon_remove" then
+    return {
+      title = T(_("%1\n\nYou asked to remove this book from your library while an abandon reread is waiting. Removing the book would also delete the earlier read and its dates.\n\nWhat should happen?"), name),
+      rows = {
+        { id = "abandon", text = _("Keep the book and abandon the reread") },
+        { id = "remove", text = _("Remove the whole book") },
+        { id = "later", text = _("Decide later") },
+      },
+    }
+  end
+
+  if conflict.kind == "abandon_changed" then
+    return {
+      title = T(_("%1\n\nThe reread could not be abandoned safely because it changed on Hardcover.\n\nWhat should happen?"), name),
+      rows = abandonRows(conflict),
+    }
+  end
+
+  if conflict.kind == "abandon_shelf" then
+    local rows = { { id = "restore", text = _("Restore the previous shelf") } }
+    if conflict.deleted then
+      rows[#rows + 1] = { id = "leave", text = _("Leave the shelf as it is") }
+    else
+      rows[#rows + 1] = { id = "keep", text = _("Keep the reread") }
+    end
+    rows[#rows + 1] = { id = "later", text = _("Decide later") }
+    return {
+      title = T(_("%1\n\nThe book's shelf changed on Hardcover while abandoning the reread. Restore the previous shelf without changing any read dates?"), name),
+      rows = rows,
+    }
+  end
+
   if conflict.kind == "remove" then
     local why
     if conflict.replaced then
@@ -240,7 +333,7 @@ function SyncConflicts.describe(filepath, entry)
         or _("This device could not check what changed on Hardcover.")
     end
     return {
-      title = T(_("%1\n\nYou asked to remove this book from your library while offline. %2\n\nRemoving it also removes its status, rating and reading history.\n\nWhat should happen?"),
+      title = T(_("%1\n\nYou asked to remove this book from your library while offline. %2\n\nRemoving it deletes its status, rating and review. Its journal entries stay on Hardcover: notes, quotes, reading history and the review record, which may keep the review text. Public entries stay public.\n\nWhat should happen?"),
         name, why),
       rows = {
         { id = "keep", text = _("Keep the book") },

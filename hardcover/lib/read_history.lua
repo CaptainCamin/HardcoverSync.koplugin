@@ -7,6 +7,7 @@
 -- newest first.
 
 local Book = require("hardcover/lib/book")
+local HARDCOVER = require("hardcover/lib/constants/hardcover")
 
 local ReadHistory = {}
 
@@ -148,6 +149,85 @@ function ReadHistory.current(reads)
   return Book:currentRead(reads)
 end
 
+local function sameRead(left, right)
+  if type(left) ~= "table" or type(right) ~= "table" then return false end
+  if left == right then return true end
+  return left.id ~= nil and right.id ~= nil and tostring(left.id) == tostring(right.id)
+end
+
+-- Hardcover sends reads oldest first. Keep that session order for which read is active; display
+-- dates are a separate, newest-first concern in normalize().
+function ReadHistory.latest(reads)
+  local latest
+  for _, read in ipairs(reads or {}) do
+    if type(read) == "table" then latest = read end
+  end
+  return latest
+end
+
+-- The newest unfinished read, or nil when every read is finished.
+function ReadHistory.latestUnfinished(reads)
+  local latest
+  for _, read in ipairs(reads or {}) do
+    if type(read) == "table" and not read.finished_at then latest = read end
+  end
+  return latest
+end
+
+-- The read before `target` in session chronology. A backfilled historical read gets a new id but
+-- an older start date, so insertion order alone would pick the wrong predecessor. When the target
+-- has no start date, fall back to the order Hardcover sent.
+function ReadHistory.previous(reads, target)
+  local ordered = {}
+  local target_index
+  for index, read in ipairs(reads or {}) do
+    if type(read) == "table" then
+      ordered[#ordered + 1] = read
+      if sameRead(read, target) then target_index = #ordered end
+    end
+  end
+  if not target_index then return nil end
+  local nearest = target_index > 1 and ordered[target_index - 1] or nil
+  -- An undated DNF immediately before the reread is the conservative predecessor; a dated
+  -- backfill earlier in the array must not displace it.
+  if nearest and not nearest.started_at and not nearest.finished_at then return nearest end
+  if target.started_at then
+    local best, best_when
+    for index, read in ipairs(ordered) do
+      -- A finish-only read still has a session date: use its finish when it has no start.
+      local when = read.started_at or read.finished_at
+      local finish_only_after = not read.started_at and read.finished_at
+        and Book.readIdOrder(read.id) > Book.readIdOrder(target.id)
+      if index ~= target_index and when and not finish_only_after then
+        local before = when < target.started_at
+          or (when == target.started_at
+            and Book.readIdOrder(read.id) < Book.readIdOrder(target.id))
+        if before and (not best or when > best_when
+            or (when == best_when and Book.readIdOrder(read.id) > Book.readIdOrder(best.id))) then
+          best, best_when = read, when
+        end
+      end
+    end
+    if best then return best end
+  end
+  return nearest
+end
+
+-- The one read an Abandon reread action may remove: the newest read overall, while the book is
+-- Currently Reading, and it must be unfinished. The read before it is the one to keep. A DNF is
+-- unfinished too, but a DNF book is not reading, and an older DNF with a newer reread is not the
+-- active one.
+function ReadHistory.activeReread(reads, status_id)
+  if tonumber(status_id) ~= HARDCOVER.STATUS.READING then return nil end
+  -- The active reread is the latest unfinished session. A later backfilled finished read has a
+  -- newer id but is historical, and must not hide the reread.
+  local latest = ReadHistory.latestUnfinished(reads)
+  if not latest then return nil end
+  local previous = ReadHistory.previous(reads, latest)
+  if not previous then return nil end
+  return latest, previous
+end
+
 function ReadHistory.ordinal(n)
   n = number(n) or 0
   local last_two = n % 100
@@ -231,7 +311,8 @@ function ReadHistory.summary(reads, opts)
       format = nil
     elseif pages and pages > 0 then
       label = string.format("Page %d of %d", page, pages)
-      pct = math.floor(page * 100 / pages + 0.5)
+      -- truncated, as Hardcover's journal truncates it: the same pages say the same percent
+      pct = math.floor(page * 100 / pages)
       pct = math.max(0, math.min(100, pct))
     elseif page > 0 then
       label = string.format("Page %d", page)
@@ -373,6 +454,10 @@ function ReadHistory.project(reads, actions)
       -- keep the row while the removal waits to be sent; the server's next answer leaves it out
       for _, read in ipairs(out) do
         if actionMatches(read, action) then read.pending_removal = true; break end
+      end
+    elseif action.kind == "abandon_reread" then
+      for _, read in ipairs(out) do
+        if actionMatches(read, action) then read.pending_abandon = true; break end
       end
     end
   end

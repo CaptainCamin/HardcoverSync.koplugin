@@ -119,6 +119,7 @@ fragment UserBookParts on user_books {
   edition_id
   privacy_setting_id
   rating
+  updated_at
   user_book_reads(order_by: {id: asc}) {
     id
     started_at
@@ -562,6 +563,7 @@ function HardcoverApi:normalizeUserBookRead(user_book_read)
   local user_book = user_book_read.user_book
   user_book_read.user_book = nil
   user_book.user_book_reads = { user_book_read }
+  user_book.reads_complete = false
   return user_book
 end
 

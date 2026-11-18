@@ -20,6 +20,7 @@
 -- Plain data over the injected `api`, no KOReader requires, so it runs under stock Lua.
 
 local Book = require("hardcover/lib/book")
+local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local Actions = require("hardcover/lib/reading_actions")
 local OfflineQueue = require("hardcover/lib/offline_queue")
 local ReadHistory = require("hardcover/lib/read_history")
@@ -186,6 +187,311 @@ local function park(action, conflict)
   return "parked", conflict
 end
 
+local function sameRead(left, right)
+  if type(left) ~= "table" or type(right) ~= "table" then return false end
+  for _, field in ipairs({ "id", "started_at", "finished_at", "finished_at_precision",
+    "edition_id", "progress_pages" }) do
+    if not same(valueOf(left, field), valueOf(right, field)) then return false end
+  end
+  return true
+end
+
+local function previousRead(user_book, action)
+  if type(action.previous_read) ~= "table" or action.previous_read.id == nil then return nil end
+  return findRead(user_book, action.previous_read.id)
+end
+
+-- The unfinished reads that matter for this abandon: the predecessor (when it is a DNF) and the
+-- target. An older DNF is not a competing active read, and a newer active read would already have
+-- failed the latestUnfinished check.
+local function unfinishedFrom(user_book, previous, target, target_id)
+  local reads = user_book and user_book.user_book_reads or {}
+  local previous_index
+  for index, read in ipairs(reads) do
+    if sameRead(read, previous) then previous_index = index; break end
+  end
+  local target_order = target_id and Book.readIdOrder(target_id) or nil
+  local out, seen = {}, {}
+  local function add(read)
+    if read and not read.finished_at and not seen[tostring(read.id)] then
+      seen[tostring(read.id)] = true
+      out[#out + 1] = read
+    end
+  end
+  for index, read in ipairs(reads) do
+    if previous then
+      local include = sameRead(read, previous)
+        or (target_order and Book.readIdOrder(read.id) > target_order)
+      local previous_when = previous.started_at or previous.finished_at
+      local read_when = read.started_at or read.finished_at
+      if previous_when and read_when then
+        include = include or read_when > previous_when
+          or (read_when == previous_when
+            and Book.readIdOrder(read.id) >= Book.readIdOrder(previous.id))
+      else
+        include = include or index > (previous_index or 0)
+      end
+      if include then add(read) end
+    else
+      add(read)
+    end
+  end
+  -- A target with a later session may sit earlier in the array after a backfill.
+  add(target)
+  return out
+end
+
+local function abandonConflict(action, reason, target, previous, user_book)
+  return park(action, {
+    kind = "abandon_changed", reason = reason, read_id = action.read_id,
+    target = target, previous = previous,
+    deleted = action.deleted or nil,
+    status_id = user_book and tonumber(user_book.status_id),
+    updated_at = user_book and user_book.updated_at,
+  })
+end
+
+local function abandonShelfConflict(action, status_id, updated_at)
+  action.restore_approval = nil
+  return park(action, { kind = "abandon_shelf", read_id = action.read_id,
+    status_id = status_id, updated_at = updated_at, deleted = action.deleted or nil })
+end
+
+local function approvalMatches(action, status, user_book)
+  local approval = action.restore_approval
+  if not approval or tonumber(approval.status_id) ~= tonumber(status) then return false end
+  if approval.previous and (not action.previous_read
+      or not sameRead(previousRead(user_book, action), approval.previous)) then
+    return false
+  end
+  if not approval.updated_at or not user_book.updated_at then return false end
+  if tostring(approval.updated_at) ~= tostring(user_book.updated_at) then return false end
+  return true
+end
+
+local function postDeleteConflict(user_book, action, restore)
+  local target = findRead(user_book, action.read_id)
+  if target then return "target_reappeared", target end
+  local previous = previousRead(user_book, action)
+  if action.previous_read and (not previous or not sameRead(previous, action.previous_read)) then
+    return "previous_changed", previous
+  end
+  for id, snapshot in pairs(action.previous_unfinished or {}) do
+    local read = findRead(user_book, id)
+    if read and not read.finished_at
+        and (not previous or tostring(previous.id) ~= tostring(id))
+        and (tostring(read.progress_pages or "") ~= tostring(snapshot.progress_pages or "")
+          or tostring(read.started_at or "") ~= tostring(snapshot.started_at or "")) then
+      return "another_read", read
+    end
+  end
+  local active = unfinishedFrom(user_book, previous, target, action.read_id)
+  local allowed = #active == 0
+  if not allowed and restore == HARDCOVER.STATUS.DNF and action.previous_read
+      and previous and not previous.finished_at and #active == 1
+      and tostring(active[1].id) == tostring(previous.id) then
+    allowed = true
+  end
+  if not allowed then return "another_read", previous end
+  return nil, previous
+end
+
+local function freshBook(api, entry, opts)
+  local fresh, err = api:findUserBook(entry.book_id, opts.user_id)
+  if err ~= nil then return nil, err end
+  if type(fresh) ~= "table" or not fresh.id then return nil, "library_gone" end
+  return fresh
+end
+
+-- Hardcover can show a just-deleted read for a moment. Keep checking an unchanged readback
+-- instead of parking it as a permanent conflict; a changed read is a real conflict.
+local function staleReadback(user_book, action)
+  local target = findRead(user_book, action.read_id)
+  return target and sameRead(target, action.base) and (action.verify_attempts or 0) < 3
+end
+
+-- Delete the reread, then restore the library shelf without sending a finish date. Every path
+-- that reaches a status write re-reads and validates the post-delete record first, including a
+-- lost delete response and a retry after restart.
+local function sendAbandon(api, entry, action, opts)
+  local user_book, lookup_err = api:findUserBook(entry.book_id, opts.user_id)
+  if lookup_err ~= nil then return "transient", lookup_err end
+  if type(user_book) ~= "table" or not user_book.id then return "held", "library_gone" end
+  if action.user_book_id and tostring(action.user_book_id) ~= tostring(user_book.id) then
+    return abandonConflict(action, "library_changed", nil, nil, user_book)
+  end
+
+  local target = findRead(user_book, action.read_id)
+  local previous = previousRead(user_book, action)
+  local restore = tonumber(action.restore_status_id) or HARDCOVER.STATUS.FINISHED
+  local status = tonumber(user_book.status_id)
+
+  if not action.deleted then
+    if not target then
+      if not action.checking then
+        -- Park both facts in the same flush; a restart between two saves must not skip the
+        -- Restore/Leave decision.
+        action.deleted = true
+        return abandonConflict(action, "target_gone", nil, previous, user_book)
+      end
+      -- A lost delete response is checked: the target is gone, so continue to the restore.
+      action.deleted, action.checking = true, nil
+      if opts.persist then opts.persist() end
+    else
+      -- A delete whose response was lost may still be visible for a moment. Do not send it
+      -- again; keep checking the unchanged read, then park for a decision if it stays.
+      if action.checking then
+        if sameRead(target, action.base) then
+          if (action.verify_attempts or 0) < 3 then
+            action.verify_attempts = (action.verify_attempts or 0) + 1
+            if opts.persist then opts.persist() end
+            return "checking", user_book
+          end
+          return abandonConflict(action, "target_reappeared", target, previous, user_book)
+        end
+        return abandonConflict(action, "target_changed", target, previous, user_book)
+      end
+      if target.finished_at then
+        return abandonConflict(action, "target_finished", target, previous, user_book)
+      end
+      if not sameRead(target, action.base) then
+        return abandonConflict(action, "target_changed", target, previous, user_book)
+      end
+      -- Only the newest read may be abandoned. An earlier DNF is unfinished too, but it is not
+      -- the reread, and a DNF shelf is not a reading session.
+      local latest = ReadHistory.latestUnfinished(user_book.user_book_reads)
+      if not latest or tostring(latest.id) ~= tostring(target.id) or status == HARDCOVER.STATUS.DNF then
+        return abandonConflict(action, "target_not_active", target, previous, user_book)
+      end
+      local immediate = ReadHistory.previous(user_book.user_book_reads, target)
+      if action.previous_read and (not immediate or not sameRead(immediate, action.previous_read)) then
+        return abandonConflict(action, "previous_changed", target, immediate or previous, user_book)
+      end
+      previous = immediate or previous
+      if action.restore_approval then
+        if not approvalMatches(action, status, user_book) then
+          return abandonShelfConflict(action, status, user_book.updated_at)
+        end
+      elseif status ~= HARDCOVER.STATUS.READING then
+        return abandonShelfConflict(action, status, user_book.updated_at)
+      end
+      local active = unfinishedFrom(user_book, previous, target, action.read_id)
+      local allowed = #active == 1
+      if not allowed and restore == HARDCOVER.STATUS.DNF and action.previous_read
+          and previous and not previous.finished_at and #active == 2 then
+        for _, read in ipairs(active) do
+          if tostring(read.id) ~= tostring(target.id) and tostring(read.id) ~= tostring(previous.id) then
+            allowed = false
+            break
+          end
+          allowed = true
+        end
+      end
+      if not allowed then
+        return abandonConflict(action, "another_read", target, previous, user_book)
+      end
+
+      if opts.guard and opts.guard() then return "checking", user_book end
+      action.previous_unfinished = {}
+      for _, read in ipairs(user_book.user_book_reads or {}) do
+        if not read.finished_at and read.id ~= nil then
+          action.previous_unfinished[tostring(read.id)] = {
+            progress_pages = read.progress_pages, started_at = read.started_at,
+          }
+        end
+      end
+      if opts.persist then opts.persist() end
+      -- Persist the in-flight marker before the request. A restart after a lost response
+      -- must know this delete may already have landed.
+      action.checking = true
+      if opts.persist then opts.persist() end
+      local result, err = api:deleteRead(action.read_id)
+      if not result then
+        if err ~= nil and not OfflineQueue.transient(err) then
+          action.checking = nil
+          if opts.persist then opts.persist() end
+          return "failed", err
+        end
+        return "checking", user_book
+      end
+      action.checking, action.deleted = nil, true
+      if opts.persist then opts.persist() end
+    end
+  end
+
+  -- Reload after the delete, including a lost delete response and a restarted retry. Never
+  -- restore from the pre-delete snapshot: the shelf, predecessor, active reads and privacy may
+  -- all have changed while the delete was out.
+  local fresh, fresh_err = freshBook(api, entry, opts)
+  if not fresh then
+    if fresh_err == "library_gone" then return "held", fresh_err end
+    action.checking = true
+    if opts.persist then opts.persist() end
+    return "checking", user_book
+  end
+  local post_reason, post_previous = postDeleteConflict(fresh, action, restore)
+  if post_reason == "target_reappeared" and staleReadback(fresh, action) then
+    action.verify_attempts = (action.verify_attempts or 0) + 1
+    action.checking = true
+    if opts.persist then opts.persist() end
+    return "checking", fresh
+  end
+  if post_reason then
+    return abandonConflict(action, post_reason, findRead(fresh, action.read_id), post_previous, fresh)
+  end
+  action.verify_attempts = nil
+  status = tonumber(fresh.status_id)
+  previous = post_previous
+
+  if status ~= restore then
+    if action.restore_approval then
+      if not approvalMatches(action, status, fresh) then
+        return abandonShelfConflict(action, status, fresh.updated_at)
+      end
+    elseif status ~= HARDCOVER.STATUS.READING then
+      return abandonShelfConflict(action, status, fresh.updated_at)
+    end
+
+    if opts.guard and opts.guard() then return "checking", fresh end
+    -- Status only: never write back the privacy value from the earlier lookup.
+    local result, err = api:updateUserBookStatus(fresh.id, restore, nil, nil)
+    if not result then
+      if err ~= nil and not OfflineQueue.transient(err) then return "failed", err end
+      action.checking = true
+      if opts.persist then opts.persist() end
+      return "checking", fresh
+    end
+  end
+
+  -- The final readback is the verification, not just a success check. Reapply the full
+  -- post-delete invariant before acknowledging and releasing the durable barrier.
+  local final, verify_err = freshBook(api, entry, opts)
+  if not final then
+    action.checking = true
+    if opts.persist then opts.persist() end
+    return "checking", fresh
+  end
+  local final_reason, final_previous = postDeleteConflict(final, action, restore)
+  if final_reason == "target_reappeared" and staleReadback(final, action) then
+    action.verify_attempts = (action.verify_attempts or 0) + 1
+    action.checking = true
+    if opts.persist then opts.persist() end
+    return "checking", final
+  end
+  if final_reason then
+    return abandonConflict(action, final_reason, findRead(final, action.read_id), final_previous, final)
+  end
+  action.verify_attempts = nil
+  if tonumber(final.status_id) == restore then
+    action.checking, action.status_restored = nil, true
+    if opts.persist then opts.persist() end
+    return "sent", final
+  end
+  action.checking = true
+  if opts.persist then opts.persist() end
+  return "checking", final
+end
+
 -- The one edition move: the read first (its page converted to the new edition), then the library
 -- record. `opts` is { read_id, book_id, edition_id, fields, status_id, privacy_setting_id,
 -- optional settings, filename, edition_format, pages, state }. Returns the library record (with
@@ -249,6 +555,7 @@ end
 -- durable change to the action, so a crash cannot turn a sent write into a second one).
 function ReadSender.send(api, entry, action, opts)
   opts = opts or {}
+  if action.kind == "abandon_reread" then return sendAbandon(api, entry, action, opts) end
   local user_book, lookup_err = api:findUserBook(entry.book_id, opts.user_id)
   if lookup_err ~= nil then return "transient", lookup_err end
   if type(user_book) ~= "table" or not user_book.id then return "held", "library_gone" end

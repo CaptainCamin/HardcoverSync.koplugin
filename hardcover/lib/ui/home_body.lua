@@ -48,6 +48,10 @@ local HomeBody = InputContainer:extend {
   sync_cb = nil,    -- Sync now
   pending_cb = nil, -- a tap on the sync box: what is waiting
   empty_message = nil, -- why Currently Reading is empty before its first successful load
+  signed_out = false,  -- no account: show the sign-in state, not shelves or counts
+  sign_in_cb = nil,    -- the signed-out card's button
+  held_fn = nil,       -- returns PendingChanges.heldCounts for the sync box
+  online_fn = nil,     -- returns whether a connection is up
 }
 
 function HomeBody:init()
@@ -87,15 +91,16 @@ function HomeBody:readingCard(card, width)
     info[#info + 1] = Theme.span(px(6))
     info[#info + 1] = Theme.mmdText(card.author, "text", 18, { secondary = true, width = text_w })
   end
-  if card.fraction then
+  if card.total then
     info[#info + 1] = Theme.span(px(14))
-    info[#info + 1] = Theme.progress { width = text_w, height = px(12), percentage = card.fraction }
+    info[#info + 1] = Theme.progress { width = text_w, height = px(12), percentage = card.fraction or 0 }
   end
   local line
-  if card.fraction and card.current and card.total then
-    line = string.format(_("%d%% · page %d of %d"), math.floor(card.fraction * 100 + 0.5), card.current, card.total)
-  elseif card.total then
-    line = string.format(_("%d pages"), card.total)
+  if card.total then
+    -- a book with no progress yet keeps its bar and percent line (at 0), so the card is the same
+    -- height as one with progress and what is below it never moves; the percent truncates, as
+    -- Hardcover's journal does
+    line = string.format(_("%d%% · page %d of %d"), math.min(100, math.max(0, math.floor((card.current or 0) * 100 / card.total))), card.current or 0, card.total)
   end
   if line then
     info[#info + 1] = Theme.span(px(6))
@@ -123,12 +128,37 @@ function HomeBody:emptyCard(width)
         { secondary = true, width = width - 2 * pad - 2 * border }) } }
 end
 
+-- No account yet (or after sign-out): one clear state and one way in, with no shelf counts.
+function HomeBody:signedOutCard(width)
+  local pad, border = px(14), px(3)
+  local inner = width - 2 * pad - 2 * border
+  local sign_in = Button.new { label = _("Sign in"), w = inner, h = px(56), primary = true,
+    callback = function() if self.sign_in_cb then self.sign_in_cb() end end }
+  return FrameContainer:new { bordersize = border, radius = px(12), padding = pad, margin = 0,
+    color = Theme.BLACK, background = Theme.WHITE,
+    VerticalGroup:new { align = "left",
+      Theme.mmdText(_("Sign in to Hardcover"), "strong", 21, { width = inner }),
+      Theme.span(px(6)),
+      Theme.mmdText(_("Your shelves, reading and sync will appear here after you sign in."), "text", 18,
+        { secondary = true, width = inner }),
+      Theme.span(px(14)),
+      sign_in } }
+end
+
 -- The sync box, dotted whether or not anything is waiting; the two states differ by icon and words,
 -- and are built at the taller one's height so switching between them moves nothing below.
 function HomeBody:syncNote(width)
   local waiting = self.pending_fn and self.pending_fn() or 0
   local decisions = self.decision_fn and self.decision_fn() or 0
-  local action = { label = _("Sync now"), callback = function() if self.sync_cb then self.sync_cb() end end }
+  local held = self.held_fn and self.held_fn() or { total = 0, scope = 0, refused = 0, other = 0 }
+  local held_total = held.total or 0
+  local online = self.online_fn and self.online_fn() or false
+  local review = held_total > 0
+  local action = { label = review and _("Review") or _("Sync now"), callback = function()
+    if review then
+      if self.pending_cb then self.pending_cb() elseif self.sync_cb then self.sync_cb() end
+    elseif self.sync_cb then self.sync_cb() end
+  end }
   local on_tap = function() if self.pending_cb then self.pending_cb() end end
   local function make(count, h)
     if decisions > 0 then
@@ -137,10 +167,18 @@ function HomeBody:syncNote(width)
           or string.format(_("%d books need your decision"), decisions),
         text = count > decisions and string.format(_("%d changes waiting."), count) or _("Tap to review.") }
     end
+    if held_total > 0 then
+      local why = held.scope > 0 and _("A permission is missing.")
+        or held.refused > 0 and _("Hardcover refused some changes.")
+        or _("Some changes need attention.")
+      return Note.new { width = width, h = h, dotted = true, icon_name = "sync", action = action, on_tap = on_tap,
+        title = held_total == 1 and _("1 change needs attention") or string.format(_("%d changes need attention"), held_total),
+        text = why }
+    end
     if count > 0 then
       return Note.new { width = width, h = h, dotted = true, icon_name = "sync", action = action, on_tap = on_tap,
         title = count == 1 and _("1 change waiting") or string.format(_("%d changes waiting"), count),
-        text = _("They sync when you are online.") }
+        text = online and _("They send now.") or _("They sync when you are online.") }
     end
     return Note.new { width = width, h = h, dotted = true, icon_name = "check", action = action, on_tap = on_tap,
       title = _("All synced"), text = _("Nothing is waiting to send.") }
@@ -172,6 +210,22 @@ function HomeBody:build()
 
   local column = VerticalGroup:new { align = "left" }
   local function inset(widget) return HorizontalGroup:new { Theme.hspan(side), widget } end
+
+  if self.signed_out then
+    column[#column + 1] = Theme.span(px(8))
+    column[#column + 1] = ListItem.section(_("Hardcover"), w, 0)
+    column[#column + 1] = inset(self:signedOutCard(width))
+    column:resetLayout()
+    self.layout = { signed_out = true }
+    self.frame = FrameContainer:new {
+      width = w, height = h, background = Theme.WHITE,
+      bordersize = 0, padding = 0, margin = 0, column,
+    }
+    self.dimen = Geom:new { x = 0, y = 0, w = w, h = h }
+    self[1] = self.frame
+    self.covers:finish()
+    return
+  end
 
   column[#column + 1] = Theme.span(px(8))
   column[#column + 1] = ListItem.section(_("Currently reading"), w, 0)

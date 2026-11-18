@@ -78,7 +78,7 @@ return {
       book = book,
       reads = reads,
       today = "2026-11-15",
-      checked_at = os.time(),
+      checked_at = os.time({ year = 2026, month = 11, day = 15, hour = 12, min = 0, sec = 0 }),
       states = { [2] = { text = "Finish date waiting to send", kind = "waiting" } },
       on_add = function()
         local form = ReadEditDialog:new {
@@ -180,6 +180,27 @@ return {
     -- offline with nothing saved: one connection, no list and no note
     UIManager:close(history)
     emu:pump()
+
+    -- two reads finished on the same day in the same edition: the dates alone are identical,
+    -- so the support line says which read each one is
+    local same_day = {
+      { id = 21, started_at = "2026-10-31", finished_at = "2026-10-31", finished_at_precision = 1,
+        progress_pages = 304, edition_id = 11,
+        edition = { id = 11, pages = 304, edition_format = "Paperback", reading_format_id = 1 } },
+      { id = 22, started_at = "2026-10-31", finished_at = "2026-10-31", finished_at_precision = 1,
+        progress_pages = 304, edition_id = 11,
+        edition = { id = 11, pages = 304, edition_format = "Paperback", reading_format_id = 1 } },
+    }
+    local twice = ReadHistoryDialog:new { book = book, reads = same_day, today = "2026-11-15" }
+    UIManager:show(twice, "full")
+    emu:pump()
+    emu:expectText("2nd read · Paperback · 304 pages")
+    emu:expectText("1st read · Paperback · 304 pages")
+    emu:expectNoButtonOverlap()
+    emu:shot("read_history_same_day")
+    UIManager:close(twice)
+    emu:pump()
+
     local empty = ReadHistoryDialog:new { book = book, reads = nil, today = "2026-11-15" }
     UIManager:show(empty, "full")
     emu:pump()

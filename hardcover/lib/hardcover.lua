@@ -60,8 +60,7 @@ function Hardcover:showLinkBookDialog(force_search, link_callback)
     },
     function(book)
       Background.run(function()
-        self:linkBook(book)
-        if link_callback then link_callback(book) end
+        if self:linkBook(book) and link_callback then link_callback(book) end
       end)
     end,
     -- Without this the dialog cannot be searched from, and the initial lookup
@@ -77,7 +76,11 @@ end
 
 function Hardcover:updateCurrentBookStatus(status, privacy_setting_id)
   Background.run(function()
-    self.cache:updateBookStatus(self.ui.document.file, status, privacy_setting_id)
+    local result, reason = self.cache:updateBookStatus(self.ui.document.file, status, privacy_setting_id)
+    if not result and reason == "abandon" then
+      StatusDialogs.info(_("Finish the waiting reread before changing this book's shelf."), 3)
+      return
+    end
     if not self.state.book_status.id then
       self.dialog_manager:showError("Book status could not be updated")
     end
@@ -121,10 +124,14 @@ function Hardcover:linkBook(book)
   local old_edition = self.settings:readBookSetting(filename, "edition_id")
   local old_pages = self.settings:pages()
   if previous ~= book.book_id then
-    self.settings:clearBookSnapshot(filename)
-    if self.cache.sync_queue then
-      self.cache.sync_queue:clear(filename)
+    local queue = self.cache.sync_queue
+    local pending = queue and queue:get(filename)
+    if pending and pending.abandon_barrier then
+      StatusDialogs.error(_("Finish or cancel the waiting reread before linking this book."))
+      return false
     end
+    self.settings:clearBookSnapshot(filename)
+    if queue then queue:clear(filename) end
     self.state.book_status = {}
   end
 
