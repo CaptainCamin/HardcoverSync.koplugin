@@ -141,10 +141,12 @@ function HardcoverApp:init()
     end_asked = {},
   }
   --logger.warn("HARDCOVER app init")
-  self.settings = HardcoverSettings:new(
-    ("%s/%s"):format(DataStorage:getSettingsDir(), "hardcoversync_settings.lua"),
-    self.ui
-  )
+  local settings_path = ("%s/%s"):format(DataStorage:getSettingsDir(), "hardcoversync_settings.lua")
+  self.settings = HardcoverSettings:new(settings_path, self.ui, {
+    -- A file that is not there yet is a new installation. An existing file,
+    -- even one with no keys, is an upgrade and keeps the old off defaults.
+    new_install = HardcoverSettings.newInstall(settings_path),
+  })
   self.settings:subscribe(function(field, change, original_value) self:onSettingsChanged(field, change, original_value) end)
 
   -- Lato for the redesigned screens, copied into KOReader's fonts folder once (nothing happens after

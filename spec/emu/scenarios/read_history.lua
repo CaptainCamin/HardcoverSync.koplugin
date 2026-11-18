@@ -78,7 +78,7 @@ return {
       book = book,
       reads = reads,
       today = "2026-11-15",
-      checked_at = os.time { year = 2026, month = 11, day = 15, hour = 9, min = 12, sec = 0 },
+      checked_at = os.time({ year = 2026, month = 11, day = 15, hour = 12, min = 0, sec = 0 }),
       states = { [2] = { text = "Finish date waiting to send", kind = "waiting" } },
       on_add = function()
         local form = ReadEditDialog:new {

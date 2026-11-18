@@ -240,7 +240,7 @@ function SyncConflicts.describe(filepath, entry)
         or _("This device could not check what changed on Hardcover.")
     end
     return {
-      title = T(_("%1\n\nYou asked to remove this book from your library while offline. %2\n\nRemoving it also removes its status, rating and reading history.\n\nWhat should happen?"),
+      title = T(_("%1\n\nYou asked to remove this book from your library while offline. %2\n\nRemoving it deletes its status, rating and review. Its journal entries stay on Hardcover: notes, quotes, reading history and the review record, which may keep the review text. Public entries stay public.\n\nWhat should happen?"),
         name, why),
       rows = {
         { id = "keep", text = _("Keep the book") },

@@ -146,6 +146,15 @@ SD.confirm{ title = "Archive this goal?", text = "It stays on Hardcover.", ok_te
 local one = dialogs[#dialogs]
 r.check("without a cancel button there is one", #one.buttons == 1 and one.title == "Archive this goal?")
 
+local removed = false
+SD.confirmBookRemoval("Dune", function() removed = true end)
+local removal = dialogs[#dialogs]
+r.check("book removal uses the shared warning", removal.text ==
+  "Remove \"Dune\" from your library? Its status, rating and review are deleted. Its journal entries stay on Hardcover: notes, quotes, reading history and the review record, which may keep the review text. Public entries stay public.")
+r.check("book removal offers Remove", removal.buttons[2].label == "Remove" and removal.buttons[1].label == "Cancel")
+removal.buttons[2].callback()
+r.check("book removal runs its callback", removed)
+
 -- ---------------------------------------------------------------- retry
 local again = false
 SD.retry("network unreachable", "Loading your shelf", function() again = true end,

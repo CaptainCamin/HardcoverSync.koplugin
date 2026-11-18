@@ -17,6 +17,7 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local _ = require("gettext")
 
+local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local Button = require("hardcover/lib/ui/components/button")
 local Draw = require("hardcover/lib/ui/components/draw")
 local InputDialog = require("hardcover/lib/ui/components/input_dialog")
@@ -37,6 +38,13 @@ local PREVIEW_LINES = 4
 
 local PRIVACY = { _("Public"), _("Follows"), _("Private") }
 
+-- The caller supplies the account's default. Anything missing or invalid falls
+-- back to Private, never Public.
+local function privacyId(value)
+  value = tonumber(value)
+  return value and PRIVACY[value] and value or HARDCOVER.PRIVACY.PRIVATE
+end
+
 local JournalDialog = InputContainer:extend {
   name = "hardcover_journal_dialog",
   input = "",
@@ -48,7 +56,7 @@ local JournalDialog = InputContainer:extend {
   page = nil,
   tags = nil,
   hidden_tags = nil,
-  privacy_setting_id = 1,
+  privacy_setting_id = nil,
   save_dialog_callback = nil,
   select_edition_callback = nil,
   close_callback = nil,
@@ -70,6 +78,8 @@ function JournalDialog:init()
   self.text = self.input or ""
   self.tags = self.tags or {}
   self.hidden_tags = self.hidden_tags or {}
+  self.privacy_setting_id = privacyId(self.privacy_setting_id)
+  self.privacy_touched = false
   self.message = nil
   self.dimen = Geom:new { x = 0, y = 0, w = Screen:getWidth(), h = Screen:getHeight() }
   self.key_events.CloseForm = { { "Back" } }
@@ -79,13 +89,23 @@ function JournalDialog:init()
 end
 
 function JournalDialog:snapshot()
-  return table.concat({ self.text, self.event_type, tostring(self.privacy_setting_id),
-    table.concat(self.tags, ","), table.concat(self.hidden_tags, ","),
-    tostring(self.edition_id), tostring(self.page) }, "\0")
+  return {
+    text = self.text or "",
+    event_type = self.event_type,
+    privacy = self.privacy_setting_id,
+    tags = table.concat(self.tags or {}, ","),
+    hidden_tags = table.concat(self.hidden_tags or {}, ","),
+    edition_id = tostring(self.edition_id),
+    page = tostring(self.page),
+  }
 end
 
 function JournalDialog:dirty()
-  return self:snapshot() ~= self.original
+  local now = self:snapshot()
+  for key, value in pairs(now) do
+    if self.original[key] ~= value then return true end
+  end
+  return false
 end
 
 function JournalDialog:getText() return self.text end
@@ -127,7 +147,7 @@ function JournalDialog:rows()
   return {
     { key = "type", label = _("Type"), value = self.event_type == JOURNAL_QUOTE and _("Quote") or _("Note"),
       edit = function() self:pickType() end },
-    { key = "privacy", label = _("Visible to"), value = PRIVACY[self.privacy_setting_id] or PRIVACY[1],
+    { key = "privacy", label = _("Visible to"), value = PRIVACY[self.privacy_setting_id],
       edit = function() self:pickPrivacy() end },
     { key = "tags", label = _("Tags"), value = #self.tags > 0 and table.concat(self.tags, ", ") or _("None"),
       edit = function() self:editTags(false) end },
@@ -230,6 +250,19 @@ function JournalDialog:change(key, value)
   self:rebuild()
 end
 
+-- The account's default arrived after the form opened. Apply it unless the
+-- reader has chosen a visibility, so it never overwrites their choice or makes
+-- an untouched form look changed.
+function JournalDialog:setPrivacy(value)
+  value = privacyId(value)
+  if value == self.privacy_setting_id or self.privacy_touched then return end
+  self.privacy_setting_id = value
+  -- The account default is not an edit: keep the form clean, and keep any
+  -- text/tag edits that were made while the answer was on its way.
+  if self.original then self.original.privacy = value end
+  self:rebuild()
+end
+
 -- the text, in the input dialog: Done keeps it, Cancel leaves it as it was
 function JournalDialog:editText()
   local input
@@ -302,7 +335,10 @@ function JournalDialog:pickPrivacy()
   for id, text in ipairs(PRIVACY) do
     choices[#choices + 1] = { text = text, value = id, current = self.privacy_setting_id == id }
   end
-  self:choose(_("Visible to"), choices, function(value) self:change("privacy_setting_id", value) end)
+  self:choose(_("Visible to"), choices, function(value)
+    self.privacy_touched = true
+    self:change("privacy_setting_id", value)
+  end)
 end
 
 function JournalDialog:editPage()

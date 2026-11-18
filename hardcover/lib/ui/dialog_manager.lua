@@ -250,6 +250,9 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
   local edition_format = settings.edition_format
 
   mapped_page = mapped_page or self.page_mapper:getMappedPage(page, document:getPageCount(), remote_pages)
+  -- A new entry starts with the account's own default visibility. When that has
+  -- not been seen yet, Private is the safe fallback: never Public by accident.
+  local privacy = User:getAccountPrivacy() or HARDCOVER.PRIVACY.PRIVATE
   local dialog
   dialog = require("hardcover/lib/ui/journal_dialog"):new {
     input = text,
@@ -259,6 +262,7 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
     edition_format = edition_format,
     page = mapped_page,
     pages = remote_pages,
+    privacy_setting_id = privacy,
     save_dialog_callback = function(book_data)
       --[[
       Keep the entry and answer at once. This runs inside InputDialog's save handler, which wants
@@ -337,6 +341,11 @@ function DialogManager:journalEntryForm(text, document, page, remote_pages, mapp
   }
   -- Writing is local: never put a wifi prompt between the reader and their note.
   UIManager:show(dialog)
+  -- An account signed in before this setting existed has no saved default yet.
+  -- Ask in the background; the form updates only while it is still untouched.
+  User:refreshAccountPrivacy(function(value)
+    if value and UIManager:isWidgetShown(dialog) then dialog:setPrivacy(value) end
+  end)
   if (text or "") == "" then dialog:editText() end
 
   -- The form is usable without an edition. Enrich it only if already online, after it is shown.

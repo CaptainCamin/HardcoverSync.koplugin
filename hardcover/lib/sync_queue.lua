@@ -1443,10 +1443,10 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
               user_book = detail
               entry.user_book_id = detail.id
             end
-            if opts.on_read_sent then opts.on_read_sent(entry.book_id, detail, op) end
             Actions.ack(entry, op.seq)
             if self:isEmpty(entry) then self:_drop(filepath) end
             self:persist()
+            if opts.on_read_sent then opts.on_read_sent(entry.book_id, detail, op) end
           end
         elseif status == "parked" then
           self:persist()

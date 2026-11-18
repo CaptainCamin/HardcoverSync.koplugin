@@ -261,7 +261,9 @@ function HardcoverApi:hydrateBooks(ids, user_id)
   end
 end
 
-function HardcoverApi:hydrateBookFromEdition(edition_id, user_id)
+-- `unique` is for automatic linking: an exact identifier that matches more than
+-- one row is ambiguous, and the caller must not pick the first one silently.
+function HardcoverApi:hydrateBookFromEdition(edition_id, user_id, unique)
   local editionSearch = [[
     query ($id: Int!, $userId: Int!) {
       editions(where: { id: { _eq: $id }}) {
@@ -271,12 +273,13 @@ function HardcoverApi:hydrateBookFromEdition(edition_id, user_id)
 
   local editions, err = self:query(editionSearch, { id = edition_id, userId = user_id })
   if editions and editions.editions and #editions.editions > 0 then
+    if unique and #editions.editions ~= 1 then return nil, { ambiguous = true } end
     return self:normalizedEdition(editions.editions[1])
   end
   if not editions then return nil, err or { completed = false } end
 end
 
-function HardcoverApi:findBookBySlug(slug, user_id)
+function HardcoverApi:findBookBySlug(slug, user_id, unique)
   local slugSearch = [[
     query ($slug: String!, $userId: Int!) {
       books(where: { slug: { _eq: $slug }}) {
@@ -286,6 +289,7 @@ function HardcoverApi:findBookBySlug(slug, user_id)
 
   local books, err = self:query(slugSearch, { slug = slug, userId = user_id })
   if books and books.books and #books.books > 0 then
+    if unique and #books.books ~= 1 then return nil, { ambiguous = true } end
     return books.books[1]
   end
   if not books then return nil, err or { completed = false } end
@@ -385,23 +389,27 @@ end
 
 -- The book for some identifiers, or nil. When nil, a second value says the call itself failed
 -- (offline, rate limit, expired token), so "Hardcover has no such book" can be told apart from "could
--- not ask". A later identifier that answers still wins over an earlier failure.
-function HardcoverApi:findBookByIdentifiers(identifiers, user_id)
+-- not ask". A later identifier that answers still wins over an earlier failure. With `unique`,
+-- an identifier that matches more than one row returns nil and `{ ambiguous = true }` instead of
+-- choosing the first; automatic linking uses this so it never silently picks between matches.
+function HardcoverApi:findBookByIdentifiers(identifiers, user_id, unique)
   local failure
 
   if identifiers.edition_id then
-    local book, err = self:hydrateBookFromEdition(identifiers.edition_id, user_id)
+    local book, err = self:hydrateBookFromEdition(identifiers.edition_id, user_id, unique)
     if book then
       return book
     end
+    if unique and err and err.ambiguous then return nil, err end
     failure = failure or err
   end
 
   if identifiers.book_slug then
-    local book, err = self:findBookBySlug(identifiers.book_slug, user_id)
+    local book, err = self:findBookBySlug(identifiers.book_slug, user_id, unique)
     if book then
       return book
     end
+    if unique and err and err.ambiguous then return nil, err end
     failure = failure or err
   end
 
@@ -416,6 +424,7 @@ function HardcoverApi:findBookByIdentifiers(identifiers, user_id)
 
       local editions, err = self:query(editionSearch, { isbn = tostring(identifiers[isbnKey]), userId = user_id })
       if editions and editions.editions and #editions.editions > 0 then
+        if unique and #editions.editions ~= 1 then return nil, { ambiguous = true } end
         return self:normalizedEdition(editions.editions[1])
       end
       if not editions then failure = failure or err or { completed = false } end
@@ -1670,6 +1679,8 @@ function HardcoverApi:updateReview(user_book_id, text, spoilers, json_lib, at)
 
   local object = {
     review_slate = ReviewText.slate(text, json_lib or json),
+    -- Send the flag every time, including false: Hardcover clears it when a
+    -- review update leaves it out.
     review_has_spoilers = spoilers == true,
     action_at = actionAt(at),
   }
