@@ -978,8 +978,9 @@ end
 
 -- Put the book on the details screen on a shelf, or take it off.
 --
--- Online the change is sent at once and the screen is updated from the answer. Offline it
--- is kept (see saveShelfOffline), shown at once and sent when the connection is back.
+-- Online the change is sent at once and the screen is updated from the answer; if Hardcover
+-- does not answer it is kept like an offline change. Offline it is kept (see saveShelfOffline),
+-- shown at once and sent when the connection is back.
 --
 function Flows:chooseShelf(dialog)
   local detail = dialog.detail
@@ -1538,7 +1539,7 @@ end
 -- Offline: the change is kept in the progress queue with the book's pages (see sync_queue.lua), so they
 -- are sent in the order they were made. The saved shelves and the screen show it at once, and it is
 -- sent when the connection is back (see shelfSent).
-function Flows:saveShelfOffline(dialog, status_id)
+function Flows:saveShelfOffline(dialog, status_id, opts)
   local detail = dialog.detail
   local old_status_id = detail.status_id
   local request = BookActions.shelfRequest(detail, status_id)
@@ -1548,6 +1549,7 @@ function Flows:saveShelfOffline(dialog, status_id)
     user_id = User:getId(), book_id = request.book_id, edition_id = request.edition_id,
     title = detail.book.title, user_book_id = detail.user_book_id,
     status_id = status_id, from_status_id = old_status_id,
+    maybe_remote = opts and opts.maybe_remote or nil,
   })
   local user_book_id = entry and entry.user_book_id
   self:shelfChanged(request.book_id, old_status_id, status_id, user_book_id, true)
@@ -1572,6 +1574,12 @@ function Flows:saveShelf(dialog, status_id)
       StatusDialogs.close(loading)
 
       if not user_book then
+        -- The request may have landed, but the answer did not: keep the change like an
+        -- offline one. The queue's flush reconciles before it sends anything again.
+        if self.sync_queue and type(err) == "table" and (err.completed == false or err.error == "no_response") then
+          self:saveShelfOffline(dialog, status_id, { maybe_remote = true })
+          return
+        end
         StatusDialogs.retry(err, _("Saving to your shelf"),
           function() self:saveShelf(dialog, status_id) end,
           function() end)

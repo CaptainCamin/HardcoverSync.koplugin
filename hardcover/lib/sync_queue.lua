@@ -490,7 +490,8 @@ end
 -- `base` is what this device last knew of that record (see removalSnapshot): a removal is replayed
 -- only when Hardcover still matches it. Returns "queued", or "dropped" when the book only ever went
 -- on a shelf offline: there is nothing on Hardcover to remove, so what waits for it (a status, a
--- page) is thrown away.
+-- page) is thrown away. A change whose answer was lost (`maybe_remote`) may have landed, so its
+-- removal is kept and the flush looks the record up before deciding.
 --
 -- What was already waiting for the book stays in the entry, after `remove_seq`. It is not sent while
 -- the removal waits: a page or status recorded before the reader asked to remove the book belongs
@@ -505,7 +506,7 @@ function SyncQueue:queueRemove(user_id, book_id, user_book_id, title, from_statu
   local before = pending[key]
   if type(before) ~= "table" or not SyncQueue.ownedBy(before, user_id) then before = nil end
   user_book_id = tonumber(user_book_id) or (before and tonumber(before.user_book_id)) or nil
-  if not user_book_id and not (before and self.sending_key == key) then
+  if not user_book_id and not (before and (self.sending_key == key or before.maybe_remote)) then
     pending[key] = nil
     self:persist()
     return "dropped"

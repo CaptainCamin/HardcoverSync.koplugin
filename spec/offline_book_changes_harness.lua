@@ -618,6 +618,70 @@ check("changing the shelf online preserves the offline change ahead of it", func
   assert(sync_queue:count() == 0, "history did not drain")
 end)
 
+check("a shelf change with no answer is kept at once and sent when the connection returns", function()
+  local m = newManager()
+  local d = detailScreen(m, SHELVED())
+  tap(showing(function() m:chooseShelf(d) end), "Read")
+  assert(update_cb, "no shelf request")
+  update_cb(nil, { completed = false })
+
+  local op = m.sync_queue:shelfOp(1)
+  assert(op and op.kind == "status" and op.status_id == 3 and op.from_status_id == 1,
+    "the unanswered change was not queued")
+  assert(op.user_book_id == 51, "the library record was lost")
+  assert(d.detail.status_id == 3 and d.detail.user_book_id == 51, "the screen did not change")
+  assert(shelves:member(1, 1).status_id == 3, "the saved shelf did not change")
+  assert(shelves:member(1, 1).rating == 4, "the rating did not survive")
+  assert(countOf(m, 1) == 0 and countOf(m, 3) == 2, "the counts did not follow")
+  assert(#retries == 0, "an unreachable API still offered only a retry")
+  assert(lastInfo():find("kept", 1, true), "no visible acknowledgement: " .. lastInfo())
+
+  local api = serverApi()
+  function api:findUserBook(book_id)
+    if tonumber(book_id) == 1 then
+      return { id = 51, book_id = 1, status_id = 1, user_book_reads = {} }
+    end
+    return nil
+  end
+  function api:updateUserBookStatus(id, status_id)
+    server_calls[#server_calls + 1] = { name = "updateUserBookStatus", id = id, status_id = status_id }
+    return { id = id, book_id = 1, status_id = status_id, user_book_reads = {} }
+  end
+  assert(sync_queue:flush(api, { user_id = 1, on_status_sent = function(sent, user_book) m:shelfSent(sent, user_book) end }))
+  assert(#server_calls == 1 and server_calls[1].name == "updateUserBookStatus"
+    and server_calls[1].id == 51 and server_calls[1].status_id == 3, "the queued change was not sent")
+  assert(sync_queue:count() == 0, "the sent change is still queued")
+end)
+
+check("a shelf change with no answer can still be removed before it is sent", function()
+  local m = newManager()
+  local d = detailScreen(m, NEW())
+  tap(showing(function() m:chooseShelf(d) end), "Read")
+  assert(update_cb, "no shelf request")
+  update_cb(nil, { completed = false })
+
+  local queued = sync_queue:get(100)
+  assert(queued and queued.maybe_remote == true, "the unanswered addition was not marked as possibly sent")
+  assert(sync_queue:shelfOp(100).kind == "status", "the unanswered addition was not kept")
+
+  local p = showing(function() m:chooseShelf(d) end)
+  tap(p, "Remove from library")
+  confirms[1].ok_callback()
+  local op = sync_queue:shelfOp(100)
+  assert(op and op.kind == "remove", "the removal was dropped with the unanswered addition")
+  assert(sync_queue:count() == 1, "the removal was not kept")
+  assert(d.detail.status_id == nil, "the screen did not go back to not in your library")
+
+  local api = serverApi()
+  function api:findUserBookForRemoval(book_id)
+    return { id = 77, book_id = book_id, status_id = 3, has_review = false, user_book_reads = {} }
+  end
+  assert(sync_queue:flush(api, { user_id = 1, on_status_sent = function(sent, user_book) m:shelfSent(sent, user_book) end }))
+  assert(#server_calls == 1 and server_calls[1].name == "removeUserBook" and server_calls[1].id == 77,
+    "the landed addition was not removed")
+  assert(sync_queue:count() == 0, "the sent removal is still queued")
+end)
+
 check("cancelling a waiting shelf change puts the screen, shelf and counts back", function()
   local m = newManager()
   online = false
