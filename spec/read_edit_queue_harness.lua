@@ -861,6 +861,45 @@ partialQueue = function()
   return SyncQueue:new { settings = q.settings }, api
 end
 
+check("a pre-delete shelf conflict does not offer Leave", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { finishedRead(), activeReread() }, 4)
+  q:abandonReread(7, { read_id = 11, base = activeReread(), previous_read = finishedRead(),
+    restore_status_id = 3 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  local action = q:readActions(7)[1]
+  local described = SyncConflicts.describeRead(q:get(7), action.conflict)
+  for _, row in ipairs(described.rows) do
+    assert(row.id ~= "leave", "Leave was offered before the reread was deleted")
+  end
+  assert(q:resolveRead(7, action.seq, "leave") == false)
+end)
+
+check("a target-gone abandon with no predecessor offers Leave", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { activeReread() }, 2)
+  q:abandonReread(7, { read_id = 11, base = activeReread(), previous_read = finishedRead(),
+    restore_status_id = 3 })
+  table.remove(api.records[7].user_book_reads, 1)
+  assert(q:flush(api, { user_id = 1 }) == false)
+  local action = q:readActions(7)[1]
+  local described = SyncConflicts.describeRead(q:get(7), action.conflict)
+  local leave
+  for _, row in ipairs(described.rows) do if row.id == "leave" then leave = true end end
+  assert(leave, "no way to release a target-gone abandon without a predecessor")
+  assert(q:resolveRead(7, action.seq, "leave"))
+  assert(not q:hasPending(7))
+end)
+
+check("a deleted reread checks a higher-id active read even with an old start date", function()
+  local q, api = partialQueue()
+  table.insert(api.records[7].user_book_reads, { id = 12, started_at = "2019-01-01",
+    progress_pages = 20 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(q:readActions(7)[1].conflict.kind == "abandon_changed")
+  assert(q:readActions(7)[1].conflict.reason == "another_read")
+end)
+
 check("a deleted abandon offers a way out", function()
   local q, api = partialQueue()
   api.records[7].user_book_reads[1].finished_at = "2020-02-20"

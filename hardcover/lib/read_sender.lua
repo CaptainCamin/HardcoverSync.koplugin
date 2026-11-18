@@ -204,12 +204,13 @@ end
 -- The unfinished reads that matter for this abandon: the predecessor (when it is a DNF) and the
 -- target. An older DNF is not a competing active read, and a newer active read would already have
 -- failed the latestUnfinished check.
-local function unfinishedFrom(user_book, previous, target)
+local function unfinishedFrom(user_book, previous, target, target_id)
   local reads = user_book and user_book.user_book_reads or {}
   local previous_index
   for index, read in ipairs(reads) do
     if sameRead(read, previous) then previous_index = index; break end
   end
+  local target_order = target_id and Book.readIdOrder(target_id) or nil
   local out, seen = {}, {}
   local function add(read)
     if read and not read.finished_at and not seen[tostring(read.id)] then
@@ -220,8 +221,9 @@ local function unfinishedFrom(user_book, previous, target)
   for index, read in ipairs(reads) do
     if previous then
       local include = sameRead(read, previous) or index > (previous_index or 0)
+        or (target_order and Book.readIdOrder(read.id) > target_order)
       if previous.started_at and read.started_at then
-        include = read.started_at > previous.started_at
+        include = include or read.started_at > previous.started_at
           or (read.started_at == previous.started_at
             and Book.readIdOrder(read.id) >= Book.readIdOrder(previous.id))
       end
@@ -248,7 +250,7 @@ end
 local function abandonShelfConflict(action, status_id, updated_at)
   action.restore_approval = nil
   return park(action, { kind = "abandon_shelf", read_id = action.read_id,
-    status_id = status_id, updated_at = updated_at })
+    status_id = status_id, updated_at = updated_at, deleted = action.deleted or nil })
 end
 
 local function approvalMatches(action, status, user_book)
@@ -270,7 +272,7 @@ local function postDeleteConflict(user_book, action, restore)
   if action.previous_read and (not previous or not sameRead(previous, action.previous_read)) then
     return "previous_changed", previous
   end
-  local active = unfinishedFrom(user_book, previous, target)
+  local active = unfinishedFrom(user_book, previous, target, action.read_id)
   local allowed = #active == 0
   if not allowed and restore == HARDCOVER.STATUS.DNF and action.previous_read
       and previous and not previous.finished_at and #active == 1
@@ -314,6 +316,8 @@ local function sendAbandon(api, entry, action, opts)
   if not action.deleted then
     if not target then
       if not action.checking then
+        action.deleted = true
+        if opts.persist then opts.persist() end
         return abandonConflict(action, "target_gone", nil, previous, user_book)
       end
       -- A lost delete response is checked: the target is gone, so continue to the restore.
@@ -357,7 +361,7 @@ local function sendAbandon(api, entry, action, opts)
       elseif status ~= HARDCOVER.STATUS.READING then
         return abandonShelfConflict(action, status, user_book.updated_at)
       end
-      local active = unfinishedFrom(user_book, previous, target)
+      local active = unfinishedFrom(user_book, previous, target, action.read_id)
       local allowed = #active == 1
       if not allowed and restore == HARDCOVER.STATUS.DNF and action.previous_read
           and previous and not previous.finished_at and #active == 2 then

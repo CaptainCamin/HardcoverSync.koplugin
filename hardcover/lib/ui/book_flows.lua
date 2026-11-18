@@ -1072,8 +1072,7 @@ function Flows:abandonReread(context, history, read)
     StatusDialogs.info(_("There is no earlier read to restore."))
     return
   end
-  local restore = entry and (tonumber(entry.reread_restore_status_id)
-    or tonumber(entry.from_status_id))
+  local restore = entry and tonumber(entry.reread_restore_status_id)
   if not restore or restore == 0 then
     restore = previous.finished_at and HARDCOVER.STATUS.FINISHED or HARDCOVER.STATUS.DNF
   end

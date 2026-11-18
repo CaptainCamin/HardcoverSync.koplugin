@@ -1031,6 +1031,7 @@ function SyncQueue:resolveRead(key, seq, choice)
       action.restore_approval = { status_id = conflict.status_id,
         previous = action.previous_read, updated_at = conflict.updated_at }
     elseif choice == "leave" then
+      if not action.deleted then return false end
       remove()
     else
       return false

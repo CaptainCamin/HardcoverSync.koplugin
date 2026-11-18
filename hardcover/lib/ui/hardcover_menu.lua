@@ -1279,7 +1279,11 @@ end
 
 function HardcoverMenu:setStatus(status)
   Background.run(function()
-    self.cache:updateBookStatus(self.ui.document.file, status)
+    local result, reason = self.cache:updateBookStatus(self.ui.document.file, status)
+    if not result and reason == "abandon" then
+      StatusDialogs.info(_("Finish the waiting reread before changing this book's shelf."), 3)
+      return
+    end
     -- the reader panel's action follows the status, and the write lands after the panel
     -- has already redrawn when the status dialog closed
     local panel = self.reader_panel
@@ -1334,7 +1338,11 @@ function HardcoverMenu:showEndPage()
       -- stays open: the page then shows Read (or "waiting to send" offline) and a Done button
       m.primary = { text = _("Mark as Read"), stay = true, run = function()
         Background.run(function()
-          self.cache:updateBookStatus(file, HARDCOVER.STATUS.FINISHED)
+          local result, reason = self.cache:updateBookStatus(file, HARDCOVER.STATUS.FINISHED)
+          if not result and reason == "abandon" then
+            StatusDialogs.info(_("Finish the waiting reread before changing this book's shelf."), 3)
+            return
+          end
           if page and UIManager:isWidgetShown(page) then page:render() end
         end)
       end }

@@ -189,13 +189,14 @@ function SyncConflicts.describeRead(entry, conflict)
     }
   end
   if conflict.kind == "abandon_shelf" then
+    local rows = { { id = "restore", text = _("Restore the previous shelf") } }
+    if conflict.deleted then
+      rows[#rows + 1] = { id = "leave", text = _("Leave the shelf as it is") }
+    end
+    rows[#rows + 1] = { id = "later", text = _("Decide later") }
     return {
       title = T(_("%1\n\nThe book's shelf changed on Hardcover while abandoning the reread. Restore the previous shelf without changing any read dates?"), name),
-      rows = {
-        { id = "restore", text = _("Restore the previous shelf") },
-        { id = "leave", text = _("Leave the shelf as it is") },
-        { id = "later", text = _("Decide later") },
-      },
+      rows = rows,
     }
   end
   if conflict.kind == "read_gone" then
@@ -307,13 +308,14 @@ function SyncConflicts.describe(filepath, entry)
   end
 
   if conflict.kind == "abandon_shelf" then
+    local rows = { { id = "restore", text = _("Restore the previous shelf") } }
+    if conflict.deleted then
+      rows[#rows + 1] = { id = "leave", text = _("Leave the shelf as it is") }
+    end
+    rows[#rows + 1] = { id = "later", text = _("Decide later") }
     return {
       title = T(_("%1\n\nThe book's shelf changed on Hardcover while abandoning the reread. Restore the previous shelf without changing any read dates?"), name),
-      rows = {
-        { id = "restore", text = _("Restore the previous shelf") },
-        { id = "leave", text = _("Leave the shelf as it is") },
-        { id = "later", text = _("Decide later") },
-      },
+      rows = rows,
     }
   end
 

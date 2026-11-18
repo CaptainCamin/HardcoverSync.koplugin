@@ -76,7 +76,11 @@ end
 
 function Hardcover:updateCurrentBookStatus(status, privacy_setting_id)
   Background.run(function()
-    self.cache:updateBookStatus(self.ui.document.file, status, privacy_setting_id)
+    local result, reason = self.cache:updateBookStatus(self.ui.document.file, status, privacy_setting_id)
+    if not result and reason == "abandon" then
+      StatusDialogs.info(_("Finish the waiting reread before changing this book's shelf."), 3)
+      return
+    end
     if not self.state.book_status.id then
       self.dialog_manager:showError("Book status could not be updated")
     end
