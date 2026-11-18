@@ -275,14 +275,20 @@ function Actions.cancelReread(entry)
     if action.kind == "status" and action.reread then start = index; break end
   end
   if not start then return false, "missing" end
+  local selected = { [start] = true }
   for index = start, #actions do
     local action = actions[index]
     if Actions.started(action) then return false, "started" end
     if index > start and action.kind == "status" and not action.reread then
       return false, "dependent"
     end
+    -- Pages after the start belong to this reread. Read edits do not: they may correct an
+    -- earlier read and must survive the cancellation.
+    if index > start and action.kind == "page" and action.reread then selected[index] = true end
   end
-  for index = #actions, start, -1 do table.remove(actions, index) end
+  for index = #actions, 1, -1 do
+    if selected[index] then table.remove(actions, index) end
+  end
   Actions.refresh(entry)
   return true
 end

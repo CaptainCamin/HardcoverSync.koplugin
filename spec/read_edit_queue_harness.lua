@@ -17,9 +17,16 @@ package.preload["json"] = function()
     decode = function() return {} end, decode_simple = function() return {} end }
 end
 package.preload["gettext"] = function() return setmetatable({}, { __call = function(_, s) return s end }) end
+package.preload["ffi/util"] = function()
+  return { template = function(s, ...)
+    local args = { ... }
+    return (s:gsub("%%(%d)", function(i) return tostring(args[tonumber(i)]) end))
+  end }
+end
 
 local SyncQueue = require("hardcover/lib/sync_queue")
 local Actions = require("hardcover/lib/reading_actions")
+local SyncConflicts = require("hardcover/lib/sync_conflicts")
 
 local function fakeSettings()
   local store = {}
@@ -675,6 +682,81 @@ check("pre-sync abandon keeps pages from an earlier reading segment", function()
   assert(#actions == 2, "the earlier segment was removed: " .. tostring(#actions))
   assert(actions[1].kind == "page" and actions[1].value == 299)
   assert(actions[2].kind == "status" and actions[2].value == 3)
+end)
+
+local function partialQueue()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { finishedRead(), activeReread() }, 2)
+  api.fail_status_once = true
+  q:abandonReread(7, { read_id = 11, base = activeReread(), previous_read = finishedRead(),
+    restore_status_id = 3 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  return SyncQueue:new { settings = q.settings }, api
+end
+
+check("a partial retry revalidates the predecessor after deletion", function()
+  local q, api = partialQueue()
+  api.records[7].user_book_reads[1].finished_at = "2020-02-20"
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(#api.calls == 2 and api.calls[1].op == "deleteRead")
+  assert(q:readActions(7)[1].conflict.kind == "abandon_changed")
+end)
+
+check("a partial retry rejects a newly competing active read", function()
+  local q, api = partialQueue()
+  table.insert(api.records[7].user_book_reads, { id = 12, started_at = "2026-11-17", progress_pages = 20 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(#api.calls == 2)
+  assert(q:readActions(7)[1].conflict.kind == "abandon_changed")
+end)
+
+check("a restore approval cannot overwrite a later shelf change", function()
+  local q, api = partialQueue()
+  api.records[7].status_id = 5
+  assert(q:flush(api, { user_id = 1 }) == false)
+  local action = q:readActions(7)[1]
+  assert(q:resolveRead(7, action.seq, "restore"))
+  q = SyncQueue:new { settings = q.settings }
+  api.records[7].status_id = 1
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(api.records[7].status_id == 1)
+  assert(#api.calls == 2)
+end)
+
+check("a pre-delete shelf Restore is executable", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { finishedRead(), activeReread() }, 2)
+  q:abandonReread(7, { read_id = 11, base = activeReread(), previous_read = finishedRead(),
+    restore_status_id = 3 })
+  api.records[7].status_id = 4
+  assert(q:flush(api, { user_id = 1 }) == false)
+  local action = q:readActions(7)[1]
+  assert(q:resolveRead(7, action.seq, "restore"))
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(api.records[7].status_id == 3)
+end)
+
+check("a target-gone decision offers Restore", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { finishedRead(), activeReread() }, 2)
+  q:abandonReread(7, { read_id = 11, base = activeReread(), previous_read = finishedRead(),
+    restore_status_id = 3 })
+  table.remove(api.records[7].user_book_reads, 2)
+  assert(q:flush(api, { user_id = 1 }) == false)
+  local action = q:readActions(7)[1]
+  local described = SyncConflicts.describeRead(q:get(7), action.conflict)
+  local restore
+  for _, row in ipairs(described.rows) do if row.id == "restore" then restore = true end end
+  assert(restore, "no Restore choice")
+end)
+
+check("cancelling a reread keeps an unrelated original-read edit", function()
+  local q = queue()
+  q:startReread("/b/7.epub", { book_id = 7, user_id = 1, from_status_id = 3, mapped_page = 12 })
+  enqueue(q, 7, { read_id = 10, base = { finished_at = "2020-01-10" },
+    change = { finished_at = "2020-01-09" } })
+  assert(q:abandonReread("/b/7.epub", {}))
+  assert(#q:readActions(7) == 1 and q:readActions(7)[1].read_id == 10)
 end)
 
 check("a page turned after abandon is not queued for the reread", function()
