@@ -151,8 +151,8 @@ return {
     assert(details and details.reviews_heading, "the details screen has no Reviews heading")
     assert(#review_calls() == 0, "reviews were fetched before the reader asked")
 
-    -- The button is under About, in the scrolling body: it must be inside what is visible
-    -- (nothing is clipped away from a tap on it).
+    -- The heading is in the scrolling body, after the reading row: it must be inside what is
+    -- visible (nothing is clipped away from a tap on it).
     emu:expectText("Reviews")
     emu:shot("reviews_details")
     assert(emu:tap(centre(details.reviews_heading.dimen)), "tapping Reviews did nothing")

@@ -795,19 +795,44 @@ check("a failed request returns nothing", function()
   assert(Api:getSeriesBooks(nil, 1) == nil)
 end)
 
-check("Reviews: a heading row after About, then one Write or Edit button", function()
+check("Reviews comes after the reading row and decision note, and before About and Genres", function()
   local opened, wrote = 0, 0
+  local tagged = {}
+  for k, v in pairs(FULL) do tagged[k] = v end
+  tagged.cached_tags = { Genre = {
+    { tag = "Science fiction", count = 10 }, { tag = "Fiction", count = 8 },
+    { tag = "Classics", count = 6 }, { tag = "Space opera", count = 4 },
+  } }
+  local full = detail(tagged)
+  full.user_book_id = 9101
   local d = BookDetailDialog:new {
-    detail = detail({ title = "T", description = "About it." }),
+    detail = full,
+    on_reads = function() end, on_decision = function() end,
     on_reviews = function() opened = opened + 1 end,
     on_review = function() wrote = wrote + 1 end,
+    state_opts = { queues = { sync_queue = {
+      decisionForBook = function()
+        return { title = "T", kind = "read_changed", note_lines = { "Finish date" } }
+      end,
+      readActions = function() return {} end,
+      keys = function() return {} end,
+    } }, book_id = tagged.book_id, user_id = 1 },
   }
   assert(d.reviews_heading, "no Reviews heading")
   assert(d.reviews_heading.text == "Reviews")
   assert(d.reviews_button == nil, "the Reviews heading is still a round action button")
-  local pos = { about = blockOf(d.content_group, d.description_text), heading = blockOf(d.content_group, d.reviews_heading) }
-  assert(pos.heading and pos.about, "the section is not in the page")
-  assert(pos.about < pos.heading, "Reviews is not after About")
+  local pos = {
+    reading = blockOf(d.content_group, d.reading_row),
+    note = blockOf(d.content_group, d.sync_note),
+    heading = blockOf(d.content_group, d.reviews_heading),
+    about = blockOf(d.content_group, d.description_text),
+    genres = blockOf(d.content_group, d.tags_more),
+  }
+  for name, at in pairs(pos) do assert(at, "the " .. name .. " block is not in the page") end
+  assert(pos.reading < pos.note, "the decision note is not under the reading row")
+  assert(pos.note < pos.heading, "Reviews is not under the decision note")
+  assert(pos.heading < pos.about, "Reviews is not before About")
+  assert(pos.about < pos.genres, "About is not before Genres")
   d.reviews_heading.callback()
   assert(opened == 1, "tapping the heading did not open the reviews")
   assert(d.review_button and d.review_button.text == "Write your review", "no Write button")

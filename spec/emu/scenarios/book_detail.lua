@@ -233,6 +233,15 @@ return {
     assert(typical.add_button == nil and typical.reviews_button == nil and typical.edition_button == nil,
       "a round action button survived layout A")
 
+    -- Approved follow-up: Reviews comes before About.
+    emu:screenNodes()
+    local reviews_node = emu:expectText("Reviews")
+    emu:expectText("About")
+    assert(typical.about_more and typical.about_more.dimen and reviews_node.y
+      and reviews_node.y < typical.about_more.dimen.y,
+      string.format("Reviews (y %s) is not above About (y %s)", tostring(reviews_node.y),
+        tostring(typical.about_more and typical.about_more.dimen and typical.about_more.dimen.y)))
+
     -- the author and the series are plain text under the title (not links)
     emu:expectText("Ursula K. Le Guin")
     emu:expectText("Hainish Cycle #4")
