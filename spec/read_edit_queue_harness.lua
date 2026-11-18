@@ -869,10 +869,14 @@ check("a pre-delete shelf conflict does not offer Leave", function()
   assert(q:flush(api, { user_id = 1 }) == false)
   local action = q:readActions(7)[1]
   local described = SyncConflicts.describeRead(q:get(7), action.conflict)
+  local keep
   for _, row in ipairs(described.rows) do
     assert(row.id ~= "leave", "Leave was offered before the reread was deleted")
+    if row.id == "keep" then keep = true end
   end
+  assert(keep, "the pre-delete shelf conflict did not offer Keep")
   assert(q:resolveRead(7, action.seq, "leave") == false)
+  assert(q:resolveRead(7, action.seq, "keep"))
 end)
 
 check("a target-gone abandon with no predecessor offers Leave", function()
@@ -889,6 +893,18 @@ check("a target-gone abandon with no predecessor offers Leave", function()
   assert(leave, "no way to release a target-gone abandon without a predecessor")
   assert(q:resolveRead(7, action.seq, "leave"))
   assert(not q:hasPending(7))
+end)
+
+check("a backdated DNF does not block a later reread abandon", function()
+  local q, api = queue(), fakeApi()
+  local backdated = { id = 11, started_at = "2018-01-01", edition_id = 7 }
+  api.records[7] = record(7, { finishedRead(), backdated,
+    { id = 12, started_at = "2026-11-16", edition_id = 7 } }, 2)
+  q:abandonReread(7, { read_id = 12, base = { id = 12, started_at = "2026-11-16", edition_id = 7 },
+    previous_read = finishedRead(), restore_status_id = 3 })
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(api.records[7].status_id == 3)
+  assert(#api.records[7].user_book_reads == 2)
 end)
 
 check("a deleted reread checks a higher-id active read even with an old start date", function()

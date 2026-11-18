@@ -192,6 +192,8 @@ function SyncConflicts.describeRead(entry, conflict)
     local rows = { { id = "restore", text = _("Restore the previous shelf") } }
     if conflict.deleted then
       rows[#rows + 1] = { id = "leave", text = _("Leave the shelf as it is") }
+    else
+      rows[#rows + 1] = { id = "keep", text = _("Keep the reread") }
     end
     rows[#rows + 1] = { id = "later", text = _("Decide later") }
     return {
@@ -311,6 +313,8 @@ function SyncConflicts.describe(filepath, entry)
     local rows = { { id = "restore", text = _("Restore the previous shelf") } }
     if conflict.deleted then
       rows[#rows + 1] = { id = "leave", text = _("Leave the shelf as it is") }
+    else
+      rows[#rows + 1] = { id = "keep", text = _("Keep the reread") }
     end
     rows[#rows + 1] = { id = "later", text = _("Decide later") }
     return {

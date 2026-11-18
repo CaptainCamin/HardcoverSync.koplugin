@@ -1033,6 +1033,9 @@ function SyncQueue:resolveRead(key, seq, choice)
     elseif choice == "leave" then
       if not action.deleted then return false end
       remove()
+    elseif choice == "keep" then
+      if action.deleted then return false end
+      remove()
     else
       return false
     end

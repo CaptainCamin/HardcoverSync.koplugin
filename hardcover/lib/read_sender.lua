@@ -220,12 +220,14 @@ local function unfinishedFrom(user_book, previous, target, target_id)
   end
   for index, read in ipairs(reads) do
     if previous then
-      local include = sameRead(read, previous) or index > (previous_index or 0)
+      local include = sameRead(read, previous)
         or (target_order and Book.readIdOrder(read.id) > target_order)
       if previous.started_at and read.started_at then
         include = include or read.started_at > previous.started_at
           or (read.started_at == previous.started_at
             and Book.readIdOrder(read.id) >= Book.readIdOrder(previous.id))
+      else
+        include = include or index > (previous_index or 0)
       end
       if include then add(read) end
     else
@@ -316,8 +318,9 @@ local function sendAbandon(api, entry, action, opts)
   if not action.deleted then
     if not target then
       if not action.checking then
+        -- Park both facts in the same flush; a restart between two saves must not skip the
+        -- Restore/Leave decision.
         action.deleted = true
-        if opts.persist then opts.persist() end
         return abandonConflict(action, "target_gone", nil, previous, user_book)
       end
       -- A lost delete response is checked: the target is gone, so continue to the restore.
