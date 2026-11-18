@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.5.0
+
 ### Improved
 
 - **New installs start with tracking and exact-identifier linking on.** A fresh install tracks progress by default and links a book by ISBN or Hardcover identifier when there is exactly one match. Title/author auto-linking stays off, and an ambiguous match is left for you to choose. Existing readers keep their saved settings, including an explicit off.
