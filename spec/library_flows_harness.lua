@@ -779,15 +779,65 @@ check("the reader-panel offline history exposes the pending reread", function()
 end)
 
 check("a DNF predecessor offers Abandon and restores its shelf", function()
-  local m = abandonFlow()
+  local m, q = abandonFlow()
   local old = { id = 10, started_at = "2020-01-01", edition_id = 7 }
   local active = { id = 11, started_at = "2026-11-01", edition_id = 7 }
+  local historic = { id = 9, started_at = "2018-01-01", finished_at = "2018-01-10" }
   local Edit = real_require("hardcover/lib/ui/read_edit_dialog")
   local original, form = Edit.new, nil
   Edit.new = function(_, options) form = options; return options end
-  m:editRead({ book_id = 7, user_book_id = 507, reads = { old, active } }, nil, active)
+  m:editRead({ book_id = 7, user_book_id = 507, reads = { historic, old, active } }, nil, active)
   Edit.new = original
   assert(form and form.on_abandon, "a DNF predecessor offered no Abandon action")
+  form.on_abandon()
+  local action = q:readActions(7)[1]
+  assert(action.previous_read.id == 10 and action.restore_status_id == HARDCOVER.STATUS.DNF,
+    "an older finished read was mistaken for the DNF predecessor")
+end)
+
+check("a projected DNF row offers Abandon by stable identity", function()
+  local m, q = abandonFlow()
+  local old = { id = 10, started_at = "2020-01-01", edition_id = 7 }
+  local active = { id = 11, started_at = "2026-11-01", edition_id = 7 }
+  local context = { book_id = 7, user_book_id = 507, reads = { old, active } }
+  local rows = m:readHistoryProjection(context)
+  local selected
+  for _, row in ipairs(rows) do if row.id == 11 then selected = row end end
+  assert(selected and selected ~= active)
+  local Edit = real_require("hardcover/lib/ui/read_edit_dialog")
+  local original, form = Edit.new, nil
+  Edit.new = function(_, options) form = options; return options end
+  m:editRead(context, nil, selected)
+  Edit.new = original
+  assert(form and form.on_abandon, "the projected reread was counted as its own predecessor")
+end)
+
+check("fresh state wins over stale saved fields for the same read", function()
+  local m = abandonFlow()
+  local old = { id = 10, started_at = "2020-01-01", finished_at = "2020-01-10" }
+  local saved_active = { id = 11, started_at = "2026-11-01", progress_pages = 12 }
+  local fresh_active = { id = 11, started_at = "2026-11-01", progress_pages = 50 }
+  m.read_store = { get = function() return { reads = { old, saved_active } } end }
+  m.settings.getLinkedBookId = function() return 7 end
+  m.settings.getLinkedTitle = function() return "Example" end
+  m.state.book_status = { id = 507, book_id = 7, status_id = HARDCOVER.STATUS.READING,
+    user_book_reads = { old, fresh_active } }
+  local context
+  m.openReadHistoryWhenAvailable = function(_, c) context = c end
+  m:showLinkedReadHistory()
+  assert(context.reads[2].progress_pages == 50, "stale saved fields won")
+end)
+
+check("success updates the saved shelf without an open details screen", function()
+  local m = abandonFlow()
+  local moved
+  m.shelfChanged = function(_, book_id, old, new, id) moved = { book_id, old, new, id } end
+  m.screens = function() return { open = function() return nil end } end
+  local old = { id = 10, started_at = "2020-01-01", finished_at = "2020-01-10" }
+  m:readSent(7, { id = 507, book_id = 7, status_id = HARDCOVER.STATUS.FINISHED,
+    user_book_reads = { old } }, { kind = "abandon_reread" })
+  assert(moved and moved[3] == HARDCOVER.STATUS.FINISHED,
+    "shelf transition was skipped with details closed")
 end)
 
 check("the success callback moves the details and shelf off Reading", function()

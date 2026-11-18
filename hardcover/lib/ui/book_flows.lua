@@ -722,20 +722,24 @@ function Flows:showLinkedReadHistory(opts)
   local user_id = User:getId()
   local status = self.state and self.state.book_status or {}
   local saved = self.read_store and self.read_store:get(user_id, book_id)
-  local reads = saved and saved.reads
-  if status.user_book_reads then
-    reads = reads or {}
-    local seen = {}
-    for _, read in ipairs(reads) do
-      if read.id ~= nil then seen[tostring(read.id)] = true end
-    end
-    for _, read in ipairs(status.user_book_reads) do
-      if read.id ~= nil and not seen[tostring(read.id)] then
+  local reads = {}
+  local index = {}
+  for _, read in ipairs(saved and saved.reads or {}) do
+    reads[#reads + 1] = read
+    if read.id ~= nil then index[tostring(read.id)] = #reads end
+  end
+  for _, read in ipairs(status.user_book_reads or {}) do
+    if read.id ~= nil then
+      local at = index[tostring(read.id)]
+      if at then
+        reads[at] = read
+      else
         reads[#reads + 1] = read
-        seen[tostring(read.id)] = true
+        index[tostring(read.id)] = #reads
       end
     end
   end
+  if #reads == 0 then reads = saved and saved.reads end
   local context = {
     book = { book_id = book_id, title = self.settings:getLinkedTitle() or tostring(book_id),
       pages = self.settings.pages and self.settings:pages() or nil,
@@ -864,7 +868,9 @@ function Flows:editRead(context, history, read)
   local previous
   local unfinished = {}
   for _, candidate in ipairs(context.reads or {}) do
-    if candidate ~= read and candidate.pending_reread ~= true then
+    local same = candidate == read or (candidate.id ~= nil and read.id ~= nil
+      and tostring(candidate.id) == tostring(read.id))
+    if not same and candidate.pending_reread ~= true then
       if candidate.finished_at then
         if restore ~= HARDCOVER.STATUS.DNF then previous = candidate end
       elseif candidate.id ~= nil then
@@ -872,7 +878,9 @@ function Flows:editRead(context, history, read)
       end
     end
   end
-  if restore == HARDCOVER.STATUS.DNF and #unfinished == 1 then previous = unfinished[1] end
+  if #unfinished == 1 and (restore == HARDCOVER.STATUS.DNF or not restore) then
+    previous = unfinished[1]
+  end
   if not previous and restore ~= HARDCOVER.STATUS.DNF and #unfinished == 1 then
     previous = unfinished[1]
   end
@@ -1104,6 +1112,7 @@ function Flows:readSent(book_id, user_book, op)
 
   local screen = self:screens():open("book")
   local on = screen and screen.detail and screen.detail.book and screen.detail.book.book_id
+  local moved_shelf = false
   if on and tonumber(on) == tonumber(book_id) then
     if reads then screen.detail.reads = reads end
     if op and op.kind == "abandon_reread" and user_book and user_book.status_id then
@@ -1111,8 +1120,12 @@ function Flows:readSent(book_id, user_book, op)
       screen.detail.status_id = user_book.status_id
       screen.detail.user_book_id = user_book.id or screen.detail.user_book_id
       self:shelfChanged(book_id, old, user_book.status_id, user_book.id)
+      moved_shelf = true
     end
     if screen.refreshState then screen:refreshState() end
+  end
+  if op and op.kind == "abandon_reread" and user_book and user_book.status_id and not moved_shelf then
+    self:shelfChanged(book_id, nil, user_book.status_id, user_book.id)
   end
   if op and op.kind == "abandon_reread" and self.state and self.state.book_status
       and tonumber(self.state.book_status.book_id) == tonumber(book_id) and user_book then

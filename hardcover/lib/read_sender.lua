@@ -212,14 +212,20 @@ end
 local function abandonConflict(action, reason, target, previous, user_book)
   return park(action, {
     kind = "abandon_changed", reason = reason, read_id = action.read_id,
-    target = target or action.base, previous = previous or action.previous_read,
+    target = target, previous = previous or action.previous_read,
     deleted = action.deleted or nil,
     status_id = user_book and tonumber(user_book.status_id),
   })
 end
 
 local function abandonShelfConflict(action, status_id)
+  action.restore_approval = nil
   return park(action, { kind = "abandon_shelf", read_id = action.read_id, status_id = status_id })
+end
+
+local function approvalMatches(action, status)
+  local approval = action.restore_approval
+  return approval and tonumber(approval.status_id) == tonumber(status)
 end
 
 -- Delete the reread, then restore the library shelf without sending a finish date. All identity
@@ -240,8 +246,18 @@ local function sendAbandon(api, entry, action, opts)
 
   if action.deleted then
     if target then return abandonConflict(action, "target_reappeared", target, previous, user_book) end
-    if action.previous_read and not previous then
-      return abandonConflict(action, "previous_gone", nil, previous, user_book)
+    if action.previous_read and (not previous or not sameRead(previous, action.previous_read)) then
+      return abandonConflict(action, "previous_changed", nil, previous, user_book)
+    end
+    local active = unfinishedReads(user_book)
+    local allowed = #active == 0
+    if not allowed and restore == HARDCOVER.STATUS.DNF and action.previous_read
+        and previous and not previous.finished_at and #active == 1
+        and tostring(active[1].id) == tostring(previous.id) then
+      allowed = true
+    end
+    if not allowed then
+      return abandonConflict(action, "another_read", nil, previous, user_book)
     end
   else
     if not target then
@@ -261,7 +277,7 @@ local function sendAbandon(api, entry, action, opts)
       if action.previous_read and (not previous or not sameRead(previous, action.previous_read)) then
         return abandonConflict(action, "previous_changed", target, previous, user_book)
       end
-      if status ~= HARDCOVER.STATUS.READING then
+      if status ~= HARDCOVER.STATUS.READING and not approvalMatches(action, status) then
         return abandonShelfConflict(action, status)
       end
       local active = unfinishedReads(user_book)
@@ -297,7 +313,8 @@ local function sendAbandon(api, entry, action, opts)
 
   -- A status-only restore is safe for the predecessor; it never sends a finish date. A shelf
   -- changed by another device is still a decision, unless the reader explicitly chose restore.
-  if status ~= restore and status ~= HARDCOVER.STATUS.READING and not action.force_restore then
+  if status ~= restore and status ~= HARDCOVER.STATUS.READING
+      and not approvalMatches(action, status) then
     return abandonShelfConflict(action, status)
   end
 
