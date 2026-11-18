@@ -222,9 +222,11 @@ local function unfinishedFrom(user_book, previous, target, target_id)
     if previous then
       local include = sameRead(read, previous)
         or (target_order and Book.readIdOrder(read.id) > target_order)
-      if previous.started_at and read.started_at then
-        include = include or read.started_at > previous.started_at
-          or (read.started_at == previous.started_at
+      local previous_when = previous.started_at or previous.finished_at
+      local read_when = read.started_at or read.finished_at
+      if previous_when and read_when then
+        include = include or read_when > previous_when
+          or (read_when == previous_when
             and Book.readIdOrder(read.id) >= Book.readIdOrder(previous.id))
       else
         include = include or index > (previous_index or 0)

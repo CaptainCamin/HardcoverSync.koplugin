@@ -921,6 +921,19 @@ check("an undated DNF predecessor restores Did Not Finish on the server", functi
   assert(#api.records[7].user_book_reads == 2)
 end)
 
+check("a backdated DNF between a finish-only predecessor and target is ignored", function()
+  local q, api = queue(), fakeApi()
+  local finish_only = { id = 10, finished_at = "2024-06-10", edition_id = 7 }
+  local backdated = { id = 11, started_at = "2018-01-01", edition_id = 7 }
+  local active = { id = 12, started_at = "2026-11-16", edition_id = 7 }
+  api.records[7] = record(7, { finish_only, backdated, active }, 2)
+  q:abandonReread(7, { read_id = 12, base = active, previous_read = finish_only,
+    restore_status_id = 3 })
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(api.records[7].status_id == 3)
+  assert(#api.records[7].user_book_reads == 2)
+end)
+
 check("a backdated DNF does not block a later reread abandon", function()
   local q, api = queue(), fakeApi()
   local backdated = { id = 11, started_at = "2018-01-01", edition_id = 7 }

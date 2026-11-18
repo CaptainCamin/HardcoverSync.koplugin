@@ -196,7 +196,9 @@ function ReadHistory.previous(reads, target)
     for index, read in ipairs(ordered) do
       -- A finish-only read still has a session date: use its finish when it has no start.
       local when = read.started_at or read.finished_at
-      if index ~= target_index and when then
+      local finish_only_after = not read.started_at and read.finished_at
+        and Book.readIdOrder(read.id) > Book.readIdOrder(target.id)
+      if index ~= target_index and when and not finish_only_after then
         local before = when < target.started_at
           or (when == target.started_at
             and Book.readIdOrder(read.id) < Book.readIdOrder(target.id))

@@ -905,6 +905,19 @@ check("a finish-only predecessor restores Finished, not an older DNF", function(
     "the older DNF was selected instead of the finish-only read")
 end)
 
+check("a finish-only row added after the session does not enable Abandon", function()
+  local m = abandonFlow()
+  local active = { id = 12, started_at = "2026-11-01" }
+  local backfill = { id = 13, finished_at = "2024-06-10" }
+  local Edit = real_require("hardcover/lib/ui/read_edit_dialog")
+  local original, form = Edit.new, nil
+  Edit.new = function(_, options) form = options; return options end
+  m:editRead({ book_id = 7, user_book_id = 507, status_id = HARDCOVER.STATUS.READING,
+    reads = { active, backfill } }, nil, active)
+  Edit.new = original
+  assert(form and not form.on_abandon, "a later finish-only backfill enabled Abandon")
+end)
+
 check("an undated DNF predecessor restores Did Not Finish", function()
   local m, q = abandonFlow()
   local finished = { id = 10, started_at = "2020-01-01", finished_at = "2020-01-10" }
