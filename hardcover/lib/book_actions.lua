@@ -142,6 +142,16 @@ function BookActions.pageWrite(status_id)
   return "block"
 end
 
+-- Whether saving a rating dialog changed anything. An untouched dialog must
+-- write nothing: an unrated book is still 0, and a rated book is still the same
+-- rating. A 0 from a rated book is a real clear.
+function BookActions.ratingChange(rating, value)
+  local before, after = tonumber(rating), tonumber(value)
+  if after == nil then return false end
+  if before == nil then before = 0 end
+  return before ~= after
+end
+
 --
 -- Whether the reader panel offers the "Update Hardcover as I read" switch. It is offered for a book
 -- being read, and also while it is off (so a book whose tracking was turned off can always be turned
