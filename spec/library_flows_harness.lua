@@ -887,6 +887,55 @@ check("a partial reader snapshot keeps saved earlier reads", function()
     "a partial reader snapshot hid the earlier read")
 end)
 
+check("a backfilled read does not become the reread predecessor", function()
+  local m, q = abandonFlow()
+  local june = { id = 10, started_at = "2024-06-01", finished_at = "2024-06-10" }
+  local active = { id = 12, started_at = "2026-11-01" }
+  local backfill = { id = 13, started_at = "2020-01-01", finished_at = "2020-01-10" }
+  local Edit = real_require("hardcover/lib/ui/read_edit_dialog")
+  local original, form = Edit.new, nil
+  Edit.new = function(_, options) form = options; return options end
+  m:editRead({ book_id = 7, user_book_id = 507, status_id = HARDCOVER.STATUS.READING,
+    reads = { june, active, backfill } }, nil, active)
+  Edit.new = original
+  assert(form and form.on_abandon, "the reread lost Abandon after a backfill")
+  form.on_abandon()
+  local action = q:readActions(7)[1]
+  assert(action.previous_read.id == 10 and action.restore_status_id == HARDCOVER.STATUS.FINISHED,
+    "the backfilled read was mistaken for the predecessor")
+end)
+
+check("a backfilled read after the reread does not hide Abandon", function()
+  local m = abandonFlow()
+  local june = { id = 10, started_at = "2024-06-01", finished_at = "2024-06-10" }
+  local backfill = { id = 11, started_at = "2020-01-01", finished_at = "2020-01-10" }
+  local active = { id = 12, started_at = "2026-11-01" }
+  local Edit = real_require("hardcover/lib/ui/read_edit_dialog")
+  local original, form = Edit.new, nil
+  Edit.new = function(_, options) form = options; return options end
+  m:editRead({ book_id = 7, user_book_id = 507, status_id = HARDCOVER.STATUS.READING,
+    reads = { june, backfill, active } }, nil, active)
+  Edit.new = original
+  assert(form and form.on_abandon, "the later backfill hid the active reread")
+end)
+
+check("an offline snapshot keeps the saved finish date", function()
+  local m = abandonFlow()
+  local saved = { id = 11, started_at = "2024-03-01", finished_at = "2024-03-10",
+    finished_at_precision = 1, edition_id = 7 }
+  local snapshot = { id = 11, started_at = "2024-03-01", edition_id = 7 }
+  m.read_store = { get = function() return { reads = { saved } } end }
+  m.settings.getLinkedBookId = function() return 7 end
+  m.settings.getLinkedTitle = function() return "Example" end
+  m.state.book_status = { id = 507, book_id = 7, status_id = HARDCOVER.STATUS.FINISHED,
+    reads_complete = false, reads_snapshot = true, user_book_reads = { snapshot } }
+  local context
+  m.openReadHistoryWhenAvailable = function(_, c) context = c end
+  m:showLinkedReadHistory()
+  assert(context.reads[1].finished_at == "2024-03-10",
+    "the offline snapshot dropped the saved finish date")
+end)
+
 check("a cleared start date is not filled from saved history", function()
   local m = abandonFlow()
   local saved = { id = 11, started_at = "2026-11-01", edition_id = 7 }

@@ -315,6 +315,7 @@ function HardcoverSettings:bookStatusFromSnapshot(filename)
     privacy_setting_id = settings.privacy_setting_id,
     user_book_reads = {},
     reads_complete = false,
+    reads_snapshot = true,
   }
 
   if settings.read_id or settings.last_synced_page or settings.started_at then

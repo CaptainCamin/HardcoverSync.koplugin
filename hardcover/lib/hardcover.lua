@@ -121,10 +121,14 @@ function Hardcover:linkBook(book)
   local old_edition = self.settings:readBookSetting(filename, "edition_id")
   local old_pages = self.settings:pages()
   if previous ~= book.book_id then
-    self.settings:clearBookSnapshot(filename)
-    if self.cache.sync_queue then
-      self.cache.sync_queue:clear(filename)
+    local queue = self.cache.sync_queue
+    local pending = queue and queue:get(filename)
+    if pending and pending.abandon_barrier then
+      StatusDialogs.error(_("Finish or cancel the waiting reread before linking this book."))
+      return false
     end
+    self.settings:clearBookSnapshot(filename)
+    if queue then queue:clear(filename) end
     self.state.book_status = {}
   end
 

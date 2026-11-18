@@ -756,8 +756,17 @@ function Flows:showLinkedReadHistory(opts)
       if read.id ~= nil then index[tostring(read.id)] = #reads end
     end
     for _, read in ipairs(server or {}) do
-      if read.id ~= nil and index[tostring(read.id)] then
-        reads[index[tostring(read.id)]] = read
+      local at = read.id ~= nil and index[tostring(read.id)] or nil
+      if at then
+        -- A per-file snapshot knows the start and page but not the finish date. Keep the saved
+        -- finish fields for that matching read; a mutation response is not a snapshot and its
+        -- explicit clears remain authoritative.
+        if status.reads_snapshot then
+          for _, key in ipairs({ "finished_at", "finished_at_precision", "edition" }) do
+            if read[key] == nil then read[key] = reads[at][key] end
+          end
+        end
+        reads[at] = read
       else
         reads[#reads + 1] = read
       end

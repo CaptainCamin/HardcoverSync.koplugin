@@ -305,7 +305,7 @@ local function sendAbandon(api, entry, action, opts)
       end
       -- Only the newest read may be abandoned. An earlier DNF is unfinished too, but it is not
       -- the reread, and a DNF shelf is not a reading session.
-      local latest = ReadHistory.latest(user_book.user_book_reads)
+      local latest = ReadHistory.latestUnfinished(user_book.user_book_reads)
       if not latest or tostring(latest.id) ~= tostring(target.id) or status == HARDCOVER.STATUS.DNF then
         return abandonConflict(action, "target_not_active", target, previous, user_book)
       end

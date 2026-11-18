@@ -174,13 +174,32 @@ function ReadHistory.latestUnfinished(reads)
   return latest
 end
 
--- The read immediately before `target` in Hardcover's session order, or nil.
+-- The read before `target` in session chronology. A backfilled historical read gets a new id but
+-- an older start date, so insertion order alone would pick the wrong predecessor. When the target
+-- has no start date, fall back to the order Hardcover sent.
 function ReadHistory.previous(reads, target)
-  local previous
-  for _, read in ipairs(reads or {}) do
-    if sameRead(read, target) then return previous end
-    if type(read) == "table" then previous = read end
+  local ordered = {}
+  local target_index
+  for index, read in ipairs(reads or {}) do
+    if type(read) == "table" then
+      ordered[#ordered + 1] = read
+      if sameRead(read, target) then target_index = #ordered end
+    end
   end
+  if not target_index then return nil end
+  if target.started_at then
+    local best, best_start
+    for index, read in ipairs(ordered) do
+      if index ~= target_index and read.started_at and read.started_at < target.started_at then
+        if not best or read.started_at > best_start
+            or (read.started_at == best_start and Book.readIdOrder(read.id) > Book.readIdOrder(best.id)) then
+          best, best_start = read, read.started_at
+        end
+      end
+    end
+    if best then return best end
+  end
+  return target_index > 1 and ordered[target_index - 1] or nil
 end
 
 -- The one read an Abandon reread action may remove: the newest read overall, while the book is
@@ -189,8 +208,10 @@ end
 -- active one.
 function ReadHistory.activeReread(reads, status_id)
   if tonumber(status_id) ~= HARDCOVER.STATUS.READING then return nil end
-  local latest = ReadHistory.latest(reads)
-  if not latest or latest.finished_at then return nil end
+  -- The active reread is the latest unfinished session. A later backfilled finished read has a
+  -- newer id but is historical, and must not hide the reread.
+  local latest = ReadHistory.latestUnfinished(reads)
+  if not latest then return nil end
   local previous = ReadHistory.previous(reads, latest)
   if not previous then return nil end
   return latest, previous
