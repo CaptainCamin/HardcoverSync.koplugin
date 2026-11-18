@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Improved
+
+- **Reviews moves above About on a book's details.** After your reading row and any decision note, the page shows the Reviews section — its heading, average and Write/Edit button — then About, Genres and the rest. The section keeps its existing button sizes and callbacks.
+
 ### Fixes
 
 - **Progress percentages match Hardcover's journal.** The reader panel, book details and Home truncate the page share the way Hardcover does, so page 50 of 322 reads 15% everywhere instead of 16% on the device and 15% in the journal.
