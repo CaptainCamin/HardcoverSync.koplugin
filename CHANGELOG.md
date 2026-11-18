@@ -22,7 +22,7 @@
 
 ### Fixes
 
-- **Removing a book says what stays.** The confirmation now says your status, rating and review are deleted, but the book's journal entries (notes, quotes, reading history and a copy of the review) stay on Hardcover, public ones still public. That is what Hardcover itself does; the old wording promised the reading history was deleted.
+- **Removing a book says what stays.** The confirmation now says your status, rating and review are deleted, but the book's journal entries (notes, quotes, reading history and the review record, which may keep the review text) stay on Hardcover, public ones still public. That is what Hardcover itself does; the old wording promised the reading history was deleted.
 
 ## 2.4.0
 

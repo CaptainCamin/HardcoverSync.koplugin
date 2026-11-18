@@ -70,6 +70,7 @@ check("a removal question offers keep first, remove anyway, and later", function
   has(d.title, "a rating and reading progress")
   has(d.title, "status, rating and review")
   has(d.title, "journal entries")
+  has(d.title, "Public entries stay public")
   eq(#d.rows, 3, "rows")
   eq(d.rows[1].id, "keep", "keep first"); eq(d.rows[1].text, "Keep the book")
   eq(d.rows[2].id, "remove", "then remove"); has(d.rows[2].text, "anyway")

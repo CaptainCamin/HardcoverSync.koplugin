@@ -81,13 +81,13 @@ function SD.confirm(options)
 end
 
 -- Removing a book deletes its library record (status, rating, review and reads), but Hardcover
--- keeps the book's journal entries, including a copy of the review, with their privacy as it was.
--- Every entry point asks with the same words that say so, and never depends on the optional
--- status-change confirmation.
+-- keeps the book's journal entries, with their privacy as it was; the review record may hold the
+-- review text (docs/hardcover-journal-api.md). Every entry point asks with the same words that
+-- say so, and never depends on the optional status-change confirmation.
 function SD.confirmBookRemoval(title, ok_callback)
   if type(title) ~= "string" or title == "" then title = _("This book") end
   return SD.confirm {
-    text = string.format(_("Remove \"%s\" from your library? Its status, rating and review are deleted. Its journal entries stay on Hardcover: notes, quotes, reading history and a copy of the review. Public entries stay public."), title),
+    text = string.format(_("Remove \"%s\" from your library? Its status, rating and review are deleted. Its journal entries stay on Hardcover: notes, quotes, reading history and the review record, which may keep the review text. Public entries stay public."), title),
     ok_text = _("Remove"),
     ok_callback = ok_callback,
   }

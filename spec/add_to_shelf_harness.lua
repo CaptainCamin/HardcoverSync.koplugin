@@ -483,7 +483,7 @@ check("Remove asks first and sends nothing until confirmed", function()
   press(picker(m, d), "Remove from library")
   assert(#remove_calls == 0, "removed without asking")
   assert(#confirms == 1 and confirms[1].text ==
-    "Remove \"Obelisk\" from your library? Its status, rating and review are deleted. Its journal entries stay on Hardcover: notes, quotes, reading history and a copy of the review. Public entries stay public.",
+    "Remove \"Obelisk\" from your library? Its status, rating and review are deleted. Its journal entries stay on Hardcover: notes, quotes, reading history and the review record, which may keep the review text. Public entries stay public.",
     "no shared removal confirmation: " .. tostring(confirms[1] and confirms[1].text))
   confirms[1].ok_callback()
   assert(#remove_calls == 1 and remove_calls[1] == 55, "removed the wrong record")
