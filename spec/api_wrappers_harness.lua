@@ -158,6 +158,20 @@ check("a call that raises still reaches the callback, with no results", function
   assert(called and first == nil)
 end)
 
+check("findUserBook selects updated_at for abandon approval freshness", function()
+  local original = Api.query
+  local seen
+  Api.query = function(_, query)
+    seen = query
+    return { user_books = { { id = 70, book_id = 7, status_id = 2,
+      updated_at = "2026-11-18T10:00:00+00:00" } } }
+  end
+  local found = Api:findUserBook(7, 1)
+  Api.query = original
+  assert(seen and seen:find("updated_at", 1, true), "the lookup omitted updated_at")
+  assert(found and found.updated_at == "2026-11-18T10:00:00+00:00")
+end)
+
 check("findUserBooks asks once for every book and answers each, false when not on the shelf", function()
   local original = Api.query
   local seen_query, seen, asked = nil, nil, 0
