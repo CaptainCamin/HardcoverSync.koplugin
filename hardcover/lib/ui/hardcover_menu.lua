@@ -726,6 +726,13 @@ function HardcoverMenu:showPendingChanges(menu_instance)
     end,
     on_discard = function() self:queueChanged() end,
     on_send = function() self:sendPending() end,
+    on_retry = function() self:sendPending() end,
+    on_sign_in = function(done)
+      self.on_sign_in(function()
+        self:sendPending()
+        if done then done() end
+      end)
+    end,
     -- an answer is only useful once it is sent; this sends whatever may now be ready
     on_resolved = function(decision, outcome)
       if outcome and outcome.kind == "shelf" and self.dialog_manager

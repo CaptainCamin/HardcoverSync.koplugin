@@ -14,6 +14,7 @@ local T = require("ffi/util").template
 
 local HARDCOVER = require("hardcover/lib/constants/hardcover")
 local Reviews = require("hardcover/lib/reviews")
+local ReviewQueue = require("hardcover/lib/review_queue")
 local PendingStatus = require("hardcover/lib/pending_status")
 local Actions = require("hardcover/lib/reading_actions")
 local SyncConflicts = require("hardcover/lib/sync_conflicts")
@@ -35,7 +36,7 @@ local function stuck(entry)
   if type(entry) ~= "table" then return nil end
   if entry.reason == "reading_changed" then return _("reading changed on Hardcover; remaining work held") end
   if entry.conflict then return _("waiting for your answer") end
-  if entry.held and entry.reason == "scope" then return _("sign in again to send it") end
+  if entry.held and entry.reason == "scope" then return _("permission needed; sign in again") end
   if entry.held or (entry.failures or 0) >= 3 then return _("Hardcover refused it") end
   return nil
 end
@@ -44,7 +45,26 @@ end
 local function heldNote(op)
   if not op.held then return nil end
   if op.reason == "reading_changed" then return _("reading changed on Hardcover; remaining work held") end
-  return op.reason == "scope" and _("sign in again to send it") or _("Hardcover refused it")
+  return op.reason == "scope" and _("permission needed; sign in again") or _("Hardcover refused it")
+end
+
+-- The whole reason a held change is not going, for the row's detail. Short `note`s stay short;
+-- this is what the reader opens when "sign in again" is not enough.
+local function heldDetail(kind, op)
+  if not (type(op) == "table" and op.held) then return nil end
+  if op.reason == "scope" then
+    if kind == "review" then
+      return T(_("Hardcover refused this review because the sign-in does not include %1. The review is still saved on this device. Sign in again and allow review access, then try again."), ReviewQueue.WRITE_SCOPE)
+    end
+    return _("Hardcover refused this change because the sign-in does not include a needed permission. The change is still saved on this device. Sign in again and allow the permission, then try again.")
+  end
+  if op.reason == "refused" then
+    return _("Hardcover refused this change after repeated attempts. It is still saved on this device; you can try again or cancel it.")
+  end
+  if op.reason == "reading_changed" then
+    return _("Hardcover says the reading changed there. The remaining work is held until you review it.")
+  end
+  return _("This change is held and will not be sent until you try again or cancel it.")
 end
 
 local function bookTitle(op)
@@ -139,6 +159,7 @@ function PendingChanges.list(queues)
         if conflict_kind ~= "page" and conflict_kind ~= "reread" then
           rows[#rows + 1] = {
             kind = "page", title = title, note = note or state, state = state, started = state ~= nil,
+            held = entry.held, reason = entry.reason, detail = heldDetail("page", entry),
             shelf_op = entry.reread and shelf_op or nil,
             text = T(_("%1: page %2"), title, entry.mapped_page),
             cancel = function() return sync:cancelPage(filepath) end,
@@ -166,7 +187,8 @@ function PendingChanges.list(queues)
         end
         local seq = action.seq
         rows[#rows + 1] = {
-          kind = "read", title = title, note = read_note, op = action,
+          kind = "read", title = title, note = heldNote(entry) or read_note, op = action,
+          held = entry.held, reason = entry.reason, detail = heldDetail("read", entry),
           file = entry.file, book_id = tonumber(entry.book_id),
           text = T(_("%1: %2"), title, readActionText(action)),
           cancel = function()
@@ -182,7 +204,7 @@ function PendingChanges.list(queues)
     for _i, r in ipairs(ratings:list(queues.user_id)) do
       local title = (type(r.title) == "string" and r.title ~= "") and r.title or T(_("Book %1"), r.book_id or r.user_book_id)
       rows[#rows + 1] = {
-        kind = "rating", title = title,
+        kind = "rating", title = title, held = r.held, reason = r.reason, detail = heldDetail("rating", r),
         text = (r.rating or 0) > 0 and T(_("%1: rating %2"), title, tostring(r.rating))
           or T(_("%1: clear the rating"), title),
         note = heldNote(r) or (r.parked and _("Needs your decision")
@@ -205,6 +227,7 @@ function PendingChanges.list(queues)
         local title = SyncConflicts.title(entry.file, entry)
         rows[#rows + 1] = {
           kind = "status", title = title, note = note, state = state, started = state ~= nil,
+          held = entry.held, reason = entry.reason, detail = heldDetail("status", entry),
           shelf_op = shelfOpOf(entry),
           text = summary and T(_("%1: %2"), title, summary) or T(_("%1: mark as %2"), title, statusText(entry.status_id)),
           cancel = function() return sync_queue:cancelStatus(key) end,
@@ -213,6 +236,7 @@ function PendingChanges.list(queues)
         local title = bookTitle(change)
         rows[#rows + 1] = {
           kind = "shelf", title = title, op = change, note = heldNote(change) or note, state = state, started = state ~= nil,
+          held = change.held, reason = change.reason, detail = heldDetail("shelf", change),
           text = change.kind == "remove" and T(_("%1: remove from your library"), title)
             or (summary and T(_("%1: %2"), title, summary) or T(_("%1: move to %2"), title, statusText(change.status_id))),
           cancel = function() return sync_queue:cancelStatus(key) end,
@@ -229,6 +253,7 @@ function PendingChanges.list(queues)
       local list_id, book_id = op.list_id, op.book_id
       rows[#rows + 1] = {
         kind = "list", title = title, op = op, note = heldNote(op),
+        held = op.held, reason = op.reason, detail = heldDetail("list", op),
         text = op.kind == "remove" and T(_("%1: take off the list \"%2\""), title, name)
           or T(_("%1: put on the list \"%2\""), title, name),
         cancel = function() return lists:cancel(list_id, book_id) end,
@@ -241,7 +266,8 @@ function PendingChanges.list(queues)
     for _i, r in ipairs(reviews:list(queues.user_id)) do
       local title = (type(r.title) == "string" and r.title ~= "") and r.title or T(_("Book %1"), r.book_id or r.user_book_id)
       rows[#rows + 1] = {
-        kind = "review", title = title,
+        kind = "review", title = title, held = r.held, reason = r.reason,
+        detail = heldDetail("review", r), scope = r.reason == "scope" and ReviewQueue.WRITE_SCOPE or nil,
         text = r.text ~= "" and T(_("%1: review"), title) or T(_("%1: remove the review"), title),
         note = heldNote(r) or (r.parked and _("Needs your decision")
           or (r.blocked and _("waiting for an earlier change") or nil)),
@@ -268,6 +294,7 @@ function PendingChanges.list(queues)
       end
       rows[#rows + 1] = {
         kind = "journal", title = title, note = heldNote(op), text = text,
+        held = op.held, reason = op.reason, detail = heldDetail("journal", op),
         cancel = function() return journals:cancel(id) end,
       }
     end
@@ -290,7 +317,8 @@ function PendingChanges.list(queues)
         local key = op.key
         rows[#rows + 1] = {
           kind = "goal", title = name, text = text,
-          note = op.held and (op.reason == "scope" and _("sign in again to send it") or _("Hardcover refused it")) or nil,
+          note = op.held and (op.reason == "scope" and _("permission needed; sign in again") or _("Hardcover refused it")) or nil,
+          held = op.held, reason = op.reason, detail = heldDetail("goal", op),
           cancel = function() return goals:cancel(key) end,
         }
       end
@@ -305,6 +333,21 @@ function PendingChanges.list(queues)
     end
   end
   return rows
+end
+
+-- How many listed changes are held, by why: Home's sync box says "permission" apart from
+-- "waiting for a connection" instead of calling every queued change "will sync when online".
+function PendingChanges.heldCounts(queues)
+  local counts = { total = 0, scope = 0, refused = 0, other = 0 }
+  for _i, row in ipairs(PendingChanges.list(queues)) do
+    if row.held then
+      counts.total = counts.total + 1
+      if row.reason == "scope" then counts.scope = counts.scope + 1
+      elseif row.reason == "refused" then counts.refused = counts.refused + 1
+      else counts.other = counts.other + 1 end
+    end
+  end
+  return counts
 end
 
 -- the line a screen shows: a started state leads, so a long title cannot hide it, then the

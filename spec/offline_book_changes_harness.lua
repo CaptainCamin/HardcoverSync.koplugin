@@ -892,7 +892,7 @@ check("held changes say why in the pending list", function()
   list_queue:get(5, 100).held, list_queue:get(5, 100).reason = true, "refused"
   local rows = PendingChanges.list({ sync_queue = sync_queue, list_queue = list_queue })
   assert(#rows == 2)
-  assert(PendingChanges.line(rows[1]):find("sign in again to send it", 1, true), PendingChanges.line(rows[1]))
+  assert(PendingChanges.line(rows[1]):find("permission needed; sign in again", 1, true), PendingChanges.line(rows[1]))
   assert(PendingChanges.line(rows[2]):find("Hardcover refused it", 1, true), PendingChanges.line(rows[2]))
 end)
 
