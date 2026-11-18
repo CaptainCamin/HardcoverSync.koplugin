@@ -277,6 +277,7 @@ local function postDeleteConflict(user_book, action, restore)
   for id, snapshot in pairs(action.previous_unfinished or {}) do
     local read = findRead(user_book, id)
     if read and not read.finished_at
+        and (not previous or tostring(previous.id) ~= tostring(id))
         and (tostring(read.progress_pages or "") ~= tostring(snapshot.progress_pages or "")
           or tostring(read.started_at or "") ~= tostring(snapshot.started_at or "")) then
       return "another_read", read
@@ -389,17 +390,15 @@ local function sendAbandon(api, entry, action, opts)
       end
 
       if opts.guard and opts.guard() then return "checking", user_book end
-      if not action.previous_unfinished then
-        action.previous_unfinished = {}
-        for _, read in ipairs(user_book.user_book_reads or {}) do
-          if not read.finished_at and read.id ~= nil then
-            action.previous_unfinished[tostring(read.id)] = {
-              progress_pages = read.progress_pages, started_at = read.started_at,
-            }
-          end
+      action.previous_unfinished = {}
+      for _, read in ipairs(user_book.user_book_reads or {}) do
+        if not read.finished_at and read.id ~= nil then
+          action.previous_unfinished[tostring(read.id)] = {
+            progress_pages = read.progress_pages, started_at = read.started_at,
+          }
         end
-        if opts.persist then opts.persist() end
       end
+      if opts.persist then opts.persist() end
       -- Persist the in-flight marker before the request. A restart after a lost response
       -- must know this delete may already have landed.
       action.checking = true
