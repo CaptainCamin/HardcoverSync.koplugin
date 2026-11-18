@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- **A shelf change is no longer lost when Hardcover's answer goes missing.** If the connection drops mid-save, the change is kept and sent when you're connected instead of being offered as a retry you can cancel away — and a change you make while the first one is still on its way is never overwritten by the older, late answer.
+
 - **Progress percentages match Hardcover's journal.** The reader panel, book details and Home truncate the page share the way Hardcover does, so page 50 of 322 reads 15% everywhere instead of 16% on the device and 15% in the journal.
 
 - **A one-book goal says "1 book".** The goal card and its detail use the singular for one book or one page, including "1 book left in 20 days".
