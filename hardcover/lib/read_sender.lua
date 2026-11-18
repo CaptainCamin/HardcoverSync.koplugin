@@ -215,6 +215,7 @@ local function abandonConflict(action, reason, target, previous, user_book)
     target = target, previous = previous or action.previous_read,
     deleted = action.deleted or nil,
     status_id = user_book and tonumber(user_book.status_id),
+    updated_at = user_book and user_book.updated_at,
   })
 end
 
@@ -231,10 +232,8 @@ local function approvalMatches(action, status, user_book)
       or not sameRead(previousRead(user_book, action), approval.previous)) then
     return false
   end
-  if approval.updated_at and user_book.updated_at
-      and tostring(approval.updated_at) ~= tostring(user_book.updated_at) then
-    return false
-  end
+  if not approval.updated_at or not user_book.updated_at then return false end
+  if tostring(approval.updated_at) ~= tostring(user_book.updated_at) then return false end
   return true
 end
 
