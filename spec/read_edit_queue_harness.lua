@@ -147,7 +147,8 @@ local function fakeApi()
 end
 
 local function record(book_id, reads, status)
-  return { id = 500 + book_id, book_id = book_id, status_id = status or 2, user_book_reads = reads or {} }
+  return { id = 500 + book_id, book_id = book_id, status_id = status or 2,
+    updated_at = "2026-11-18T08:00:00Z", user_book_reads = reads or {} }
 end
 
 local function enqueue(q, book_id, payload)
@@ -829,6 +830,44 @@ check("a target-gone decision offers Restore", function()
   local restore
   for _, row in ipairs(described.rows) do if row.id == "restore" then restore = true end end
   assert(restore, "no Restore choice")
+end)
+
+check("a target-gone Restore approval rejects a same-shelf ABA", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { finishedRead(), activeReread() }, 2)
+  q:abandonReread(7, { read_id = 11, base = activeReread(), previous_read = finishedRead(),
+    restore_status_id = 3 })
+  api.records[7].status_id = 5
+  api.records[7].updated_at = "2026-11-18T08:00:00Z"
+  table.remove(api.records[7].user_book_reads, 2)
+  assert(q:flush(api, { user_id = 1 }) == false)
+  local action = q:readActions(7)[1]
+  assert(action.conflict.reason == "target_gone" and action.conflict.updated_at)
+  assert(q:resolveRead(7, action.seq, "restore"))
+  q = SyncQueue:new { settings = q.settings }
+  api.records[7].status_id = 1
+  api.records[7].updated_at = "2026-11-18T08:30:00Z"
+  api.records[7].status_id = 5
+  api.records[7].updated_at = "2026-11-18T09:00:00Z"
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(api.records[7].status_id == 5)
+  assert(#api.calls == 0)
+end)
+
+check("an approval without a version fails closed", function()
+  local q, api = queue(), fakeApi()
+  api.records[7] = record(7, { finishedRead(), activeReread() }, 2)
+  q:abandonReread(7, { read_id = 11, base = activeReread(), previous_read = finishedRead(),
+    restore_status_id = 3 })
+  api.records[7].status_id = 5
+  assert(q:flush(api, { user_id = 1 }) == false)
+  local action = q:readActions(7)[1]
+  assert(q:resolveRead(7, action.seq, "restore"))
+  action.restore_approval.updated_at = nil
+  q = SyncQueue:new { settings = q.settings }
+  api.records[7].updated_at = "2026-11-18T09:00:00Z"
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(api.records[7].status_id == 5)
 end)
 
 check("cancelling a reread keeps an unrelated original-read edit", function()
