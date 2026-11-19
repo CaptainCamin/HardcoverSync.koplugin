@@ -1433,10 +1433,9 @@ local function removalBlocksFinish(self, opts, file_path)
   end
 
   -- A completed removal leaves a marker for that book. An offline reopen has no
-  -- Hardcover record to restore, but a newer queued shelf choice means the reader
-  -- has already put it back.
+  -- Hardcover record to restore: a passive check of KOReader's older Finished flag
+  -- must not turn a queued re-add into Read. Only an explicit choice does.
   if opts and opts.explicit then return false end
-  if pending and pending.kind == "status" then return false end
   return file_path and settings and settings.readRemovedMarker
     and settings:readRemovedMarker(file_path) or false
 end

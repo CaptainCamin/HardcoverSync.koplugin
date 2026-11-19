@@ -158,7 +158,7 @@ KB.check("the Did not finish prompt sends an explicit Mark as Read", function()
     "a waiting removal could override the reader's explicit choice")
 end)
 
-KB.check("a queued shelf choice overrides the completed-removal marker", function()
+KB.check("a stale Finished flag does not override a queued re-add", function()
   local q = KB.newQueue()
   q:enqueueStatus(FILE, { user_id = 1, book_id = 7, status_id = HARDCOVER.STATUS.READING,
     from_status_id = HARDCOVER.STATUS.FINISHED })
@@ -173,8 +173,15 @@ KB.check("a queued shelf choice overrides the completed-removal marker", functio
     effectiveStatusId = function() return nil end,
     finishBook = function() end,
   }
-  KB.eq(HardcoverApp.markFinished(app, FILE, "end_auto"), true,
-    "the removal marker blocked a book the reader put back")
+  KB.eq(HardcoverApp.markFinished(app, FILE, "end_auto"), false,
+    "a saved Finished flag overrode the new shelf choice")
+  local explicit = {
+    settings = app.settings, sync_queue = q,
+    effectiveStatusId = function() return nil end,
+    finishBook = function() end,
+  }
+  KB.eq(HardcoverApp.markFinished(explicit, FILE, "end_chosen", { explicit = true }), true,
+    "an explicit choice could not put the book back")
 end)
 
 KB.check("the book-status screen marks a fresh Finished choice as explicit", function()

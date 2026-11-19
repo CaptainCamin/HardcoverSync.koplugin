@@ -1673,7 +1673,10 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
             if op.kind == "abandon_reread" then
               entry.abandon_barrier = Actions.hasAbandon(entry) or nil
             end
-            if self:isEmpty(entry) then self:_drop(filepath) end
+            if self:isEmpty(entry) then
+              self:_drop(filepath)
+              completed_here = true
+            end
             self:persist()
             if opts.on_read_sent then opts.on_read_sent(entry.book_id, detail, op) end
           end

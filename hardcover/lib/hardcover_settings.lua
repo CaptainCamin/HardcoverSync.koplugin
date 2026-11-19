@@ -337,7 +337,8 @@ function HardcoverSettings:clearRemovedMarkersFor(book_id)
   if type(books) ~= "table" then return end
   local files = {}
   for file, config in pairs(books) do
-    if type(config) == "table" and tostring(config.book_id) == tostring(book_id) then
+    if type(config) == "table" and tostring(config.book_id) == tostring(book_id)
+        and config[REMOVED_KEY] ~= nil then
       files[#files + 1] = file
     end
   end
