@@ -97,27 +97,35 @@ return {
     emu:shot("start_reading_before")
     local old_top = panel.sheet_top
 
+    -- Capture the panel's repaint request before UIManager merges refreshes
+    -- into the full-screen ones the harness itself queues.
+    local original_set_dirty = UIManager.setDirty
+    local exposed_refresh = false
+    UIManager.setDirty = function(um, widget, mode, region, dither)
+      if widget == "all" and type(region) == "table" and region.x <= 0
+          and region.x + region.w >= Device.screen:getWidth()
+          and region.y <= old_top and region.y + region.h >= panel.sheet_top then
+        exposed_refresh = true
+      end
+      return original_set_dirty(um, widget, mode, region, dither)
+    end
     emu.probe:reset()
     local start = emu:expectText("Start reading")
     emu:tapExpecting(start.x + math.floor(start.w / 2), start.y + math.floor(start.h / 2))
     emu:pump()
     emu:screenNodes()
+    UIManager.setDirty = original_set_dirty
     expect_panels("after Start reading", 1)
     assert(state.book_status.status_id == HARDCOVER.STATUS.READING, "Start reading did not change the shelf")
     assert(panel.sheet_top > old_top, "the panel should shrink when Start reading removes the card")
 
-    -- Check the refresh request itself before taking a screenshot: emu:shot
-    -- queues a full-screen refresh, which must not be what makes this pass.
-    local probe = emu.probe:snapshot()
-    local covers_strip = false
-    for _, r in ipairs(probe.log) do
-      if r.y <= old_top + 12 and r.y + r.h >= panel.sheet_top - 4 then covers_strip = true end
-    end
+    -- Check the work itself before emu:shot: neither the harness's full-screen
+    -- refresh nor its final pixels may be what makes this pass.
     local page_repainted = false
     for _, name in ipairs(emu.probe.paints) do
       if name == "reader_page_stub" then page_repainted = true end
     end
-    assert(covers_strip, "no refresh covered the strip the shorter panel uncovered")
+    assert(exposed_refresh, "the panel did not request a refresh covering the uncovered strip")
     assert(page_repainted, "the page under the strip was not repainted")
     emu:shot("start_reading_after")
     local ghost = dark_pixels(old_top, panel.sheet_top)
