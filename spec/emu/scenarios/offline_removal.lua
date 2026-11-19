@@ -131,6 +131,11 @@ return {
       return { id = USER_BOOK_ID, book_id = BOOK_ID, status_id = TO_READ,
         rating = 4, has_review = false, user_book_reads = {} }
     end
+    local real_remove = Api.removeUserBook
+    Api.removeUserBook = function(api, id)
+      assert(lookups == 1, "the delete ran before the record was rechecked")
+      return real_remove(api, id)
+    end
     assert(sync_queue:flush(Api, { user_id = user_id }), "the queued removal was not sent")
     assert(lookups == 1, "the record was not rechecked before the delete")
     assert(count("removeUserBook") == 1, "the removal was not sent exactly once")

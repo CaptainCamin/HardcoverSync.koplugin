@@ -1411,6 +1411,18 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
   end
 end
 
+-- A removal that appeared since the earlier check (the page write can yield) still owns
+-- this book's shelf. An explicit Mark as Read is the reader putting it back; an abandon
+-- decision has to be answered before any status write can take effect.
+local function removalBlocksFinish(self, opts)
+  local book_id = self.settings and self.settings.getLinkedBookId
+    and self.settings:getLinkedBookId()
+  local pending = book_id and self.sync_queue and self.sync_queue:shelfOp(book_id, User:getId())
+  if not (pending and pending.kind == "remove") then return false end
+  local entry = self.sync_queue:get(book_id)
+  return not (opts and opts.explicit) or (entry and entry.abandon_barrier) or false
+end
+
 -- Write Read for a book that has ended, if the book's status allows it (see BookActions.statusWrite).
 -- Decided when the write would happen, not when the book was opened: the status can change in the
 -- time between. Every trigger comes through here, so a second one finds the first one's write
@@ -1420,20 +1432,11 @@ function HardcoverApp:markFinished(file_path, event, opts)
   -- Automatically finishing a book the reader asked to remove must not turn that
   -- queued removal back into a Read. An explicit "Mark as Read" still counts as
   -- putting the book back, so it keeps its normal path and acknowledgement.
-  local book_id = self.settings and self.settings.getLinkedBookId
-    and self.settings:getLinkedBookId()
-  local linked = book_id and self.sync_queue and self.sync_queue:shelfOp(book_id, User:getId())
-  if linked and linked.kind == "remove" then
-    -- A queued abandon owns the shelf until its question is answered: a status write
-    -- would be refused by the cache, so do not claim this one succeeded.
-    local entry = self.sync_queue:get(book_id)
-    local blocked = not (opts and opts.explicit) or (entry and entry.abandon_barrier)
-    if blocked then
-      if opts and opts.explicit then
-        StatusDialogs.info(_("Resolve the reread decision in Pending changes before marking as Read."), 4)
-      end
-      return false
+  if removalBlocksFinish(self, opts) then
+    if opts and opts.explicit then
+      StatusDialogs.info(_("Resolve the reread decision in Pending changes before marking as Read."), 4)
     end
+    return false
   end
 
   local decision = BookActions.statusWrite(self:effectiveStatusId(file_path), event)
@@ -1445,17 +1448,20 @@ function HardcoverApp:markFinished(file_path, event, opts)
     return false
   end
   Background.run(function()
-    self:finishBook(file_path)
+    self:finishBook(file_path, opts)
   end)
   return true
 end
 
 -- Once the book is Finished page writes are blocked, so the page the reader ended on goes
 -- first (offline the queue also sends the page before the status).
-function HardcoverApp:finishBook(file_path)
+function HardcoverApp:finishBook(file_path, opts)
   if self.ui.document and self.ui.document.file == file_path and self:pageWriteDecision(file_path) == "allow" then
     self:updatePageNowForced(file_path)
   end
+  -- The page write can yield: a removal made in that time still wins over an
+  -- unprompted finish. An explicit Mark as Read keeps its normal path.
+  if removalBlocksFinish(self, opts) then return end
   self.cache:updateBookStatus(file_path, HARDCOVER.STATUS.FINISHED)
 end
 

@@ -137,6 +137,23 @@ KB.check("closing a removed book does not write Read over the removal", function
   end
 end)
 
+KB.check("a removal made during the page write survives the finish", function()
+  local q = KB.newQueue()
+  local app = {
+    settings = { getLinkedBookId = function() return 7 end },
+    sync_queue = q,
+    ui = { document = { file = FILE } },
+    pageWriteDecision = function() return "allow" end,
+    -- the page write yields, and the reader removes the book in that window
+    updatePageNowForced = function()
+      q:queueRemove(1, 7, 500, "Book 7", HARDCOVER.STATUS.READING, nil)
+    end,
+    cache = { updateBookStatus = function() error("finish overwrote the new removal") end },
+  }
+  HardcoverApp.finishBook(app, FILE)
+  KB.eq(q:shelfOp(7).kind, "remove", "the finish replaced the removal made during its page write")
+end)
+
 KB.check("setting the page by hand supersedes an older queued page", function()
   local q = KB.newQueue()
   q:enqueuePage(FILE, { mapped_page = 120, book_id = 7, edition_id = 3 })
