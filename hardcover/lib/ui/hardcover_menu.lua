@@ -1382,6 +1382,23 @@ function HardcoverMenu:removeCurrentRead(menu_instance)
     review_spoilers = status.review_has_spoilers,
     review_known = status.review_known,
   }
+  -- The reader's rating can be a draft awaiting sync. Compare a removal against the
+  -- rating Hardcover had before that draft, so a matching server-side change is still
+  -- seen as work the reader never asked to delete.
+  local rating_op
+  if self.rating_queue then
+    local _key, op = self.rating_queue:bookOpKey(status.id, book_id, User:getId())
+    rating_op = op
+  end
+  if rating_op then
+    if type(rating_op.base) == "table" and rating_op.base.known then
+      detail.user_rating = rating_op.base.rating
+      detail.rating_known = true
+    else
+      detail.user_rating = nil
+      detail.rating_known = false
+    end
+  end
   if manager.withPending then detail = manager:withPending(detail) end
 
   local function removed()

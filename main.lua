@@ -1417,6 +1417,12 @@ end
 -- already counted (the effective status includes a change still waiting in the queue) and does nothing.
 -- Returns true when Read was written or queued.
 function HardcoverApp:markFinished(file_path, event)
+  -- Closing a book the reader already asked to remove must not turn that queued
+  -- removal back into a Read just because the book is marked Finished here.
+  local linked = self.settings and self.settings.getLinkedBookId
+    and self.sync_queue and self.sync_queue:shelfOp(self.settings:getLinkedBookId(), User:getId())
+  if linked and linked.kind == "remove" then return false end
+
   local decision = BookActions.statusWrite(self:effectiveStatusId(file_path), event)
   if decision == "ask" then
     self:askDidNotFinish(file_path)

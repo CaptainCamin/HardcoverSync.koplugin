@@ -43,6 +43,17 @@ local scopeMissing = AuthScope.missing
 
 local Flows = {}
 
+-- A mutation can land even when its answer is missing or a gateway fails before it
+-- reaches us. Keep those removals for the queue's lookup; a definite server refusal
+-- still gets the retry dialog.
+local function removalUnanswered(err)
+  if err == nil then return true end
+  if type(err) ~= "table" then return false end
+  if err.completed == false or err.error == "no_response" then return true end
+  local status = tonumber(err.status)
+  return status ~= nil and status >= 500
+end
+
 --
 -- Fetch and display full details for one book.
 --
@@ -1906,7 +1917,7 @@ function Flows:queueBookRemoval(detail)
     status_id = online_status,
     status_known = online_status ~= nil,
     rating = server.user_rating,
-    rating_known = true,
+    rating_known = server.rating_known ~= false,
     review_raw = server.user_review,
     review_has_spoilers = server.review_spoilers,
     review_known = server.review_known == true,
@@ -1952,14 +1963,18 @@ function Flows:removeBook(detail, opts)
     if not removed then
       -- Like an unanswered shelf change, a delete with no answer may have landed. Keep
       -- it and let the flush look the record up before sending anything again.
-      if queue and book_id and (err == nil or (type(err) == "table"
-          and (err.completed == false or err.error == "no_response"))) then
+      if queue and book_id and removalUnanswered(err) then
         local lost = queue:get(book_id)
         if lost and not lost.maybe_remote then
           lost.maybe_remote = true
           queue:persist()
         end
         local outcome, abandon = self:queueBookRemoval(detail)
+        local kept = queue:get(book_id)
+        if kept and not kept.maybe_remote then
+          kept.maybe_remote = true
+          queue:persist()
+        end
         if opts.on_queued then opts.on_queued(outcome, abandon, true) end
         return
       end

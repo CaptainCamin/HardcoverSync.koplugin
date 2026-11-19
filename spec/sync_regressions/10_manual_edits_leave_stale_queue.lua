@@ -38,6 +38,7 @@ end
 local Api = real_require("hardcover/lib/hardcover_api")
 local Cache = real_require("hardcover/lib/cache")
 local DialogManager = real_require("hardcover/lib/ui/dialog_manager")
+local HardcoverApp = real_require("main")
 local HardcoverMenu = real_require("hardcover/lib/ui/hardcover_menu")
 local HARDCOVER = real_require("hardcover/lib/constants/hardcover")
 local User = real_require("hardcover/lib/user")
@@ -88,6 +89,18 @@ KB.check("removing the book also drops its queued changes", function()
   Api.removeUserBookAsync = function(_, id, cb) cb(Api:removeUserBook(id)) end
   newMenu(q):removeCurrentRead(mi)
   KB.eq(q:hasPending(FILE), false, "queued entry after removing the book")
+end)
+
+KB.check("closing a removed book does not write Read over the removal", function()
+  local q = KB.newQueue()
+  q:queueRemove(1, 7, 500, "Book 7", HARDCOVER.STATUS.READING, nil)
+  local app = {
+    settings = { getLinkedBookId = function() return 7 end },
+    sync_queue = q,
+    effectiveStatusId = function() error("auto-finish looked past the queued removal") end,
+  }
+  KB.eq(HardcoverApp.markFinished(app, FILE, "end_chosen"), false, "auto-finish was not blocked")
+  KB.eq(q:shelfOp(7).kind, "remove", "auto-finish replaced the queued removal")
 end)
 
 KB.check("setting the page by hand supersedes an older queued page", function()

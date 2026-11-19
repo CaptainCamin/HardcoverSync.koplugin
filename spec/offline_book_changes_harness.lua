@@ -578,6 +578,66 @@ check("the reader's Status remove keeps the same offline removal, with the confl
   assert(sync_queue:count() == 0, "the sent removal is still queued")
 end)
 
+check("a gateway failure keeps the removal, but a definite refusal still offers retry", function()
+  local m = newManager()
+  local d = detailScreen(m, SHELVED())
+  tap(showing(function() m:chooseShelf(d) end), "Remove from library")
+  confirms[1].ok_callback()
+  remove_cb(nil, { status = 502 })
+  local entry = sync_queue:get(1)
+  assert(entry and entry.remove and entry.maybe_remote,
+    "the uncertain delete was not kept: " .. tostring(entry and entry.remove) .. "/"
+    .. tostring(entry and entry.maybe_remote))
+  assert(#retries == 0, "an uncertain answer only offered a retry")
+  assert(lastInfo():find("no answer"), "no visible acknowledgement: " .. lastInfo())
+
+  m = newManager()
+  d = detailScreen(m, SHELVED())
+  tap(showing(function() m:chooseShelf(d) end), "Remove from library")
+  confirms[1].ok_callback()
+  remove_cb(nil, { errors = { { message = "permission denied" } }, status = 200 })
+  assert(#retries == 1 and sync_queue:count() == 0, "a definite refusal was queued instead of retried")
+end)
+
+check("a draft rating is not mistaken for Hardcover's rating in a reader removal", function()
+  local m = newManager()
+  local HardcoverMenu = real_require("hardcover/lib/ui/hardcover_menu")
+  rating_queue:queue(51, 5, "Book 1", 1, 1, { rating = 3, known = true })
+  local menu = setmetatable({
+    enabled = true,
+    sync_queue = sync_queue,
+    rating_queue = rating_queue,
+    dialog_manager = m,
+    settings = {
+      getLinkedBookId = function() return 1 end,
+      getLinkedTitle = function() return "Book 1" end,
+    },
+    -- the open book shows the draft, not the 3 stars Hardcover last had
+    state = { book_status = { id = 51, book_id = 1, status_id = 1, rating = 5,
+      user_book_reads = {} } },
+    ui = { document = { file = "/books/a.epub" }, doc_props = { display_title = "a.epub" } },
+  }, { __index = HardcoverMenu })
+
+  online = false
+  menu:removeCurrentRead({ updateItems = function() end })
+  local entry = sync_queue:get(1)
+  assert(entry and entry.remove, "the removal was not kept")
+  assert(entry.remove_base.rating == 3 and entry.remove_base.rating_known,
+    "the draft rating became the removal baseline: " .. tostring(entry.remove_base.rating))
+
+  -- an independent change to the same 5 stars must still be noticed
+  online = true
+  local api = serverApi()
+  function api:findUserBookForRemoval(book_id)
+    return { id = 51, book_id = book_id, status_id = 1, rating = 5,
+      has_review = false, user_book_reads = {} }
+  end
+  assert(not sync_queue:flush(api, { user_id = 1 }), "the unseen rating was deleted silently")
+  local asked = sync_queue:get(1).conflict
+  assert(asked and asked.kind == "remove", "no conflict was raised for the unseen rating")
+  assert(#server_calls == 0, "the record was deleted before the reader answered")
+end)
+
 check("an unanswered details removal is kept and still asks before deleting", function()
   local m = newManager()
   local d = detailScreen(m, SHELVED())
