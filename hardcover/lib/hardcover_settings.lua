@@ -305,21 +305,24 @@ end
 
 -- Restore the library status of a confirmed re-add without touching the file's
 -- linked edition or page count: a details shelf choice can name a different edition.
-function HardcoverSettings:saveShelfSnapshot(filename, user_book)
+function HardcoverSettings:saveShelfSnapshot(filename, user_book, tracks_active_read)
   if not filename or not user_book or not user_book.id then return end
+  if tracks_active_read == nil then tracks_active_read = true end
   local reads = user_book.user_book_reads
   local current_read = Book:currentRead(reads)
   local config = {
     user_book_id = user_book.id,
-    status_id = user_book.status_id,
     privacy_setting_id = user_book.privacy_setting_id,
-    read_id = current_read and current_read.id,
-    started_at = current_read and current_read.started_at,
-    last_synced_page = current_read and current_read.progress_pages,
-    read_edition_id = current_read and current_read.edition_id,
   }
+  if tracks_active_read then
+    config.status_id = user_book.status_id
+    config.read_id = current_read and current_read.id
+    config.started_at = current_read and current_read.started_at
+    config.last_synced_page = current_read and current_read.progress_pages
+    config.read_edition_id = current_read and current_read.edition_id
+  end
   local delete = {}
-  for _, key in ipairs({ "read_id", "started_at", "last_synced_page", "read_edition_id" }) do
+  for _, key in ipairs({ "status_id", "read_id", "started_at", "last_synced_page", "read_edition_id" }) do
     if config[key] == nil then delete[#delete + 1] = key end
   end
   if #delete > 0 then config._delete = delete end
@@ -361,13 +364,17 @@ function HardcoverSettings:saveShelfSnapshotsFor(book_id, user_book)
   if not book_id then return end
   local books = self.settings:readSetting(SETTING.BOOKS)
   if type(books) ~= "table" then return end
-  local files = {}
+  local current_read = Book:currentRead(user_book.user_book_reads)
+  local read_edition = current_read and current_read.edition_id or user_book.edition_id
   for file, config in pairs(books) do
     if type(config) == "table" and tostring(config.book_id) == tostring(book_id) then
-      files[#files + 1] = file
+      -- Another linked edition has its own page count: restoring the active read
+      -- there would make automatic progress map into the wrong units.
+      local same_edition = read_edition == nil or config.edition_id == nil
+        or tostring(config.edition_id) == tostring(read_edition)
+      self:saveShelfSnapshot(file, user_book, same_edition)
     end
   end
-  for _, file in ipairs(files) do self:saveShelfSnapshot(file, user_book) end
 end
 
 -- The marker describes one catalog book. If a file was unlinked or relinked, it does

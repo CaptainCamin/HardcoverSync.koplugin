@@ -111,6 +111,20 @@ KB.check("clearing a removed book keeps every other link on its files", function
   KB.eq(settings:readBookSetting(FILE, "edition_id"), 3, "the re-add switched the linked edition")
   KB.eq(settings:bookStatusFromSnapshot(FILE).user_book_reads[1].edition_id, 9,
     "offline progress would rewrite the confirmed read's edition")
+
+  -- Another file links the same book but a different edition. It gets the library
+  -- record back, not the active read whose pages use another edition's scale.
+  local second = "/books/second.epub"
+  settings:updateBookSetting(second, { book_id = 7, edition_id = 4, sync = true })
+  settings:clearBookSnapshotsFor(7)
+  settings:saveShelfSnapshotsFor(7, { id = 73, book_id = 7, status_id = 3,
+    user_book_reads = { { id = 13, progress_pages = 4, edition_id = 3 } } })
+  local other_status = settings:bookStatusFromSnapshot(second)
+  KB.eq(other_status.id, 73, "the second copy did not get the library record")
+  KB.eq(other_status.status_id, nil, "the second copy would track pages in the wrong edition")
+  KB.eq(#other_status.user_book_reads, 0, "the second copy inherited an incompatible read")
+  KB.eq(settings:readBookSetting(second, "edition_id"), 4, "the second copy lost its own edition")
+  KB.eq(settings:readRemovedMarker(second), false, "the second copy kept a removed marker")
 end)
 
 KB.finish("only a real status change may drop Bookshelf's shelves")
