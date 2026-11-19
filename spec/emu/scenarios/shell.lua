@@ -113,10 +113,10 @@ return {
     emu:shot("shell_snackbar_x")
     -- The toast must stay on the stack until KOReader has finished passing the tap down;
     -- removing it mid-dispatch can let the tab under the X take the same tap.
-    local dispatching, closed_during_tap = false, false
+    local dispatching, closed_during_tap, reached_snackbar = false, false, false
     local handle_event, close = snackbar.handleEvent, snackbar.close
     function snackbar:handleEvent(event)
-      dispatching = true
+      dispatching, reached_snackbar = true, true
       local handled = handle_event(self, event)
       dispatching = false
       return handled
@@ -127,8 +127,15 @@ return {
     end
     local close_x = snackbar.region.x + snackbar.region.w - (Theme.px(16) - Theme.px(4))
       - Theme.TOUCH_MIN / 2
-    emu:tapExpecting(close_x, snackbar.region.y + snackbar.region.h - Theme.px(20))
+    local Event = require("ui/event")
+    local Geom = require("ui/geometry")
+    local Time = require("ui/time")
+    local gesture = { ges = "tap",
+      pos = Geom:new { x = close_x, y = snackbar.region.y + snackbar.region.h - Theme.px(20), w = 0, h = 0 },
+      time = Time.now() }
+    UIManager:sendEvent(Event:new("Gesture", gesture))
     emu:pump()
+    assert(reached_snackbar, "the X tap did not reach the snackbar")
     assert(not closed_during_tap, "the snackbar closed while the X tap was still being dispatched")
     assert(shell.active == "home", "the snackbar X opened the tab below: " .. shell.active)
     assert(UIManager:getTopmostVisibleWidget() == shell, "the snackbar X did not close the snackbar")
