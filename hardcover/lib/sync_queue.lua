@@ -1525,6 +1525,19 @@ local function findUserBook(api, book_id, opts, prefetched)
   return api:findUserBook(book_id, opts.user_id)
 end
 
+local function removalSent(opts, op, result)
+  if type(opts) == "table" and type(opts.on_removed) == "function" then
+    opts.on_removed(op, result)
+  end
+end
+
+local function clearRemovedSnapshots(opts, book_id)
+  local settings = type(opts) == "table" and opts.settings
+  if type(settings) == "table" and type(settings.clearBookSnapshotsFor) == "function" then
+    settings:clearBookSnapshotsFor(book_id)
+  end
+end
+
 -- A removal needs what a delete would take with it (rating, review and reads), which the
 -- ordinary lookup does not ask for. Older API doubles keep working through findUserBook.
 local function findRemovalRecord(api, book_id, opts)
@@ -1570,6 +1583,8 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
       if now == entry then
         local op = SyncQueue.opOf(entry)
         self:_drop(filepath)
+        clearRemovedSnapshots(opts, book_id)
+        removalSent(opts, op, current)
         self:persist()
         if opts.on_status_sent and not entry.file then opts.on_status_sent(op, current) end
       end
@@ -1592,13 +1607,23 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
     end
 
     local removed, err = api:removeUserBook(current.id)
-    if not removed then return failed(self, filepath, err) end
+    if not removed then
+      -- A missing answer may still have deleted the record. Remember that on the
+      -- queue so putting the book back keeps its edition for a possible re-insert.
+      if OfflineQueue.transient(err) and self:get(filepath) == entry then
+        entry.maybe_remote = true
+        self:persist()
+      end
+      return failed(self, filepath, err)
+    end
     self.last_flush_sent = true
     -- a status made while this was out is what is left to send
     local now = self:get(filepath)
     if now == entry and entry.remove then
       local op = SyncQueue.opOf(entry)
       self:_drop(filepath)
+      clearRemovedSnapshots(opts, book_id)
+      removalSent(opts, op, removed)
       self:persist()
       if opts.on_status_sent and not entry.file then opts.on_status_sent(op, removed) end
     end

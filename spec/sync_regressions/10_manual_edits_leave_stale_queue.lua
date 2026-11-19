@@ -137,6 +137,40 @@ KB.check("closing a removed book does not write Read over the removal", function
   end
 end)
 
+KB.check("the Did not finish prompt sends an explicit Mark as Read", function()
+  local captured, called
+  local real_confirm = StatusDialogs.confirm
+  StatusDialogs.confirm = function(opts) captured = opts end
+  local app = {
+    state = {},
+    markFinishedAndSay = function(self, file, event, opts)
+      called = { file = file, event = event, opts = opts }
+      return true
+    end,
+  }
+  HardcoverApp.askDidNotFinish(app, FILE)
+  StatusDialogs.confirm = real_confirm
+  assert(captured and captured.ok_text == "Mark as Read", "the prompt did not open")
+  captured.ok_callback()
+  KB.eq(called.file, FILE, "the wrong book was marked")
+  KB.eq(called.event, "end_chosen", "the wrong finish event was used")
+  KB.eq(tostring(called.opts and called.opts.explicit), "true",
+    "a waiting removal could override the reader's explicit choice")
+end)
+
+KB.check("the removal guard follows the linked book, not the open document", function()
+  local q = KB.newQueue()
+  q:queueRemove(1, 7, 500, "Book 7", HARDCOVER.STATUS.READING, nil)
+  local app = {
+    settings = { getLinkedBookId = function() return 7 end },
+    sync_queue = q,
+    ui = { document = { file = "/books/another.epub" } },
+    cache = { updateBookStatus = function() error("wrote to the wrong book") end },
+  }
+  HardcoverApp.finishBook(app, FILE)
+  KB.eq(q:shelfOp(7).kind, "remove", "a different open file changed the removal's fate")
+end)
+
 KB.check("a removal made during the page write survives the finish", function()
   local q = KB.newQueue()
   local app = {

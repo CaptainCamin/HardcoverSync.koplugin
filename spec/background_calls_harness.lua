@@ -56,9 +56,12 @@ _G.require = function(name)
 end
 
 local Api = real_require("hardcover/lib/hardcover_api")
+local DialogManager = real_require("hardcover/lib/ui/dialog_manager")
 local HardcoverMenu = real_require("hardcover/lib/ui/hardcover_menu")
 local Hardcover = real_require("hardcover/lib/hardcover")
 local Background = real_require("hardcover/lib/background")
+local User = real_require("hardcover/lib/user")
+User.getId = function() return 1 end
 
 local blocking = {}
 -- A stand-in for a Hardcover request: records the call and whether it could
@@ -103,16 +106,24 @@ local function newMenu(book_status)
   shown_errors = {}
   local updates = 0
   local menu_instance = { updateItems = function() updates = updates + 1 end, updates = function() return updates end }
-  local dialog_manager = {
-    showError = function(_, msg) shown_errors[#shown_errors + 1] = "x" end,
-    -- the reader hands removal to the shared book flow, which sends the delete
-    removeBook = function(_, detail, opts)
-      Background.run(function()
-        local result = Api.removeUserBook(detail.user_book_id)
-        if result and result.id and opts.on_removed then opts.on_removed() end
-      end)
-    end,
+  -- Use the real book flow: this test must see a blocking regression there, not
+  -- just in a stand-in that happens to call Api.removeUserBook.
+  local queue = {
+    get = function() return nil end,
+    shelfOp = function() return nil end,
+    clear = function() end,
   }
+  local dialog_manager = DialogManager:new {
+    state = { book_status = book_status or { id = 5, status_id = 2, edition_id = 9 } },
+    ui = { document = { file = "/books/a.epub" } },
+    settings = { clearBookSnapshotsFor = function() end },
+    sync_queue = queue,
+    showError = function(_, msg) shown_errors[#shown_errors + 1] = "x" end,
+  }
+  dialog_manager.moveShownCounts = function() end
+  dialog_manager.shelves = function() return nil end
+  dialog_manager.forgetShelves = function() end
+  dialog_manager.withPending = function(_, detail) return detail end
   local menu = setmetatable({
     state = { book_status = book_status or { id = 5, status_id = 2, edition_id = 9 } },
     ui = { document = { file = "/books/a.epub" } },
@@ -136,6 +147,9 @@ end)
 check("removing the current read", function()
   reset()
   Api.removeUserBook = probe("removeUserBook", { id = 1 })
+  Api.removeUserBookAsync = function(_, id, cb)
+    Background.run(function() cb(Api:removeUserBook(id)) end)
+  end
   local menu, mi = newMenu()
   menu:removeCurrentRead(mi)
   assertNoBlocking("removeCurrentRead")

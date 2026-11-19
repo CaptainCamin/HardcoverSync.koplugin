@@ -301,6 +301,22 @@ function HardcoverSettings:clearBookSnapshot(filename)
   self:updateBookSetting(filename, { _delete = SNAPSHOT_KEYS })
 end
 
+-- A completed removal must also clear the saved record of every file linked to that
+-- book: reopening one offline would otherwise hydrate the old shelf and read, and the
+-- next progress write would put the deleted book back. Link keys stay untouched.
+function HardcoverSettings:clearBookSnapshotsFor(book_id)
+  if not book_id then return end
+  local books = self.settings:readSetting(SETTING.BOOKS)
+  if type(books) ~= "table" then return end
+  local files = {}
+  for file, config in pairs(books) do
+    if type(config) == "table" and tostring(config.book_id) == tostring(book_id) then
+      files[#files + 1] = file
+    end
+  end
+  for _, file in ipairs(files) do self:clearBookSnapshot(file) end
+end
+
 function HardcoverSettings:bookStatusFromSnapshot(filename)
   local settings = self:readBookSettings(filename)
   if not settings or not settings.user_book_id then

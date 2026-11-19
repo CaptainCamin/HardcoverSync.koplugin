@@ -1339,6 +1339,9 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
           on_status_sent = function(op, user_book)
             self.dialog_manager:shelfSent(op, user_book)
           end,
+          on_removed = function(op)
+            self.dialog_manager:removalSent(op)
+          end,
           on_read_sent = function(book_id, user_book, op)
             self.dialog_manager:readSent(book_id, user_book, op)
           end,
@@ -1585,12 +1588,9 @@ function HardcoverApp:askDidNotFinish(file_path)
     text = _("Hardcover has this as Did not finish. Mark it as Read?"),
     cancel_text = _("Keep as Did not finish"),
     ok_text = _("Mark as Read"),
-    ok_callback = function()
-      Background.run(function()
-        self:finishBook(file_path)
-      end)
-      StatusDialogs.info(statusSavedMessage(), 2)
-    end,
+    -- the same explicit choice as the last-page prompt: a waiting removal may
+    -- be replaced, but a reread decision must be reported instead of ignored.
+    ok_callback = function() self:markFinishedAndSay(file_path, "end_chosen", { explicit = true }) end,
   }
 end
 

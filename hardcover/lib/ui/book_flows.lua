@@ -1984,6 +1984,10 @@ function Flows:removeBook(detail, opts)
       return
     end
     if queue and book_id then queue:clear(book_id) end
+    -- The saved snapshot would otherwise hydrate the old shelf on a later offline open.
+    if book_id and self.settings and self.settings.clearBookSnapshotsFor then
+      self.settings:clearBookSnapshotsFor(book_id)
+    end
     self:shelfChanged(book_id, detail.status_id, nil)
     if opts.on_removed then opts.on_removed() end
   end)
@@ -1998,6 +2002,15 @@ function Flows:removalNotice(outcome, abandon_waiting, lost_answer)
     StatusDialogs.info(lost_answer
       and _("Removal had no answer. It is kept and will be checked when you're connected.")
       or _("Offline: the removal is kept and will be sent when you're connected."), 3)
+  end
+end
+
+-- The queued delete is done or the record is already gone: a shelf refresh may now
+-- show the book if it was added again on Hardcover.
+function Flows:removalSent(op)
+  local store = self:shelves()
+  if store and store.finishRemoval and op then
+    store:finishRemoval(User:getId(), op.book_id, op.from_status_id)
   end
 end
 

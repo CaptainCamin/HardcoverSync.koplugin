@@ -66,4 +66,21 @@ KB.check("clearing a saved status is a change, clearing none is not", function()
   KB.eq(changes[3], false, "clearing nothing was reported")
 end)
 
+KB.check("clearing a removed book keeps every other link on its files", function()
+  local settings, _ = watch()
+  local other = "/books/other.epub"
+  settings:updateBookSetting(FILE, { book_id = 7, edition_id = 3, sync = true })
+  settings:updateBookSetting(other, { book_id = 8, edition_id = 4, sync = true })
+  settings:saveBookSnapshot(FILE, { id = 70, edition_id = 3, status_id = 2,
+    user_book_reads = { { id = 9, progress_pages = 12 } } })
+  settings:saveBookSnapshot(other, { id = 80, edition_id = 4, status_id = 3, user_book_reads = {} })
+
+  settings:clearBookSnapshotsFor(7)
+  KB.eq(settings:bookStatusFromSnapshot(FILE), nil, "the removed book's snapshot survived")
+  KB.eq(settings:readBookSetting(FILE, "book_id"), 7, "the link was cleared with the snapshot")
+  KB.eq(settings:readBookSetting(FILE, "edition_id"), 3, "the linked edition was cleared")
+  KB.eq(settings:readBookSetting(other, "book_id"), 8, "another book's link changed")
+  KB.eq(settings:bookStatusFromSnapshot(other).id, 80, "another book's snapshot was cleared")
+end)
+
 KB.finish("only a real status change may drop Bookshelf's shelves")

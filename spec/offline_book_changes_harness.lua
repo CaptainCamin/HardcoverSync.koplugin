@@ -599,6 +599,35 @@ check("a book put back after a removal keeps its edition if the delete landed", 
   assert(inserted and inserted.edition_id == 9, "the recreated record has no linked edition")
 end)
 
+check("a confirmed online removal clears the linked file's saved record", function()
+  local m = newManager()
+  local cleared
+  m.settings.clearBookSnapshotsFor = function(_, book_id) cleared = book_id end
+  local d = detailScreen(m, SHELVED())
+  tap(showing(function() m:chooseShelf(d) end), "Remove from library")
+  confirms[1].ok_callback()
+  remove_cb({ id = 51 })
+  assert(cleared == 1, "the saved snapshot would restore the deleted book")
+end)
+
+check("a completed offline removal lets a later re-add show on the shelf", function()
+  local m = newManager()
+  online = false
+  local d = detailScreen(m, SHELVED())
+  tap(showing(function() m:chooseShelf(d) end), "Remove from library")
+  confirms[1].ok_callback()
+  assert(shelves:member(1, 1) == nil, "the optimistic removal did not take")
+
+  online = true
+  local api = serverApi()
+  assert(sync_queue:flush(api, { user_id = 1, on_removed = function(op) m:removalSent(op) end }))
+  assert(sync_queue:count() == 0)
+  -- Hardcover gained the book again after the delete. A fresh shelf download must
+  -- be allowed to show it, not filtered out by the waiting-removal marker.
+  shelves:putMembers(1, 1, { { user_book_id = 52, book_id = 1 } }, true, nil)
+  assert(shelves:member(1, 1), "the re-added book is hidden by the old removal marker")
+end)
+
 check("a gateway failure keeps the removal, but a definite refusal still offers retry", function()
   local m = newManager()
   local d = detailScreen(m, SHELVED())
