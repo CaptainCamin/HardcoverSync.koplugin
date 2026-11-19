@@ -8,7 +8,6 @@ Screens: home_overflow, home_sync_scroll.
 
 local fixtures = require("fixtures")
 local Device = require("device")
-local Geom = require("ui/geometry")
 local UIManager = require("ui/uimanager")
 
 local Home = require("hardcover/lib/home")
@@ -93,20 +92,31 @@ return {
     assert(note_body.layout.shelves == #home_shelves, "the note-only scroll dropped shelf rows")
     assert(note_body[1]:getSize().h <= note_room, "Home grew past the note-only room")
 
-    -- Bring the sync box (not the end of the shelves) into view before tapping it.
+    -- Bring the sync box into view with the visible arrows, not by setting the offset directly.
     local sc = note_body.scroll
     local note_column = sc[1]
     local note_top = 0
     for i = 1, 4 do note_top = note_top + note_column[i]:getSize().h end
     local note_bottom = note_top + note_column[5]:getSize().h
-    sc:setScrolledOffset(Geom:new { x = 0, y = math.max(0, note_bottom - note_room) })
-    emu:pump()
+    emu:screenNodes()
+    local note_control_x = Device.screen:getWidth() - 10
+    local note_top_y = sc.dimen.y + 20
+    local note_bottom_y = sc.dimen.y + note_room - 20
+    for _ = 1, 12 do
+      local offset = sc:getScrolledOffset().y
+      if note_top - offset < note_room and note_bottom - offset > 0 then break end
+      emu:tap(note_control_x, note_bottom - offset > note_room and note_bottom_y or note_top_y)
+      emu:pump()
+    end
+    local offset = sc:getScrolledOffset().y
+    assert(note_top - offset < note_room and note_bottom - offset > 0,
+      "the arrows could not bring Sync now into view")
     emu:screenNodes()
     emu:shot("home_sync_scroll")
     local button = find_button(note_body, "Sync now")
     assert(button and button.dimen, "Sync now is not in the scrolled Home")
     local bx = button.dimen.x + math.floor(button.dimen.w / 2)
-    local by = button.dimen.y + sc:getScrolledOffset().y + math.floor(button.dimen.h / 2)
+    local by = button.dimen.y + offset + math.floor(button.dimen.h / 2)
     assert(by >= 0 and by <= note_room, string.format("Sync now tap at %d outside %d", by, note_room))
     emu:tap(bx, by)
     emu:pump()
