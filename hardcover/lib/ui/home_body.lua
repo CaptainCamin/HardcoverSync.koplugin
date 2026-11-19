@@ -1,4 +1,4 @@
--- Home as a tab of the shell: one fixed screen that never scrolls, as drawn in mock 1 / 1a.
+-- Home as a tab of the shell: one screen fitted to the room the shell gives it, as drawn in mock 1 / 1a.
 --
 -- Top to bottom: "Currently reading" with the book you read most recently as a bordered card (cover,
 -- title, author, a thick progress bar, "62% · page 186 of 300" and one filled Open book
@@ -9,7 +9,9 @@
 -- being read are one tap away under Shelves > Currently reading.
 --
 -- It fills the room it is given: the card first, then the sync box, then as many shelf rows as fit.
--- The nav bar is not part of this body, so it can never be what gives way.
+-- When even that is too much (a smaller panel, or larger system text), the column goes into the
+-- plugin's scroll container with its visible control, so nothing is clipped and the shell's nav bar
+-- is never pushed off screen.
 --
 -- It also holds Home's data (rows, entries, cover cells) for the loaders' setRows / setReading /
 -- rebuildSoon.
@@ -20,6 +22,7 @@ local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local InputContainer = require("ui/widget/container/inputcontainer")
+local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
@@ -33,6 +36,7 @@ local Home = require("hardcover/lib/home")
 local Hosted = require("hardcover/lib/ui/hosted")
 local ListItem = require("hardcover/lib/ui/components/list_item")
 local Note = require("hardcover/lib/ui/components/note")
+local ScrollControl = require("hardcover/lib/ui/components/scroll_control")
 local SyncConflicts = require("hardcover/lib/sync_conflicts")
 local Theme = require("hardcover/lib/ui/theme")
 
@@ -80,10 +84,10 @@ end
 -- The book being read, as a bordered card with one filled button.
 function HomeBody:readingCard(card, width)
   local pad, border = px(14), px(3)
-  local inner = width - 2 * pad - 2 * border
+  local inner = math.max(px(1), width - 2 * pad - 2 * border)
   local cw, ch = px(84), px(126)
   local gap = px(14)
-  local text_w = inner - cw - gap
+  local text_w = math.max(px(1), inner - cw - gap)
   local face, bold = Theme.title(25)
   local info = VerticalGroup:new { align = "left",
     TextBoxWidget:new { text = card.title, face = face, bold = bold, width = text_w,
@@ -120,19 +124,20 @@ end
 -- Nothing being read (or nothing loaded yet): say so, in the same box.
 function HomeBody:emptyCard(width)
   local pad, border = px(14), px(3)
+  local inner = math.max(px(1), width - 2 * pad - 2 * border)
   return FrameContainer:new { bordersize = border, radius = px(12), padding = pad, margin = 0,
     color = Theme.BLACK, background = Theme.WHITE,
     VerticalGroup:new { align = "left",
-      Theme.mmdText(_("Nothing to show yet"), "strong", 21, { width = width - 2 * pad - 2 * border }),
+      Theme.mmdText(_("Nothing to show yet"), "strong", 21, { width = inner }),
       Theme.span(px(4)),
       Theme.mmdText(self.empty_message or _("Books you are reading will appear here."), "text", 18,
-        { secondary = true, width = width - 2 * pad - 2 * border }) } }
+        { secondary = true, width = inner }) } }
 end
 
 -- No account yet (or after sign-out): one clear state and one way in, with no shelf counts.
 function HomeBody:signedOutCard(width)
   local pad, border = px(14), px(3)
-  local inner = width - 2 * pad - 2 * border
+  local inner = math.max(px(1), width - 2 * pad - 2 * border)
   local sign_in = Button.new { label = _("Sign in"), w = inner, h = px(56), primary = true,
     callback = function() if self.sign_in_cb then self.sign_in_cb() end end }
   return FrameContainer:new { bordersize = border, radius = px(12), padding = pad, margin = 0,
@@ -198,83 +203,107 @@ function HomeBody:shelfRow(row, width, last)
   }
 end
 
-function HomeBody:build()
-  self.covers:begin()
-  self.built_entries = self.entries
+local function free(widget)
+  if type(widget) == "table" and type(widget.free) == "function" then pcall(widget.free, widget) end
+end
 
+function HomeBody:build()
   local w, h = Hosted.size(self)
   local side = ListItem.PAD
-  local width = w - 2 * side
   local cards = Home.cards(self.entries)
   local card = cards[1]
 
-  local column = VerticalGroup:new { align = "left" }
-  local function inset(widget) return HorizontalGroup:new { Theme.hspan(side), widget } end
+  -- Build the column at the width it will be shown at. A scrollable column is made gutter() narrower
+  -- so the visible scroll control never sits over its words. `keep_note` puts the sync box in a
+  -- column that will scroll even when the card leaves no room for it: Sync now must stay reachable.
+  local function make(width, keep_note)
+    self.covers:begin()
+    self.built_entries = self.entries
+    local section_w = width + 2 * side
+    local column = VerticalGroup:new { align = "left" }
+    local function inset(widget) return HorizontalGroup:new { Theme.hspan(side), widget } end
 
-  if self.signed_out then
-    column[#column + 1] = Theme.span(px(8))
-    column[#column + 1] = ListItem.section(_("Hardcover"), w, 0)
-    column[#column + 1] = inset(self:signedOutCard(width))
+    if self.signed_out then
+      column[#column + 1] = Theme.span(px(8))
+      column[#column + 1] = ListItem.section(_("Hardcover"), section_w, 0)
+      column[#column + 1] = inset(self:signedOutCard(width))
+      self.layout = { signed_out = true }
+    else
+      column[#column + 1] = Theme.span(px(8))
+      column[#column + 1] = ListItem.section(_("Currently reading"), section_w, 0)
+      column[#column + 1] = inset(card and self:readingCard(card, width) or self:emptyCard(width))
+      column[#column + 1] = Theme.span(px(10))
+      local used = column:getSize().h
+
+      -- the sync box: dropped on a page that fits, but always kept on one that scrolls
+      local note = self:syncNote(width)
+      local shown_note = false
+      if keep_note or used + note:getSize().h <= h then
+        column[#column + 1] = inset(note)
+        used = used + note:getSize().h
+        shown_note = true
+      else
+        free(note)
+      end
+
+      -- then the shelves: as many rows as fit on a page that fits, every row on one that scrolls
+      local rows = {}
+      for _i, row in ipairs(Home.homeOrder(self.rows)) do rows[#rows + 1] = row end
+      local head = ListItem.section(_("Shelves"), section_w, px(4))
+      local shown_rows = 0
+      if shown_note then
+        local room = h - used - head:getSize().h
+        local items = {}
+        for i, row in ipairs(rows) do
+          local item = self:shelfRow(row, section_w, i == #rows)
+          if not keep_note and item:getSize().h > room then break end
+          room = room - item:getSize().h
+          items[#items + 1] = item
+        end
+        if #items > 0 then
+          column[#column + 1] = head
+          for _i, item in ipairs(items) do column[#column + 1] = item end
+          shown_rows = #items
+        end
+      end
+      self.layout = { card = card ~= nil, note = shown_note, shelves = shown_rows } -- what fitted
+    end
     column:resetLayout()
-    self.layout = { signed_out = true }
-    self.frame = FrameContainer:new {
-      width = w, height = h, background = Theme.WHITE,
-      bordersize = 0, padding = 0, margin = 0, column,
-    }
-    self.dimen = Geom:new { x = 0, y = 0, w = w, h = h }
-    self[1] = self.frame
     self.covers:finish()
-    return
+    return column
   end
 
-  column[#column + 1] = Theme.span(px(8))
-  column[#column + 1] = ListItem.section(_("Currently reading"), w, 0)
-  column[#column + 1] = inset(card and self:readingCard(card, width) or self:emptyCard(width))
-  column[#column + 1] = Theme.span(px(10))
-  local used = column:getSize().h
-
-  -- the sync box, if there is room for it under the card
-  local note = self:syncNote(width)
-  local shown_note = false
-  if used + note:getSize().h <= h then
-    column[#column + 1] = inset(note)
-    used = used + note:getSize().h
-    shown_note = true
+  local column = make(math.max(px(1), w - 2 * side), false)
+  local body = column
+  self.scroll = nil
+  -- A hidden sync box is just as unreachable as clipped text: either case needs the scroll, where
+  -- the note is always part of the content.
+  local note_dropped = not self.signed_out and not self.layout.note
+  if column:getSize().h > h or note_dropped then
+    -- Whatever is left does not fit: keep the body exactly as tall as the room given to it, so the
+    -- shell's navigation stays on screen, and reach the rest through the plugin's scroll control.
+    free(column)
+    column = make(math.max(px(1), w - 2 * side - ScrollControl.gutter()), true)
+    local scroll = ScrollableContainer:new {
+      dimen = Geom:new { x = 0, y = 0, w = w, h = h },
+      show_parent = Hosted.window(self),
+    }
+    -- `column` already puts its cards in from the side and spans its sections to the gutter.
+    -- An outer hspan would shift those sections into the strip where the scroll control is drawn.
+    scroll[1] = column
+    body = ScrollControl.wrap(scroll, column)
+    self.scroll = scroll
   end
-
-  -- then the shelves: the head and as many rows as fit
-  local rows = {}
-  for _i, row in ipairs(Home.homeOrder(self.rows)) do rows[#rows + 1] = row end
-  local head = ListItem.section(_("Shelves"), w, px(4))
-  local shown_rows = 0
-  if shown_note then
-    local room = h - used - head:getSize().h
-    local items = {}
-    for i, row in ipairs(rows) do
-      local item = self:shelfRow(row, w, i == #rows)
-      if item:getSize().h > room then break end
-      room = room - item:getSize().h
-      items[#items + 1] = item
-    end
-    if #items > 0 then
-      column[#column + 1] = head
-      for _i, item in ipairs(items) do column[#column + 1] = item end
-      shown_rows = #items
-    end
-  end
-  self.layout = { card = card ~= nil, note = shown_note, shelves = shown_rows } -- what fitted
-  column:resetLayout()
 
   self.frame = FrameContainer:new {
     width = w, height = h, background = Blitbuffer.COLOR_WHITE,
-    bordersize = 0, padding = 0, margin = 0, column,
+    bordersize = 0, padding = 0, margin = 0, body,
   }
   self.dimen = Geom:new { x = 0, y = 0, w = w, h = h }
   self[1] = self.frame
-  self.covers:finish()
 end
 
--- The page never scrolls, so a rebuild is one redraw of this body.
+-- A rebuild is one redraw of this body; a rebuild that no longer overflows drops the scroll.
 function HomeBody:rebuild()
   self.rebuild_due = false
   if self[1] and type(self[1].free) == "function" then

@@ -1,0 +1,115 @@
+--[[--
+Home given too little room for its card, or just enough for the card but not the sync box (issue
+#341): the body must stay inside the room it was given, with the rest reachable through the plugin's
+visible scroll control, so Sync now can be tapped and a shell's nav bar cannot be pushed off screen.
+
+Screens: home_overflow, home_sync_scroll.
+]]--
+
+local fixtures = require("fixtures")
+local Device = require("device")
+local UIManager = require("ui/uimanager")
+
+local Home = require("hardcover/lib/home")
+local HomeBody = require("hardcover/lib/ui/home_body")
+
+local function find_button(widget, label, seen)
+  seen = seen or {}
+  if type(widget) ~= "table" or seen[widget] then return end
+  seen[widget] = true
+  if widget.text == label and widget.callback and widget.dimen and widget.dimen.w > 0 then
+    return widget
+  end
+  for _, child in ipairs(widget) do
+    local found = find_button(child, label, seen)
+    if found then return found end
+  end
+end
+
+return {
+  name = "home_overflow",
+
+  run = function(emu)
+    local settings = fixtures.real_settings(emu)
+    fixtures.install({ settings = settings })
+
+    local h = math.floor(Device.screen:scaleBySize(150))
+    local shelves = Home.rows(fixtures.shelf_counts)
+    local home_shelves = Home.homeOrder(shelves) -- Home leaves Paused out
+    local shell = { isActive = function() return true end }
+    local body = HomeBody:new {
+      shell = shell, width = Device.screen:getWidth(), height = h,
+      entries = fixtures.currently_reading,
+      rows = shelves,
+    }
+    UIManager:show(body, "full")
+    emu:pump()
+
+    assert(body.scroll, "the overflowing Home has no scroll")
+    local size = body[1]:getSize()
+    assert(size.h <= h, string.format("Home grew to %d in %d of room", size.h, h))
+    assert(size.w <= body.dimen.w, "Home grew past the side of the screen")
+    assert(body.layout.note, "the scrollable Home dropped the sync box")
+    assert(body.layout.shelves == #home_shelves, "the scrollable Home dropped shelf rows")
+    emu:shot("home_overflow")
+
+    -- The down and up triangles are the visible control, distinct from the container's page keys.
+    emu:screenNodes()
+    local control_x = Device.screen:getWidth() - 10
+    local top_y = body.scroll.dimen.y + 20
+    local bottom_y = body.scroll.dimen.y + h - 20
+    emu:tap(control_x, bottom_y)
+    emu:pump()
+    assert(body.scroll:getScrolledOffset().y > 0, "the down triangle did not scroll")
+    emu:tap(control_x, top_y)
+    emu:pump()
+    assert(body.scroll:getScrolledOffset().y == 0, "the up triangle did not return to the top")
+
+    -- Page keys still scroll the same container.
+    local before = body.scroll:getScrolledOffset().y
+    emu:press("LPgFwd")
+    emu:pump()
+    assert(body.scroll:getScrolledOffset().y > before, "the page keys cannot scroll Home")
+
+    -- A page with room for the card but not the note is the case where the sync box alone has to
+    -- make Home scroll. Derive that height from the widgets just measured rather than a DPI guess.
+    local column = body.scroll[1]
+    local used = 0
+    for i = 1, 4 do used = used + column[i]:getSize().h end
+    local note_room = math.floor(used - 1) -- card fits; the sync box starts below the viewport
+    emu:closeAll()
+
+    local syncs = 0
+    local note_body = HomeBody:new {
+      shell = shell, width = Device.screen:getWidth(), height = note_room,
+      entries = fixtures.currently_reading, rows = shelves,
+      sync_cb = function() syncs = syncs + 1 end,
+    }
+    UIManager:show(note_body, "full")
+    emu:pump()
+    assert(note_body.scroll, "the sync box alone did not make Home scroll")
+    assert(note_body.layout.note, "the note-only scroll dropped the sync box")
+    assert(note_body.layout.shelves == #home_shelves, "the note-only scroll dropped shelf rows")
+    assert(note_body[1]:getSize().h <= note_room, "Home grew past the note-only room")
+
+    local sc = note_body.scroll
+    local note_column = sc[1]
+    local note_top = 0
+    for i = 1, 4 do note_top = note_top + note_column[i]:getSize().h end
+    assert(note_top > note_room, "Sync now started in view; the scroll test would be vacuous")
+    assert(sc:getScrolledOffset().y == 0, "Home started already scrolled")
+
+    -- A visible arrow must scroll the page; then check the Sync button's own tap handler. Its painted
+    -- rectangle is in the scroll container's scratch buffer, so its x/y are not screen coordinates.
+    emu:screenNodes()
+    emu:tap(Device.screen:getWidth() - 10, sc.dimen.y + note_room - 20)
+    emu:pump()
+    assert(sc:getScrolledOffset().y > 0, "the arrow did not scroll Home")
+    emu:shot("home_sync_scroll")
+    local button = find_button(note_body, "Sync now")
+    assert(button and button.dimen, "Sync now is missing from the scrolled Home")
+    assert(button:onTapSelectRow(), "the Sync now button did not accept a tap")
+    assert(syncs == 1, "tapping Sync now in the scrolled Home did not send")
+    emu:closeAll()
+  end,
+}
