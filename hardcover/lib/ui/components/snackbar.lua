@@ -28,7 +28,12 @@ function Snackbar.show(opts)
   local side = Theme.px(16)
   local overlay
   local close = TapRow:new {
-    callback = function() overlay:dismiss() end,
+    callback = function()
+      -- A toast receives the tap first, then KOReader passes the same tap to the window below.
+      -- Removing the toast while that dispatch is running can hand the tap to the Home nav bar
+      -- underneath the X; close on the next tick, after the tap has been spent by the overlay.
+      UIManager:nextTick(function() overlay:dismiss() end)
+    end,
     Draw.drawn(Theme.TOUCH_MIN, Theme.TOUCH_MIN, function(bb, x, y)
       local o = math.floor((Theme.TOUCH_MIN - Theme.px(28)) / 2)
       Draw.ICONS.close(bb, x + o, y + o, Theme.px(28), Theme.px(2.5))
