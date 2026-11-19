@@ -1821,8 +1821,23 @@ function Flows:saveShelf(dialog, status_id)
       if not user_book then
         -- The request may have landed, but the answer did not: keep the change like an
         -- offline one. The queue's flush reconciles before it sends anything again.
-        if self.sync_queue and type(err) == "table" and (err.completed == false or err.error == "no_response") then
-          self:saveShelfOffline(dialog, status_id, { maybe_remote = true })
+        -- A nil error is the same lost answer: updateUserBook asks me() first, and a drop
+        -- between the two leaves query()'s offline guard returning nothing.
+        if self.sync_queue and (err == nil
+            or (type(err) == "table" and (err.completed == false or err.error == "no_response"))) then
+          -- A change queued while the request was out is newer and must remain queued:
+          -- this older one appended after it would replay last and win.
+          if not self.sync_queue:shelfChangeWaiting(request.book_id) then
+            self:saveShelfOffline(dialog, status_id, { maybe_remote = true })
+          else
+            -- The unanswered request may still have created or changed the record: mark
+            -- the waiting change so a later removal looks it up instead of dropping it.
+            local waiting = self.sync_queue:get(request.book_id)
+            if waiting and not waiting.maybe_remote then
+              waiting.maybe_remote = true
+              self.sync_queue:persist()
+            end
+          end
           return
         end
         StatusDialogs.retry(err, _("Saving to your shelf"),
