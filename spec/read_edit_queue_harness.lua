@@ -1327,12 +1327,20 @@ check("keeping Hardcover's edition reports the link to restore", function()
     change = { edition_id = 8, progress_pages = 200 } })
   row.edition_id = 9 -- changed on another device
   assert(q:flush(api, { user_id = 1 }) == false)
+  -- A page read after the proposed move is in its units, not in the edition
+  -- Hardcover will keep.
+  q:enqueuePage("/books/7.epub", { book_id = 7, mapped_page = 240, edition_id = 8 })
   local saved, outcome = q:resolveRead(7, action.seq, "keep_hardcover")
   assert(saved and outcome and outcome.kind == "edition_link", "the link was not reported for restore")
   assert(outcome.action == action and outcome.book_id == 7)
   assert(action.change.progress_pages == nil and action.target_page == nil,
     "the page converted for the discarded edition was kept")
   assert(#q:readActions(7) == 0, "the discarded page was left queued")
+  local pages = 0
+  for _, queued in ipairs((q:get(7) or {}).actions or {}) do
+    if queued.kind == "page" then pages = pages + 1 end
+  end
+  assert(pages == 0, "a page in the rejected edition's units was left to replay")
 end)
 
 check("an edition change with later pages cannot be cancelled out from under them", function()
