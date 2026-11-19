@@ -265,6 +265,9 @@ local SNAPSHOT_KEYS = {
   "started_at",
   "last_synced_page",
 }
+-- Set only when a removal completed. A linked file with this marker has no Hardcover
+-- record yet; automatic status writes must not recreate the deleted book.
+local REMOVED_KEY = "hardcover_removed"
 
 function HardcoverSettings:saveBookSnapshot(filename, user_book)
   if not filename or not user_book or not user_book.id then
@@ -290,15 +293,22 @@ function HardcoverSettings:saveBookSnapshot(filename, user_book)
   for _, key in ipairs({ "read_id", "started_at", "last_synced_page", "edition_id" }) do
     if config[key] == nil then delete[#delete + 1] = key end
   end
-  if #delete > 0 then config._delete = delete end
+  -- A confirmed library record means the file is no longer waiting after a removal.
+  delete[#delete + 1] = REMOVED_KEY
+  config._delete = delete
   self:updateBookSetting(filename, config)
 end
 
-function HardcoverSettings:clearBookSnapshot(filename)
+function HardcoverSettings:clearBookSnapshot(filename, removed)
   if not filename then
     return
   end
-  self:updateBookSetting(filename, { _delete = SNAPSHOT_KEYS })
+  local delete = {}
+  for i, key in ipairs(SNAPSHOT_KEYS) do delete[i] = key end
+  if not removed then delete[#delete + 1] = REMOVED_KEY end
+  local config = { _delete = delete }
+  if removed then config[REMOVED_KEY] = true end
+  self:updateBookSetting(filename, config)
 end
 
 -- A completed removal must also clear the saved record of every file linked to that
@@ -314,12 +324,16 @@ function HardcoverSettings:clearBookSnapshotsFor(book_id)
       files[#files + 1] = file
     end
   end
-  for _, file in ipairs(files) do self:clearBookSnapshot(file) end
+  for _, file in ipairs(files) do self:clearBookSnapshot(file, true) end
+end
+
+function HardcoverSettings:readRemovedMarker(filename)
+  return self:readBookSetting(filename, REMOVED_KEY) == true
 end
 
 function HardcoverSettings:bookStatusFromSnapshot(filename)
   local settings = self:readBookSettings(filename)
-  if not settings or not settings.user_book_id then
+  if not settings or not settings.user_book_id or settings[REMOVED_KEY] then
     return nil
   end
 

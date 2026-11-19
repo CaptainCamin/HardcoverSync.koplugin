@@ -158,6 +158,25 @@ KB.check("the Did not finish prompt sends an explicit Mark as Read", function()
     "a waiting removal could override the reader's explicit choice")
 end)
 
+KB.check("a completed removal blocks automatic finish on an offline reopen", function()
+  local q = KB.newQueue()
+  local app = {
+    settings = { getLinkedBookId = function() return 7 end,
+      readRemovedMarker = function(_, file) return file == FILE end },
+    sync_queue = q,
+    effectiveStatusId = function() error("an automatic finish used the stale book") end,
+  }
+  KB.eq(HardcoverApp.markFinished(app, FILE, "end_chosen"), false,
+    "KOReader's Finished flag recreated the removed book")
+  local explicit = {
+    settings = app.settings, sync_queue = q,
+    effectiveStatusId = function() return nil end,
+    finishBook = function() end,
+  }
+  KB.eq(HardcoverApp.markFinished(explicit, FILE, "end_chosen", { explicit = true }), true,
+    "an explicit shelf choice was blocked by the removal marker")
+end)
+
 KB.check("the removal guard follows the linked book, not the open document", function()
   local q = KB.newQueue()
   q:queueRemove(1, 7, 500, "Book 7", HARDCOVER.STATUS.READING, nil)

@@ -77,10 +77,16 @@ KB.check("clearing a removed book keeps every other link on its files", function
 
   settings:clearBookSnapshotsFor(7)
   KB.eq(settings:bookStatusFromSnapshot(FILE), nil, "the removed book's snapshot survived")
+  KB.eq(settings:readRemovedMarker(FILE), true, "an offline reopen could treat the book as unknown")
   KB.eq(settings:readBookSetting(FILE, "book_id"), 7, "the link was cleared with the snapshot")
   KB.eq(settings:readBookSetting(FILE, "edition_id"), 3, "the linked edition was cleared")
   KB.eq(settings:readBookSetting(other, "book_id"), 8, "another book's link changed")
   KB.eq(settings:bookStatusFromSnapshot(other).id, 80, "another book's snapshot was cleared")
+
+  -- A new library record, online or replayed, lifts the block again.
+  settings:saveBookSnapshot(FILE, { id = 71, edition_id = 3, status_id = 2, user_book_reads = {} })
+  KB.eq(settings:readRemovedMarker(FILE), false, "a new record kept the removed marker")
+  KB.eq(settings:bookStatusFromSnapshot(FILE).id, 71, "the new record was not restored offline")
 end)
 
 KB.finish("only a real status change may drop Bookshelf's shelves")

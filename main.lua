@@ -1417,7 +1417,13 @@ end
 -- A removal that appeared since the earlier check (the page write can yield) still owns
 -- this book's shelf. An explicit Mark as Read is the reader putting it back; an abandon
 -- decision has to be answered before any status write can take effect.
-local function removalBlocksFinish(self, opts)
+local function removalBlocksFinish(self, opts, file_path)
+  -- A completed removal leaves a marker on its linked file: an offline reopen has no
+  -- Hardcover record to restore, so KOReader's own Finished flag must not create one.
+  if not (opts and opts.explicit) and file_path and self.settings
+      and self.settings.readRemovedMarker and self.settings:readRemovedMarker(file_path) then
+    return true
+  end
   local book_id = self.settings and self.settings.getLinkedBookId
     and self.settings:getLinkedBookId()
   local pending = book_id and self.sync_queue and self.sync_queue:shelfOp(book_id, User:getId())
@@ -1435,7 +1441,7 @@ function HardcoverApp:markFinished(file_path, event, opts)
   -- Automatically finishing a book the reader asked to remove must not turn that
   -- queued removal back into a Read. An explicit "Mark as Read" still counts as
   -- putting the book back, so it keeps its normal path and acknowledgement.
-  if removalBlocksFinish(self, opts) then
+  if removalBlocksFinish(self, opts, file_path) then
     if opts and opts.explicit then
       StatusDialogs.info(_("Resolve the reread decision in Pending changes before marking as Read."), 4)
     end
@@ -1464,7 +1470,7 @@ function HardcoverApp:finishBook(file_path, opts)
   end
   -- The page write can yield: a removal made in that time still wins over an
   -- unprompted finish. An explicit Mark as Read keeps its normal path.
-  if removalBlocksFinish(self, opts) then return end
+  if removalBlocksFinish(self, opts, file_path) then return end
   self.cache:updateBookStatus(file_path, HARDCOVER.STATUS.FINISHED)
 end
 

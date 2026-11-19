@@ -1483,6 +1483,11 @@ function HardcoverMenu:startReread(restart)
       settings = self.settings,
       current_file = file,
       state = self.state,
+      on_removed = function(op)
+        if self.dialog_manager and self.dialog_manager.removalSent then
+          self.dialog_manager:removalSent(op)
+        end
+      end,
     })
     if self.sync_queue:hasPending(file) then
       StatusDialogs.error(_("Could not start the new read. It is saved and will be sent again."), 3)
