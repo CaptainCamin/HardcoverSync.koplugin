@@ -297,17 +297,19 @@ function HardcoverSettings:saveBookSnapshot(filename, user_book)
   delete[#delete + 1] = REMOVED_KEY
   config._delete = delete
   self:updateBookSetting(filename, config)
+  local book_id = user_book.book_id or self:readBookSetting(filename, "book_id")
+  if book_id then self:clearRemovedMarkersFor(book_id) end
 end
 
-function HardcoverSettings:clearBookSnapshot(filename, removed)
+function HardcoverSettings:clearBookSnapshot(filename, removed_book_id)
   if not filename then
     return
   end
   local delete = {}
   for i, key in ipairs(SNAPSHOT_KEYS) do delete[i] = key end
-  if not removed then delete[#delete + 1] = REMOVED_KEY end
+  if not removed_book_id then delete[#delete + 1] = REMOVED_KEY end
   local config = { _delete = delete }
-  if removed then config[REMOVED_KEY] = true end
+  if removed_book_id then config[REMOVED_KEY] = removed_book_id end
   self:updateBookSetting(filename, config)
 end
 
@@ -324,11 +326,29 @@ function HardcoverSettings:clearBookSnapshotsFor(book_id)
       files[#files + 1] = file
     end
   end
-  for _, file in ipairs(files) do self:clearBookSnapshot(file, true) end
+  for _, file in ipairs(files) do self:clearBookSnapshot(file, book_id) end
+end
+
+-- The marker describes one catalog book. If a file was unlinked or relinked, it does
+-- not apply to the new book any more.
+function HardcoverSettings:clearRemovedMarkersFor(book_id)
+  if not book_id then return end
+  local books = self.settings:readSetting(SETTING.BOOKS)
+  if type(books) ~= "table" then return end
+  local files = {}
+  for file, config in pairs(books) do
+    if type(config) == "table" and tostring(config.book_id) == tostring(book_id) then
+      files[#files + 1] = file
+    end
+  end
+  for _, file in ipairs(files) do self:updateBookSetting(file, { _delete = { REMOVED_KEY } }) end
 end
 
 function HardcoverSettings:readRemovedMarker(filename)
-  return self:readBookSetting(filename, REMOVED_KEY) == true
+  local marked = self:readBookSetting(filename, REMOVED_KEY)
+  if marked == nil then return false end
+  local book_id = self:readBookSetting(filename, "book_id")
+  return book_id ~= nil and tostring(marked) == tostring(book_id)
 end
 
 function HardcoverSettings:bookStatusFromSnapshot(filename)

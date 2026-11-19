@@ -83,6 +83,17 @@ KB.check("clearing a removed book keeps every other link on its files", function
   KB.eq(settings:readBookSetting(other, "book_id"), 8, "another book's link changed")
   KB.eq(settings:bookStatusFromSnapshot(other).id, 80, "another book's snapshot was cleared")
 
+  -- The marker belongs to the book that was removed, not to whichever book a
+  -- later relink assigns to the file.
+  settings:updateBookSetting(FILE, { book_id = 99 })
+  KB.eq(settings:readRemovedMarker(FILE), false, "the marker followed a later relink")
+  settings:updateBookSetting(FILE, { book_id = 7 })
+  settings:clearRemovedMarkersFor(7)
+  KB.eq(settings:readRemovedMarker(FILE), false, "a confirmed re-add kept the marker")
+  KB.eq(settings:readBookSetting(FILE, "edition_id"), 3, "re-add lifted the linked edition")
+
+  -- The removal marker is set again before checking that a new record clears it.
+  settings:clearBookSnapshotsFor(7)
   -- A new library record, online or replayed, lifts the block again.
   settings:saveBookSnapshot(FILE, { id = 71, edition_id = 3, status_id = 2, user_book_reads = {} })
   KB.eq(settings:readRemovedMarker(FILE), false, "a new record kept the removed marker")

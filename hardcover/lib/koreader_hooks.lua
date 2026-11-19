@@ -20,11 +20,32 @@ local function watchStatusScreen()
   local BookStatusWidget = require("ui/widget/bookstatuswidget")
   local original = BookStatusWidget.onClose
   if type(original) ~= "function" then return end
+
+  -- Remember what the switch said when the screen opened. A stale leftover
+  -- "Finished" on close must not override a completed removal; a fresh choice
+  -- in this screen is an explicit shelf change and may put the book back.
+  local original_init = BookStatusWidget.init
+  if type(original_init) == "function" then
+    function BookStatusWidget:init(...)
+      local result = original_init(self, ...)
+      if type(self.summary) == "table" then
+        self._hardcover_status_when_opened = self.summary.status
+      end
+      return result
+    end
+  end
+
   function BookStatusWidget:onClose(...)
     local result = original(self, ...)
+    local status = type(self.summary) == "table" and self.summary.status or nil
+    local finished_now = status == "Finished" and self._hardcover_status_when_opened ~= status
     local UIManager = require("ui/uimanager")
     UIManager:nextTick(function()
-      UIManager:broadcastEvent(require("ui/event"):new("HardcoverStatusScreenClosed"))
+      local Event = require("ui/event")
+      UIManager:broadcastEvent(Event:new("HardcoverStatusScreenClosed"))
+      if finished_now then
+        UIManager:broadcastEvent(Event:new("HardcoverStatusScreenFinished"))
+      end
     end)
     return result
   end

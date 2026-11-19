@@ -1418,18 +1418,27 @@ end
 -- this book's shelf. An explicit Mark as Read is the reader putting it back; an abandon
 -- decision has to be answered before any status write can take effect.
 local function removalBlocksFinish(self, opts, file_path)
-  -- A completed removal leaves a marker on its linked file: an offline reopen has no
-  -- Hardcover record to restore, so KOReader's own Finished flag must not create one.
-  if not (opts and opts.explicit) and file_path and self.settings
-      and self.settings.readRemovedMarker and self.settings:readRemovedMarker(file_path) then
-    return true
+  local settings = self.settings
+  local book_id = file_path and settings and settings.readBookSetting
+    and settings:readBookSetting(file_path, "book_id")
+  if not book_id and settings and settings.getLinkedBookId then
+    book_id = settings:getLinkedBookId()
   end
-  local book_id = self.settings and self.settings.getLinkedBookId
-    and self.settings:getLinkedBookId()
   local pending = book_id and self.sync_queue and self.sync_queue:shelfOp(book_id, User:getId())
-  if not (pending and pending.kind == "remove") then return false end
-  local entry = self.sync_queue:get(book_id)
-  return not (opts and opts.explicit) or (entry and entry.abandon_barrier) or false
+
+  -- A waiting removal still wins over an automatic finish.
+  if pending and pending.kind == "remove" then
+    local entry = self.sync_queue:get(book_id)
+    return not (opts and opts.explicit) or (entry and entry.abandon_barrier) or false
+  end
+
+  -- A completed removal leaves a marker for that book. An offline reopen has no
+  -- Hardcover record to restore, but a newer queued shelf choice means the reader
+  -- has already put it back.
+  if opts and opts.explicit then return false end
+  if pending and pending.kind == "status" then return false end
+  return file_path and settings and settings.readRemovedMarker
+    and settings:readRemovedMarker(file_path) or false
 end
 
 -- Write Read for a book that has ended, if the book's status allows it (see BookActions.statusWrite).
@@ -1489,11 +1498,11 @@ end
 
 -- The reader marked this book Finished in KOReader (its pop-up, or the book-status screen): write it.
 -- Read from the open book's settings, which hold the answer as soon as it is given.
-function HardcoverApp:markIfMarkedFinished(file_path)
+function HardcoverApp:markIfMarkedFinished(file_path, opts)
   local doc_settings = self.ui and self.ui.doc_settings
   local summary = doc_settings and doc_settings:readSetting("summary")
   if summary and summary.status == "complete" and self:syncFileUpdates(file_path) then
-    return self:markFinishedAndSay(file_path, "end_chosen")
+    return self:markFinishedAndSay(file_path, "end_chosen", opts)
   end
   return false
 end
@@ -1529,6 +1538,13 @@ end
 function HardcoverApp:onHardcoverStatusScreenClosed()
   local file_path = self.ui and self.ui.document and self.ui.document.file
   if file_path then self:markIfMarkedFinished(file_path) end
+end
+
+-- A fresh Finished choice in KOReader's status screen is as deliberate as the
+-- plugin's own "Mark as Read" button: it may replace a completed removal.
+function HardcoverApp:onHardcoverStatusScreenFinished()
+  local file_path = self.ui and self.ui.document and self.ui.document.file
+  if file_path then self:markIfMarkedFinished(file_path, { explicit = true }) end
 end
 
 function HardcoverApp:checkLastPage(page)

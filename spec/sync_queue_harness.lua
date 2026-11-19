@@ -377,6 +377,25 @@ check("an entry migrated from a file is sent, and its file takes the snapshot", 
   eq(snapshots[1], "/books/a.epub")
 end)
 
+check("an entry cleared by a removal during its request is not saved back", function()
+  local q = newQueue()
+  local file = "/books/cleared.epub"
+  q:enqueueStatus(file, { user_id = 1, book_id = 7, user_book_id = 500,
+    status_id = HARDCOVER.STATUS.FINISHED, from_status_id = HARDCOVER.STATUS.READING, edition_id = 3 })
+  local api = fakeApi()
+  api.updateUserBookStatus = function(_, user_book_id, status_id)
+    -- a removal completed while this request was in flight
+    q:clear(file)
+    return { id = user_book_id, book_id = 7, status_id = status_id, user_book_reads = {} }
+  end
+  local snapshots, state = 0, {}
+  local settings = { saveBookSnapshot = function() snapshots = snapshots + 1 end }
+  q:flush(api, { user_id = 1, settings = settings, current_file = file, state = state })
+  eq(snapshots, 0, "the removed book's snapshot was saved again")
+  eq(state.book_status, nil, "the reader state was set back to the removed book")
+  eq(q:hasPending(file), false, "the queue did not drain")
+end)
+
 check("nothing queued flushes cleanly and calls nothing", function()
   local q = newQueue()
   local api = fakeApi()

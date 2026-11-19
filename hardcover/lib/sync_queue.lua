@@ -1554,6 +1554,7 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
   end
 
   local files = entry.files or {}
+  local completed_here = false
   local book_id = entry.book_id
   local edition_id = entry.edition_id
   local privacy_setting_id = entry.privacy_setting_id
@@ -1884,14 +1885,19 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
       if self:get(filepath) == entry and not entry.remove then
         entry.user_book_id = user_book.id
         Actions.ack(entry, op.seq)
-        if self:isEmpty(entry) then self:_drop(filepath) end
+        if self:isEmpty(entry) then
+          self:_drop(filepath)
+          completed_here = true
+        end
         self:persist()
       end
       end
     end
   end
 
-  if self:isEmpty(self:get(filepath)) then
+  -- An empty queue is not enough: another operation may have cleared the entry while
+  -- this request was out, and the saved snapshot must not resurrect a removed book.
+  if completed_here then
     if opts.settings and opts.settings.saveBookSnapshot then
       for file in pairs(files) do opts.settings:saveBookSnapshot(file, user_book) end
     end

@@ -1860,6 +1860,13 @@ function Flows:saveShelf(dialog, status_id)
 
       -- A change queued while the request was out is newer and must remain queued.
       self:rememberServerDetail(user_book, { status = true })
+      if self.settings and self.settings.clearRemovedMarkersFor then
+        self.settings:clearRemovedMarkersFor(request.book_id)
+      end
+      local restored_file = self:deviceFile(request.book_id)
+      if restored_file and self.settings and self.settings.saveBookSnapshot then
+        self.settings:saveBookSnapshot(restored_file, user_book)
+      end
       self:shelfChanged(request.book_id, old_status_id, status_id, user_book.id or detail.user_book_id)
       local reads = self:saveUserBookReads(request.book_id, user_book, nil, detail.reads)
       if Live.shown(dialog) then

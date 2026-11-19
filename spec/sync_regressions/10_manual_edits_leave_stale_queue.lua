@@ -158,6 +158,38 @@ KB.check("the Did not finish prompt sends an explicit Mark as Read", function()
     "a waiting removal could override the reader's explicit choice")
 end)
 
+KB.check("a queued shelf choice overrides the completed-removal marker", function()
+  local q = KB.newQueue()
+  q:enqueueStatus(FILE, { user_id = 1, book_id = 7, status_id = HARDCOVER.STATUS.READING,
+    from_status_id = HARDCOVER.STATUS.FINISHED })
+  local app = {
+    settings = {
+      readBookSetting = function(_, file, key)
+        return file == FILE and key == "book_id" and 7 or nil
+      end,
+      readRemovedMarker = function() return true end,
+    },
+    sync_queue = q,
+    effectiveStatusId = function() return nil end,
+    finishBook = function() end,
+  }
+  KB.eq(HardcoverApp.markFinished(app, FILE, "end_auto"), true,
+    "the removal marker blocked a book the reader put back")
+end)
+
+KB.check("the book-status screen marks a fresh Finished choice as explicit", function()
+  local called
+  local app = {
+    ui = { document = { file = FILE } },
+    markIfMarkedFinished = function(_, file, opts) called = { file = file, opts = opts } end,
+  }
+  HardcoverApp.onHardcoverStatusScreenClosed(app)
+  KB.eq(called.opts, nil, "a passive close was treated as a new choice")
+  HardcoverApp.onHardcoverStatusScreenFinished(app)
+  KB.eq(tostring(called.opts and called.opts.explicit), "true",
+    "a fresh Finished choice was treated as stale")
+end)
+
 KB.check("a completed removal blocks automatic finish on an offline reopen", function()
   local q = KB.newQueue()
   local app = {
