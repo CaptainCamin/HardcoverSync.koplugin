@@ -110,15 +110,17 @@ return {
     emu:pump()
     local snackbar = UIManager:getTopmostVisibleWidget()
     assert(snackbar and snackbar.snackbar, "the Home snackbar is not on top")
+    UIManager:unschedule(snackbar.timeout_task) -- this tap is the only close we are testing
     emu:shot("shell_snackbar_x")
     -- The toast must stay on the stack until KOReader has finished passing the tap down;
     -- removing it mid-dispatch can let the tab under the X take the same tap.
     local dispatching, closed_during_tap, reached_snackbar = false, false, false
     local handle_event, close = snackbar.handleEvent, snackbar.close
     function snackbar:handleEvent(event)
-      dispatching, reached_snackbar = true, true
+      local is_gesture = event.handler == "onGesture" -- not the timeout's CloseWidget
+      if is_gesture then dispatching, reached_snackbar = true, true end
       local handled = handle_event(self, event)
-      dispatching = false
+      if is_gesture then dispatching = false end
       return handled
     end
     function snackbar:close(...)
