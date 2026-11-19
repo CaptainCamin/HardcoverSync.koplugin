@@ -537,6 +537,11 @@ end
 
 -- What a page turn does to the book, from what the device knows (see BookActions.pageWrite).
 function HardcoverApp:pageWriteDecision(filename)
+  -- A confirmed read can belong to another linked edition. Its pages cannot be
+  -- mapped from this file's page count, so do not write progress to that read.
+  if self.state.book_status and self.state.book_status.page_tracking == false then
+    return "block"
+  end
   return BookActions.pageWrite(self:effectiveStatusId(filename))
 end
 

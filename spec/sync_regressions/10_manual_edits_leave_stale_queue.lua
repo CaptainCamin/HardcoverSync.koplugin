@@ -158,6 +158,15 @@ KB.check("the Did not finish prompt sends an explicit Mark as Read", function()
     "a waiting removal could override the reader's explicit choice")
 end)
 
+KB.check("a confirmed read on another edition does not take this file's pages", function()
+  local app = {
+    state = { book_status = { status_id = HARDCOVER.STATUS.READING, page_tracking = false } },
+    effectiveStatusId = function() return HARDCOVER.STATUS.READING end,
+  }
+  KB.eq(HardcoverApp.pageWriteDecision(app, FILE), "block",
+    "progress from another edition was sent to the confirmed read")
+end)
+
 KB.check("a stale Finished flag does not override a queued re-add", function()
   local q = KB.newQueue()
   q:enqueueStatus(FILE, { user_id = 1, book_id = 7, status_id = HARDCOVER.STATUS.READING,

@@ -305,22 +305,19 @@ end
 
 -- Restore the library status of a confirmed re-add without touching the file's
 -- linked edition or page count: a details shelf choice can name a different edition.
-function HardcoverSettings:saveShelfSnapshot(filename, user_book, tracks_active_read)
+function HardcoverSettings:saveShelfSnapshot(filename, user_book)
   if not filename or not user_book or not user_book.id then return end
-  if tracks_active_read == nil then tracks_active_read = true end
   local reads = user_book.user_book_reads
   local current_read = Book:currentRead(reads)
   local config = {
     user_book_id = user_book.id,
+    status_id = user_book.status_id,
     privacy_setting_id = user_book.privacy_setting_id,
+    read_id = current_read and current_read.id,
+    started_at = current_read and current_read.started_at,
+    last_synced_page = current_read and current_read.progress_pages,
+    read_edition_id = current_read and current_read.edition_id,
   }
-  if tracks_active_read then
-    config.status_id = user_book.status_id
-    config.read_id = current_read and current_read.id
-    config.started_at = current_read and current_read.started_at
-    config.last_synced_page = current_read and current_read.progress_pages
-    config.read_edition_id = current_read and current_read.edition_id
-  end
   local delete = {}
   for _, key in ipairs({ "status_id", "read_id", "started_at", "last_synced_page", "read_edition_id" }) do
     if config[key] == nil then delete[#delete + 1] = key end
@@ -364,15 +361,9 @@ function HardcoverSettings:saveShelfSnapshotsFor(book_id, user_book)
   if not book_id then return end
   local books = self.settings:readSetting(SETTING.BOOKS)
   if type(books) ~= "table" then return end
-  local current_read = Book:currentRead(user_book.user_book_reads)
-  local read_edition = current_read and current_read.edition_id or user_book.edition_id
   for file, config in pairs(books) do
     if type(config) == "table" and tostring(config.book_id) == tostring(book_id) then
-      -- Another linked edition has its own page count: restoring the active read
-      -- there would make automatic progress map into the wrong units.
-      local same_edition = read_edition == nil or config.edition_id == nil
-        or tostring(config.edition_id) == tostring(read_edition)
-      self:saveShelfSnapshot(file, user_book, same_edition)
+      self:saveShelfSnapshot(file, user_book)
     end
   end
 end
@@ -418,12 +409,17 @@ function HardcoverSettings:bookStatusFromSnapshot(filename)
   }
 
   if settings.read_id or settings.last_synced_page or settings.started_at then
+    local read_edition = settings.read_edition_id or settings.edition_id
     book_status.user_book_reads = { {
       id = settings.read_id,
       started_at = settings.started_at,
       progress_pages = settings.last_synced_page,
-      edition_id = settings.read_edition_id or settings.edition_id,
+      edition_id = read_edition,
     } }
+    -- The confirmed read may belong to another edition with a different page count.
+    -- Keep it for conflict checks, but do not map this file's pages into it.
+    book_status.page_tracking = read_edition == nil or settings.edition_id == nil
+      or tostring(read_edition) == tostring(settings.edition_id)
   end
 
   return book_status
