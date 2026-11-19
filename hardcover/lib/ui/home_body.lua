@@ -214,8 +214,9 @@ function HomeBody:build()
   local card = cards[1]
 
   -- Build the column at the width it will be shown at. A scrollable column is made gutter() narrower
-  -- so the visible scroll control never sits over its words.
-  local function make(width)
+  -- so the visible scroll control never sits over its words. `keep_note` puts the sync box in a
+  -- column that will scroll even when the card leaves no room for it: Sync now must stay reachable.
+  local function make(width, keep_note)
     self.covers:begin()
     self.built_entries = self.entries
     local section_w = width + 2 * side
@@ -234,13 +235,15 @@ function HomeBody:build()
       column[#column + 1] = Theme.span(px(10))
       local used = column:getSize().h
 
-      -- the sync box, if there is room for it under the card
+      -- the sync box: dropped on a page that fits, but always kept on one that scrolls
       local note = self:syncNote(width)
       local shown_note = false
-      if used + note:getSize().h <= h then
+      if keep_note or used + note:getSize().h <= h then
         column[#column + 1] = inset(note)
         used = used + note:getSize().h
         shown_note = true
+      else
+        free(note)
       end
 
       -- then the shelves: the head and as many rows as fit
@@ -270,14 +273,17 @@ function HomeBody:build()
     return column
   end
 
-  local column = make(math.max(px(1), w - 2 * side))
+  local column = make(math.max(px(1), w - 2 * side), false)
   local body = column
   self.scroll = nil
-  if column:getSize().h > h then
+  -- A hidden sync box is just as unreachable as clipped text: either case needs the scroll, where
+  -- the note is always part of the content.
+  local note_dropped = not self.signed_out and not self.layout.note
+  if column:getSize().h > h or note_dropped then
     -- Whatever is left does not fit: keep the body exactly as tall as the room given to it, so the
     -- shell's navigation stays on screen, and reach the rest through the plugin's scroll control.
     free(column)
-    column = make(math.max(px(1), w - 2 * side - ScrollControl.gutter()))
+    column = make(math.max(px(1), w - 2 * side - ScrollControl.gutter()), true)
     local scroll = ScrollableContainer:new {
       dimen = Geom:new { x = 0, y = 0, w = w, h = h },
       show_parent = Hosted.window(self),

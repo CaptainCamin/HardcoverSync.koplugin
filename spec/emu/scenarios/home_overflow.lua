@@ -33,12 +33,26 @@ return {
     local size = body[1]:getSize()
     assert(size.h <= h, string.format("Home grew to %d in %d of room", size.h, h))
     assert(size.w <= body.dimen.w, "Home grew past the side of the screen")
+    assert(body.layout.note, "the scrollable Home dropped the sync box")
     emu:shot("home_overflow")
 
-    local before = body.scroll._scroll_offset_y or 0
+    -- The down and up triangles are the visible control, distinct from the container's page keys.
+    emu:screenNodes()
+    local control_x = Device.screen:getWidth() - 10
+    local top_y = body.scroll.dimen.y + 20
+    local bottom_y = body.scroll.dimen.y + h - 20
+    emu:tap(control_x, bottom_y)
+    emu:pump()
+    assert(body.scroll:getScrolledOffset().y > 0, "the down triangle did not scroll")
+    emu:tap(control_x, top_y)
+    emu:pump()
+    assert(body.scroll:getScrolledOffset().y == 0, "the up triangle did not return to the top")
+
+    -- Page keys still scroll the same container.
+    local before = body.scroll:getScrolledOffset().y
     emu:press("LPgFwd")
     emu:pump()
-    assert((body.scroll._scroll_offset_y or 0) > before, "the scroll control cannot reach the rest of Home")
+    assert(body.scroll:getScrolledOffset().y > before, "the page keys cannot scroll Home")
     emu:closeAll()
   end,
 }
