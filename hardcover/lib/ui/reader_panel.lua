@@ -216,10 +216,14 @@ function ReaderPanel:render()
   local old = self.sheet_rect
   self.sheet_top = screen_h - sheet:getSize().h
   self.sheet_rect = { x = 0, y = self.sheet_top, w = screen_w, h = sheet:getSize().h }
-  -- only the sheet is drawn over the page, so only the sheet's rows of the panel
-  -- need redrawing (and, when it changes height, where it used to be): not the
-  -- whole book page behind it
-  UIManager:setDirty(self, "ui", self:rect(Refresh.union(old, self.sheet_rect)))
+  -- the refresh stays on the sheet's rows (and where it used to be when its
+  -- height changes), not on the whole screen
+  local region = self:rect(Refresh.union(old, self.sheet_rect))
+  -- A shorter sheet uncovers the top of the old one. Nothing in the panel paints
+  -- there any more, so the page underneath has to be repainted too or its old
+  -- header stays on screen until something else refreshes that strip.
+  local shrunk = old and self.sheet_top > old.y
+  UIManager:setDirty(shrunk and "all" or self, "ui", region)
 end
 
 -- a Geom for a {x, y, w, h}
