@@ -33,6 +33,7 @@ local Home = require("hardcover/lib/home")
 local Hosted = require("hardcover/lib/ui/hosted")
 local ListItem = require("hardcover/lib/ui/components/list_item")
 local Note = require("hardcover/lib/ui/components/note")
+local SyncConflicts = require("hardcover/lib/sync_conflicts")
 local Theme = require("hardcover/lib/ui/theme")
 
 local px = Theme.px
@@ -44,7 +45,7 @@ local HomeBody = InputContainer:extend {
   select_cb = nil,    -- called with a shelf's row when it is tapped
   open_book_cb = nil, -- called with the book id when Open book is tapped
   pending_fn = nil, -- returns how many changes are waiting to sync
-  decision_fn = nil, -- returns how many books need the reader's decision
+  decision_fn = nil, -- returns how many changes need the reader's decision
   sync_cb = nil,    -- Sync now
   pending_cb = nil, -- a tap on the sync box: what is waiting
   empty_message = nil, -- why Currently Reading is empty before its first successful load
@@ -163,8 +164,7 @@ function HomeBody:syncNote(width)
   local function make(count, h)
     if decisions > 0 then
       return Note.new { width = width, h = h, dotted = true, icon_name = "sync", action = action, on_tap = on_tap,
-        title = decisions == 1 and _("1 book needs your decision")
-          or string.format(_("%d books need your decision"), decisions),
+        title = SyncConflicts.decisionCountText(decisions),
         text = count > decisions and string.format(_("%d changes waiting."), count) or _("Tap to review.") }
     end
     if held_total > 0 then

@@ -67,7 +67,7 @@ check("a page question parks its book and lets another book's page go", function
   assert(q:get("/books/b.epub") == nil, "the other book did not go")
   local text, level = SyncConflicts.outcomeText(result)
   assert(level == "info" and text:find("Ready changes sent", 1, true)
-    and text:find("1 book needs your decision", 1, true), text)
+    and text:find("1 change needs your decision", 1, true), text)
 end)
 
 check("a pass with only a question says so without claiming a failure", function()

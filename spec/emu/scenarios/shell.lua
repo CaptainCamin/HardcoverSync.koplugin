@@ -74,7 +74,12 @@ return {
       sync_queue = { finishedCount = function() return 0 end, pendingCount = function() return pending end,
         changeCount = function() return pending end, conflictCount = function() return decisions end,
         decisions = function()
-          return decisions > 0 and { { id = "d", kind = "page", resolve = function() return true end } } or {}
+          local list = {}
+          for i = 1, decisions do
+            list[i] = { id = "d" .. i, kind = "page", book_id = 42,
+              resolve = function() return true end }
+          end
+          return list
         end,
         shelfOp = function() return nil end, keys = function() return {} end },
       shelf_cache = ShelfCache:new { path = path, open = function(p) return LuaSettings:open(p) end },
@@ -114,9 +119,16 @@ return {
     decisions = 1
     home:rebuild()
     emu:pump()
-    emu:expectText("1 book needs your decision")
+    emu:expectText("1 change needs your decision")
     emu:expectText("2 changes waiting.")
     emu:shot("shell_home_decision")
+
+    -- two questions about the same book are two changes, not two books
+    decisions = 2
+    home:rebuild()
+    emu:pump()
+    emu:expectText("2 changes need your decision")
+    emu:shot("shell_home_two_decisions")
     decisions = 0
     home:rebuild()
     emu:pump()

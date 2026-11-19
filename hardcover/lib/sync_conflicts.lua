@@ -371,12 +371,19 @@ function SyncConflicts.menuText(count)
   return T(_("Needs your decision (%1)"), count)
 end
 
+-- Questions are counted one per change, not one per book: two questions about one
+-- title are still two changes waiting for an answer.
+function SyncConflicts.decisionCountText(count)
+  if count == 1 then return _("1 change needs your decision") end
+  return T(_("%1 changes need your decision"), count)
+end
+
 -- What to say after a sync that left questions unanswered.
 function SyncConflicts.notice(count)
   if count == 1 then
-    return _("1 book needs your decision. Open Sync to review it.")
+    return _("1 change needs your decision. Open Sync to review it.")
   end
-  return T(_("%1 books need your decision. Open Sync to review them."), count)
+  return T(_("%1 changes need your decision. Open Sync to review them."), count)
 end
 
 -- What a sync pass should say: what was sent, what still needs the reader, what
@@ -388,8 +395,7 @@ function SyncConflicts.outcomeText(result)
   local failed = result.failed == true
   local sent = result.sent == true
 
-  local need = decisions == 1 and _("1 book needs your decision")
-    or T(_("%1 books need your decision"), decisions)
+  local need = SyncConflicts.decisionCountText(decisions)
 
   if failed and decisions > 0 then
     if sent then
