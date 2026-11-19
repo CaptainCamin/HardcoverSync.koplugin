@@ -244,6 +244,17 @@ function ShelfStore:removeBook(user_id, book_id, unsent)
   return true
 end
 
+-- An optimistically removed book has finished on Hardcover. Drop the marker that kept
+-- an older shelf download from putting it back, so a later re-add on Hardcover is visible
+-- on the next refresh. The shelf stays stale until that refresh arrives.
+function ShelfStore:finishRemoval(user_id, book_id, status_id)
+  local touched = touchedBy(self, user_id)
+  if touched[book_id] == nil then return false end
+  touched[book_id] = nil
+  if status_id then self:markStale(user_id, status_id) end
+  return true
+end
+
 -- ------------------------------------------------------------------ the whole library
 
 -- Is every one of `status_ids` saved whole? Then a book on none of them is truly not in
