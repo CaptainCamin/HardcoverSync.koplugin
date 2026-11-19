@@ -301,6 +301,29 @@ function HardcoverSettings:saveBookSnapshot(filename, user_book)
   if book_id then self:clearRemovedMarkersFor(book_id) end
 end
 
+-- Restore the library status of a confirmed re-add without touching the file's
+-- linked edition or page count: a details shelf choice can name a different edition.
+function HardcoverSettings:saveShelfSnapshot(filename, user_book)
+  if not filename or not user_book or not user_book.id then return end
+  local reads = user_book.user_book_reads
+  local current_read = Book:currentRead(reads)
+  local config = {
+    user_book_id = user_book.id,
+    status_id = user_book.status_id,
+    privacy_setting_id = user_book.privacy_setting_id,
+    read_id = current_read and current_read.id,
+    started_at = current_read and current_read.started_at,
+    last_synced_page = current_read and current_read.progress_pages,
+  }
+  local delete = {}
+  for _, key in ipairs({ "read_id", "started_at", "last_synced_page" }) do
+    if config[key] == nil then delete[#delete + 1] = key end
+  end
+  if #delete > 0 then config._delete = delete end
+  self:updateBookSetting(filename, config)
+  self:clearRemovedMarkersFor(user_book.book_id or self:readBookSetting(filename, "book_id"))
+end
+
 function HardcoverSettings:clearBookSnapshot(filename, removed_book_id)
   if not filename then
     return

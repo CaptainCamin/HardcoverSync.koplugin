@@ -1561,13 +1561,28 @@ end
 function HardcoverApp:checkEndMenu()
   local document = self.ui and self.ui.document
   if not document then return end
+  local doc_settings = self.ui and self.ui.doc_settings
+  local function bookStatus()
+    local summary = doc_settings and doc_settings:readSetting("summary")
+    return summary and summary.status
+  end
   for _, window in ipairs(UIManager._window_stack or {}) do
     if window.widget.name == "end_document" then
+      -- Remember the switch before KOReader's end menu changed it: a fresh
+      -- "finished" answer is explicit, a leftover one is not.
+      self.state.end_menu_status = self.state.end_menu_status or {}
+      if self.state.end_menu_status[document.file] == nil then
+        self.state.end_menu_status[document.file] = bookStatus()
+      end
       UIManager:scheduleIn(1, self.checkEndMenu, self)
       return
     end
   end
-  if self:markIfMarkedFinished(document.file) then return end
+  local before = self.state.end_menu_status and self.state.end_menu_status[document.file]
+  if self.state.end_menu_status then self.state.end_menu_status[document.file] = nil end
+  local status = bookStatus()
+  local explicit = status == "complete" and before ~= "complete"
+  if self:markIfMarkedFinished(document.file, explicit and { explicit = true } or nil) then return end
   local page = self.ui:getCurrentPage()
   if EndOfBook.atLastPage(page, document:getPageCount())
     and EndOfBook.promptOnLastPage(self.settings:endPrompt(), G_reader_settings:readSetting("end_document_action")) then

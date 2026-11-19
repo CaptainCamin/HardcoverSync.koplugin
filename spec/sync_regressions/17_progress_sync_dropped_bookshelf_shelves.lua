@@ -98,6 +98,16 @@ KB.check("clearing a removed book keeps every other link on its files", function
   settings:saveBookSnapshot(FILE, { id = 71, edition_id = 3, status_id = 2, user_book_reads = {} })
   KB.eq(settings:readRemovedMarker(FILE), false, "a new record kept the removed marker")
   KB.eq(settings:bookStatusFromSnapshot(FILE).id, 71, "the new record was not restored offline")
+
+  -- A re-add from the details screen restores tracking state without switching
+  -- the linked file to a different edition.
+  settings:clearBookSnapshotsFor(7)
+  settings:saveShelfSnapshot(FILE, { id = 72, book_id = 7, status_id = 3,
+    user_book_reads = { { id = 12, progress_pages = 4, started_at = "2026-11-19" } } })
+  KB.eq(settings:readRemovedMarker(FILE), false, "the re-add kept the removal marker")
+  KB.eq(settings:bookStatusFromSnapshot(FILE).id, 72, "offline tracking has no restored status")
+  KB.eq(settings:bookStatusFromSnapshot(FILE).status_id, 3, "the re-added shelf was not saved")
+  KB.eq(settings:readBookSetting(FILE, "edition_id"), 3, "the re-add switched the linked edition")
 end)
 
 KB.finish("only a real status change may drop Bookshelf's shelves")
