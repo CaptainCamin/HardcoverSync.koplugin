@@ -104,13 +104,37 @@ KB.check("closing a removed book does not write Read over the removal", function
 
   -- Choosing Mark as Read in the end-of-book prompt is explicit: it may put the
   -- book back and gets the normal written-status acknowledgement.
+  -- the delete had no answer, so its removal is marked as possibly landed
+  q:get(7).maybe_remote = true
+  q:persist()
   local explicit = {
     settings = app.settings, sync_queue = q,
     effectiveStatusId = function() return nil end,
-    finishBook = function() end,
+    finishBook = function()
+      q:enqueueStatus(FILE, { user_id = 1, book_id = 7, status_id = HARDCOVER.STATUS.FINISHED,
+        edition_id = 3, from_status_id = HARDCOVER.STATUS.READING })
+    end,
   }
   KB.eq(HardcoverApp.markFinished(explicit, FILE, "end_chosen", { explicit = true }), true,
     "an explicit Mark as Read was silently ignored")
+  KB.eq(q:shelfOp(7).kind, "status", "the explicit choice did not replace the removal")
+  KB.eq(tostring(q:get(7).edition_id), "3", "restoring the book lost its edition")
+
+  -- An abandon still owns the shelf: the cache would refuse the status, so the
+  -- confirmation must not claim that Mark as Read succeeded.
+  local waiting = KB.newQueue()
+  waiting:queueRemove(1, 7, 500, "Book 7", HARDCOVER.STATUS.READING, nil)
+  waiting:get(7).abandon_barrier = true
+  waiting:persist()
+  local notice
+  StatusDialogs.info = function(text) notice = text end
+  local barrier_app = { settings = app.settings, sync_queue = waiting,
+    effectiveStatusId = function() error("cache would refuse an abandon-blocked write") end }
+  KB.eq(HardcoverApp.markFinished(barrier_app, FILE, "end_chosen", { explicit = true }), false,
+    "an abandon-blocked read claimed success")
+  if not (notice and notice:find("Pending changes", 1, true)) then
+    error("no visible reason why Mark as Read was refused: " .. tostring(notice))
+  end
 end)
 
 KB.check("setting the page by hand supersedes an older queued page", function()

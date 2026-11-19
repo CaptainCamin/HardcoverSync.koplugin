@@ -1420,9 +1420,21 @@ function HardcoverApp:markFinished(file_path, event, opts)
   -- Automatically finishing a book the reader asked to remove must not turn that
   -- queued removal back into a Read. An explicit "Mark as Read" still counts as
   -- putting the book back, so it keeps its normal path and acknowledgement.
-  local linked = self.settings and self.settings.getLinkedBookId
-    and self.sync_queue and self.sync_queue:shelfOp(self.settings:getLinkedBookId(), User:getId())
-  if linked and linked.kind == "remove" and not (opts and opts.explicit) then return false end
+  local book_id = self.settings and self.settings.getLinkedBookId
+    and self.settings:getLinkedBookId()
+  local linked = book_id and self.sync_queue and self.sync_queue:shelfOp(book_id, User:getId())
+  if linked and linked.kind == "remove" then
+    -- A queued abandon owns the shelf until its question is answered: a status write
+    -- would be refused by the cache, so do not claim this one succeeded.
+    local entry = self.sync_queue:get(book_id)
+    local blocked = not (opts and opts.explicit) or (entry and entry.abandon_barrier)
+    if blocked then
+      if opts and opts.explicit then
+        StatusDialogs.info(_("Resolve the reread decision in Pending changes before marking as Read."), 4)
+      end
+      return false
+    end
+  end
 
   local decision = BookActions.statusWrite(self:effectiveStatusId(file_path), event)
   if decision == "ask" then

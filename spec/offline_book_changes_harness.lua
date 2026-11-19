@@ -578,6 +578,27 @@ check("the reader's Status remove keeps the same offline removal, with the confl
   assert(sync_queue:count() == 0, "the sent removal is still queued")
 end)
 
+check("a book put back after a removal keeps its edition if the delete landed", function()
+  newManager()
+  sync_queue:queueRemove(1, 1, 51, "Book 1", 1, nil)
+  sync_queue:get(1).maybe_remote = true
+  sync_queue:persist()
+  sync_queue:enqueueStatus(1, { user_id = 1, book_id = 1, status_id = 3,
+    edition_id = 9, from_status_id = 1 })
+  local entry = sync_queue:shelfOp(1)
+  assert(entry.kind == "status" and entry.edition_id == 9,
+    "the status that replaced the removal lost the linked edition")
+
+  local api = serverApi()
+  function api:findUserBook() return nil end
+  assert(sync_queue:flush(api, { user_id = 1 }))
+  local inserted
+  for _, call in ipairs(server_calls) do
+    if call.name == "updateUserBook" then inserted = call end
+  end
+  assert(inserted and inserted.edition_id == 9, "the recreated record has no linked edition")
+end)
+
 check("a gateway failure keeps the removal, but a definite refusal still offers retry", function()
   local m = newManager()
   local d = detailScreen(m, SHELVED())

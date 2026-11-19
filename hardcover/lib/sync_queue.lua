@@ -548,9 +548,12 @@ function SyncQueue:enqueueStatus(filepath, payload)
   local entry = self:_ensure(filepath, payload)
   if not entry then return nil end
   if entry.abandon_barrier then return nil, "abandon" end
-  -- back from a waiting removal: the record is still there, so this is not a book new to the library
+  -- Back from a waiting removal. If that delete may have landed, keep the edition
+  -- supplied here: the replay may have to recreate the record from this status.
+  -- A removal that was only kept offline still has its original record.
   if before and before.remove then
-    entry.remove, entry.remove_at, entry.edition_id = nil, nil, nil
+    entry.remove, entry.remove_at = nil, nil
+    if not before.maybe_remote then entry.edition_id = nil end
     entry.remove_seq, entry.remove_base, entry.remove_force = nil, nil, nil
     -- putting the book back is an answer to a removal question too
     if entry.conflict and entry.conflict.kind == "remove" then entry.conflict = nil end
