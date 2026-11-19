@@ -103,6 +103,35 @@ return {
     NetworkManager.getConnectionState = was_state
     local home = shell.bodies.home
     assert(home and home.shell == shell and not home.scroll, "Home must be a body that never scrolls")
+
+    -- The snackbar's X sits over the Stats tab. Closing it must spend the tap and leave Home up.
+    local Theme = require("hardcover/lib/ui/theme")
+    require("hardcover/lib/ui/status_dialogs").info("Sync failed. Changes are saved and will retry.")
+    emu:pump()
+    local snackbar = UIManager:getTopmostVisibleWidget()
+    assert(snackbar and snackbar.snackbar, "the Home snackbar is not on top")
+    emu:shot("shell_snackbar_x")
+    -- The toast must stay on the stack until KOReader has finished passing the tap down;
+    -- removing it mid-dispatch can let the tab under the X take the same tap.
+    local dispatching, closed_during_tap = false, false
+    local handle_event, close = snackbar.handleEvent, snackbar.close
+    function snackbar:handleEvent(event)
+      dispatching = true
+      local handled = handle_event(self, event)
+      dispatching = false
+      return handled
+    end
+    function snackbar:close(...)
+      if dispatching then closed_during_tap = true end
+      return close(self, ...)
+    end
+    local close_x = snackbar.region.x + snackbar.region.w - (Theme.px(16) - Theme.px(4))
+      - Theme.TOUCH_MIN / 2
+    emu:tapExpecting(close_x, snackbar.region.y + snackbar.region.h - Theme.px(20))
+    emu:pump()
+    assert(not closed_during_tap, "the snackbar closed while the X tap was still being dispatched")
+    assert(shell.active == "home", "the snackbar X opened the tab below: " .. shell.active)
+    assert(UIManager:getTopmostVisibleWidget() == shell, "the snackbar X did not close the snackbar")
     pending = 2
     home:rebuild()
     emu:pump()
