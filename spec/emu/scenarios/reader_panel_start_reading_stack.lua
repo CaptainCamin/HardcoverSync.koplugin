@@ -64,8 +64,11 @@ return {
       end
       return found
     end
-    local function report(stage)
-      print(string.format("STACK %s: %d panels", stage, #panels()))
+    local function expect_panels(stage, expected)
+      local found = panels()
+      print(string.format("STACK %s: %d panels", stage, #found))
+      assert(#found == expected, string.format("%s: expected %d panel(s), got %d", stage, expected, #found))
+      return found
     end
     local function dark_pixels(top, bottom)
       local bb = emu.Screen.bb
@@ -89,20 +92,34 @@ return {
     local panel = menu:showReaderPanel()
     emu:pump()
     emu:screenNodes()
-    report("open")
-    assert(#panels() == 1, "the panel did not open alone")
+    expect_panels("open", 1)
     emu:expectText("Start reading")
     emu:shot("start_reading_before")
     local old_top = panel.sheet_top
 
+    emu.probe:reset()
     local start = emu:expectText("Start reading")
     emu:tapExpecting(start.x + math.floor(start.w / 2), start.y + math.floor(start.h / 2))
     emu:pump()
     emu:screenNodes()
-    report("after Start reading")
-    emu:shot("start_reading_after")
+    expect_panels("after Start reading", 1)
     assert(state.book_status.status_id == HARDCOVER.STATUS.READING, "Start reading did not change the shelf")
     assert(panel.sheet_top > old_top, "the panel should shrink when Start reading removes the card")
+
+    -- Check the refresh request itself before taking a screenshot: emu:shot
+    -- queues a full-screen refresh, which must not be what makes this pass.
+    local probe = emu.probe:snapshot()
+    local covers_strip = false
+    for _, r in ipairs(probe.log) do
+      if r.y <= old_top + 12 and r.y + r.h >= panel.sheet_top - 4 then covers_strip = true end
+    end
+    local page_repainted = false
+    for _, name in ipairs(emu.probe.paints) do
+      if name == "reader_page_stub" then page_repainted = true end
+    end
+    assert(covers_strip, "no refresh covered the strip the shorter panel uncovered")
+    assert(page_repainted, "the page under the strip was not repainted")
+    emu:shot("start_reading_after")
     local ghost = dark_pixels(old_top, panel.sheet_top)
     print(string.format("GHOST after Start reading: %d dark pixels in exposed strip", ghost))
     assert(ghost == 0, "the old sheet's header is still painted above the shorter panel")
@@ -111,16 +128,15 @@ return {
     local close = panel.close_button.dimen
     emu:tapExpecting(close.x + math.floor(close.w / 2), close.y + math.floor(close.h / 2))
     emu:pump()
-    report("closed")
+    expect_panels("closed", 0)
 
     -- Reopen from the reader menu (HardcoverMenu:open is its button's callback).
     menu:open()
     emu:pump()
     emu:screenNodes()
-    report("reopened")
+    local reopened = expect_panels("reopened", 1)
     emu:shot("start_reading_reopened")
-    assert(#panels() == 1, "reopening left an old panel stacked under the new one")
-    assert(emu:top() == panels()[1], "the reopened panel is not the top window")
+    assert(emu:top() == reopened[1], "the reopened panel is not the top window")
     emu:closeAll()
   end,
 }
