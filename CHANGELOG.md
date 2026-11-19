@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixes
+
+- **Home stays inside smaller panels.** Its card, sync box and shelves no longer run off the right edge or push the bottom navigation off screen when the panel is resized or the text does not fit: the body is rebuilt at the new size and falls back to the plugin's visible scroll control when even the shortened page is too tall.
+
 ## 2.5.1
 
 ### Fixes

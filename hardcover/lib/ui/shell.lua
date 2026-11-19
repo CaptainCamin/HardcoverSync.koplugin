@@ -145,6 +145,19 @@ function Shell:onBack()
   return self:onClose()
 end
 
+-- A panel resized while the shell is up (a docked reader, a rotated device): every cached body was
+-- built for the old width and height. Keeping those widgets paints a wide page into a narrow panel
+-- and pushes the nav bar below the frame, so rebuild them at the new size. Tabs not on screen are
+-- built when next opened.
+function Shell:onSetDimensions(dimen)
+  self.dimen = Geom:new { x = 0, y = 0, w = dimen.w, h = dimen.h }
+  for _, body in pairs(self.bodies) do release(body) end
+  self.bodies = {}
+  self:build()
+  UIManager:setDirty(self, "full")
+  return true
+end
+
 function Shell:onCloseWidget()
   self.closed = true -- what the cover cells check before they refresh
   for _, body in pairs(self.bodies) do release(body) end
