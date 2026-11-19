@@ -125,11 +125,14 @@ return {
     emu:closeAll()
 
     NetworkManager.isConnected, NetworkManager.getConnectionState = was_connected, was_state
+    local lookups = 0
     Api.findUserBookForRemoval = function()
+      lookups = lookups + 1
       return { id = USER_BOOK_ID, book_id = BOOK_ID, status_id = TO_READ,
         rating = 4, has_review = false, user_book_reads = {} }
     end
     assert(sync_queue:flush(Api, { user_id = user_id }), "the queued removal was not sent")
+    assert(lookups == 1, "the record was not rechecked before the delete")
     assert(count("removeUserBook") == 1, "the removal was not sent exactly once")
     assert(sync_queue:count() == 0, "the sent removal is still queued")
 

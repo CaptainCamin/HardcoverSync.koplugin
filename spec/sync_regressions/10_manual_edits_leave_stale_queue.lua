@@ -101,6 +101,16 @@ KB.check("closing a removed book does not write Read over the removal", function
   }
   KB.eq(HardcoverApp.markFinished(app, FILE, "end_chosen"), false, "auto-finish was not blocked")
   KB.eq(q:shelfOp(7).kind, "remove", "auto-finish replaced the queued removal")
+
+  -- Choosing Mark as Read in the end-of-book prompt is explicit: it may put the
+  -- book back and gets the normal written-status acknowledgement.
+  local explicit = {
+    settings = app.settings, sync_queue = q,
+    effectiveStatusId = function() return nil end,
+    finishBook = function() end,
+  }
+  KB.eq(HardcoverApp.markFinished(explicit, FILE, "end_chosen", { explicit = true }), true,
+    "an explicit Mark as Read was silently ignored")
 end)
 
 KB.check("setting the page by hand supersedes an older queued page", function()

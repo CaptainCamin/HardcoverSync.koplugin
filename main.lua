@@ -1416,12 +1416,13 @@ end
 -- time between. Every trigger comes through here, so a second one finds the first one's write
 -- already counted (the effective status includes a change still waiting in the queue) and does nothing.
 -- Returns true when Read was written or queued.
-function HardcoverApp:markFinished(file_path, event)
-  -- Closing a book the reader already asked to remove must not turn that queued
-  -- removal back into a Read just because the book is marked Finished here.
+function HardcoverApp:markFinished(file_path, event, opts)
+  -- Automatically finishing a book the reader asked to remove must not turn that
+  -- queued removal back into a Read. An explicit "Mark as Read" still counts as
+  -- putting the book back, so it keeps its normal path and acknowledgement.
   local linked = self.settings and self.settings.getLinkedBookId
     and self.sync_queue and self.sync_queue:shelfOp(self.settings:getLinkedBookId(), User:getId())
-  if linked and linked.kind == "remove" then return false end
+  if linked and linked.kind == "remove" and not (opts and opts.explicit) then return false end
 
   local decision = BookActions.statusWrite(self:effectiveStatusId(file_path), event)
   if decision == "ask" then
@@ -1451,8 +1452,8 @@ local function statusSavedMessage()
   return _("You're offline. Your status is kept and will be sent when you're connected.")
 end
 
-function HardcoverApp:markFinishedAndSay(file_path, event)
-  if self:markFinished(file_path, event) then
+function HardcoverApp:markFinishedAndSay(file_path, event, opts)
+  if self:markFinished(file_path, event, opts) then
     StatusDialogs.info(statusSavedMessage(), 2)
     return true
   end
@@ -1549,7 +1550,7 @@ function HardcoverApp:askAtLastPage(file_path)
     text = _("Mark this book as Read on Hardcover?"),
     ok_text = _("Mark as Read"),
     cancel_text = _("Not yet"),
-    ok_callback = function() self:markFinishedAndSay(file_path, "end_chosen") end,
+    ok_callback = function() self:markFinishedAndSay(file_path, "end_chosen", { explicit = true }) end,
   }
 end
 
