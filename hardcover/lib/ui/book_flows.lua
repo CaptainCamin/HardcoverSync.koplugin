@@ -13,6 +13,7 @@ local T = require("ffi/util").template
 local logger = require("logger")
 
 local UIManager = require("ui/uimanager")
+local NetworkMgr = require("ui/network/manager")
 local Live = require("hardcover/lib/ui/live")
 
 local Api = require("hardcover/lib/hardcover_api")
@@ -1857,21 +1858,24 @@ function Flows:saveShelf(dialog, status_id)
     end)
 end
 
-function Flows:removeFromShelf(dialog)
-  local detail = dialog.detail
-  local old_status_id = detail.status_id
-  local user_book_id = detail.user_book_id
-  local book_id = detail.book and detail.book.book_id
+-- Keep a removal that cannot be sent now. `detail` is the details screen's data, or the
+-- reader's last known record of the linked book. The baseline is what this device last saw
+-- before any waiting shelf, rating, review or page change was laid over it: the flush uses it
+-- to ask about work Hardcover gained before it deletes the record.
+function Flows:queueBookRemoval(detail)
+  local book = detail and detail.book
+  local book_id = book and book.book_id
+  local user_book_id = detail and detail.user_book_id
+  local queue = self.sync_queue
+  local waiting = queue and book_id and queue:shelfOp(book_id, User:getId())
+  if not (user_book_id or waiting) then return nil end
 
-  local waiting = self.sync_queue and book_id and self.sync_queue:shelfOp(book_id, User:getId())
-  -- What this device last knew of the record, so a later replay can tell whether Hardcover
-  -- gained work the reader never saw. Use the values before `withPending` laid the reader's
-  -- own not-yet-sent shelf, rating and review changes over them.
+  local old_status_id = detail.status_id
   local server = detail._server_base or detail
-  local queued = self.sync_queue and book_id and self.sync_queue:get(book_id)
+  local queued = queue and book_id and queue:get(book_id)
   local status = self.state and self.state.book_status or {}
   -- The reader's open book is not necessarily this one; only use its reads when it is.
-  if status.book_id ~= nil and detail.book and tonumber(status.book_id) ~= tonumber(detail.book.book_id) then
+  if status.book_id ~= nil and book and tonumber(status.book_id) ~= tonumber(book.book_id) then
     status = {}
   end
   if status.id ~= nil and user_book_id ~= nil and tonumber(status.id) ~= tonumber(user_book_id) then
@@ -1906,51 +1910,95 @@ function Flows:removeFromShelf(dialog)
     review_raw = server.user_review,
     review_has_spoilers = server.review_spoilers,
     review_known = server.review_known == true,
-    reads = self.sync_queue and self.sync_queue.readSignature
-      and reads and self.sync_queue.readSignature(reads) or nil,
-    reads_known = reads_known and self.sync_queue and self.sync_queue.readSignature ~= nil,
+    reads = queue and queue.readSignature and reads and queue.readSignature(reads) or nil,
+    reads_known = reads_known and queue and queue.readSignature ~= nil,
   }
-  -- offline, or a book that only went on a shelf offline (the connection may be back, but
-  -- Hardcover has no record of it yet), or a book whose abandon is still waiting: kept, not sent
+  -- a book that only went on a shelf offline has nothing on Hardcover to remove
+  local outcome = queue:queueRemove(User:getId(), book_id, user_book_id, book.title,
+    old_status_id, base, self:deviceFile(book_id))
+  self:shelfChanged(book_id, old_status_id, nil, nil, true)
+  return outcome, queued and queued.abandon_barrier or false
+end
+
+-- The details shelf picker and the reader's Status list both remove through here. Offline,
+-- for a book Hardcover does not know yet, with an abandon still waiting, or when a delete
+-- drew no answer, the removal is kept and replayed with the queue's conflict check. Otherwise
+-- it is sent now. `opts` supplies the acknowledgement and screen updates for each caller.
+function Flows:removeBook(detail, opts)
+  opts = opts or {}
+  local book = detail and detail.book
+  local book_id = book and book.book_id
+  local user_book_id = detail and detail.user_book_id
+  local queue = self.sync_queue
+  -- A live check as well as Network.connected(): the latter trusts KOReader's last known
+  -- wifi state, which can still say "joined" on a device with no route. A write must not
+  -- go out on that stale answer when it can be kept instead.
+  local offline = not Network.connected()
+    or (type(NetworkMgr.isConnected) == "function" and not NetworkMgr:isConnected())
+  local waiting = queue and book_id and queue:shelfOp(book_id, User:getId())
+  local queued = queue and book_id and queue:get(book_id)
   local abandon_waiting = queued and queued.abandon_barrier
-  if self.sync_queue and book_id and (not Network.connected() or (not user_book_id and waiting)
-      or abandon_waiting) then
+  if queue and book_id and (offline or (not user_book_id and waiting) or abandon_waiting) then
     if not (user_book_id or waiting) then return end
-    -- a book that only went on a shelf offline has nothing on Hardcover to remove
-    local outcome = self.sync_queue:queueRemove(User:getId(), book_id, user_book_id, detail.book.title,
-      old_status_id, base, self:deviceFile(book_id))
-    self:shelfChanged(book_id, old_status_id, nil, nil, true)
-    if Live.shown(dialog) then dialog:setStatus(nil, nil) end
-    if outcome == "dropped" then
-      StatusDialogs.info(_("Taken off your shelf. It had not been sent, so nothing is left to send."), 3)
-    elseif abandon_waiting then
-      StatusDialogs.info(_("Removal is waiting for your abandon decision in Pending changes."), 3)
-    else
-      StatusDialogs.info(_("Offline: the removal is kept and will be sent when you're connected."), 3)
-    end
+    local outcome, abandon = self:queueBookRemoval(detail)
+    if opts.on_queued then opts.on_queued(outcome, abandon, false) end
     return
   end
 
   if not user_book_id then return end
-
-  local loading = StatusDialogs.loading(_("Removing from your library…"))
-
+  local loading = opts.no_loading and nil or StatusDialogs.loading(_("Removing from your library…"))
   Api:removeUserBookAsync(user_book_id, function(removed, err)
-    StatusDialogs.close(loading)
-
+    if loading then StatusDialogs.close(loading) end
     if not removed then
-      StatusDialogs.retry(err, _("Removing from your library"),
-        function() self:removeFromShelf(dialog) end,
-        function() end)
+      -- Like an unanswered shelf change, a delete with no answer may have landed. Keep
+      -- it and let the flush look the record up before sending anything again.
+      if queue and book_id and (err == nil or (type(err) == "table"
+          and (err.completed == false or err.error == "no_response"))) then
+        local lost = queue:get(book_id)
+        if lost and not lost.maybe_remote then
+          lost.maybe_remote = true
+          queue:persist()
+        end
+        local outcome, abandon = self:queueBookRemoval(detail)
+        if opts.on_queued then opts.on_queued(outcome, abandon, true) end
+        return
+      end
+      if opts.on_failed then
+        opts.on_failed(err, function() self:removeBook(detail, opts) end)
+      end
       return
     end
-
-    if self.sync_queue and book_id then self.sync_queue:cancelStatus(book_id) end
-    self:shelfChanged(book_id, old_status_id, nil)
-    if Live.shown(dialog) then
-      dialog:setStatus(nil, nil)
-    end
+    if queue and book_id then queue:clear(book_id) end
+    self:shelfChanged(book_id, detail.status_id, nil)
+    if opts.on_removed then opts.on_removed() end
   end)
+end
+
+function Flows:removalNotice(outcome, abandon_waiting, lost_answer)
+  if outcome == "dropped" then
+    StatusDialogs.info(_("Taken off your shelf. It had not been sent, so nothing is left to send."), 3)
+  elseif abandon_waiting then
+    StatusDialogs.info(_("Removal is waiting for your abandon decision in Pending changes."), 3)
+  else
+    StatusDialogs.info(lost_answer
+      and _("Removal had no answer. It is kept and will be checked when you're connected.")
+      or _("Offline: the removal is kept and will be sent when you're connected."), 3)
+  end
+end
+
+function Flows:removeFromShelf(dialog)
+  self:removeBook(dialog.detail, {
+    on_queued = function(outcome, abandon_waiting, lost_answer)
+      if Live.shown(dialog) then dialog:setStatus(nil, nil) end
+      self:removalNotice(outcome, abandon_waiting, lost_answer)
+    end,
+    on_failed = function(err, retry)
+      StatusDialogs.retry(err, _("Removing from your library"), retry, function() end)
+    end,
+    on_removed = function()
+      if Live.shown(dialog) then dialog:setStatus(nil, nil) end
+    end,
+  })
 end
 
 -- A shelf change made offline went through. The saved shelves are marked out of date

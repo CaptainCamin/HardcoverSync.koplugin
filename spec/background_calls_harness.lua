@@ -103,10 +103,24 @@ local function newMenu(book_status)
   shown_errors = {}
   local updates = 0
   local menu_instance = { updateItems = function() updates = updates + 1 end, updates = function() return updates end }
+  local dialog_manager = {
+    showError = function(_, msg) shown_errors[#shown_errors + 1] = "x" end,
+    -- the reader hands removal to the shared book flow, which sends the delete
+    removeBook = function(_, detail, opts)
+      Background.run(function()
+        local result = Api.removeUserBook(detail.user_book_id)
+        if result and result.id and opts.on_removed then opts.on_removed() end
+      end)
+    end,
+  }
   local menu = setmetatable({
-    state = { book_status = book_status or { id = 5, edition_id = 9 } },
+    state = { book_status = book_status or { id = 5, status_id = 2, edition_id = 9 } },
     ui = { document = { file = "/books/a.epub" } },
-    dialog_manager = { showError = function(_, msg) shown_errors[#shown_errors + 1] = "x" end },
+    settings = {
+      getLinkedBookId = function() return 7 end,
+      getLinkedTitle = function() return "Book 7" end,
+    },
+    dialog_manager = dialog_manager,
     cache = { updateBookStatus = probe("cache.updateBookStatus", true) },
   }, { __index = HardcoverMenu })
   return menu, menu_instance
@@ -121,7 +135,7 @@ end)
 
 check("removing the current read", function()
   reset()
-  Api.removeRead = probe("removeRead", { id = 1 })
+  Api.removeUserBook = probe("removeUserBook", { id = 1 })
   local menu, mi = newMenu()
   menu:removeCurrentRead(mi)
   assertNoBlocking("removeCurrentRead")

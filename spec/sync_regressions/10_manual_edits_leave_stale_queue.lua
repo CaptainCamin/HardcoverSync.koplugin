@@ -37,8 +37,15 @@ end
 
 local Api = real_require("hardcover/lib/hardcover_api")
 local Cache = real_require("hardcover/lib/cache")
+local DialogManager = real_require("hardcover/lib/ui/dialog_manager")
 local HardcoverMenu = real_require("hardcover/lib/ui/hardcover_menu")
 local HARDCOVER = real_require("hardcover/lib/constants/hardcover")
+local User = real_require("hardcover/lib/user")
+local StatusDialogs = real_require("hardcover/lib/ui/status_dialogs")
+User.getId = function() return 1 end
+StatusDialogs.loading = function() return { close = function() end } end
+StatusDialogs.close = function() end
+StatusDialogs.info = function() end
 
 local FILE = "/books/a.epub"
 
@@ -52,6 +59,18 @@ local function newMenu(queue)
     dialog_manager = { showError = function() end },
     sync_queue = queue,
   }, { __index = HardcoverMenu })
+  local manager = DialogManager:new {
+    sync_queue = queue, state = menu.state, ui = menu.ui,
+    settings = { getFilePath = function() return FILE end },
+  }
+  manager.moveShownCounts = function() end
+  manager.shelves = function() return nil end
+  manager.forgetShelves = function() end
+  menu.dialog_manager = manager
+  menu.settings = {
+    getLinkedBookId = function() return 7 end,
+    getLinkedTitle = function() return "Book 7" end,
+  }
   menu.cache = Cache:new { sync_queue = queue, state = menu.state, settings = {
     readBookSettings = function() return { book_id = 7, edition_id = 3 } end,
     readBookSetting = function(_, _, key) return ({ book_id = 7, edition_id = 3 })[key] end,
@@ -65,7 +84,8 @@ local mi = { updateItems = function() end }
 KB.check("removing the book also drops its queued changes", function()
   local q = KB.newQueue()
   q:enqueuePage(FILE, { mapped_page = 120, book_id = 7, edition_id = 3 })
-  Api.removeRead = function() return { id = 500 } end
+  Api.removeUserBook = function(_, id) return { id = id } end
+  Api.removeUserBookAsync = function(_, id, cb) cb(Api:removeUserBook(id)) end
   newMenu(q):removeCurrentRead(mi)
   KB.eq(q:hasPending(FILE), false, "queued entry after removing the book")
 end)
