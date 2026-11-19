@@ -246,7 +246,7 @@ function HomeBody:build()
         free(note)
       end
 
-      -- then the shelves: the head and as many rows as fit
+      -- then the shelves: as many rows as fit on a page that fits, every row on one that scrolls
       local rows = {}
       for _i, row in ipairs(Home.homeOrder(self.rows)) do rows[#rows + 1] = row end
       local head = ListItem.section(_("Shelves"), section_w, px(4))
@@ -256,7 +256,7 @@ function HomeBody:build()
         local items = {}
         for i, row in ipairs(rows) do
           local item = self:shelfRow(row, section_w, i == #rows)
-          if item:getSize().h > room then break end
+          if not keep_note and item:getSize().h > room then break end
           room = room - item:getSize().h
           items[#items + 1] = item
         end
@@ -288,7 +288,9 @@ function HomeBody:build()
       dimen = Geom:new { x = 0, y = 0, w = w, h = h },
       show_parent = Hosted.window(self),
     }
-    scroll[1] = HorizontalGroup:new { Theme.hspan(side), column }
+    -- `column` already puts its cards in from the side and spans its sections to the gutter.
+    -- An outer hspan would shift those sections into the strip where the scroll control is drawn.
+    scroll[1] = column
     body = ScrollControl.wrap(scroll, column)
     self.scroll = scroll
   end
