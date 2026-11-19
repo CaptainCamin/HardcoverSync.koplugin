@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.5.1
+
 ### Fixes
 
 - **A shelf change is no longer lost when Hardcover's answer goes missing.** If the connection drops mid-save, the change is kept and sent when you're connected instead of being offered as a retry you can cancel away — and a change you make while the first one is still on its way is never overwritten by the older, late answer.
