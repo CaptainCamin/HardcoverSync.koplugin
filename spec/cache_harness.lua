@@ -130,6 +130,24 @@ check("a full snapshot hydrates the status", function()
   eq(cache.state.book_status.user_book_reads[1].progress_pages, 120, "progress")
 end)
 
+check("a queued edition move allows tracking on the reopened file", function()
+  local snapshot = {
+    id = 501, book_id = 9001, status_id = HARDCOVER.STATUS.READING, edition_id = 4,
+    page_tracking = false,
+    user_book_reads = { { id = 77, progress_pages = 120, edition_id = 3 } },
+  }
+  local queue = {
+    applyPending = function(_, _, status) return status end,
+    pendingEditionMove = function(_, file, read_id, edition_id)
+      return file == "/books/a.epub" and read_id == 77 and edition_id == 4
+    end,
+  }
+  local cache = newCache { snapshot = snapshot, queue = queue }
+  cache:hydrateBookStatus("/books/a.epub")
+  eq(cache.state.book_status.page_tracking, true,
+    "pages after the offline edition move were discarded")
+end)
+
 check("a book with only per-book settings still hydrates", function()
   -- Older installs have settings but no snapshot. Losing the book entirely here
   -- would mean a previously-synced book becomes untrackable offline.

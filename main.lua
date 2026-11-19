@@ -1160,6 +1160,7 @@ function HardcoverApp:offerJumpToCloudPage()
 
   local status = self.state.book_status
   if not (status and status.id and status.status_id == HARDCOVER.STATUS.READING) then return end
+  if status.page_tracking == false then return end
   local reads = status.user_book_reads
   local read = Book:currentRead(reads)
   local cloud_page = read and tonumber(read.progress_pages)

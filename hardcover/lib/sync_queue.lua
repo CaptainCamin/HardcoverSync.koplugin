@@ -385,6 +385,21 @@ function SyncQueue:readActions(book_id)
   return entry and Actions.readActions(entry) or {}
 end
 
+-- Has the reader already queued a move of this read to the edition this file now
+-- uses? Its pages will be in the destination edition's units, not the old one's.
+function SyncQueue:pendingEditionMove(ref, read_id, edition_id)
+  local entry = self:get(ref)
+  if not entry then return false end
+  for _, action in ipairs(Actions.list(entry)) do
+    if action.kind == "read_edition" and read_id ~= nil
+        and tostring(action.read_id) == tostring(read_id)
+        and tostring(action.target_edition_id) == tostring(edition_id) then
+      return true
+    end
+  end
+  return false
+end
+
 -- Cancel one unsent read edit. An edit whose request may already have landed (`checking`) is
 -- refused, like a page in flight. An unsent addition with an edit behind it is refused too: the
 -- editor should change the addition in place instead.
