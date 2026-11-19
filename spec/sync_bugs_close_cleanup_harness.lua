@@ -124,4 +124,41 @@ check("an already finished book does not claim a fresh native choice", function(
     "the stale flag was treated as a fresh choice")
 end)
 
+check("quick dismissal of the native menu does not claim a fresh choice", function()
+  local UIManager = require("ui/uimanager")
+  local previous_settings = _G.G_reader_settings
+  _G.G_reader_settings = {
+    readSetting = function() return "pop-up" end,
+    isTrue = function() return false end,
+  }
+  local summary = { status = "complete" }
+  local seen_opts
+  local app = newApp {
+    state = { book_status = { id = 500, status_id = 2 }, end_asked = {}, end_menu_status = {} },
+    ui = {
+      document = { file = "/book.epub", getPageCount = function() return 100 end },
+      getCurrentPage = function() return 100 end,
+      doc_settings = { readSetting = function() return summary end },
+    },
+    settings = {
+      readBookSetting = function() return 7 end,
+      fileSyncEnabled = function() return true end,
+      endAutoMark = function() return false end,
+      endPrompt = function() return true end,
+      readSetting = function() return false end,
+      syncEnabled = function() return true end,
+    },
+    sync_queue = { statusOf = function() return 3 end },
+    markFinishedAndSay = function(_, _, _, opts)
+      seen_opts = opts
+      return true
+    end,
+  }
+  UIManager._window_stack = {}
+  app:onEndOfBook()
+  app:checkEndMenu()
+  _G.G_reader_settings = previous_settings
+  assert(not (seen_opts and seen_opts.explicit), "a quick dismissal claimed a fresh finish")
+end)
+
 r.finish()

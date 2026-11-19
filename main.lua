@@ -1520,7 +1520,12 @@ function HardcoverApp:onEndOfBook()
   if plan == "mark" then
     self:markFinishedAndSay(file_path, "end_auto")
   elseif plan == "check_later" then
-    -- Wait until KOReader's dialog is gone before reading its answer or asking ours.
+    -- Capture the switch before KOReader's dialog can change it. A quick dismissal
+    -- must not turn an already finished book into a fresh explicit choice.
+    local doc_settings = self.ui and self.ui.doc_settings
+    local summary = doc_settings and doc_settings:readSetting("summary")
+    self.state.end_menu_status = self.state.end_menu_status or {}
+    self.state.end_menu_status[file_path] = summary and summary.status
     UIManager:unschedule(self.checkEndMenu)
     UIManager:scheduleIn(1, self.checkEndMenu, self)
   end
@@ -1581,7 +1586,7 @@ function HardcoverApp:checkEndMenu()
   local before = self.state.end_menu_status and self.state.end_menu_status[document.file]
   if self.state.end_menu_status then self.state.end_menu_status[document.file] = nil end
   local status = bookStatus()
-  local explicit = status == "complete" and before ~= "complete"
+  local explicit = before ~= nil and status == "complete" and before ~= "complete"
   if self:markIfMarkedFinished(document.file, explicit and { explicit = true } or nil) then return end
   local page = self.ui:getCurrentPage()
   if EndOfBook.atLastPage(page, document:getPageCount())

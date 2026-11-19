@@ -264,6 +264,7 @@ local SNAPSHOT_KEYS = {
   "privacy_setting_id",
   "started_at",
   "last_synced_page",
+  "read_edition_id",
 }
 -- Set only when a removal completed. A linked file with this marker has no Hardcover
 -- record yet; automatic status writes must not recreate the deleted book.
@@ -283,6 +284,7 @@ function HardcoverSettings:saveBookSnapshot(filename, user_book)
     read_id = current_read and current_read.id,
     started_at = current_read and current_read.started_at,
     last_synced_page = current_read and current_read.progress_pages,
+    read_edition_id = current_read and current_read.edition_id,
   }
   if user_book.edition_id then
     config.edition_id = user_book.edition_id
@@ -290,7 +292,7 @@ function HardcoverSettings:saveBookSnapshot(filename, user_book)
   -- a nil value is skipped by updateBookSetting, so name the keys to drop (a read or edition
   -- that is gone must not live on from the last snapshot)
   local delete = {}
-  for _, key in ipairs({ "read_id", "started_at", "last_synced_page", "edition_id" }) do
+  for _, key in ipairs({ "read_id", "started_at", "last_synced_page", "read_edition_id", "edition_id" }) do
     if config[key] == nil then delete[#delete + 1] = key end
   end
   -- A confirmed library record means the file is no longer waiting after a removal.
@@ -314,9 +316,10 @@ function HardcoverSettings:saveShelfSnapshot(filename, user_book)
     read_id = current_read and current_read.id,
     started_at = current_read and current_read.started_at,
     last_synced_page = current_read and current_read.progress_pages,
+    read_edition_id = current_read and current_read.edition_id,
   }
   local delete = {}
-  for _, key in ipairs({ "read_id", "started_at", "last_synced_page" }) do
+  for _, key in ipairs({ "read_id", "started_at", "last_synced_page", "read_edition_id" }) do
     if config[key] == nil then delete[#delete + 1] = key end
   end
   if #delete > 0 then config._delete = delete end
@@ -350,6 +353,21 @@ function HardcoverSettings:clearBookSnapshotsFor(book_id)
     end
   end
   for _, file in ipairs(files) do self:clearBookSnapshot(file, book_id) end
+end
+
+-- A catalog book can be linked to several files: restore the confirmed shelf state
+-- on every copy, while each file keeps its own edition and page count.
+function HardcoverSettings:saveShelfSnapshotsFor(book_id, user_book)
+  if not book_id then return end
+  local books = self.settings:readSetting(SETTING.BOOKS)
+  if type(books) ~= "table" then return end
+  local files = {}
+  for file, config in pairs(books) do
+    if type(config) == "table" and tostring(config.book_id) == tostring(book_id) then
+      files[#files + 1] = file
+    end
+  end
+  for _, file in ipairs(files) do self:saveShelfSnapshot(file, user_book) end
 end
 
 -- The marker describes one catalog book. If a file was unlinked or relinked, it does
@@ -397,7 +415,7 @@ function HardcoverSettings:bookStatusFromSnapshot(filename)
       id = settings.read_id,
       started_at = settings.started_at,
       progress_pages = settings.last_synced_page,
-      edition_id = settings.edition_id,
+      edition_id = settings.read_edition_id or settings.edition_id,
     } }
   end
 
