@@ -346,7 +346,9 @@ function HardcoverSettings:saveBookRatingsFor(book_id, rating)
   local books = self.settings:readSetting(SETTING.BOOKS)
   if type(books) ~= "table" then return end
   for file, config in pairs(books) do
-    if type(config) == "table" and tostring(config.book_id) == tostring(book_id) then
+    -- a guess may yet be the wrong book: its rating follows once the link is confirmed
+    if type(config) == "table" and config.guessed_book_id == nil
+        and tostring(config.book_id) == tostring(book_id) then
       self:saveBookRating(file, rating)
     end
   end

@@ -258,9 +258,13 @@ check("a sent rating reaches every linked file, touching only the rating", funct
     read_id = 11, last_synced_page = 50, read_edition_id = 4 })
   s:updateBookSetting(g, { book_id = 77, edition_id = 9, pages = 412, user_book_id = 5 })
   s:updateBookSetting(h, { book_id = 78, edition_id = 9 })
+  local guess = "/books/guessed.epub"
+  s:updateBookSetting(guess, { book_id = 77, guessed_book_id = 77 })
   s:saveBookRatingsFor(77, 5)
   assert(s:readBookSetting(f, "user_rating") == 5 and s:readBookSetting(g, "user_rating") == 5,
     "a linked file missed the confirmed rating")
+  assert(s:readBookSetting(guess, "user_rating") == nil,
+    "an unconfirmed guess took a rating for what may be the wrong book")
   assert(s:readBookSetting(f, "edition_id") == 4 and s:readBookSetting(f, "last_synced_page") == 50
     and s:readBookSetting(g, "edition_id") == 9, "the rating answer overwrote local edition or read")
   assert(s:readBookSetting(h, "user_rating") == nil, "another book's file took the rating")
