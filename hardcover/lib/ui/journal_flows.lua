@@ -54,8 +54,8 @@ local function journalSent(state, shown, op, entry)
       for k, v in pairs(entry) do shown_entry[k] = v end
     end
   end
-  state.sent = Journal.append({ entry }, state.sent)
-  state.entries = Journal.append({ entry }, state.entries)
+  state.sent = Journal.insertDated(state.sent, entry)
+  state.entries = Journal.insertDated(state.entries, entry)
 end
 
 -- Hardcover took a review: every "reviewed" entry of its book shows the review as it is now (or
@@ -67,7 +67,7 @@ local function reviewSent(state, shown, user_book_id, book_id, text, spoilers, a
   local excerpt, truncated
   if body then excerpt, truncated = Reviews.excerpt(body) end
   local stamped = at or os.date("!%Y-%m-%dT%H:%M:%SZ")
-  local matched
+  local matched, restamped
   for _, entries in ipairs({ state.entries, state.sent }) do
     for _, entry in ipairs(entries) do
       -- a book re-added to the library gets a new record id, so its older review rows match
@@ -82,12 +82,17 @@ local function reviewSent(state, shown, user_book_id, book_id, text, spoilers, a
         -- date; a row for the record the edit landed on keeps its own
         if tostring(entry.user_book_id) ~= tostring(user_book_id) then
           entry.at = stamped
+          restamped = true
         end
         entry.user_book_id = tonumber(user_book_id) or entry.user_book_id
         entry.text, entry.excerpt, entry.truncated, entry.spoilers =
           body, excerpt, truncated, body and spoilers == true or nil
       end
     end
+  end
+  if restamped then
+    state.entries = Journal.sortDated(state.entries)
+    state.sent = Journal.sortDated(state.sent)
   end
   if matched or not body then return end
   -- A new review: the row waiting for it becomes it. Hardcover stamps its own journal entry with
@@ -104,7 +109,7 @@ local function reviewSent(state, shown, user_book_id, book_id, text, spoilers, a
     end
   end
   if not waiting then return end
-  state.entries = Journal.append({ {
+  state.entries = Journal.insertDated(state.entries, {
     key = "reviewed:sent:" .. tostring(book_id or user_book_id),
     kind = "review", event = "reviewed",
     user_id = tonumber(waiting.user_id) or User:getId(),
@@ -113,7 +118,7 @@ local function reviewSent(state, shown, user_book_id, book_id, text, spoilers, a
     title = waiting.title, authors = waiting.authors, cover_url = waiting.cover_url,
     text = body, excerpt = excerpt, truncated = truncated, spoilers = spoilers == true,
     at = stamped,
-  } }, state.entries)
+  })
 end
 
 local function freshJournal(state, page)
@@ -346,7 +351,7 @@ function Flows:journalChangeSent(op, answer)
           if tonumber(old.book_id) == tonumber(book) then prior[#prior + 1] = old end
         end
       end
-      local entries = Journal.append({ entry }, prior)
+      local entries = Journal.insertDated(prior, entry)
       store:put(User:getId(), entries, saved and saved.more, book or nil,
         (saved or (book and all_saved)) and (saved or all_saved).saved_at)
     end
@@ -421,8 +426,15 @@ function Flows:reviewChangeSent(user_book_id, text, spoilers, book_id, op)
           and tostring(e.user_book_id) ~= tostring(user_book_id)
       end
       local date = { at = stamped }
-      store:change(uid, ofOldRecord, date)
-      store:change(uid, ofOldRecord, date, book_id)
+      -- a re-stamped row files where its new date puts it, not where the old date had it
+      if store:change(uid, ofOldRecord, date) then
+        local s = store:get(uid)
+        store:put(uid, Journal.sortDated(s.entries), s.more, nil, s.saved_at)
+      end
+      if store:change(uid, ofOldRecord, date, book_id) then
+        local s = store:get(uid, book_id)
+        store:put(uid, Journal.sortDated(s.entries), s.more, book_id, s.saved_at)
+      end
     end
     -- a first review matches no saved row: keep a stand-in, or an offline reopen drops the
     -- review the open screen just showed. Rows for the book in the saved journal lend the
@@ -448,8 +460,8 @@ function Flows:reviewChangeSent(user_book_id, text, spoilers, book_id, op)
     end
     local all_saved = store:get(uid)
     if not store:change(uid, ofBook, fields) and fields.text then
-      store:put(uid, Journal.append({ standIn(all_saved and all_saved.entries) },
-        all_saved and all_saved.entries or {}),
+      store:put(uid, Journal.insertDated(all_saved and all_saved.entries or {},
+        standIn(all_saved and all_saved.entries)),
         all_saved and all_saved.more, nil, all_saved and all_saved.saved_at)
     end
     -- the book's own snapshot only when it exists: a fresh one made of the review alone would
@@ -457,7 +469,7 @@ function Flows:reviewChangeSent(user_book_id, text, spoilers, book_id, op)
     if book_id then
       local book_saved = store:get(uid, book_id)
       if book_saved and not store:change(uid, ofBook, fields, book_id) and fields.text then
-        store:put(uid, Journal.append({ standIn(book_saved.entries) }, book_saved.entries),
+        store:put(uid, Journal.insertDated(book_saved.entries, standIn(book_saved.entries)),
           book_saved.more, book_id, book_saved.saved_at)
       end
     end

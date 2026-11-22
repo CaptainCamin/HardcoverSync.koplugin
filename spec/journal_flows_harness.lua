@@ -761,6 +761,39 @@ check("a sent review with no book id takes the answer's book in its own book jou
     "the sent review vanished from its book journal")
 end)
 
+check("a review sent days later files under the day it was written, not on top", function()
+  local m = newManager()
+  m.journal_store:put(1, {
+    { key = "note:1", id = 1, kind = "note", user_id = 1, book_id = 6, title = "Kindred",
+      text = "Tuesday note", excerpt = "Tuesday note", at = "2026-11-17T10:00:00+00:00" },
+    { key = "note:2", id = 2, kind = "note", user_id = 1, book_id = 5, title = "Dune",
+      text = "Last week's note", excerpt = "Last week's note", at = "2026-11-10T10:00:00+00:00" },
+  }, false)
+  -- a review drafted Monday, synced Wednesday
+  local monday = os.time { year = 2026, month = 11, day = 16, hour = 9 }
+  m:reviewChangeSent(900, "Monday draft", false, 5, { at = monday, title = "Dune" })
+  local entries = m.journal_store:get(1).entries
+  assert(#entries == 3 and entries[2].kind == "review" and entries[2].text == "Monday draft",
+    "the backdated review did not file between the Tuesday and last week's notes: "
+    .. tostring(entries[1].key) .. ", " .. tostring(entries[2].key))
+end)
+
+check("a review re-stamped for a re-added book moves to where its new date puts it", function()
+  local m = newManager()
+  m.journal_store:put(1, {
+    { key = "note:1", id = 1, kind = "note", user_id = 1, book_id = 6, title = "Kindred",
+      text = "Newer note", excerpt = "Newer note", at = "2026-11-20T10:00:00+00:00" },
+    { key = "reviewed:7", id = 7, kind = "review", user_id = 1, user_book_id = 800, book_id = 5,
+      title = "Dune", text = "Old review", excerpt = "Old review", at = "2026-10-01T10:00:00+00:00" },
+  }, false)
+  -- the book came back as record 900; the old row takes the new send's date and text
+  local wednesday = os.time { year = 2026, month = 11, day = 21, hour = 9 }
+  m:reviewChangeSent(900, "New review", false, 5, { at = wednesday, title = "Dune" })
+  local entries = m.journal_store:get(1).entries
+  assert(#entries == 2 and entries[1].key == "reviewed:7" and entries[1].text == "New review",
+    "the re-stamped row did not move above the newer note")
+end)
+
 check("a sent review with no book id cannot rewrite an unrelated open book journal", function()
   local m = newManager()
   m.journal_store:put(1, {
