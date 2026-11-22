@@ -1376,6 +1376,52 @@ check("keeping Hardcover's edition for a past read keeps current pages", functio
   assert(past.edition_id == 9, "the past read's Hardcover edition was overwritten")
 end)
 
+check("keeping a past read's edition converts pages for a moved current read", function()
+  local q, api = queue(), fakeApi()
+  local past = read { id = 10, started_at = "2020-01-01", finished_at = "2020-01-10" }
+  local current = { id = 11, started_at = "2026-11-16", edition_id = 8, progress_pages = 40,
+    edition = { pages = 608 } }
+  api.records[7] = record(7, { past, current }, 2)
+  api.records[7].edition_id = 8
+  past.edition_id = 9
+  local _, action = enqueue(q, 7, { kind = "read_edition", read_id = 10, current = false,
+    target_edition_id = 8, target_page = 200,
+    base = { edition_id = 7, progress_pages = 100 },
+    change = { edition_id = 8, progress_pages = 200 } })
+  q:enqueuePage("/books/7.epub", { book_id = 7, mapped_page = 150, edition_id = 7, pages = 304 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(q:resolveRead(7, action.seq, "send_anyway") == true)
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(action.conflict and action.conflict.kind == "read_changed",
+    "the changed past-read edition did not ask which edition to keep")
+  local saved = q:resolveRead(7, action.seq, "keep_hardcover")
+  assert(saved and action.conflict == nil, "keeping the past read's edition did not clear it")
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(#api.calls == 1 and api.calls[1].op == "updatePage"
+    and api.calls[1].read_id == 11 and api.calls[1].edition_id == 8
+    and api.calls[1].page == 300, "the page was not converted into the current read's edition")
+  assert(current.edition_id == 8 and current.progress_pages == 300,
+    "the converted page was not applied to the moved read")
+  assert(past.edition_id == 9, "the past read's Hardcover edition was overwritten")
+end)
+
+check("a page in another edition waits for a decision when it cannot be converted", function()
+  local q, api = queue(), fakeApi()
+  local current = { id = 11, started_at = "2026-11-16", edition_id = 8, progress_pages = 100 }
+  api.records[7] = record(7, { current }, 2)
+  api.records[7].edition_id = 8
+  q:enqueuePage("/books/7.epub", { book_id = 7, mapped_page = 150, edition_id = 7, pages = 304 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  local conflict = q:get(7).conflict
+  assert(conflict and conflict.kind == "page" and conflict.edition_mismatch,
+    "the mismatched page was written or dropped without a decision")
+  assert(conflict.local_edition_id == 7 and conflict.cloud_edition_id == 8,
+    "the conflict did not name both editions")
+  local described = SyncConflicts.describe("/books/7.epub", q:get(7))
+  assert(described and #described.rows == 2, "the edition question had no choices")
+  assert(#api.calls == 0, "the mismatched page reached Hardcover")
+end)
+
 check("an edition change with later pages cannot be cancelled out from under them", function()
   local q, api = queue(), fakeApi()
   api.records[7] = record(7, { read() }, 2)

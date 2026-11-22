@@ -171,19 +171,22 @@ function Actions.status(entry, status, at, finished_date, reread)
   return action
 end
 
-function Actions.page(entry, page, at, reread, force)
+function Actions.page(entry, page, at, reread, force, edition_id, pages)
   local actions = Actions.list(entry)
   local day = os.date("%Y-%m-%d", at)
   local last = actions[#actions]
+  local last_edition_id, last_pages
   -- A request in flight owns its snapshot; a page recorded meanwhile is another action even
   -- if its value and timestamp are identical. Acknowledging the snapshot must not erase it.
   if last and last.kind == "page" and last.day == day and last.seq ~= entry.sending_seq
     and not Actions.started(last) then
     force = force or last.force
+    last_edition_id, last_pages = last.edition_id, last.pages
     table.remove(actions)
   end
   local action = append(entry, { kind = "page", value = page, at = at, day = day,
-    reread = reread, force = force, started_at = entry.started_at or entry.first_page_date or day })
+    reread = reread, force = force, started_at = entry.started_at or entry.first_page_date or day,
+    edition_id = tonumber(edition_id) or last_edition_id, pages = tonumber(pages) or last_pages })
   Actions.refresh(entry)
   return action
 end

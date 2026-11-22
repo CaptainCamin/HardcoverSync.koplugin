@@ -296,7 +296,8 @@ function SyncQueue:enqueuePage(filepath, payload)
   -- An abandon is a barrier: a page turned after it must not be sent to the read it removes.
   if entry.abandon_barrier or Actions.hasAbandon(entry) then return entry end
   local at = os.time()
-  Actions.page(entry, payload.mapped_page, at, entry.reread, payload.force_page)
+  Actions.page(entry, payload.mapped_page, at, entry.reread, payload.force_page,
+    payload.edition_id, payload.pages)
   entry.first_page_date = entry.first_page_date or os.date("%Y-%m-%d", at)
   entry.failures = nil
   -- Reading on does not answer a conflict: the unsafe change stays parked, and this page waits
@@ -1675,6 +1676,30 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
     book_id = book_id, edition_id = edition_id, privacy_setting_id = privacy_setting_id,
   }
 
+  local edition_page_counts = {}
+  local function targetPageCount(edition_id, read)
+    edition_id = tonumber(edition_id)
+    if not edition_id then return nil end
+    if edition_page_counts[edition_id] ~= nil then
+      return edition_page_counts[edition_id] or nil
+    end
+    local pages = read and type(read.edition) == "table" and tonumber(read.edition.pages) or nil
+    if pages == nil and type(api.hydrateBookFromEdition) == "function" then
+      local ok, edition = pcall(function()
+        return api:hydrateBookFromEdition(edition_id, opts.user_id or entry.user_id)
+      end)
+      if ok and type(edition) == "table" then pages = tonumber(edition.pages) end
+    end
+    edition_page_counts[edition_id] = pages or false
+    return pages
+  end
+
+  local function convertPage(page, from_pages, to_pages)
+    from_pages, to_pages = tonumber(from_pages), tonumber(to_pages)
+    if not (from_pages and to_pages and from_pages > 0 and to_pages > 0) then return nil end
+    return math.max(1, math.min(to_pages, math.floor((page / from_pages) * to_pages)))
+  end
+
   for i, op in ipairs(ops) do
     -- A cancellation, removal or replacement while the network yielded must stop this stream.
     if self:get(filepath) ~= entry or entry.remove then return false end
@@ -1802,6 +1827,27 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
           entry.conflict = { kind = "reread", local_page = op.value, cloud_status = current, cloud_page = server_page, seq = op.seq }
           self:persist()
           return false, "conflict"
+        end
+
+        local send_edition
+        if current_read and current_read.id then
+          send_edition = current_read.edition_id or edition_id
+        else
+          send_edition = edition_id or user_book.edition_id
+        end
+        if op.edition_id and send_edition and tonumber(op.edition_id) ~= tonumber(send_edition) then
+          local target_pages = targetPageCount(send_edition, current_read)
+          local converted = convertPage(op.value, op.pages, target_pages)
+          if converted then
+            op.value, op.edition_id, op.pages = converted, tonumber(send_edition), target_pages
+          else
+            entry.conflict = { kind = "page", local_page = op.value, cloud_page = nil, seq = op.seq,
+              edition_mismatch = true, local_edition_id = tonumber(op.edition_id),
+              cloud_edition_id = tonumber(send_edition), local_pages = tonumber(op.pages),
+              cloud_pages = target_pages }
+            self:persist()
+            return false, "conflict"
+          end
         end
 
         -- The cloud is further along (read on another device). Far ahead: ask.

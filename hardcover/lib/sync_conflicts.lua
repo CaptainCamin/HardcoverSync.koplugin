@@ -87,6 +87,9 @@ function SyncConflicts.decisionText(title, decision)
   elseif conflict.kind == "read_reading" then
     return T(_("%1: change an older read?"), title)
   end
+  if conflict.edition_mismatch then
+    return T(_("%1: page is in a different edition"), title)
+  end
   return T(_("%1: page %2 here, page %3 on Hardcover"), title, conflict.local_page, conflict.cloud_page)
 end
 
@@ -108,6 +111,8 @@ function SyncConflicts.decisionNote(decision)
     return _("It was removed on another device.")
   elseif conflict.kind == "read_reading" then
     return _("The book is still being read on Hardcover.")
+  elseif conflict.edition_mismatch then
+    return _("The read's edition changed on Hardcover; this device's page is in another edition.")
   end
 end
 
@@ -350,6 +355,17 @@ function SyncConflicts.describe(filepath, entry)
       rows = {
         { id = "yes", text = _("Yes, I'm re-reading it") },
         { id = "no", text = _("No, ignore this progress") },
+        { id = "later", text = _("Decide later") },
+      },
+    }
+  end
+
+  if conflict.edition_mismatch then
+    return {
+      title = T(_("%1\n\nThis device's page is in edition %2, but Hardcover's read is in edition %3. The page numbers are not interchangeable.\n\nWhat should happen?"),
+        name, tostring(conflict.local_edition_id or "?"), tostring(conflict.cloud_edition_id or "?")),
+      rows = {
+        { id = "cloud", text = _("Use Hardcover's progress") },
         { id = "later", text = _("Decide later") },
       },
     }
