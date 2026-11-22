@@ -63,4 +63,16 @@ function ScreenRegistry:open(kind)
   return nil
 end
 
+-- Forget `widget` whatever kind it was tracked as, without closing it: the
+-- caller has already taken it down (a shell body through shell:unmount). The
+-- kind is not always the obvious one -- the Library tab's body is tracked as
+-- "shelves" -- so match the widget, not a name.
+function ScreenRegistry:forget(widget)
+  for key, value in pairs(self.owner) do
+    if value == widget and key:sub(-7) == "_dialog" then
+      self.owner[key] = nil
+    end
+  end
+end
+
 return ScreenRegistry

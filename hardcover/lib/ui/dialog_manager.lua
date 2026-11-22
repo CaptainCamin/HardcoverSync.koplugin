@@ -618,6 +618,22 @@ function DialogManager:refreshHome()
   for _, tab in ipairs(tabs) do
     if tab.id == active then still_there = true end
   end
+  -- Bodies are cached per tab (shell.bodies): one whose tab just left the set
+  -- would keep the old session's screen mounted and tracked, and signing back
+  -- in -- another account, say -- would show it again instead of building fresh.
+  local gone = {}
+  for id in pairs(shell.bodies) do
+    local kept = false
+    for _, tab in ipairs(tabs) do
+      if tab.id == id then kept = true break end
+    end
+    if not kept then gone[#gone + 1] = id end
+  end
+  for _, id in ipairs(gone) do
+    local body = shell.bodies[id]
+    shell:unmount(body) -- drops the cached body whether or not it is shown
+    self:screens():forget(body)
+  end
   shell.tabs = tabs
   if not still_there then shell.active = tabs[1].id end
   shell:build()

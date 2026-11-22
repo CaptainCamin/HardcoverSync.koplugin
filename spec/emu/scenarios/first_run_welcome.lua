@@ -93,6 +93,8 @@ return {
     emu:expectText("CURRENTLY READING")
 
     shell:setTab("stats")
+    local old_stats = shell.bodies.stats
+    assert(old_stats, "no stats body was built")
     Api.auth = {
       usingOAuth = function() return true end,
       usingPat = function() return false end,
@@ -103,6 +105,19 @@ return {
     assert(#shell.tabs == 1 and shell.active == "home" and shell.bodies.home.name == "hardcover_welcome",
       "signing out from another tab did not return to the landing screen")
     emu:expectText("Welcome to Hardcover Sync")
+    -- a cached body whose tab left the set would resurface, stale, for the next sign-in
+    assert(shell.bodies.stats == nil and manager.stats_dialog == nil,
+      "signing out kept the old session's Stats screen")
     NetworkManager.isConnected, NetworkManager.getConnectionState = was_connected, was_state
+
+    Api.auth = {
+      usingOAuth = function() return true end,
+      usingPat = function() return false end,
+      needsReauth = function() return false end,
+    }
+    manager:refreshHome()
+    emu:pump()
+    shell:setTab("stats")
+    assert(shell.bodies.stats ~= old_stats, "signing back in resurrected the old Stats screen")
   end,
 }
