@@ -1694,9 +1694,10 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
     local ok, edition, err = pcall(function()
       return api:hydrateBookFromEdition(edition_id, opts.user_id or entry.user_id)
     end)
-    if not ok or err ~= nil or type(edition) ~= "table" then
+    if not ok or (err ~= nil and OfflineQueue.transient(err)) then
       return nil, true
     end
+    if err ~= nil or type(edition) ~= "table" then return nil end
     local pages = tonumber(edition.pages)
     edition_page_counts[edition_id] = pages or false
     return pages
