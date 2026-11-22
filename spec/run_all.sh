@@ -100,7 +100,7 @@ for h in spec/*_harness.lua; do
   # and count as a file only).
   counts="$(echo "$out" | grep -E '[0-9]+ passed, [0-9]+ failed' | tail -1)"
   if [ -n "$counts" ]; then
-    ASSERT_PASSED=$((ASSERT_PASSED + $(echo "$counts" | sed -E 's/^\s*([0-9]+) passed.*/\1/')))
+    ASSERT_PASSED=$((ASSERT_PASSED + $(echo "$counts" | sed -E 's/^[[:space:]]*([0-9]+) passed.*/\1/')))
     ASSERT_FAILED=$((ASSERT_FAILED + $(echo "$counts" | sed -E 's/.* ([0-9]+) failed.*/\1/')))
   fi
 done
