@@ -131,12 +131,16 @@ function ScrollControl:paintTo(bb, x, y)
   local w, h = self.dimen.w, self.dimen.h
   local up_h, down_y = self:zones()
   local cx = x + math.floor(w / 2)
-  -- a viewport shorter than two triangles keeps the zones for taps, but drawing them would
-  -- only smear one over the other
-  if up_h >= TRI_H and h - down_y >= TRI_H then
-    triangle(bb, cx, y + math.floor((up_h - TRI_H) / 2), TRI_W, TRI_H, "up", offset > 0)
-    triangle(bb, cx, y + down_y + math.floor((h - down_y - TRI_H) / 2), TRI_W, TRI_H, "down", offset < max)
+  -- the zones' triangles: a viewport shorter than two touch targets draws them smaller instead
+  -- of not at all, since a tappable zone with nothing painted is an invisible control
+  local function zoneArrow(zy, zh, dir, active)
+    local th = math.min(TRI_H, zh)
+    if th < 2 then return end
+    triangle(bb, cx, zy + math.floor((zh - th) / 2),
+      math.max(2, math.floor(TRI_W * th / TRI_H)), th, dir, active)
   end
+  zoneArrow(y, up_h, "up", offset > 0)
+  zoneArrow(y + down_y, h - down_y, "down", offset < max)
 
   -- the hollow track between the zones: one capsule outline, so the bar reads as sitting inside
   -- it, drawn only where it can hold a bar at all

@@ -42,6 +42,8 @@ function LibraryBody:build()
   end
   local tabs = Tabs.new { width = w, tabs = items }
   local inner_h = h - tabs:getSize().h
+  -- the size inner bodies and their retries get: the body less its tab row
+  self.body_w, self.body_h = w, inner_h
   if not self.bodies[self.sub] then
     for _, sub in ipairs(self.subs) do
       if sub.id == self.sub then self.bodies[sub.id] = sub.make(self.shell, w, inner_h, self) end

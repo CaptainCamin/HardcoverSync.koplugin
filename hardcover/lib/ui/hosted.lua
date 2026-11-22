@@ -41,14 +41,16 @@ function Hosted.remount(host, screen)
   (host.parent or host.shell):remount(host.id, screen)
 end
 
--- The `host` to give a retry's remount: the same tab, at the size the shell gives bodies now.
--- The failed screen's captured width/height are stale when the panel was resized since (the
--- shell rebuilds every body on SetDimensions); the shell's body size is read at retry time.
+-- The `host` to give a retry's remount: the same tab, at the size the failed screen's parent
+-- gives bodies now. The failed screen's captured width/height are stale when the panel was
+-- resized since (the shell rebuilds every body on SetDimensions), and for a Library sub-tab
+-- the parent's size is already less its own tab row.
 function Hosted.retryHost(host)
   if not host then return nil end
-  local shell = host.shell
-  return { shell = shell, width = shell and shell.body_w or host.width,
-    height = shell and shell.body_h or host.height,
+  local parent = host.parent or host.shell
+  return { shell = host.shell or (parent and parent.shell),
+    width = parent and parent.body_w or host.width,
+    height = parent and parent.body_h or host.height,
     id = host.id, parent = host.parent, remount = true }
 end
 
