@@ -952,7 +952,8 @@ function Flows:addRead(context, history)
   local form
   local function on_save(change, clear, chosen_edition)
     local edition = chosen_edition or default_edition
-    if edition and not change.edition_id then change.edition_id = edition.edition_id end
+    -- the fetched record's edition is keyed `id`; the picker's normalized rows use `edition_id`
+    if edition and not change.edition_id then change.edition_id = edition.edition_id or edition.id end
     local entry = self.sync_queue and self.sync_queue:enqueueReadEdit(
       self:deviceFile(book_id) or book_id, {
         kind = "add_read", user_id = user_id, book_id = book_id,
