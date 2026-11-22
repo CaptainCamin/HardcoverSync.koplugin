@@ -192,7 +192,7 @@ return {
     home:rebuild()
 
     -- the book being read: one bordered card with a filled Open book; a page that fits does not
-    -- scroll, and the shelves give way before the card does
+    -- scroll, and a page that does not keeps the card, the sync box and every shelf row
     home:setReading(fixtures.currently_reading)
     home:setRows(require("hardcover/lib/home").rows(fixtures.shelf_counts))
     home:rebuild()
@@ -203,8 +203,9 @@ return {
     emu:shot("shell_home_cards")
     local L = home.layout
     if L.shelves > 0 then emu:expectText("Want to Read") end
-    assert(not home.scroll, "Home scrolled with a card")
     assert(L.card, "Home dropped the card")
+    assert(L.note, "Home dropped the sync box")
+    assert(L.shelves == L.total_shelves, "Home dropped a shelf row instead of scrolling")
     if H > W or L.shelves > 0 then emu:expectText("books") end -- a shelf row shows its count
     print(string.format("        home at %dx%d: note=%s, shelf rows=%d", W, H, tostring(L.note), L.shelves))
     local bottom = home.dimen.y + home.dimen.h
