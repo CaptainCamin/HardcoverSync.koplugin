@@ -1075,15 +1075,19 @@ function SyncQueue:resolveRead(key, seq, choice)
           -- Pages recorded after a queued move are in that proposed edition's
           -- units. Without the move they would overwrite Hardcover's progress
           -- with numbers for a different edition, so drop those unstarted pages.
-          local move_seq = action.seq
-          local actions = Actions.list(entry)
-          for i = #actions, 1, -1 do
-            local later = actions[i]
-            if later.kind == "page" and later.seq > move_seq and not Actions.started(later) then
-              table.remove(actions, i)
+          -- Only the current read's move changes the linked edition those pages use;
+          -- a past read's rejected move leaves them in the kept edition's units.
+          if action.current then
+            local move_seq = action.seq
+            local actions = Actions.list(entry)
+            for i = #actions, 1, -1 do
+              local later = actions[i]
+              if later.kind == "page" and later.seq > move_seq and not Actions.started(later) then
+                table.remove(actions, i)
+              end
             end
+            Actions.refresh(entry)
           end
-          Actions.refresh(entry)
           restoreLink()
         end
         if field.field == "progress_pages" then action.target_page = nil end

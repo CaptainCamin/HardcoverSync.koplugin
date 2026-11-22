@@ -1343,6 +1343,39 @@ check("keeping Hardcover's edition reports the link to restore", function()
   assert(pages == 0, "a page in the rejected edition's units was left to replay")
 end)
 
+check("keeping Hardcover's edition for a past read keeps current pages", function()
+  local q, api = queue(), fakeApi()
+  local past = read { id = 10, started_at = "2020-01-01", finished_at = "2020-01-10" }
+  local current = { id = 11, started_at = "2026-11-16", edition_id = 7, progress_pages = 40 }
+  api.records[7] = record(7, { past, current }, 2)
+  api.records[7].edition_id = 7
+  past.edition_id = 9 -- Hardcover moved the past read after the form's baseline
+  local _, action = enqueue(q, 7, { kind = "read_edition", read_id = 10, current = false,
+    target_edition_id = 8, target_page = 200,
+    base = { edition_id = 7, progress_pages = 100 },
+    change = { edition_id = 8, progress_pages = 200 } })
+  q:enqueuePage("/books/7.epub", { book_id = 7, mapped_page = 150, edition_id = 7 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(action.conflict and action.conflict.kind == "read_reading",
+    "the past read did not ask about the newer read first")
+  assert(q:resolveRead(7, action.seq, "send_anyway") == true)
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(action.conflict and action.conflict.kind == "read_changed",
+    "the changed past-read edition did not ask which edition to keep")
+  local saved, outcome = q:resolveRead(7, action.seq, "keep_hardcover")
+  assert(saved and outcome == nil, "keeping the past read's edition reported a link restore")
+  local pages = {}
+  for _, queued in ipairs((q:get(7) or {}).actions or {}) do
+    if queued.kind == "page" then pages[#pages + 1] = queued end
+  end
+  assert(#pages == 1 and pages[1].value == 150, "the current read's page was dropped")
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(#api.calls == 1 and api.calls[1].op == "updatePage"
+    and api.calls[1].read_id == 11 and api.calls[1].edition_id == 7
+    and api.calls[1].page == 150, "the current read's page was not sent in the kept edition")
+  assert(past.edition_id == 9, "the past read's Hardcover edition was overwritten")
+end)
+
 check("an edition change with later pages cannot be cancelled out from under them", function()
   local q, api = queue(), fakeApi()
   api.records[7] = record(7, { read() }, 2)
