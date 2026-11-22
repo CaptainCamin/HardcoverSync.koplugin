@@ -567,7 +567,8 @@ check("editing a pending review does not inherit a deleted historical library re
     online = false
     m.journal_store:put(1, {
       { key = "reviewed:4003", id = 4003, kind = "review", user_book_id = 700,
-        user_id = 1, book_id = 101, title = "Dune", text = "Historical review" },
+        user_id = 1, book_id = 101, title = "Dune", text = "Historical review",
+        at = "2025-06-01T10:00:00Z" },
     }, false)
     m.review_queue:queue(known_id or nil, "Offline draft", false, "Dune", 101, 1)
     m:showJournal()
@@ -591,11 +592,21 @@ check("editing a pending review does not inherit a deleted historical library re
         writes = writes + 1
         assert(id == 907, "edited draft targeted historical library record " .. tostring(id))
         assert(text == "Edited offline draft" and spoilers)
-        return { id = id }
+        return { id = id, review_raw = text, review_has_spoilers = spoilers, has_review = true }
       end,
-    }, { user_id = 1 })
+    }, { user_id = 1, on_sent = function(uid, ub, bid, op)
+      m:reviewChangeSent(uid, ub.review_raw, ub.review_has_spoilers, bid or ub.book_id, op)
+    end })
     assert(waiting == 0 and writes == 1 and lookups == (known_id and 0 or 1))
-    assert(m.journal_store:get(1).entries[1].user_book_id == 700, "overlay changed the saved history")
+    local row = m.journal_store:get(1).entries[1]
+    assert(row.user_book_id == 907, "the sent review did not repoint the saved row at the live record")
+    assert(row.text == "Edited offline draft" and row.spoilers == true,
+      "the saved row did not take the sent review")
+    assert(row.at ~= "2025-06-01T10:00:00Z",
+      "the new review kept the old review's date")
+    local shown = tab.entries[1]
+    assert(shown.user_book_id == 907 and shown.text == "Edited offline draft" and not shown.waiting,
+      "the open journal did not take the sent review")
   end
 end)
 
@@ -632,7 +643,10 @@ check("once Hardcover has a change, the saved copy shows it", function()
   entries = m.journal_store:get(1).entries
   assert(#entries == 4, "a removed review keeps its entries")
   assert(entries[2].key == "reviewed:4003" and entries[2].text == nil and entries[2].spoilers == nil and entries[4].text == nil)
-  assert(m:reviewChangeSent(901, "not listed") == nil and #m.journal_store:get(1).entries == 4)
+  m:reviewChangeSent(901, "not listed")
+  entries = m.journal_store:get(1).entries
+  assert(#entries == 5 and entries[1].kind == "review" and entries[1].text == "not listed",
+    "a first review was not kept for an offline reopen")
 end)
 
 check("book journal caches its own pages offline without replacing the library journal", function()
@@ -695,6 +709,210 @@ check("an offline journal tab updates when a waiting note is sent", function()
     user_id = 1, on_sent = function(op, result) m:journalChangeSent(op, result) end })
   assert(tab.entries[1].key == "note:601" and not tab.entries[1].waiting)
   assert(m.journal_store:get(1).entries[1].text == "Offline words")
+end)
+
+check("a review sent while the tab is open stops waiting and says the day it was sent", function()
+  local m = newManager()
+  online = false
+  m.review_queue:queue(900, "My review", false, "Dune", 5, 1)
+  m:showJournal()
+  assert(tab.entries[1].waiting and tab.entries[1].kind == "review"
+    and Journal.row(tab.entries[1]).detail == Journal.WAITING)
+  m.review_queue:flush({
+    updateReview = function(_, id, text)
+      assert(id == 900 and text == "My review")
+      return { id = 900, review_raw = "My review", has_review = true }
+    end,
+  }, { user_id = 1, on_sent = function(uid, ub, bid, op) m:reviewChangeSent(uid, ub.review_raw, false, bid or ub.book_id, op) end })
+  local row = tab.entries[1]
+  assert(row and row.kind == "review" and not row.waiting, "the sent review still waits")
+  local shown = Journal.row(row)
+  assert(shown.detail == "Today", "the row should say the day: " .. tostring(shown.detail))
+  assert(shown.what == "Review: My review", tostring(shown.what))
+end)
+
+check("a first sent review is kept for the book journal's offline open too", function()
+  local m = newManager()
+  m.journal_store:put(1, {
+    { key = "read:9", id = 9, kind = "read", user_id = 1, book_id = 5,
+      title = "Dune", at = "2026-10-18T10:00:00+00:00" },
+  }, false)
+  m:reviewChangeSent(900, "First review", true, 5)
+  local lib = m.journal_store:get(1).entries
+  assert(lib[1].kind == "review" and lib[1].text == "First review" and lib[1].title == "Dune",
+    "the saved journal did not keep the first review")
+  assert(m.journal_store:get(1, 5) == nil,
+    "a book copy of only the review would shadow its library rows offline")
+end)
+
+check("a sent review with no book id takes the answer's book in its own book journal", function()
+  local m = newManager()
+  online = false
+  -- an older queue entry names only the library record
+  m.review_queue:queue(900, "My review", false, "Dune", nil, 1)
+  local screen = m:showBookJournal(5, "Dune", {})
+  assert(screen.body.entries[1].waiting and screen.body.entries[1].kind == "review")
+  m.review_queue:flush({ updateReview = function()
+      return { id = 900, review_raw = "My review", book_id = 5 } end }, {
+    user_id = 1, on_sent = function(uid, ub, bid, op)
+      m:reviewChangeSent(uid, ub.review_raw, false, bid or ub.book_id, op) end })
+  local row = screen.body.entries[1]
+  assert(row and row.kind == "review" and not row.waiting and row.book_id == 5,
+    "the sent review vanished from its book journal")
+end)
+
+check("a review sent days later files under the day it was written, not on top", function()
+  local m = newManager()
+  m.journal_store:put(1, {
+    { key = "note:1", id = 1, kind = "note", user_id = 1, book_id = 6, title = "Kindred",
+      text = "Tuesday note", excerpt = "Tuesday note", at = "2026-11-17T10:00:00+00:00" },
+    { key = "note:2", id = 2, kind = "note", user_id = 1, book_id = 5, title = "Dune",
+      text = "Last week's note", excerpt = "Last week's note", at = "2026-11-10T10:00:00+00:00" },
+  }, false)
+  -- a review drafted Monday, synced Wednesday
+  local monday = os.time { year = 2026, month = 11, day = 16, hour = 9 }
+  m:reviewChangeSent(900, "Monday draft", false, 5, { at = monday, title = "Dune" })
+  local entries = m.journal_store:get(1).entries
+  assert(#entries == 3 and entries[2].kind == "review" and entries[2].text == "Monday draft",
+    "the backdated review did not file between the Tuesday and last week's notes: "
+    .. tostring(entries[1].key) .. ", " .. tostring(entries[2].key))
+end)
+
+check("a review re-stamped for a re-added book moves to where its new date puts it", function()
+  local m = newManager()
+  m.journal_store:put(1, {
+    { key = "note:1", id = 1, kind = "note", user_id = 1, book_id = 6, title = "Kindred",
+      text = "Newer note", excerpt = "Newer note", at = "2026-11-20T10:00:00+00:00" },
+    { key = "reviewed:7", id = 7, kind = "review", user_id = 1, user_book_id = 800, book_id = 5,
+      title = "Dune", text = "Old review", excerpt = "Old review", at = "2026-10-01T10:00:00+00:00" },
+  }, false)
+  -- the book came back as record 900; the old row takes the new send's date and text
+  local wednesday = os.time { year = 2026, month = 11, day = 21, hour = 9 }
+  m:reviewChangeSent(900, "New review", false, 5, { at = wednesday, title = "Dune" })
+  local entries = m.journal_store:get(1).entries
+  assert(#entries == 2 and entries[1].key == "reviewed:7" and entries[1].text == "New review",
+    "the re-stamped row did not move above the newer note")
+end)
+
+check("a sent entry already fetched once is not kept twice", function()
+  local m = newManager()
+  m.journal_store:put(1, {
+    { key = "note:600", id = 600, kind = "note", user_id = 1, book_id = 5, title = "Dune",
+      text = "Draft", excerpt = "Draft", at = "2026-10-05T10:00:00+00:00" },
+    entry(2),
+  }, false)
+  -- the entry reached the saved copy before the send's own answer resumed
+  m:journalChangeSent({ id = 9, user_id = 1, book_id = 5, event = "note", text = "Draft",
+    title = "Dune", at = os.time { year = 2026, month = 10, day = 5, hour = 10 } }, { id = 600 })
+  local entries = m.journal_store:get(1).entries
+  local count = 0
+  for _, e in ipairs(entries) do if e.key == "note:600" then count = count + 1 end end
+  assert(count == 1 and #entries == 2, "the sent note was kept twice")
+end)
+
+check("a review sent while the first page loads keeps its text on the late answer", function()
+  local m = newManager()
+  m.journal_store:put(1, {
+    { key = "reviewed:4003", id = 4003, kind = "review", user_book_id = 900, user_id = 1, book_id = 5,
+      title = "Dune", text = "Old text", excerpt = "Old text", at = "2026-10-18T10:00:00+00:00" },
+  }, false)
+  local callback, original = nil, Api.getJournalAsync
+  Api.getJournalAsync = function(_, _, cb) callback = cb end
+  m:showJournal()
+  -- the send lands before the first page does
+  m.review_queue:queue(900, "New text", false, "Dune", 5, 1)
+  m.review_queue:flush({ updateReview = function()
+      return { id = 900, review_raw = "New text", book_id = 5 } end }, {
+    user_id = 1, on_sent = function(uid, ub, bid, op)
+      m:reviewChangeSent(uid, ub.review_raw, false, bid or ub.book_id, op) end })
+  -- the page's snapshot predates the send: its copy of the row must still take the sent text
+  callback({ entries = {
+    { key = "reviewed:4003", id = 4003, kind = "review", user_book_id = 900, user_id = 1,
+      book_id = 5, title = "Dune", text = "Old text", excerpt = "Old text",
+      at = "2026-10-18T10:00:00+00:00" },
+  }, count = 1, more = false })
+  Api.getJournalAsync = original
+  assert(tab.entries[1] and tab.entries[1].text == "New text",
+    "the late page rolled the review back: " .. tostring(tab.entries[1] and tab.entries[1].text))
+end)
+
+check("Hardcover's own review row replaces the stand-in a send made", function()
+  local m = newManager()
+  local callback, original = nil, Api.getJournalAsync
+  Api.getJournalAsync = function(_, _, cb) callback = cb end
+  m.review_queue:queue(900, "My review", false, "Dune", 5, 1)
+  local dialog = m:showJournal()
+  m.review_queue:flush({ updateReview = function()
+      return { id = 900, review_raw = "My review", book_id = 5 } end }, {
+    user_id = 1, on_sent = function(uid, ub, bid, op)
+      m:reviewChangeSent(uid, ub.review_raw, false, bid or ub.book_id, op) end })
+  callback({ entries = { entry(2) }, count = 1, more = false })
+  assert(tab.entries[1] and tab.entries[1].kind == "review" and tab.entries[1].text == "My review",
+    "the late page dropped the sent review")
+  -- a later page carries Hardcover's own row for it: the stand-in steps aside, once
+  dialog.more_cb()
+  callback({ entries = {
+    { key = "reviewed:77", id = 77, kind = "review", user_book_id = 900, user_id = 1,
+      book_id = 5, title = "Dune", text = "My review", excerpt = "My review",
+      at = "2026-11-21T10:00:00+00:00" },
+  }, count = 1, more = false })
+  Api.getJournalAsync = original
+  local reviews, found = 0
+  for _, e in ipairs(tab.entries) do
+    if e.kind == "review" then reviews = reviews + 1 found = e end
+  end
+  assert(reviews == 1 and found.key == "reviewed:77",
+    "the stand-in duplicated the real review row")
+end)
+
+check("a sent review with no book id cannot rewrite an unrelated open book journal", function()
+  local m = newManager()
+  m.journal_store:put(1, {
+    { key = "reviewed:4003", id = 4003, kind = "review", user_book_id = 999,
+      user_id = 1, book_id = 5, title = "Dune", text = "Book five's review" },
+  }, false)
+  local screen = m:showBookJournal(5, "Dune", {})
+  m:reviewChangeSent(907, "Some other book's review", false, nil)
+  assert(#screen.body.entries == 1 and screen.body.entries[1].text == "Book five's review"
+    and screen.body.entries[1].user_book_id == 999,
+    "the send rewrote a row of a book it does not belong to")
+end)
+
+check("a review sent while the book journal is open stops waiting there too", function()
+  local m = newManager()
+  online = false
+  m.review_queue:queue(900, "My review", false, "Dune", 5, 1)
+  local screen = m:showBookJournal(5, "Dune", {})
+  assert(screen.body.entries[1].waiting and screen.body.entries[1].kind == "review")
+  m.review_queue:flush({ updateReview = function() return { id = 900, review_raw = "My review" } end }, {
+    user_id = 1, on_sent = function(uid, ub, bid, op) m:reviewChangeSent(uid, ub.review_raw, false, bid or ub.book_id, op) end })
+  local row = screen.body.entries[1]
+  assert(row and row.kind == "review" and not row.waiting, "the sent review still waits")
+  assert(row.book_id == 5 and row.text == "My review")
+  assert(Journal.row(row).detail == "Today", tostring(Journal.row(row).detail))
+end)
+
+check("a review edit sent while the book journal is open shows the new text on the book's entries", function()
+  local m = newManager()
+  m.journal_store:put(1, {
+    { key = "reviewed:4003", id = 4003, kind = "review", user_book_id = 900, user_id = 1, book_id = 5,
+      title = "Dune", text = "Fine", excerpt = "Fine", at = "2026-10-18T10:00:00+00:00" },
+    { key = "reviewed:4004", id = 4004, kind = "review", user_book_id = 900, user_id = 1, book_id = 5,
+      title = "Dune", text = "Fine", excerpt = "Fine", at = "2026-10-16T10:00:00+00:00" },
+  }, false)
+  online = false
+  m.review_queue:queue(900, "Much better", true, "Dune", 5, 1)
+  local screen = m:showBookJournal(5, "Dune", {})
+  assert(#screen.body.entries == 2 and screen.body.entries[1].waiting
+    and screen.body.entries[1].text == "Much better")
+  m.review_queue:flush({ updateReview = function() return { id = 900, review_raw = "Much better" } end }, {
+    user_id = 1, on_sent = function(uid, ub, bid, op) m:reviewChangeSent(uid, ub.review_raw, true, bid or ub.book_id, op) end })
+  for _, key in ipairs({ "reviewed:4003", "reviewed:4004" }) do
+    local row
+    for _, e in ipairs(screen.body.entries) do if e.key == key then row = e end end
+    assert(row and not row.waiting and row.text == "Much better" and row.spoilers == true,
+      key .. " did not take the sent review")
+  end
 end)
 
 check("a sent note becomes editable and deletable on the open book journal and in both caches", function()

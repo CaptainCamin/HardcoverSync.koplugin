@@ -84,7 +84,9 @@ function Shell:build()
       callback = function() self:setTab(t.id) end,
     }
   end
-  local nav = NavBar.new { width = sw, items = items }
+  -- One tab (the signed-out landing screen) needs no navigation bar; its body
+  -- takes the room the bar would have used.
+  local nav = #self.tabs > 1 and NavBar.new { width = sw, items = items } or nil
   -- MMD top bar: a back arrow where you can go back (any tab but the first goes to the first), and
   -- on the first tab a close, the last of its actions, so a device with no Back key can leave
   local actions, on_back = {}, nil
@@ -97,13 +99,14 @@ function Shell:build()
   local top = TopBar.new { width = sw, title = tab.title or tab.label, actions = actions, on_back = on_back }
 
   self.body_w = sw
-  self.body_h = sh - top:getSize().h - nav:getSize().h
+  self.body_h = sh - top:getSize().h - (nav and nav:getSize().h or 0)
   local body = self:body(self.active)
+  local stack = VerticalGroup:new { align = "left", top, body }
+  if nav then stack[#stack + 1] = nav end
 
   self.frame = FrameContainer:new {
     width = sw, height = sh, background = Blitbuffer.COLOR_WHITE,
-    bordersize = 0, padding = 0, margin = 0,
-    VerticalGroup:new { align = "left", top, body, nav },
+    bordersize = 0, padding = 0, margin = 0, stack,
   }
   self[1] = self.frame
 end

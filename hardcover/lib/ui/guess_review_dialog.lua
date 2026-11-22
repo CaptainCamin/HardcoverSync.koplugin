@@ -35,7 +35,13 @@ function GuessReviewDialog.show(opts)
       return function()
         UIManager:close(picker)
         settings:updateBookSetting(pick.file, config, true)
-        if counter == "kept" then kept = kept + 1 else undone = undone + 1 end
+        if counter == "kept" then
+          kept = kept + 1
+          -- rating writes skipped the file while its link was only guessed
+          settings:restoreBookRatingOnConfirm(pick.file, pick.book_id)
+        else
+          undone = undone + 1
+        end
         next_one()
       end
     end

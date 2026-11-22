@@ -267,7 +267,9 @@ function ReviewQueue:flush(api, opts)
           -- a newer review written while this one was in flight stays
           if ops[key] == op then ops[key] = nil end
           self:persist()
-          if opts.on_sent then opts.on_sent(op.user_book_id, user_book, op.book_id) end
+          -- the op rides along: an older queue entry can lack a book id the answer carries,
+          -- and its title and queued date are what a kept review shows
+          if opts.on_sent then opts.on_sent(op.user_book_id, user_book, op.book_id, op) end
         elseif ready and ops[key] == op and (id or err ~= nil) then
           if OfflineQueue.transient(err) then break end
           OfflineQueue.reject(op, err)

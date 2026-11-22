@@ -545,4 +545,32 @@ function Journal.append(held, page)
   return out, added
 end
 
+-- `entry` among `entries` by when it was made, newest first; entries of the same moment keep
+-- their order, the new one after them. A saved entry is prepended nowhere: a queued change sent
+-- days later would sit above newer entries otherwise. An entry its key already names gives way:
+-- the arriving copy is the newer truth.
+function Journal.insertDated(entries, entry)
+  local out, mine = {}, Journal.epoch(entry.at) or 0
+  local placed
+  for _, e in ipairs(entries or {}) do
+    if e.key ~= entry.key then
+      if not placed and (Journal.epoch(e.at) or 0) < mine then
+        out[#out + 1] = entry
+        placed = true
+      end
+      out[#out + 1] = e
+    end
+  end
+  if not placed then out[#out + 1] = entry end
+  return out
+end
+
+-- `entries` ordered by when each was made, newest first; equal moments keep their order. For rows
+-- whose date changed after they were filed (a review for a re-added book takes the new send's).
+function Journal.sortDated(entries)
+  local out = {}
+  for _, e in ipairs(entries or {}) do out = Journal.insertDated(out, e) end
+  return out
+end
+
 return Journal

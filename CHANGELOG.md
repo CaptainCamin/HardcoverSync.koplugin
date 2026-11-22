@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### New
+
+- **A landing screen explains Hardcover Sync before you sign in.** Without an account, opening the plugin now shows what it does — logging pages, keeping shelves in sync and carrying goals, ratings and notes with you — and one **Sign in to Hardcover** button. The tabs that need an account stay out of the way until you sign in.
+
 ## 2.5.2
 
 ### Improved
