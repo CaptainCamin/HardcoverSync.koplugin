@@ -697,6 +697,63 @@ check("an offline journal tab updates when a waiting note is sent", function()
   assert(m.journal_store:get(1).entries[1].text == "Offline words")
 end)
 
+check("a review sent while the tab is open stops waiting and says the day it was sent", function()
+  local m = newManager()
+  online = false
+  m.review_queue:queue(900, "My review", false, "Dune", 5, 1)
+  m:showJournal()
+  assert(tab.entries[1].waiting and tab.entries[1].kind == "review"
+    and Journal.row(tab.entries[1]).detail == Journal.WAITING)
+  m.review_queue:flush({
+    updateReview = function(_, id, text)
+      assert(id == 900 and text == "My review")
+      return { id = 900, review_raw = "My review", has_review = true }
+    end,
+  }, { user_id = 1, on_sent = function(uid, ub, bid) m:reviewChangeSent(uid, ub.review_raw, false, bid) end })
+  local row = tab.entries[1]
+  assert(row and row.kind == "review" and not row.waiting, "the sent review still waits")
+  local shown = Journal.row(row)
+  assert(shown.detail == "Today", "the row should say the day: " .. tostring(shown.detail))
+  assert(shown.what == "Review: My review", tostring(shown.what))
+end)
+
+check("a review sent while the book journal is open stops waiting there too", function()
+  local m = newManager()
+  online = false
+  m.review_queue:queue(900, "My review", false, "Dune", 5, 1)
+  local screen = m:showBookJournal(5, "Dune", {})
+  assert(screen.body.entries[1].waiting and screen.body.entries[1].kind == "review")
+  m.review_queue:flush({ updateReview = function() return { id = 900, review_raw = "My review" } end }, {
+    user_id = 1, on_sent = function(uid, ub, bid) m:reviewChangeSent(uid, ub.review_raw, false, bid) end })
+  local row = screen.body.entries[1]
+  assert(row and row.kind == "review" and not row.waiting, "the sent review still waits")
+  assert(row.book_id == 5 and row.text == "My review")
+  assert(Journal.row(row).detail == "Today", tostring(Journal.row(row).detail))
+end)
+
+check("a review edit sent while the book journal is open shows the new text on the book's entries", function()
+  local m = newManager()
+  m.journal_store:put(1, {
+    { key = "reviewed:4003", id = 4003, kind = "review", user_book_id = 900, user_id = 1, book_id = 5,
+      title = "Dune", text = "Fine", excerpt = "Fine", at = "2026-10-18T10:00:00+00:00" },
+    { key = "reviewed:4004", id = 4004, kind = "review", user_book_id = 900, user_id = 1, book_id = 5,
+      title = "Dune", text = "Fine", excerpt = "Fine", at = "2026-10-16T10:00:00+00:00" },
+  }, false)
+  online = false
+  m.review_queue:queue(900, "Much better", true, "Dune", 5, 1)
+  local screen = m:showBookJournal(5, "Dune", {})
+  assert(#screen.body.entries == 2 and screen.body.entries[1].waiting
+    and screen.body.entries[1].text == "Much better")
+  m.review_queue:flush({ updateReview = function() return { id = 900, review_raw = "Much better" } end }, {
+    user_id = 1, on_sent = function(uid, ub, bid) m:reviewChangeSent(uid, ub.review_raw, true, bid) end })
+  for _, key in ipairs({ "reviewed:4003", "reviewed:4004" }) do
+    local row
+    for _, e in ipairs(screen.body.entries) do if e.key == key then row = e end end
+    assert(row and not row.waiting and row.text == "Much better" and row.spoilers == true,
+      key .. " did not take the sent review")
+  end
+end)
+
 check("a sent note becomes editable and deletable on the open book journal and in both caches", function()
   local m = newManager()
   answer = function() return page(2, 2, false) end

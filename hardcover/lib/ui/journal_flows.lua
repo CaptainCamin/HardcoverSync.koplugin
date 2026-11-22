@@ -58,6 +58,52 @@ local function journalSent(state, shown, op, entry)
   state.entries = Journal.append({ entry }, state.entries)
 end
 
+-- Hardcover took a review: every "reviewed" entry of its book shows the review as it is now (or
+-- none once it was removed), and a row that was still waiting for it becomes the sent review.
+-- `shown` is the open list: the waiting row is where the book's cover, authors and title come
+-- from, since the queue's send answers with the library record, not a journal entry.
+local function reviewSent(state, shown, user_book_id, book_id, text, spoilers)
+  local body = type(text) == "string" and text:match("%S") and text or nil
+  local excerpt, truncated
+  if body then excerpt, truncated = Reviews.excerpt(body) end
+  local matched
+  for _, entries in ipairs({ state.entries, state.sent }) do
+    for _, entry in ipairs(entries) do
+      if entry.kind == "review" and entry.user_book_id ~= nil and user_book_id ~= nil
+        and tostring(entry.user_book_id) == tostring(user_book_id) then
+        matched = true
+        entry.text, entry.excerpt, entry.truncated, entry.spoilers =
+          body, excerpt, truncated, body and spoilers == true or nil
+      end
+    end
+  end
+  if matched or not body then return end
+  -- A new review: the row waiting for it becomes it. Hardcover stamps its own journal entry with
+  -- an id this device does not see, so the stand-in keeps no id: the next page-0 answer brings
+  -- the real entry, and a fresh page replaces the list rather than merging with it.
+  local waiting
+  for _, entry in ipairs(shown or {}) do
+    if entry.waiting and entry.kind == "review"
+      and ((entry.user_book_id ~= nil and user_book_id ~= nil
+          and tostring(entry.user_book_id) == tostring(user_book_id))
+        or (entry.book_id ~= nil and book_id ~= nil
+          and tonumber(entry.book_id) == tonumber(book_id))) then
+      waiting = entry break
+    end
+  end
+  if not waiting then return end
+  state.entries = Journal.append({ {
+    key = "reviewed:sent:" .. tostring(book_id or user_book_id),
+    kind = "review", event = "reviewed",
+    user_id = tonumber(waiting.user_id) or User:getId(),
+    book_id = tonumber(book_id) or tonumber(waiting.book_id),
+    user_book_id = tonumber(user_book_id) or waiting.user_book_id,
+    title = waiting.title, authors = waiting.authors, cover_url = waiting.cover_url,
+    text = body, excerpt = excerpt, truncated = truncated, spoilers = spoilers == true,
+    at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+  } }, state.entries)
+end
+
 local function freshJournal(state, page)
   local entries = Journal.append(state.sent, page)
   for i = #entries, 1, -1 do
@@ -318,33 +364,41 @@ end
 -- removed review, says only that you reviewed it.
 function Flows:reviewChangeSent(user_book_id, text, spoilers, book_id)
   local store = self.journal_store
-  if not store or user_book_id == nil then return end
-  -- The open book's removal baseline must know about a review Hardcover accepted.
-  local screen = self.screens and self:screens():open("book")
-  local detail = screen and screen.detail
-  local base = detail and detail._server_base
-  if base then
-    local on = detail.book and tonumber(detail.book.book_id)
-    local same
-    if book_id then
-      same = on == tonumber(book_id)
-    else
-      same = tonumber(detail.user_book_id) == tonumber(user_book_id)
+  if not store then return end
+  if user_book_id ~= nil then
+    -- The open book's removal baseline must know about a review Hardcover accepted.
+    local screen = self.screens and self:screens():open("book")
+    local detail = screen and screen.detail
+    local base = detail and detail._server_base
+    if base then
+      local on = detail.book and tonumber(detail.book.book_id)
+      local same
+      if book_id then
+        same = on == tonumber(book_id)
+      else
+        same = tonumber(detail.user_book_id) == tonumber(user_book_id)
+      end
+      if same then
+        base.user_review, base.review_spoilers, base.review_known = text, spoilers, true
+      end
     end
-    if same then
-      base.user_review, base.review_spoilers, base.review_known = text, spoilers, true
+    local function ofBook(e)
+      return e.kind == "review" and e.user_book_id ~= nil and tostring(e.user_book_id) == tostring(user_book_id)
     end
+    local fields = { text = false, excerpt = false, truncated = false, spoilers = false }
+    if type(text) == "string" and text:match("%S") then
+      local excerpt, truncated = Reviews.excerpt(text)
+      fields = { text = text, excerpt = excerpt, truncated = truncated, spoilers = spoilers == true }
+    end
+    store:change(User:getId(), ofBook, fields)
+    if book_id then store:change(User:getId(), ofBook, fields, book_id) end
   end
-  local function ofBook(e)
-    return e.kind == "review" and e.user_book_id ~= nil and tostring(e.user_book_id) == tostring(user_book_id)
+  -- An open journal's row said "Waiting to send" while the flush ran; tell it what arrived, so it
+  -- shows the sent review without a reopen.
+  for _, kind in ipairs({ "journal", "book_journal" }) do
+    local screen = self:screens():open(kind)
+    if screen and screen.reviewSent then screen:reviewSent(user_book_id, text, spoilers, book_id) end
   end
-  local fields = { text = false, excerpt = false, truncated = false, spoilers = false }
-  if type(text) == "string" and text:match("%S") then
-    local excerpt, truncated = Reviews.excerpt(text)
-    fields = { text = text, excerpt = excerpt, truncated = truncated, spoilers = spoilers == true }
-  end
-  store:change(User:getId(), ofBook, fields)
-  if book_id then store:change(User:getId(), ofBook, fields, book_id) end
 end
 
 -- Hardcover's entries as changed on this device, under what it does not have yet.
@@ -396,6 +450,10 @@ function Flows:showJournal(host)
   end
   function dialog:journalChanged(key, fields)
     journalChanged(state, key, fields)
+    self:setEntries(manager:pendingJournal(state.entries, me_id), self.has_more)
+  end
+  function dialog:reviewSent(user_book_id, text, spoilers, book_id)
+    reviewSent(state, self.entries, user_book_id, book_id, text, spoilers)
     self:setEntries(manager:pendingJournal(state.entries, me_id), self.has_more)
   end
   -- saved, and there was nothing in it: say so, as an empty answer does
@@ -549,6 +607,12 @@ function Flows:showBookJournal(book_id, title, opts)
   end
   function screen:journalChanged(key, fields)
     journalChanged(state, key, fields)
+    refresh()
+  end
+  function screen:reviewSent(user_book_id, text, spoilers, sent_book_id)
+    if sent_book_id ~= nil and tonumber(sent_book_id) ~= tonumber(book_id) then return end
+    reviewSent(state, self.body.entries, user_book_id,
+      tonumber(sent_book_id) or tonumber(book_id), text, spoilers)
     refresh()
   end
   self:screens():track("book_journal", screen)
