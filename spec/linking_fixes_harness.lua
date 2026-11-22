@@ -238,4 +238,104 @@ check("a snapshot with no read or edition drops the old ones", function()
   assert(s:readBookSetting(f, "user_book_id") == 5)
 end)
 
+check("a snapshot keeps the rating, and losing it drops the saved one", function()
+  local s = settings(nil)
+  local f = "/books/rated.epub"
+  s:saveBookSnapshot(f, { id = 5, status_id = 2, rating = 4,
+    user_book_reads = { { id = 11, progress_pages = 50, started_at = "2026-01-01" } } })
+  assert(s:readBookSetting(f, "user_rating") == 4, "rating was not saved")
+  assert(s:bookStatusFromSnapshot(f).rating == 4, "the hydrated status lost the rating")
+  s:saveBookSnapshot(f, { id = 5, status_id = 3, rating = nil,
+    user_book_reads = { { id = 11, progress_pages = 50, started_at = "2026-01-01", finished_at = "2026-02-01" } } })
+  assert(s:readBookSetting(f, "user_rating") == false, "a fetched 'no rating' is not marked known")
+  assert(s:bookStatusFromSnapshot(f).rating == nil, "the hydrated status kept a cleared rating")
+end)
+
+check("a sent rating reaches every linked file, touching only the rating", function()
+  local s = settings(nil)
+  local f, g, h = "/books/epub.epub", "/books/mobi.mobi", "/books/other.epub"
+  s:updateBookSetting(f, { book_id = 77, edition_id = 4, pages = 300, user_book_id = 5,
+    read_id = 11, last_synced_page = 50, read_edition_id = 4 })
+  s:updateBookSetting(g, { book_id = 77, edition_id = 9, pages = 412, user_book_id = 5 })
+  s:updateBookSetting(h, { book_id = 78, edition_id = 9 })
+  local guess = "/books/guessed.epub"
+  s:updateBookSetting(guess, { book_id = 77, guessed_book_id = 77 })
+  s:saveBookRatingsFor(77, 5)
+  assert(s:readBookSetting(f, "user_rating") == 5 and s:readBookSetting(g, "user_rating") == 5,
+    "a linked file missed the confirmed rating")
+  assert(s:readBookSetting(guess, "user_rating") == nil,
+    "an unconfirmed guess took a rating for what may be the wrong book")
+  assert(s:readBookSetting(f, "edition_id") == 4 and s:readBookSetting(f, "last_synced_page") == 50
+    and s:readBookSetting(g, "edition_id") == 9, "the rating answer overwrote local edition or read")
+  assert(s:readBookSetting(h, "user_rating") == nil, "another book's file took the rating")
+  -- a marker left over from before a manual relink is no live guess
+  local relinked = "/books/relinked.epub"
+  s:updateBookSetting(relinked, { book_id = 88, guessed_book_id = 77 })
+  s:saveBookRatingsFor(88, 4)
+  assert(s:readBookSetting(relinked, "user_rating") == 4,
+    "a file relinked by hand was still treated as a guess")
+  s:saveBookRatingsFor(77, nil)
+  assert(s:readBookSetting(f, "user_rating") == false and s:readBookSetting(g, "user_rating") == false,
+    "a cleared rating stayed saved or was forgotten")
+end)
+
+check("a confirmed guess takes the book's rating, or loses a stale one when cleared", function()
+  local s = settings(nil)
+  local f, guess = "/books/epub.epub", "/books/guessed.epub"
+  s:updateBookSetting(f, { book_id = 77, user_rating = 5 })
+  s:updateBookSetting(guess, { book_id = 77, guessed_book_id = 77, user_rating = 3 })
+  s:restoreBookRatingOnConfirm(guess, 77)
+  assert(s:readBookSetting(guess, "user_rating") == 5,
+    "the confirmed link kept its stale rating")
+  s:saveBookRatingsFor(77, nil)
+  s:updateBookSetting(guess, { guessed_book_id = 77 })
+  s:updateBookSetting(guess, { user_rating = 3 })
+  s:restoreBookRatingOnConfirm(guess, 77)
+  assert(s:readBookSetting(guess, "user_rating") == false,
+    "a rating cleared while the link was guessed stayed saved")
+  -- a confirmed copy that never learned a rating says nothing either way
+  local quiet, quiet_guess = "/books/quiet.epub", "/books/quiet_guess.epub"
+  s:updateBookSetting(quiet, { book_id = 88 })
+  s:updateBookSetting(quiet_guess, { book_id = 88, guessed_book_id = 88, user_rating = 3 })
+  s:restoreBookRatingOnConfirm(quiet_guess, 88)
+  assert(s:readBookSetting(quiet_guess, "user_rating") == 3,
+    "a copy that never saw a rating cleared the confirmed link's")
+  local lone = "/books/lone.epub"
+  s:updateBookSetting(lone, { book_id = 88, guessed_book_id = 88, user_rating = 2 })
+  s:restoreBookRatingOnConfirm(lone, 88)
+  assert(s:readBookSetting(lone, "user_rating") == 2,
+    "a guess with no confirmed copy lost the rating it had")
+end)
+
+check("keeping a guessed link restores the book's rating for the file", function()
+  support.preload_ui_stubs()
+  local picker_opts
+  package.preload["hardcover/lib/ui/picker"] = function()
+    return { new = function(_, opts) picker_opts = opts or _; return picker_opts end }
+  end
+  local UIManager = require("ui/uimanager")
+  UIManager.close = UIManager.close or function() end
+  local s = settings(nil)
+  local f, guess = "/books/epub.epub", "/books/guessed.epub"
+  s:updateBookSetting(f, { book_id = 77, user_rating = 5 })
+  s:updateBookSetting(guess, { book_id = 77, guessed_book_id = 77, user_rating = 3 })
+  local done
+  require("hardcover/lib/ui/guess_review_dialog").show {
+    settings = s, on_done = function() done = true end }
+  assert(picker_opts, "no guess was offered")
+  picker_opts.rows[1].callback() -- "Right, keep the link"
+  assert(s:readBookSetting(guess, "user_rating") == 5,
+    "the kept link did not take the book's rating")
+  assert(s:readBookSetting(guess, "guessed_book_id") == nil, "the guess mark stayed")
+  assert(done, "the review did not finish after the last guess")
+end)
+
+check("relinking or removing drops the saved rating with the rest of the snapshot", function()
+  local s = settings(nil)
+  local f = "/books/rated.epub"
+  s:saveBookSnapshot(f, { id = 5, book_id = 77, status_id = 2, rating = 4 })
+  s:clearBookSnapshot(f)
+  assert(s:readBookSetting(f, "user_rating") == nil, "the old book's rating survived its snapshot")
+end)
+
 r.finish()

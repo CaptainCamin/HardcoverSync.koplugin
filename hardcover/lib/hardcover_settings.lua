@@ -262,6 +262,7 @@ local SNAPSHOT_KEYS = {
   "read_id",
   "status_id",
   "privacy_setting_id",
+  "user_rating",
   "started_at",
   "last_synced_page",
   "read_edition_id",
@@ -269,6 +270,14 @@ local SNAPSHOT_KEYS = {
 -- Set only when a removal completed. A linked file with this marker has no Hardcover
 -- record yet; automatic status writes must not recreate the deleted book.
 local REMOVED_KEY = "hardcover_removed"
+
+-- A rating the server answered with: a number, or false when the book is known to carry
+-- none. The key stays saved either way: absent would read as "never checked", and a guess
+-- confirmed later would learn nothing from it.
+local function snapshotRating(rating)
+  local r = tonumber(rating)
+  return (r and r > 0) and r or false
+end
 
 function HardcoverSettings:saveBookSnapshot(filename, user_book)
   if not filename or not user_book or not user_book.id then
@@ -281,6 +290,7 @@ function HardcoverSettings:saveBookSnapshot(filename, user_book)
     user_book_id = user_book.id,
     status_id = user_book.status_id,
     privacy_setting_id = user_book.privacy_setting_id,
+    user_rating = snapshotRating(user_book.rating),
     read_id = current_read and current_read.id,
     started_at = current_read and current_read.started_at,
     last_synced_page = current_read and current_read.progress_pages,
@@ -289,10 +299,10 @@ function HardcoverSettings:saveBookSnapshot(filename, user_book)
   if user_book.edition_id then
     config.edition_id = user_book.edition_id
   end
-  -- a nil value is skipped by updateBookSetting, so name the keys to drop (a read or edition
-  -- that is gone must not live on from the last snapshot)
+  -- a nil value is skipped by updateBookSetting, so name the keys to drop (a read, edition or
+  -- rating that is gone must not live on from the last snapshot)
   local delete = {}
-  for _, key in ipairs({ "read_id", "started_at", "last_synced_page", "read_edition_id", "edition_id" }) do
+  for _, key in ipairs({ "user_rating", "read_id", "started_at", "last_synced_page", "read_edition_id", "edition_id" }) do
     if config[key] == nil then delete[#delete + 1] = key end
   end
   -- A confirmed library record means the file is no longer waiting after a removal.
@@ -313,18 +323,65 @@ function HardcoverSettings:saveShelfSnapshot(filename, user_book)
     user_book_id = user_book.id,
     status_id = user_book.status_id,
     privacy_setting_id = user_book.privacy_setting_id,
+    user_rating = snapshotRating(user_book.rating),
     read_id = current_read and current_read.id,
     started_at = current_read and current_read.started_at,
     last_synced_page = current_read and current_read.progress_pages,
     read_edition_id = current_read and current_read.edition_id,
   }
   local delete = {}
-  for _, key in ipairs({ "status_id", "read_id", "started_at", "last_synced_page", "read_edition_id" }) do
+  for _, key in ipairs({ "status_id", "user_rating", "read_id", "started_at", "last_synced_page", "read_edition_id" }) do
     if config[key] == nil then delete[#delete + 1] = key end
   end
   if #delete > 0 then config._delete = delete end
   self:updateBookSetting(filename, config)
   self:clearRemovedMarkersFor(user_book.book_id or self:readBookSetting(filename, "book_id"))
+end
+
+-- A confirmed rating keeps only the rating: the answer also carries the server's edition
+-- and read, and a file linked to a different edition or page count must not take them on.
+function HardcoverSettings:saveBookRating(filename, rating)
+  if not filename then return end
+  self:updateBookSetting(filename, { user_rating = snapshotRating(rating) })
+end
+
+-- A guess marker can outlive the guess: a file relinked by hand keeps the old marker, but the
+-- link is settled, so the marker only counts while it still names the linked book.
+local function guessed(config)
+  return config.guessed_book_id ~= nil
+    and tostring(config.guessed_book_id) == tostring(config.book_id)
+end
+
+-- A catalog book can be linked to several files: every copy's saved rating follows the
+-- confirmed one, so a closed file shows it on the next offline open.
+function HardcoverSettings:saveBookRatingsFor(book_id, rating)
+  if not book_id then return end
+  local books = self.settings:readSetting(SETTING.BOOKS)
+  if type(books) ~= "table" then return end
+  for file, config in pairs(books) do
+    -- a guess may yet be the wrong book: its rating follows once the link is confirmed
+    if type(config) == "table" and not guessed(config)
+        and tostring(config.book_id) == tostring(book_id) then
+      self:saveBookRating(file, rating)
+    end
+  end
+end
+
+-- A guess is confirmed: the file becomes an ordinary link, so its saved rating follows the
+-- book's, which rating writes skipped while the link was only guessed. A confirmed copy of the
+-- book is the authority: user_rating holds the latest rating, or false when it is known the
+-- book carries none. A copy without the key tells nothing, so the file is left alone.
+function HardcoverSettings:restoreBookRatingOnConfirm(filename, book_id)
+  if not (filename and book_id) then return end
+  local books = self.settings:readSetting(SETTING.BOOKS)
+  if type(books) ~= "table" then return end
+  for file, config in pairs(books) do
+    if file ~= filename and type(config) == "table" and not guessed(config)
+        and tostring(config.book_id) == tostring(book_id) and config.user_rating ~= nil then
+      self:saveBookRating(filename, config.user_rating)
+      return
+    end
+  end
 end
 
 function HardcoverSettings:clearBookSnapshot(filename, removed_book_id)
@@ -403,6 +460,7 @@ function HardcoverSettings:bookStatusFromSnapshot(filename)
     edition_id = settings.edition_id,
     status_id = settings.status_id,
     privacy_setting_id = settings.privacy_setting_id,
+    rating = tonumber(settings.user_rating),
     user_book_reads = {},
     reads_complete = false,
     reads_snapshot = true,

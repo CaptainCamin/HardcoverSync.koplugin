@@ -36,6 +36,7 @@ function Cache:hydrateBookStatus(filename)
       edition_id = self.settings:readBookSetting(filename, "edition_id"),
       status_id = self.settings:readBookSetting(filename, "status_id"),
       privacy_setting_id = self.settings:readBookSetting(filename, "privacy_setting_id"),
+      rating = self.settings:readBookSetting(filename, "user_rating"),
     }
   end
 
