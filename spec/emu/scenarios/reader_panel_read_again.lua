@@ -73,7 +73,11 @@ return {
           pendingCount = function() return 0 end,
           changeCount = function() return 0 end,
           hasPending = function() return queued ~= nil end,
-          get = function() return queued end, shelfOp = function() return queued end, statusOf = function() return queued and queued.status_id end,
+          get = function() return queued end, shelfOp = function() return queued end,
+          statusOf = function()
+            calls.status_of = (calls.status_of or 0) + 1
+            return queued and queued.status_id
+          end,
           startReread = function(_, _, payload)
             calls.reread_page = payload.mapped_page
             queued = { status_id = READING, reread = true, mapped_page = payload.mapped_page }
@@ -108,11 +112,19 @@ return {
         assert(not calls.flushed, "offline: the re-read was sent with no connection")
         assert(calls.local_status == READING, "offline: the book does not show as Currently Reading")
         assert(calls.local_page == (restart and 0 or 100), "offline: the new read's page is not shown")
-        -- the waiting start must repaint the panel: Currently Reading, not the finished card (#339)
+        -- the waiting start must repaint the panel: Currently Reading, not the finished card
+        -- (#339), and it must come from the queue, not only from the cache's local write
         emu:screenNodes()
         local text = emu:screenText()
         assert(text:find("Currently Reading", 1, true), "offline: the panel does not show the queued re-read")
         assert(not text:find("You finished this book.", 1, true), "offline: the finished card is still shown")
+        assert(calls.status_of and calls.status_of > 0, "offline: the panel never asked the queue for the status")
+        -- a repaint means one panel, not a second painted over the first (#343's shape)
+        local found = 0
+        for _, entry in ipairs(require("ui/uimanager")._window_stack) do
+          if entry.widget.name == "hardcover_reader_panel" then found = found + 1 end
+        end
+        assert(found == 1, "offline: " .. found .. " panels are on the stack, expected 1")
       end
 
       emu:closeAll()
