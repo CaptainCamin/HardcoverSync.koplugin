@@ -235,14 +235,18 @@ function HomeBody:build()
         shown_rows = #items
       end
     end
-    self.layout = { card = card ~= nil, note = shown_note, shelves = shown_rows } -- what fitted
+    self.layout = { card = card ~= nil, note = shown_note, shelves = shown_rows,
+      total_shelves = #rows } -- what fitted
     column:resetLayout()
     return column
   end
 
   local column = make(w - 2 * side, false)
   local inner = column
-  if column:getSize().h > h or not self.layout.note then
+  -- scroll when the column does not fit, or when fitting it dropped something --
+  -- the sync box or shelf rows the scroll keeps reachable
+  if column:getSize().h > h
+      or not self.layout.note or self.layout.shelves < self.layout.total_shelves then
     column = make(w - 2 * side - ScrollControl.gutter(), true)
     local scroll = ScrollableContainer:new {
       dimen = Geom:new { x = 0, y = 0, w = w, h = h },

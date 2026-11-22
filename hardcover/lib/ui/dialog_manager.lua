@@ -896,8 +896,7 @@ function DialogManager:showGoals(host)
       StatusDialogs.retry(err, _("Loading your goals"),
         function()
           -- a retry makes a new screen; in the shell the tab takes it over
-          self:showGoals(host and { shell = host.shell, width = host.width, height = host.height,
-            id = host.id, parent = host.parent, remount = true })
+          self:showGoals(Hosted.retryHost(host))
         end,
         self:loadFailed(dialog, host, _("Couldn't load your goals.")))
     end
@@ -964,8 +963,7 @@ function DialogManager:showStats(host)
       else
         StatusDialogs.retry(err, _("Loading your stats"),
           function()
-            self:showStats(host and { shell = host.shell, width = host.width, height = host.height,
-              id = host.id, parent = host.parent, remount = true })
+            self:showStats(Hosted.retryHost(host))
           end,
           self:loadFailed(dialog, host, _("Couldn't load your stats.")))
       end
@@ -1349,8 +1347,7 @@ function DialogManager:showVibes(host)
       end
       StatusDialogs.retry(covers_or_err, _("Loading your vibes"),
         function()
-          self:showVibes(host and { shell = host.shell, width = host.width, height = host.height,
-            id = host.id, parent = host.parent, remount = true })
+          self:showVibes(Hosted.retryHost(host))
         end,
         self:loadFailed(dialog, host, _("Couldn't load your vibes.")))
       return

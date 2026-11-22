@@ -17,6 +17,7 @@ local Live = require("hardcover/lib/ui/live")
 
 local Api = require("hardcover/lib/hardcover_api")
 local Background = require("hardcover/lib/background")
+local Hosted = require("hardcover/lib/ui/hosted")
 local ListStore = require("hardcover/lib/list_store")
 local ListsSync = require("hardcover/lib/lists_sync")
 local Network = require("hardcover/lib/network")
@@ -208,8 +209,7 @@ function Flows:showLists(host)
       if saved then return end
       StatusDialogs.retry(result and result.failure, _("Loading your lists"),
         function()
-          self:showLists(host and { shell = host.shell, width = host.width, height = host.height,
-            id = host.id, parent = host.parent, remount = true })
+          self:showLists(Hosted.retryHost(host))
         end,
         self:loadFailed(dialog, host, _("Couldn't load your lists.")))
       return

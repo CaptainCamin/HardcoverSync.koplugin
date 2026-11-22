@@ -41,4 +41,15 @@ function Hosted.remount(host, screen)
   (host.parent or host.shell):remount(host.id, screen)
 end
 
+-- The `host` to give a retry's remount: the same tab, at the size the shell gives bodies now.
+-- The failed screen's captured width/height are stale when the panel was resized since (the
+-- shell rebuilds every body on SetDimensions); the shell's body size is read at retry time.
+function Hosted.retryHost(host)
+  if not host then return nil end
+  local shell = host.shell
+  return { shell = shell, width = shell and shell.body_w or host.width,
+    height = shell and shell.body_h or host.height,
+    id = host.id, parent = host.parent, remount = true }
+end
+
 return Hosted

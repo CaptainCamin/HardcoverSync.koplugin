@@ -1,20 +1,22 @@
 # Layout problems the per-shot checks (Tree.layout_problems) find today, so they do not fail CI.
-# One shot per line, optionally with the screen size it only breaks at:  <shot> [<W>x<H>]  # why
-# Fix the screen, then delete its line. A shot that is not listed here fails the scenario.
+# One shot per line:  <shot> [<W>x<H>] <pattern>  # why
+# A problem is waived only when it contains <pattern>, so the waiver never covers a new kind of
+# failure on the same shot. Fix the screen, then delete its line. A problem matching no line fails
+# the scenario.
 #
 # Compact buttons under Theme.TOUCH_MIN: an open decision in docs/e-ink-design.md ("compact button heights").
-shell_home            # "Sync now" is 80px tall at 300 dpi, TOUCH_MIN is 96
-shell_home_waiting    # same button
-shell_home_cards      # same button
-shell_home_decision   # same button
-shell_resize_shrunk   # same compact "Sync now" and "Open book" buttons
-reviews_first         # "Read more" is 80px tall
-reviews_more
-reviews_scrolled
-reviews_spoiler_shown
-reviews_end
-reviews_cached_offline       # same existing compact Read more button
-reviews_cached_refresh_failed
+shell_home            tap target  # "Sync now" is 80px tall at 300 dpi, TOUCH_MIN is 96
+shell_home_waiting    tap target  # same button
+shell_home_cards      tap target  # same button
+shell_home_decision   tap target  # same button
+shell_resize_shrunk   tap target  # same compact "Sync now" and "Open book" buttons
+reviews_first         tap target  # "Read more" is 80px tall
+reviews_more          tap target
+reviews_scrolled      tap target
+reviews_spoiler_shown tap target
+reviews_end           tap target
+reviews_cached_offline       tap target  # same existing compact Read more button
+reviews_cached_refresh_failed tap target
 # The search results' row is 88px tall (a 44dp row), TOUCH_MIN is 96.
-search_results
-search_empty
+search_results        tap target
+search_empty          tap target

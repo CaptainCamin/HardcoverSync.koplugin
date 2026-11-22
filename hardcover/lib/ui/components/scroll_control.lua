@@ -19,6 +19,7 @@
 --   body = ScrollControl.wrap(scroll, content)
 -- and size the content `ScrollControl.gutter()` narrower than the screen less its margins.
 
+local Bidi = require("ui/bidi")
 local Device = require("device")
 local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
@@ -112,41 +113,59 @@ function ScrollControl:getSize()
   return self.dimen
 end
 
+-- The zones the end triangles live and act in, from the control's top: the up zone's height and
+-- the down zone's start (what is between them is the track's, and may be nothing). A touch
+-- target at each end while two fit; an even split when they do not, so a tap on the down
+-- triangle can never land in the up zone.
+function ScrollControl:zones()
+  local h = self.dimen.h
+  local up_h = math.min(Theme.TOUCH_MIN, math.floor(h / 2))
+  return up_h, h - math.min(Theme.TOUCH_MIN, h - up_h)
+end
+
 function ScrollControl:paintTo(bb, x, y)
   self.dimen.x, self.dimen.y = x, y
   local offset, max, view_h = self:metrics()
   if not offset then return end
 
   local w, h = self.dimen.w, self.dimen.h
-  local touch = Theme.TOUCH_MIN
+  local up_h, down_y = self:zones()
   local cx = x + math.floor(w / 2)
-  triangle(bb, cx, y + math.floor((touch - TRI_H) / 2), TRI_W, TRI_H, "up", offset > 0)
-  triangle(bb, cx, y + h - math.floor((touch + TRI_H) / 2), TRI_W, TRI_H, "down", offset < max)
+  -- a viewport shorter than two triangles keeps the zones for taps, but drawing them would
+  -- only smear one over the other
+  if up_h >= TRI_H and h - down_y >= TRI_H then
+    triangle(bb, cx, y + math.floor((up_h - TRI_H) / 2), TRI_W, TRI_H, "up", offset > 0)
+    triangle(bb, cx, y + down_y + math.floor((h - down_y - TRI_H) / 2), TRI_W, TRI_H, "down", offset < max)
+  end
 
-  -- the hollow track: one capsule outline, so the bar reads as sitting inside it
-  local ty, th = y + touch, h - 2 * touch
-  local lx = cx - math.floor(TRACK_W / 2)
-  bb:paintBorder(lx, ty, TRACK_W, th, Theme.line.hair, BLACK, math.floor(TRACK_W / 2), false)
+  -- the hollow track between the zones: one capsule outline, so the bar reads as sitting inside
+  -- it, drawn only where it can hold a bar at all
+  local th = down_y - up_h
+  if th >= MIN_BAR_H then
+    local ty = y + up_h
+    local lx = cx - math.floor(TRACK_W / 2)
+    bb:paintBorder(lx, ty, TRACK_W, th, Theme.line.hair, BLACK, math.floor(TRACK_W / 2), false)
 
-  -- the slim bar: its length is the share of the content in view, its place is the offset; it keeps
-  -- INSET clear of the outline at both ends
-  local inner_y, inner_h = ty + INSET, th - 2 * INSET
-  local content_h = max + view_h
-  local bar_h = math.min(inner_h, math.max(MIN_BAR_H, math.floor(inner_h * view_h / content_h)))
-  local clamped = math.max(0, math.min(max, offset))
-  local by = inner_y + math.floor((inner_h - bar_h) * clamped / max + 0.5)
-  bb:paintRoundedRect(cx - math.floor(BAR_W / 2), by, BAR_W, bar_h, BLACK, math.floor(BAR_W / 2))
+    -- the slim bar: its length is the share of the content in view, its place is the offset; it
+    -- keeps INSET clear of the outline at both ends
+    local inner_y, inner_h = ty + INSET, th - 2 * INSET
+    local content_h = max + view_h
+    local bar_h = math.min(inner_h, math.max(MIN_BAR_H, math.floor(inner_h * view_h / content_h)))
+    local clamped = math.max(0, math.min(max, offset))
+    local by = inner_y + math.floor((inner_h - bar_h) * clamped / max + 0.5)
+    bb:paintRoundedRect(cx - math.floor(BAR_W / 2), by, BAR_W, bar_h, BLACK, math.floor(BAR_W / 2))
+  end
 end
 
 -- A tap on the top touch area steps a page up, on the bottom one a page down; anywhere else on the
 -- column does nothing. A tap on a dotted triangle is swallowed too, so it cannot reach something under.
 function ScrollControl:onTapScrollControl(_, ges)
   if not (self:metrics() and ges and ges.pos) then return false end
-  local touch = Theme.TOUCH_MIN
+  local up_h, down_y = self:zones()
   local dy = ges.pos.y - self.dimen.y
-  if dy < touch then
+  if dy < up_h then
     self.scroll:onScrollPageUp()
-  elseif dy >= self.dimen.h - touch then
+  elseif dy >= down_y then
     self.scroll:onScrollPageDown()
   end
   return true
@@ -156,11 +175,11 @@ end
 -- the taps, which step a page. Anywhere else on the column does nothing.
 function ScrollControl:onHoldScrollControl(_, ges)
   if not (self:metrics() and ges and ges.pos) then return false end
-  local touch = Theme.TOUCH_MIN
+  local up_h, down_y = self:zones()
   local dy = ges.pos.y - self.dimen.y
-  if dy < touch then
+  if dy < up_h then
     self:jump("start")
-  elseif dy >= self.dimen.h - touch then
+  elseif dy >= down_y then
     self:jump("end")
   end
   return true
@@ -220,7 +239,10 @@ function ScrollControl.wrap(scroll, rows)
   if rows then scroll.step_scroll_grid = ScrollControl.grid(rows, scroll.dimen.h) end
 
   local control = ScrollControl:new { scroll = scroll, width = gutter, height = total_h }
-  control.overlap_offset = { total_w - gutter, 0 }
+  -- KOReader moves the gutter to the left in a mirrored layout (the container shifts its crop
+  -- region off that edge), so the control goes there too or it sits over tappable content.
+  local mirrored = type(Bidi.mirroredUILayout) == "function" and Bidi.mirroredUILayout()
+  control.overlap_offset = { mirrored and 0 or (total_w - gutter), 0 }
   return OverlapGroup:new {
     dimen = Geom:new { w = total_w, h = total_h },
     allow_mirroring = false,

@@ -22,6 +22,7 @@ local T = require("ffi/util").template
 local Live = require("hardcover/lib/ui/live")
 
 local Api = require("hardcover/lib/hardcover_api")
+local Hosted = require("hardcover/lib/ui/hosted")
 local Journal = require("hardcover/lib/journal")
 local Network = require("hardcover/lib/network")
 local PendingStatus = require("hardcover/lib/pending_status")
@@ -630,8 +631,7 @@ function Flows:showJournal(host)
       if saved then return end
       StatusDialogs.retry(err, _("Loading your journal"),
         function()
-          self:showJournal(host and { shell = host.shell, width = host.width, height = host.height,
-            id = host.id, parent = host.parent, remount = true })
+          self:showJournal(Hosted.retryHost(host))
         end,
         self:loadFailed(dialog, host, _("Couldn't load your journal.")))
       return

@@ -60,11 +60,14 @@ return {
       emu:pump()
     end
 
-    -- the nav bar is the last row of the shell's column, so its bottom is the panel's bottom
-    -- only if the shell rebuilt at the new height
-    local function nav_inside(h)
-      local column = shell.frame[1]
-      return column[1]:getSize().h + shell.body_h + column[3]:getSize().h <= h
+    -- the nav bar is the last row of the shell's column: its cells' painted bottom is the
+    -- panel's bottom only if the shell rebuilt at the new size (positions are real once painted)
+    local function nav_inside(w, h)
+      emu:screenNodes()
+      local row = shell.frame[1] and shell.frame[1][3] and shell.frame[1][3][3]
+      local first, last = row and row[1], row and row[#row]
+      return first and last and first.dimen.x == 0 and last.dimen.x + last.dimen.w == w
+        and last.dimen.y + last.dimen.h == h or false
     end
 
     local function find_button(widget, label, seen)
@@ -90,7 +93,7 @@ return {
     local small = shell.bodies.home
     assert(small and small ~= home, "the Home body was not rebuilt for the new size")
     assert(small.width == W2, "the Home body kept its old width: " .. tostring(small.width))
-    assert(nav_inside(H2), "the nav bar is off the smaller panel")
+    assert(nav_inside(W2, H2), "the nav bar is off the smaller panel")
     assert(small.scroll, "a Home too tall for the smaller panel did not scroll")
     assert(small.layout.note, "the sync box was dropped instead of scrolling to reach it")
 
@@ -122,13 +125,75 @@ return {
     emu:pump()
     assert(sent_now == 1, "Sync now did not send from the shrunk panel")
 
-    -- grown again: everything is rebuilt once more and a Home that fits has no scroll
+    -- a tap on the nav bar reaches the tab it sits over, and back (its cells are painted, so
+    -- their ranges are real)
+    local nav_row = shell.frame[1][3][3]
+    local last_cell = nav_row[#nav_row]
+    emu:tapExpecting(last_cell.dimen.x + math.floor(last_cell.dimen.w / 2),
+      last_cell.dimen.y + math.floor(last_cell.dimen.h / 2))
+    assert(shell.active == "stats", "a tap on the nav bar did not switch tabs")
+    emu:screenNodes()
+    nav_row = shell.frame[1][3][3]
+    local first_cell = nav_row[1]
+    emu:tapExpecting(first_cell.dimen.x + math.floor(first_cell.dimen.w / 2),
+      first_cell.dimen.y + math.floor(first_cell.dimen.h / 2))
+    assert(shell.active == "home", "a tap on the nav bar did not return to Home")
+
+    -- a mirrored layout reserves the scroll gutter on the left (KOReader crops its content in
+    -- from that edge), so the arrows go there: page down until a shelf row reaches the up
+    -- arrow's height, then tap it -- the page scrolls back, the shelf does not open
+    local Bidi = require("ui/bidi")
+    Bidi._mirrored_ui_layout = true
+    resize(W2, H2)
+    local mirrored = shell.bodies.home
+    assert(mirrored and mirrored.scroll, "mirrored Home did not scroll")
+    local msc = mirrored.scroll
+    local touch = require("hardcover/lib/ui/theme").TOUCH_MIN
+    local function shelf_row_at(top, bottom)
+      for _, title in ipairs({ "Want to Read", "Currently Reading", "Read", "Did Not Finish" }) do
+        local row = find_button(mirrored, title)
+        if row and row.dimen.y < bottom and row.dimen.y + row.dimen.h > top then return row end
+      end
+    end
+    local arrow_row
+    for _ = 1, 30 do
+      emu:screenNodes()
+      if (msc:getScrolledOffset().y or 0) > 0 then
+        arrow_row = shelf_row_at(msc.dimen.y, msc.dimen.y + touch)
+        if arrow_row then break end
+      end
+      if msc:getScrolledOffset().y >= (msc._max_scroll_offset_y or 0) then break end
+      emu:tapExpecting(msc.dimen.x + 10, msc.dimen.y + msc.dimen.h - 10)
+      emu:pump()
+    end
+    assert(arrow_row, "no shelf row reached the mirrored up arrow")
+    local before = msc:getScrolledOffset().y
+    local tap_y = math.floor((math.max(arrow_row.dimen.y, msc.dimen.y)
+      + math.min(arrow_row.dimen.y + arrow_row.dimen.h, msc.dimen.y + touch)) / 2)
+    emu:tapExpecting(msc.dimen.x + 10, tap_y)
+    emu:pump()
+    assert(msc:getScrolledOffset().y < before, "the mirrored up arrow did not scroll")
+    assert(UIManager:getTopmostVisibleWidget() == shell,
+      "a tap on the mirrored scroll arrow opened a shelf")
+    Bidi._mirrored_ui_layout = false
+
+    -- grown again: rebuilt once more. Grown taller than the content needs, a Home that fits has
+    -- no scroll; back at the panel's own size nothing is dropped -- the sync box and every
+    -- shelf row stay reachable (by the scroll when the panel is short of them).
+    resize(W, H * 2)
+    local grown = shell.bodies.home
+    assert(grown and grown ~= mirrored, "the Home body was not rebuilt on the way back")
+    assert(grown.width == W and not grown.scroll
+      and grown.layout.shelves == grown.layout.total_shelves,
+      "the grown Home did not fill its panel")
     resize(W, H)
     Screen.getWidth, Screen.getHeight = real_w, real_h
     local restored = shell.bodies.home
-    assert(restored and restored ~= small, "the Home body was not rebuilt on the way back")
-    assert(restored.width == W and not restored.scroll, "the restored Home did not fill its panel")
-    assert(nav_inside(H), "the nav bar is off the restored panel")
+    assert(restored and restored ~= grown, "the Home body was not rebuilt on the way back")
+    assert(restored.width == W, "the restored Home did not fill its panel")
+    assert(restored.layout.note and restored.layout.shelves == restored.layout.total_shelves,
+      "the restored Home dropped the sync box or a shelf row")
+    assert(nav_inside(W, H), "the nav bar is off the restored panel")
     emu:shot("shell_resize_restored")
   end,
 }
