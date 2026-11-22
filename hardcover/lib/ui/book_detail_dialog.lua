@@ -644,9 +644,11 @@ function BookDetailDialog:init()
   add(VerticalGroup:new { align = "left", Theme.span("s"), action_bar })
   if self.reading_row then add(VerticalGroup:new { align = "left", Theme.span("s"), self.reading_row }) end
   if self.sync_note then add(VerticalGroup:new { align = "left", Theme.span("s"), self.sync_note }) end
+  -- Reviews comes before About: it is the reader's next decision, while About and Genres describe
+  -- the book. The block is the same widget the heading and Write/Edit callbacks own, moved not copied.
+  add(reviews)
   add(about)
   add(tags)
-  add(reviews)
 
   -- Strips of covers, paged with arrows; tapping one opens that book. Below About, so
   -- the book itself comes first: "More in this series", then "Similar to <title>".

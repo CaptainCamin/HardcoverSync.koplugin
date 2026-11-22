@@ -233,6 +233,16 @@ return {
     assert(typical.add_button == nil and typical.reviews_button == nil and typical.edition_button == nil,
       "a round action button survived layout A")
 
+    -- Approved follow-up: Reviews comes before About. The heading itself has no absolute geometry
+    -- until painted, so compare against the synopsis text, which is present whether or not it was
+    -- truncated (the Read more button is not a reliable marker).
+    emu:screenNodes()
+    local reviews_node = emu:expectText("Reviews")
+    local about_node = emu:expectText("A lone envoy arrives")
+    assert(reviews_node.y and about_node.y and reviews_node.y < about_node.y,
+      string.format("Reviews (y %s) is not above About (y %s)", tostring(reviews_node.y),
+        tostring(about_node.y)))
+
     -- the author and the series are plain text under the title (not links)
     emu:expectText("Ursula K. Le Guin")
     emu:expectText("Hainish Cycle #4")

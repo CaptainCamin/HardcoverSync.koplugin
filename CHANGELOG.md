@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Improved
+
+- **Reviews moves above About on a book's details.** After your reading row and any decision note, the page shows the Reviews section — its heading, average and Write/Edit button — then About, Genres and the rest. The section keeps its existing button sizes and callbacks.
+
 ### Fixes
 
 - **Removing a book offline is kept from either place.** Status > Remove in the reader and Remove from library in book details now both keep the removal on the device when there is no connection, list it under Pending changes and send it when you're connected. A delete whose answer never arrives is kept too, and Hardcover is checked for newer work before the book is deleted.
