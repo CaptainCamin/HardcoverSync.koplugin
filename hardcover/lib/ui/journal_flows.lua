@@ -409,6 +409,8 @@ function Flows:reviewChangeSent(user_book_id, text, spoilers, book_id, op)
       fields = { text = text, excerpt = excerpt, truncated = truncated, spoilers = spoilers == true }
     end
     fields.user_book_id = user_book_id
+    -- a row kept from before the book id was known gets it, so the book's own journal sees it
+    fields.book_id = tonumber(book_id) or nil
     local uid = User:getId()
     -- saved rows for an older library record are a different review: they take the new one's
     -- date before the main pass repoints them at the live record
