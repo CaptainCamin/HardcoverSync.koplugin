@@ -182,6 +182,12 @@ check("a rating or review changed online asks with both values", function()
     delete = true } })
   eq(delete.rows[2].text, "Remove my review anyway")
   eq(#delete.rows, 3, "a delete has no combine row")
+
+  has(review.title, "had not seen", "a review never seen must not be called a change")
+  local seen = SyncConflicts.describe(nil, { title = "Dune", conflict = { kind = "review",
+    online = { text = "their words", spoilers = true }, proposed = { text = "my words", spoilers = false },
+    base = { text = "old words", spoilers = false } } })
+  has(seen.title, "changed on Hardcover", "a known baseline is a real change")
 end)
 
 check("an edition page becomes a position in the file", function()

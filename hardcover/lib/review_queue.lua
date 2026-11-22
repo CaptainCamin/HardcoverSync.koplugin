@@ -189,6 +189,8 @@ local function compare(op, online)
   if op.answer and sameReview(op.answer.online, online) then return "send" end
   local known, base = baseValue(op)
   if known and sameReview(base, online) then return "send" end
+  -- the device never saw the review, and there is none now: writing it loses nothing
+  if not known and online.text == "" then return "send" end
   return "park"
 end
 
