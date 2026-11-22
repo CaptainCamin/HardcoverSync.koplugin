@@ -127,6 +127,13 @@ fragment UserBookParts on user_books {
     finished_at_precision
     progress_pages
     edition_id
+    edition {
+      id
+      pages
+      edition_format
+      reading_format_id
+      audio_seconds
+    }
   }
 }]]
 
