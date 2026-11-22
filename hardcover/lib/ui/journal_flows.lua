@@ -77,6 +77,11 @@ local function reviewSent(state, shown, user_book_id, book_id, text, spoilers)
           or (entry.book_id ~= nil and book_id ~= nil
             and tonumber(entry.book_id) == tonumber(book_id))) then
         matched = true
+        -- a row for an older library record is a different review: it takes the new one's
+        -- date; a row for the record the edit landed on keeps its own
+        if tostring(entry.user_book_id) ~= tostring(user_book_id) then
+          entry.at = os.date("!%Y-%m-%dT%H:%M:%SZ")
+        end
         entry.user_book_id = tonumber(user_book_id) or entry.user_book_id
         entry.text, entry.excerpt, entry.truncated, entry.spoilers =
           body, excerpt, truncated, body and spoilers == true or nil
@@ -402,6 +407,18 @@ function Flows:reviewChangeSent(user_book_id, text, spoilers, book_id)
     end
     fields.user_book_id = user_book_id
     local uid = User:getId()
+    -- saved rows for an older library record are a different review: they take the new one's
+    -- date before the main pass repoints them at the live record
+    if book_id ~= nil then
+      local function ofOldRecord(e)
+        return e.kind == "review" and e.book_id ~= nil
+          and tonumber(e.book_id) == tonumber(book_id)
+          and tostring(e.user_book_id) ~= tostring(user_book_id)
+      end
+      local date = { at = os.date("!%Y-%m-%dT%H:%M:%SZ") }
+      store:change(uid, ofOldRecord, date)
+      store:change(uid, ofOldRecord, date, book_id)
+    end
     local all_saved = store:get(uid)
     -- a first review matches no saved row: keep a stand-in in both snapshots, or an offline
     -- reopen drops the review the open screen just showed. Rows for the book in the saved
@@ -661,8 +678,9 @@ function Flows:showBookJournal(book_id, title, opts)
   end
   function screen:reviewSent(user_book_id, text, spoilers, sent_book_id)
     if sent_book_id ~= nil and tonumber(sent_book_id) ~= tonumber(book_id) then return end
-    reviewSent(state, self.body.entries, user_book_id,
-      tonumber(sent_book_id) or tonumber(book_id), text, spoilers)
+    -- an old queued review may name no book: substituting this one's would let the send
+    -- rewrite an unrelated book's rows, so only the library-record match applies then
+    reviewSent(state, self.body.entries, user_book_id, sent_book_id, text, spoilers)
     refresh()
   end
   self:screens():track("book_journal", screen)

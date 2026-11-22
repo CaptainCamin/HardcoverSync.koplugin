@@ -567,7 +567,8 @@ check("editing a pending review does not inherit a deleted historical library re
     online = false
     m.journal_store:put(1, {
       { key = "reviewed:4003", id = 4003, kind = "review", user_book_id = 700,
-        user_id = 1, book_id = 101, title = "Dune", text = "Historical review" },
+        user_id = 1, book_id = 101, title = "Dune", text = "Historical review",
+        at = "2025-06-01T10:00:00Z" },
     }, false)
     m.review_queue:queue(known_id or nil, "Offline draft", false, "Dune", 101, 1)
     m:showJournal()
@@ -601,6 +602,8 @@ check("editing a pending review does not inherit a deleted historical library re
     assert(row.user_book_id == 907, "the sent review did not repoint the saved row at the live record")
     assert(row.text == "Edited offline draft" and row.spoilers == true,
       "the saved row did not take the sent review")
+    assert(row.at ~= "2025-06-01T10:00:00Z",
+      "the new review kept the old review's date")
     local shown = tab.entries[1]
     assert(shown.user_book_id == 907 and shown.text == "Edited offline draft" and not shown.waiting,
       "the open journal did not take the sent review")
@@ -741,6 +744,19 @@ check("a first sent review is kept in the book journal's saved copy too", functi
   local book = m.journal_store:get(1, 5).entries
   assert(#book == 2 and book[1].kind == "review" and book[2].kind == "read",
     "the book journal's saved copy did not take the review over the book's rows")
+end)
+
+check("a sent review with no book id cannot rewrite an unrelated open book journal", function()
+  local m = newManager()
+  m.journal_store:put(1, {
+    { key = "reviewed:4003", id = 4003, kind = "review", user_book_id = 999,
+      user_id = 1, book_id = 5, title = "Dune", text = "Book five's review" },
+  }, false)
+  local screen = m:showBookJournal(5, "Dune", {})
+  m:reviewChangeSent(907, "Some other book's review", false, nil)
+  assert(#screen.body.entries == 1 and screen.body.entries[1].text == "Book five's review"
+    and screen.body.entries[1].user_book_id == 999,
+    "the send rewrote a row of a book it does not belong to")
 end)
 
 check("a review sent while the book journal is open stops waiting there too", function()
