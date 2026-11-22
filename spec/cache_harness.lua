@@ -221,6 +221,18 @@ check("a queued change is stamped with the signed-in user", function()
   eq(meta.user_id, 7, "user_id")
 end)
 
+check("queued page metadata uses the file's edition, not a stale cached read", function()
+  local cache, settings = newCache {}
+  cache.state.book_status = {
+    id = 501, book_id = 9001, status_id = HARDCOVER.STATUS.READING, edition_id = 3,
+    user_book_reads = { { id = 77, started_at = "2026-01-01", edition_id = 3, progress_pages = 10 } },
+  }
+  settings.books["/books/current.epub"] = { edition_id = 8, pages = 608 }
+  local meta = cache:queueMeta("/books/current.epub")
+  eq(meta.edition_id, 8, "edition_id")
+  eq(meta.pages, 608, "pages")
+end)
+
 check("hydration works with no queue attached", function()
   -- The queue is optional; a nil queue must not take hydration down with it.
   local cache = newCache { snapshot = { id = 1, book_id = 2, status_id = HARDCOVER.STATUS.READING } }

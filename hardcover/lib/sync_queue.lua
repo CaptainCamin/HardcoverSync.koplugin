@@ -521,7 +521,7 @@ function SyncQueue:startReread(filepath, payload)
   start.from_page = true
   entry.read_id, entry.started_at = nil, nil
   entry.first_page_date = os.date("%Y-%m-%d", at)
-  Actions.page(entry, payload.mapped_page or 0, at, true)
+  Actions.page(entry, payload.mapped_page or 0, at, true, nil, payload.edition_id, payload.pages)
   -- a reread does not answer an unresolved conflict either: it waits with the rest
   entry.failures = nil
   self:persist()
@@ -1376,7 +1376,9 @@ function SyncQueue:resolve(filepath, choice)
     end
     -- the place to resume is a file's: the one asked about, else the one read last
     local file = type(entry.files) == "table" and entry.files[filepath] and filepath or entry.file or filepath
-    resume[file] = entry.conflict.cloud_page
+    if not entry.conflict.edition_changed then
+      resume[file] = entry.conflict.cloud_page
+    end
     self.settings:saveSetting("resume", resume)
   elseif kind == "page" and choice == "local" then
     for _, action in ipairs(Actions.list(entry)) do
@@ -1683,20 +1685,27 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
     if edition_page_counts[edition_id] ~= nil then
       return edition_page_counts[edition_id] or nil
     end
-    local pages = read and type(read.edition) == "table" and tonumber(read.edition.pages) or nil
-    if pages == nil and type(api.hydrateBookFromEdition) == "function" then
-      local ok, edition = pcall(function()
-        return api:hydrateBookFromEdition(edition_id, opts.user_id or entry.user_id)
-      end)
-      if ok and type(edition) == "table" then pages = tonumber(edition.pages) end
+    if read and type(read.edition) == "table" then
+      local pages = tonumber(read.edition.pages)
+      edition_page_counts[edition_id] = pages or false
+      return pages
     end
+    if type(api.hydrateBookFromEdition) ~= "function" then return nil end
+    local ok, edition, err = pcall(function()
+      return api:hydrateBookFromEdition(edition_id, opts.user_id or entry.user_id)
+    end)
+    if not ok or err ~= nil or type(edition) ~= "table" then
+      return nil, true
+    end
+    local pages = tonumber(edition.pages)
     edition_page_counts[edition_id] = pages or false
     return pages
   end
 
   local function convertPage(page, from_pages, to_pages)
-    from_pages, to_pages = tonumber(from_pages), tonumber(to_pages)
-    if not (from_pages and to_pages and from_pages > 0 and to_pages > 0) then return nil end
+    page, from_pages, to_pages = tonumber(page), tonumber(from_pages), tonumber(to_pages)
+    if page == 0 then return 0 end
+    if not (page and from_pages and to_pages and from_pages > 0 and to_pages > 0) then return nil end
     return math.max(1, math.min(to_pages, math.floor((page / from_pages) * to_pages)))
   end
 
@@ -1829,6 +1838,7 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
           return false, "conflict"
         end
 
+        local page_edition_changed = false
         local send_edition
         if current_read and current_read.id then
           send_edition = current_read.edition_id or edition_id
@@ -1836,9 +1846,11 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
           send_edition = edition_id or user_book.edition_id
         end
         if op.edition_id and send_edition and tonumber(op.edition_id) ~= tonumber(send_edition) then
-          local target_pages = targetPageCount(send_edition, current_read)
+          local target_pages, transient = targetPageCount(send_edition, current_read)
+          if transient then return false, "transient" end
           local converted = convertPage(op.value, op.pages, target_pages)
           if converted then
+            page_edition_changed = true
             op.value, op.edition_id, op.pages = converted, tonumber(send_edition), target_pages
           else
             entry.conflict = { kind = "page", local_page = op.value, cloud_page = nil, seq = op.seq,
@@ -1863,7 +1875,8 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
             if ops[j].value >= server_page then caught_up = true end
           end
           if not caught_up and server_page - op.value >= SyncQueue.CONFLICT_PAGES then
-            entry.conflict = { kind = "page", local_page = op.value, cloud_page = server_page, seq = op.seq }
+            entry.conflict = { kind = "page", local_page = op.value, cloud_page = server_page,
+              seq = op.seq, edition_changed = page_edition_changed or nil }
             self:persist()
             return false, "conflict"
           end

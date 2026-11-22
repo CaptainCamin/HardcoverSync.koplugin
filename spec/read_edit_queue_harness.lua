@@ -1422,6 +1422,36 @@ check("a page in another edition waits for a decision when it cannot be converte
   assert(#api.calls == 0, "the mismatched page reached Hardcover")
 end)
 
+check("an edition page lookup that fails transiently is retried", function()
+  local q, api = queue(), fakeApi()
+  local current = { id = 11, started_at = "2026-11-16", edition_id = 8, progress_pages = 40 }
+  api.records[7] = record(7, { current }, 2)
+  api.records[7].edition_id = 8
+  api.hydrateBookFromEdition = function() return nil, { completed = false } end
+  q:enqueuePage("/books/7.epub", { book_id = 7, mapped_page = 150, edition_id = 7, pages = 304 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(q:get(7).conflict == nil and #api.calls == 0, "a transient lookup parked a question")
+  api.hydrateBookFromEdition = function() return { pages = 608 } end
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(#api.calls == 1 and api.calls[1].op == "updatePage" and api.calls[1].edition_id == 8
+    and api.calls[1].page == 300, "the retried page was not converted into the current edition")
+end)
+
+check("a converted page conflict does not offer a resume in the wrong edition", function()
+  local q, api = queue(), fakeApi()
+  local current = { id = 11, started_at = "2026-11-16", edition_id = 8, progress_pages = 500,
+    edition = { pages = 608 } }
+  api.records[7] = record(7, { current }, 2)
+  api.records[7].edition_id = 8
+  q:enqueuePage("/books/7.epub", { book_id = 7, mapped_page = 50, edition_id = 7, pages = 304 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  local conflict = q:get(7).conflict
+  assert(conflict and conflict.kind == "page" and conflict.edition_changed,
+    "the converted page did not keep its edition change")
+  assert(q:resolve("/books/7.epub", "cloud") == true)
+  assert(q:takeResumePage("/books/7.epub") == nil, "the resume page was saved in the wrong edition")
+end)
+
 check("an edition change with later pages cannot be cancelled out from under them", function()
   local q, api = queue(), fakeApi()
   api.records[7] = record(7, { read() }, 2)

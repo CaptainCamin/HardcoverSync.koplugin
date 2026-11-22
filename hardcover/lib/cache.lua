@@ -100,9 +100,9 @@ function Cache:queueMeta(filename)
     user_id = User.settings and User.settings:readSetting(SETTING.USER_ID),
     title = self.settings:readBookSetting(filename, "title"),
     book_id = book_status.book_id or self.settings:readBookSetting(filename, "book_id"),
-    edition_id = (current_read and current_read.edition_id)
-      or book_status.edition_id
-      or self.settings:readBookSetting(filename, "edition_id"),
+    edition_id = self.settings:readBookSetting(filename, "edition_id")
+      or (current_read and current_read.edition_id)
+      or book_status.edition_id,
     pages = tonumber(self.settings:readBookSetting(filename, "pages")),
     user_book_id = book_status.id,
     read_id = current_read and current_read.id,
