@@ -640,7 +640,10 @@ check("once Hardcover has a change, the saved copy shows it", function()
   entries = m.journal_store:get(1).entries
   assert(#entries == 4, "a removed review keeps its entries")
   assert(entries[2].key == "reviewed:4003" and entries[2].text == nil and entries[2].spoilers == nil and entries[4].text == nil)
-  assert(m:reviewChangeSent(901, "not listed") == nil and #m.journal_store:get(1).entries == 4)
+  m:reviewChangeSent(901, "not listed")
+  entries = m.journal_store:get(1).entries
+  assert(#entries == 5 and entries[1].kind == "review" and entries[1].text == "not listed",
+    "a first review was not kept for an offline reopen")
 end)
 
 check("book journal caches its own pages offline without replacing the library journal", function()
@@ -723,6 +726,21 @@ check("a review sent while the tab is open stops waiting and says the day it was
   local shown = Journal.row(row)
   assert(shown.detail == "Today", "the row should say the day: " .. tostring(shown.detail))
   assert(shown.what == "Review: My review", tostring(shown.what))
+end)
+
+check("a first sent review is kept in the book journal's saved copy too", function()
+  local m = newManager()
+  m.journal_store:put(1, {
+    { key = "read:9", id = 9, kind = "read", user_id = 1, book_id = 5,
+      title = "Dune", at = "2026-10-18T10:00:00+00:00" },
+  }, false)
+  m:reviewChangeSent(900, "First review", true, 5)
+  local lib = m.journal_store:get(1).entries
+  assert(lib[1].kind == "review" and lib[1].text == "First review" and lib[1].title == "Dune",
+    "the saved journal did not keep the first review")
+  local book = m.journal_store:get(1, 5).entries
+  assert(#book == 2 and book[1].kind == "review" and book[2].kind == "read",
+    "the book journal's saved copy did not take the review over the book's rows")
 end)
 
 check("a review sent while the book journal is open stops waiting there too", function()

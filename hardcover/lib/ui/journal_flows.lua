@@ -401,8 +401,47 @@ function Flows:reviewChangeSent(user_book_id, text, spoilers, book_id)
       fields = { text = text, excerpt = excerpt, truncated = truncated, spoilers = spoilers == true }
     end
     fields.user_book_id = user_book_id
-    store:change(User:getId(), ofBook, fields)
-    if book_id then store:change(User:getId(), ofBook, fields, book_id) end
+    local uid = User:getId()
+    local all_saved = store:get(uid)
+    -- a first review matches no saved row: keep a stand-in in both snapshots, or an offline
+    -- reopen drops the review the open screen just showed. Rows for the book in the saved
+    -- journal lend the title, authors and cover the send's answer does not carry.
+    local function standIn(from_entries)
+      local donor
+      for _, e in ipairs(from_entries or {}) do
+        if e.book_id ~= nil and tonumber(e.book_id) == tonumber(book_id) then donor = e break end
+      end
+      local excerpt, truncated = Reviews.excerpt(fields.text)
+      return {
+        key = "reviewed:sent:" .. tostring(book_id or user_book_id),
+        kind = "review", event = "reviewed",
+        user_id = donor and tonumber(donor.user_id) or uid,
+        book_id = tonumber(book_id), user_book_id = tonumber(user_book_id),
+        title = donor and donor.title, authors = donor and donor.authors,
+        cover_url = donor and donor.cover_url,
+        text = fields.text, excerpt = excerpt, truncated = truncated,
+        spoilers = fields.spoilers or nil,
+        at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+      }
+    end
+    if not store:change(uid, ofBook, fields) and fields.text then
+      store:put(uid, Journal.append({ standIn(all_saved and all_saved.entries) },
+        all_saved and all_saved.entries or {}),
+        all_saved and all_saved.more, nil, all_saved and all_saved.saved_at)
+    end
+    if book_id then
+      local book_saved = store:get(uid, book_id)
+      if not store:change(uid, ofBook, fields, book_id) and fields.text then
+        local prior = book_saved and book_saved.entries or {}
+        if not book_saved and all_saved then
+          for _, old in ipairs(all_saved.entries) do
+            if tonumber(old.book_id) == tonumber(book_id) then prior[#prior + 1] = old end
+          end
+        end
+        store:put(uid, Journal.append({ standIn(prior) }, prior), book_saved and book_saved.more,
+          book_id, (book_saved or all_saved) and (book_saved or all_saved).saved_at)
+      end
+    end
   end
   -- An open journal's row said "Waiting to send" while the flush ran; tell it what arrived, so it
   -- shows the sent review without a reopen.
