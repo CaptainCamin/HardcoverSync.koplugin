@@ -540,18 +540,22 @@ function M.boot(opts)
   end
 
   --[[--
-  Run pending scheduled work until the queue stops producing new tasks.
+  Run pending scheduled work, but never wait for the future.
 
-  Bounded, because a plugin that reschedules itself forever (a poll loop, say)
-  would otherwise hang the harness rather than fail a test.
+  A timer's deadline shrinks between checks, so the old loop never satisfied its
+  exit condition while a scheduled task was pending: it spun through all forty
+  rounds burning real time, and any timer that ripened mid-spin (a snackbar's
+  two-second auto-dismiss, say) got fired before the assertion that looked for
+  it. Only run what is already due or lands within a few frames; scenarios that
+  need real time to pass sleep or poll instead.
   ]]
   function emu:pump(max_rounds)
     local rounds = max_rounds or 40
+    local horizon = require("ui/time").s(0.05)
     for _ = 1, rounds do
       local before = UIManager:getNextTaskTime()
-      if not before then break end
+      if not before or before > horizon then break end
       UIManager:_checkTasks()
-      if UIManager:getNextTaskTime() == before then break end
     end
     UIManager:_checkTasks()
   end
