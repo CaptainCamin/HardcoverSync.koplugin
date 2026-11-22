@@ -262,6 +262,7 @@ local SNAPSHOT_KEYS = {
   "read_id",
   "status_id",
   "privacy_setting_id",
+  "user_rating",
   "started_at",
   "last_synced_page",
   "read_edition_id",
@@ -327,6 +328,28 @@ function HardcoverSettings:saveShelfSnapshot(filename, user_book)
   if #delete > 0 then config._delete = delete end
   self:updateBookSetting(filename, config)
   self:clearRemovedMarkersFor(user_book.book_id or self:readBookSetting(filename, "book_id"))
+end
+
+-- A confirmed rating keeps only the rating: the answer also carries the server's edition
+-- and read, and a file linked to a different edition or page count must not take them on.
+function HardcoverSettings:saveBookRating(filename, rating)
+  if not filename then return end
+  local config = { user_rating = rating }
+  if rating == nil then config._delete = { "user_rating" } end
+  self:updateBookSetting(filename, config)
+end
+
+-- A catalog book can be linked to several files: every copy's saved rating follows the
+-- confirmed one, so a closed file shows it on the next offline open.
+function HardcoverSettings:saveBookRatingsFor(book_id, rating)
+  if not book_id then return end
+  local books = self.settings:readSetting(SETTING.BOOKS)
+  if type(books) ~= "table" then return end
+  for file, config in pairs(books) do
+    if type(config) == "table" and tostring(config.book_id) == tostring(book_id) then
+      self:saveBookRating(file, rating)
+    end
+  end
 end
 
 function HardcoverSettings:clearBookSnapshot(filename, removed_book_id)

@@ -1584,9 +1584,8 @@ function HardcoverMenu:saveRating(value, menu_instance, quiet)
     end
     if result then
       self.state.book_status = result
-      local file = self.ui and self.ui.document and self.ui.document.file
-      if file and self.cache and self.cache.saveSnapshot then
-        self.cache:saveSnapshot(file, result)
+      if self.settings and self.settings.saveBookRatingsFor then
+        self.settings:saveBookRatingsFor(result.book_id, result.rating)
       end
       menu_instance:updateItems()
     elseif not quiet then

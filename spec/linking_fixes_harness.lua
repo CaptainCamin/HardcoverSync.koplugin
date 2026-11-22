@@ -251,4 +251,30 @@ check("a snapshot keeps the rating, and losing it drops the saved one", function
   assert(s:bookStatusFromSnapshot(f).rating == nil, "the hydrated status kept a cleared rating")
 end)
 
+check("a sent rating reaches every linked file, touching only the rating", function()
+  local s = settings(nil)
+  local f, g, h = "/books/epub.epub", "/books/mobi.mobi", "/books/other.epub"
+  s:updateBookSetting(f, { book_id = 77, edition_id = 4, pages = 300, user_book_id = 5,
+    read_id = 11, last_synced_page = 50, read_edition_id = 4 })
+  s:updateBookSetting(g, { book_id = 77, edition_id = 9, pages = 412, user_book_id = 5 })
+  s:updateBookSetting(h, { book_id = 78, edition_id = 9 })
+  s:saveBookRatingsFor(77, 5)
+  assert(s:readBookSetting(f, "user_rating") == 5 and s:readBookSetting(g, "user_rating") == 5,
+    "a linked file missed the confirmed rating")
+  assert(s:readBookSetting(f, "edition_id") == 4 and s:readBookSetting(f, "last_synced_page") == 50
+    and s:readBookSetting(g, "edition_id") == 9, "the rating answer overwrote local edition or read")
+  assert(s:readBookSetting(h, "user_rating") == nil, "another book's file took the rating")
+  s:saveBookRatingsFor(77, nil)
+  assert(s:readBookSetting(f, "user_rating") == nil and s:readBookSetting(g, "user_rating") == nil,
+    "a cleared rating stayed saved")
+end)
+
+check("relinking or removing drops the saved rating with the rest of the snapshot", function()
+  local s = settings(nil)
+  local f = "/books/rated.epub"
+  s:saveBookSnapshot(f, { id = 5, book_id = 77, status_id = 2, rating = 4 })
+  s:clearBookSnapshot(f)
+  assert(s:readBookSetting(f, "user_rating") == nil, "the old book's rating survived its snapshot")
+end)
+
 r.finish()

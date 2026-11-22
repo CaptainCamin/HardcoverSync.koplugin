@@ -1237,10 +1237,11 @@ function HardcoverApp:_flushRatings()
       and queue:get(user_book_id, user_book.book_id, User:getId()) == nil then
       -- The first status sync may have replaced the reader's local rating with an older server value.
       status.rating = user_book.rating
-      local file = self.ui and self.ui.document and self.ui.document.file
-      if file and self.cache and self.cache.saveSnapshot then
-        self.cache:saveSnapshot(file, user_book)
-      end
+    end
+    -- every file linked to the rated book shows it on the next offline open; only the
+    -- rating is written, so a copy on another edition keeps its edition and read
+    if self.settings and self.settings.saveBookRatingsFor then
+      self.settings:saveBookRatingsFor(user_book.book_id, user_book.rating)
     end
     self._flush_sent = true
     self.dialog_manager:ratingSent(user_book_id, user_book)
