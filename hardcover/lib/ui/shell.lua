@@ -154,6 +154,19 @@ function Shell:onCloseWidget()
   UIManager:setDirty(nil, "ui")
 end
 
+-- The panel resized while the shell was up (a window resized on a device or emulator): the
+-- cached tab bodies were built for the old size. Keeping them paints a wide page into the
+-- smaller panel and pushes the nav bar off screen, so they are rebuilt at the new size; a
+-- tab not on screen is built again when it is next opened.
+function Shell:onSetDimensions(dimen)
+  self.dimen = Geom:new { x = 0, y = 0, w = dimen.w, h = dimen.h }
+  for _, body in pairs(self.bodies) do release(body) end
+  self.bodies = {}
+  self:build()
+  UIManager:setDirty(self, "full")
+  return true
+end
+
 function Shell:onClose()
   UIManager:close(self)
   if self.on_close then self.on_close() end

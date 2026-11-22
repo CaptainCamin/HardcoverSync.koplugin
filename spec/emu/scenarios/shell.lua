@@ -1,6 +1,7 @@
 --[[--
-The shell: Home, Library, Goals and Stats as tabs of one screen with a navigation bar. Home (fixed, never
-scrolls) and Goals are hosted bodies ; Library (Shelves | Lists | Vibes) and Stats are hosted too. Checked for real:
+The shell: Home, Library, Goals and Stats as tabs of one screen with a navigation bar. Home (scrolled only
+when it cannot fit) and Goals are hosted bodies ; Library (Shelves | Lists | Vibes) and Stats are hosted too.
+Checked for real:
 tapping the bar changes the tab; a tab keeps its body (so its scroll position) when left and
 reopened; an answer that arrives for a hidden tab is on screen when the tab is opened; a goal opened
 from the Goals tab stacks over the shell and closing it reveals the shell, live; Back goes to the
@@ -107,7 +108,7 @@ return {
     NetworkManager.isConnected = was_connected
     NetworkManager.getConnectionState = was_state
     local home = shell.bodies.home
-    assert(home and home.shell == shell and not home.scroll, "Home must be a body that never scrolls")
+    assert(home and home.shell == shell and not home.scroll, "Home should not scroll when it fits")
 
     -- The snackbar's X sits over the Stats tab. Closing it must spend the tap and leave Home up.
     local Theme = require("hardcover/lib/ui/theme")
@@ -190,8 +191,8 @@ return {
     pending = 0
     home:rebuild()
 
-    -- the book being read: one bordered card with a filled Open book; the page never scrolls, and
-    -- the shelves give way before the card does
+    -- the book being read: one bordered card with a filled Open book; a page that fits does not
+    -- scroll, and the shelves give way before the card does
     home:setReading(fixtures.currently_reading)
     home:setRows(require("hardcover/lib/home").rows(fixtures.shelf_counts))
     home:rebuild()

@@ -42,7 +42,8 @@ function Note.new(opts)
       h = math.max(px(40), Theme.TOUCH_MIN), size = 18, callback = opts.action.callback }
   end
 
-  local text_w = w - 2 * pad_x - icon:getSize().w - px(12) - (button and (button:getSize().w + px(12)) or 0)
+  local text_w = math.max(px(1),
+    w - 2 * pad_x - icon:getSize().w - px(12) - (button and (button:getSize().w + px(12)) or 0))
   local words = VerticalGroup:new { align = "left",
     Theme.mmdText(opts.title, "strong", 21, { width = text_w }) }
   if opts.text then

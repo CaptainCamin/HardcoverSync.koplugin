@@ -6,6 +6,10 @@
 
 - **A landing screen explains Hardcover Sync before you sign in.** Without an account, opening the plugin now shows what it does — logging pages, keeping shelves in sync and carrying goals, ratings and notes with you — and one **Sign in to Hardcover** button. The tabs that need an account stay out of the way until you sign in.
 
+### Fixes
+
+- **Home fits a resized or smaller panel.** A panel made smaller while Hardcover is open — a window resized on a device or the emulator — left the shell and its tabs at the old size, clipping the progress bar and the Sync button at the right edge and pushing the bottom navigation off screen. The shell now rebuilds at the new size, and a Home page that cannot fit scrolls with the visible scroll control, so the card, the sync box's Sync now and every shelf row stay reachable.
+
 ## 2.5.2
 
 ### Improved
