@@ -47,11 +47,20 @@ end
 -- the parent's size is already less its own tab row.
 function Hosted.retryHost(host)
   if not host then return nil end
-  local parent = host.parent or host.shell
-  return { shell = host.shell or (parent and parent.shell),
-    width = parent and parent.body_w or host.width,
+  local shell = host.shell or (host.parent and host.parent.shell)
+  -- a retry remounts into the failed screen's parent: a resize replaces the bodies, so the
+  -- live one is found by kind among the shell's (a Library sub-tab's parent is its body)
+  local parent = host.parent or shell
+  if host.parent and shell and shell.bodies then
+    for _, body in pairs(shell.bodies) do
+      if type(body) == "table" and getmetatable(body) == getmetatable(host.parent) then
+        parent = body break
+      end
+    end
+  end
+  return { shell = shell, width = parent and parent.body_w or host.width,
     height = parent and parent.body_h or host.height,
-    id = host.id, parent = host.parent, remount = true }
+    id = host.id, parent = parent ~= shell and parent or nil, remount = true }
 end
 
 return Hosted
