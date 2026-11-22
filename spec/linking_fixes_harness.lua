@@ -294,6 +294,29 @@ check("a confirmed guess takes the book's rating, or loses a stale one when clea
     "a guess with no confirmed copy lost the rating it had")
 end)
 
+check("keeping a guessed link restores the book's rating for the file", function()
+  support.preload_ui_stubs()
+  local picker_opts
+  package.preload["hardcover/lib/ui/picker"] = function()
+    return { new = function(_, opts) picker_opts = opts or _; return picker_opts end }
+  end
+  local UIManager = require("ui/uimanager")
+  UIManager.close = UIManager.close or function() end
+  local s = settings(nil)
+  local f, guess = "/books/epub.epub", "/books/guessed.epub"
+  s:updateBookSetting(f, { book_id = 77, user_rating = 5 })
+  s:updateBookSetting(guess, { book_id = 77, guessed_book_id = 77, user_rating = 3 })
+  local done
+  require("hardcover/lib/ui/guess_review_dialog").show {
+    settings = s, on_done = function() done = true end }
+  assert(picker_opts, "no guess was offered")
+  picker_opts.rows[1].callback() -- "Right, keep the link"
+  assert(s:readBookSetting(guess, "user_rating") == 5,
+    "the kept link did not take the book's rating")
+  assert(s:readBookSetting(guess, "guessed_book_id") == nil, "the guess mark stayed")
+  assert(done, "the review did not finish after the last guess")
+end)
+
 check("relinking or removing drops the saved rating with the rest of the snapshot", function()
   local s = settings(nil)
   local f = "/books/rated.epub"
