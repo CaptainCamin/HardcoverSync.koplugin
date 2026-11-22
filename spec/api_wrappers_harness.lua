@@ -172,6 +172,25 @@ check("findUserBook selects updated_at for abandon approval freshness", function
   assert(found and found.updated_at == "2026-11-18T10:00:00+00:00")
 end)
 
+check("findUserBook selects each read's edition, the way the book details lookup does", function()
+  local original = Api.query
+  local seen
+  Api.query = function(_, query)
+    seen = query
+    return { user_books = { { id = 70, book_id = 7, status_id = 2,
+      user_book_reads = { { id = 10, started_at = "2019-03-01", edition_id = 3,
+        edition = { id = 3, pages = 304, edition_format = "Paperback", reading_format_id = 1 } } } } } }
+  end
+  local found = Api:findUserBook(7, 1)
+  Api.query = original
+  local reads = seen and seen:match("user_book_reads%(order_by: %{id: asc%}%) {(.-)\n  }")
+  assert(reads and reads:find("edition {", 1, true), "the read's own edition was not asked for")
+  for _, field in ipairs({ "pages", "edition_format", "reading_format_id", "audio_seconds" }) do
+    assert(reads:find(field, 1, true), "the read's edition omitted " .. field)
+  end
+  assert(found and found.user_book_reads[1].edition.pages == 304)
+end)
+
 check("findUserBooks asks once for every book and answers each, false when not on the shelf", function()
   local original = Api.query
   local seen_query, seen, asked = nil, nil, 0

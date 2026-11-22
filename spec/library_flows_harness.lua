@@ -968,6 +968,26 @@ check("a backfilled read after the reread does not hide Abandon", function()
   assert(form and form.on_abandon, "the later backfill hid the active reread")
 end)
 
+check("adding a past read keeps the edition the form showed", function()
+  local m, q = abandonFlow()
+  -- the fetched record keys the nested edition `id`, not `edition_id`
+  local active = { id = 11, started_at = "2026-11-01",
+    edition = { id = 7, pages = 300, edition_format = "Paperback" } }
+  local Edit = real_require("hardcover/lib/ui/read_edit_dialog")
+  local original, form = Edit.new, nil
+  Edit.new = function(_, options) form = options; options.close = function() end; return options end
+  m:addRead({ book_id = 7, user_book_id = 507,
+    book = { book_id = 7, title = "Example" }, reads = { active } })
+  Edit.new = original
+  assert(form and form.on_save, "the add form did not open")
+  -- saved without touching the edition field: the insert must still name it
+  form.on_save({ started_at = "2020-01-01", finished_at = "2020-01-10" }, {})
+  local action = q:readActions(7)[1]
+  assert(action and action.kind == "add_read", "no read was queued")
+  assert(action.change and action.change.edition_id == 7,
+    "the queued insert lost the edition the form showed")
+end)
+
 check("an offline snapshot keeps the saved finish date", function()
   local m = abandonFlow()
   local saved = { id = 11, started_at = "2024-03-01", finished_at = "2024-03-10",

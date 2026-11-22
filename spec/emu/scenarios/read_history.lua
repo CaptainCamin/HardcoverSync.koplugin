@@ -81,8 +81,11 @@ return {
       checked_at = os.time({ year = 2026, month = 11, day = 15, hour = 12, min = 0, sec = 0 }),
       states = { [2] = { text = "Finish date waiting to send", kind = "waiting" } },
       on_add = function()
+        -- the detail answer keys its nested edition `id`, not `edition_id`
         local form = ReadEditDialog:new {
-          book = book, adding = true, today = "2026-11-15", default_edition = editions[2],
+          book = book, adding = true, today = "2026-11-15",
+          default_edition = { id = 11, pages = 341, edition_format = "Paperback",
+            reading_format_id = 1 },
           editions = editions,
         }
         UIManager:show(form, "full")

@@ -85,7 +85,8 @@ function ReadEditDialog:init()
     started_at = read.started_at,
     finished_at = read.finished_at,
     finished_at_precision = read.finished_at_precision,
-    edition_id = read.edition_id or (self.default_edition and self.default_edition.edition_id),
+    edition_id = read.edition_id
+      or (self.default_edition and (self.default_edition.edition_id or self.default_edition.id)),
     progress_pages = read.progress_pages,
     edition = read.edition or self.default_edition,
   }
