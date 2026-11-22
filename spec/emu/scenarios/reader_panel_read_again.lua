@@ -27,6 +27,7 @@ return {
     for _, online in ipairs({ false, true }) do
       Network.connected = function() return online end
       local calls = {}
+      local queued -- the change startReread left waiting, as the real queue would hold it
 
       local menu = HardcoverMenu:new({
         settings = {
@@ -51,19 +52,30 @@ return {
           user_book_reads = { { id = 900, progress_pages = 387, edition_id = 3 } } } },
         cache = {
           queueMeta = function() return { book_id = 328491, edition_id = 3, user_book_id = 503 } end,
-          applyLocalStatus = function(_, _, status) calls.local_status = status end,
+          -- the real Cache mutates the shared book_status; the stub must too, or the panel
+          -- cannot be checked for showing the queued start (#339)
+          applyLocalStatus = function(_, _, status)
+            calls.local_status = status
+            menu.state.book_status.status_id = status
+          end,
           shelfChanged = function() end,
-          applyLocalPage = function(_, page) calls.local_page = page end,
+          applyLocalPage = function(_, page)
+            calls.local_page = page
+            menu.state.book_status.user_book_reads = { { progress_pages = page, edition_id = 3 } }
+          end,
           cacheUserBook = function() calls.refreshed = true end,
           updateBookStatus = function() end,
         },
         sync_queue = {
           pendingCount = function() return 0 end,
           changeCount = function() return 0 end,
-          hasPending = function() return false end,
-          get = function() return nil end, shelfOp = function() return nil end, statusOf = function() return nil end,
-          startReread = function(_, _, payload) calls.reread_page = payload.mapped_page end,
-          flush = function() calls.flushed = true return true end,
+          hasPending = function() return queued ~= nil end,
+          get = function() return queued end, shelfOp = function() return queued end, statusOf = function() return queued and queued.status_id end,
+          startReread = function(_, _, payload)
+            calls.reread_page = payload.mapped_page
+            queued = { status_id = READING, reread = true, mapped_page = payload.mapped_page }
+          end,
+          flush = function() calls.flushed = true queued = nil return true end,
         },
         auth = { usingOAuth = function() return true end, needsReauth = function() return false end,
                  statusText = function() return "Signed in" end },
@@ -93,6 +105,11 @@ return {
         assert(not calls.flushed, "offline: the re-read was sent with no connection")
         assert(calls.local_status == READING, "offline: the book does not show as Currently Reading")
         assert(calls.local_page == (restart and 0 or 100), "offline: the new read's page is not shown")
+        -- the waiting start must repaint the panel: Currently Reading, not the finished card (#339)
+        emu:screenNodes()
+        local text = emu:screenText()
+        assert(text:find("Currently Reading", 1, true), "offline: the panel does not show the queued re-read")
+        assert(not text:find("You finished this book.", 1, true), "offline: the finished card is still shown")
       end
 
       emu:closeAll()
