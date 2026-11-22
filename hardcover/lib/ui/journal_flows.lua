@@ -532,7 +532,7 @@ function Flows:showBookJournal(book_id, title, opts)
         status_id = opts.status_id,
         user_review = mine and mine.text or nil,
         review_spoilers = mine and mine.spoilers == true or nil,
-        review_known = true,
+        review_known = mine ~= nil,
       } }, refresh)
     end }
     ActionSheet.show { title = _("Add to the journal"), actions = actions }

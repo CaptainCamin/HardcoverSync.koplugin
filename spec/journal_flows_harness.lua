@@ -750,4 +750,68 @@ check("a late book-journal response cannot resurrect a note deleted after it was
   assert(#m.journal_store:get(1, 5).entries == 1 and m.journal_store:get(1, 5).entries[1].key == "note:2")
 end)
 
+check("the book journal's Review action loads the review it did not have", function()
+  local m = newManager()
+  m.journal_store:put(1, { entry(3) }, false)
+  local original = Api.getBookDetailAsync
+  local asked
+  Api.getBookDetailAsync = function(_, book_id, _, _, cb)
+    asked = book_id
+    cb({ user_review = "Published review", review_spoilers = true })
+  end
+  local ActionSheet = real_require("hardcover/lib/ui/components/action_sheet")
+  local real_show, shown = ActionSheet.show
+  ActionSheet.show = function(opts) shown = opts end
+  local screen = m:showBookJournal(5, "Dune", { user_book_id = 700 })
+  screen.add_cb()
+  ActionSheet.show = real_show
+  for _, a in ipairs(shown.actions) do
+    if a.label == "Review" then a.callback() break end
+  end
+  Api.getBookDetailAsync = original
+  assert(asked == 5, "the review on record was never asked for")
+  local input = last("input")
+  assert(input and input.input == "Published review", "the form did not start with the review on record")
+end)
+
+check("the book journal's Review action queues no fake empty baseline offline", function()
+  local m = newManager()
+  online = false
+  m.journal_store:put(1, { entry(3) }, false)
+  local ActionSheet = real_require("hardcover/lib/ui/components/action_sheet")
+  local real_show, shown = ActionSheet.show
+  ActionSheet.show = function(opts) shown = opts end
+  local screen = m:showBookJournal(5, "Dune", { user_book_id = 700 })
+  screen.add_cb()
+  ActionSheet.show = real_show
+  for _, a in ipairs(shown.actions) do
+    if a.label == "Review" then a.callback() break end
+  end
+  local input = last("input")
+  assert(input, "the review form did not open")
+  input.typed = "Late thoughts"
+  button(input, "Next").callback()
+  last("picker").rows[1].callback()
+  local op
+  for _, o in pairs(m.review_queue:ops()) do op = o end
+  assert(op and op.base == "unknown",
+    "the queued review claimed a known baseline instead of admitting it was never seen")
+end)
+
+check("a review that cannot be read still opens the editor, with an unknown baseline", function()
+  local m = newManager()
+  local original = Api.getBookDetailAsync
+  Api.getBookDetailAsync = function(_, _, _, _, cb) cb(nil) end
+  m:writeReview({ detail = { book = { book_id = 5, title = "Dune" }, user_book_id = 700, status_id = 2 } })
+  Api.getBookDetailAsync = original
+  local input = last("input")
+  assert(input, "the review form did not open")
+  input.typed = "Replacement draft"
+  button(input, "Next").callback()
+  last("picker").rows[1].callback()
+  local op
+  for _, o in pairs(m.review_queue:ops()) do op = o end
+  assert(op and op.base == "unknown", "the queued review pretended Hardcover had no review")
+end)
+
 r.finish()
