@@ -794,6 +794,61 @@ check("a review re-stamped for a re-added book moves to where its new date puts 
     "the re-stamped row did not move above the newer note")
 end)
 
+check("a review sent while the first page loads keeps its text on the late answer", function()
+  local m = newManager()
+  m.journal_store:put(1, {
+    { key = "reviewed:4003", id = 4003, kind = "review", user_book_id = 900, user_id = 1, book_id = 5,
+      title = "Dune", text = "Old text", excerpt = "Old text", at = "2026-10-18T10:00:00+00:00" },
+  }, false)
+  local callback, original = nil, Api.getJournalAsync
+  Api.getJournalAsync = function(_, _, cb) callback = cb end
+  m:showJournal()
+  -- the send lands before the first page does
+  m.review_queue:queue(900, "New text", false, "Dune", 5, 1)
+  m.review_queue:flush({ updateReview = function()
+      return { id = 900, review_raw = "New text", book_id = 5 } end }, {
+    user_id = 1, on_sent = function(uid, ub, bid, op)
+      m:reviewChangeSent(uid, ub.review_raw, false, bid or ub.book_id, op) end })
+  -- the page's snapshot predates the send: its copy of the row must still take the sent text
+  callback({ entries = {
+    { key = "reviewed:4003", id = 4003, kind = "review", user_book_id = 900, user_id = 1,
+      book_id = 5, title = "Dune", text = "Old text", excerpt = "Old text",
+      at = "2026-10-18T10:00:00+00:00" },
+  }, count = 1, more = false })
+  Api.getJournalAsync = original
+  assert(tab.entries[1] and tab.entries[1].text == "New text",
+    "the late page rolled the review back: " .. tostring(tab.entries[1] and tab.entries[1].text))
+end)
+
+check("Hardcover's own review row replaces the stand-in a send made", function()
+  local m = newManager()
+  local callback, original = nil, Api.getJournalAsync
+  Api.getJournalAsync = function(_, _, cb) callback = cb end
+  m.review_queue:queue(900, "My review", false, "Dune", 5, 1)
+  local dialog = m:showJournal()
+  m.review_queue:flush({ updateReview = function()
+      return { id = 900, review_raw = "My review", book_id = 5 } end }, {
+    user_id = 1, on_sent = function(uid, ub, bid, op)
+      m:reviewChangeSent(uid, ub.review_raw, false, bid or ub.book_id, op) end })
+  callback({ entries = { entry(2) }, count = 1, more = false })
+  assert(tab.entries[1] and tab.entries[1].kind == "review" and tab.entries[1].text == "My review",
+    "the late page dropped the sent review")
+  -- a later page carries Hardcover's own row for it: the stand-in steps aside, once
+  dialog.more_cb()
+  callback({ entries = {
+    { key = "reviewed:77", id = 77, kind = "review", user_book_id = 900, user_id = 1,
+      book_id = 5, title = "Dune", text = "My review", excerpt = "My review",
+      at = "2026-11-21T10:00:00+00:00" },
+  }, count = 1, more = false })
+  Api.getJournalAsync = original
+  local reviews, found = 0
+  for _, e in ipairs(tab.entries) do
+    if e.kind == "review" then reviews = reviews + 1 found = e end
+  end
+  assert(reviews == 1 and found.key == "reviewed:77",
+    "the stand-in duplicated the real review row")
+end)
+
 check("a sent review with no book id cannot rewrite an unrelated open book journal", function()
   local m = newManager()
   m.journal_store:put(1, {

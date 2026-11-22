@@ -80,13 +80,22 @@ local function reviewSent(state, shown, user_book_id, book_id, text, spoilers, a
         matched = true
         -- a row for an older library record is a different review: it takes the new one's
         -- date; a row for the record the edit landed on keeps its own
-        if tostring(entry.user_book_id) ~= tostring(user_book_id) then
+        local moved = tostring(entry.user_book_id) ~= tostring(user_book_id)
+        if moved then
           entry.at = stamped
           restamped = true
         end
         entry.user_book_id = tonumber(user_book_id) or entry.user_book_id
         entry.text, entry.excerpt, entry.truncated, entry.spoilers =
           body, excerpt, truncated, body and spoilers == true or nil
+        -- a journal page fetched before the send can land after it: its copy of this row
+        -- takes the send's values too, like a queued change does
+        state.changed[entry.key] = body and {
+          text = body, excerpt = excerpt, truncated = truncated,
+          spoilers = spoilers == true or nil,
+          user_book_id = tonumber(user_book_id),
+          at = moved and stamped or nil,
+        } or false
       end
     end
   end
@@ -109,7 +118,7 @@ local function reviewSent(state, shown, user_book_id, book_id, text, spoilers, a
     end
   end
   if not waiting then return end
-  state.entries = Journal.insertDated(state.entries, {
+  local row = {
     key = "reviewed:sent:" .. tostring(book_id or user_book_id),
     kind = "review", event = "reviewed",
     user_id = tonumber(waiting.user_id) or User:getId(),
@@ -118,11 +127,43 @@ local function reviewSent(state, shown, user_book_id, book_id, text, spoilers, a
     title = waiting.title, authors = waiting.authors, cover_url = waiting.cover_url,
     text = body, excerpt = excerpt, truncated = truncated, spoilers = spoilers == true,
     at = stamped,
-  })
+  }
+  -- sent holds what a page fetched before the send would not yet carry: it survives the
+  -- next fresh page, and steps aside once the real "reviewed" row arrives (dropStandIns)
+  state.sent = Journal.insertDated(state.sent, row)
+  state.entries = Journal.insertDated(state.entries, row)
+end
+
+-- A stand-in holds a sent review's place until Hardcover's own journal row for the book
+-- arrives; once it does, the real row wins (it can be edited and deleted, the stand-in cannot).
+local function dropStandIns(state, entries)
+  local real = {}
+  for _, e in ipairs(entries or {}) do
+    if e.kind == "review" and not tostring(e.key or ""):match("^reviewed:sent:") then
+      if e.book_id then real["b" .. tostring(e.book_id)] = true end
+      if e.user_book_id then real["u" .. tostring(e.user_book_id)] = true end
+    end
+  end
+  if not next(real) then return entries end
+  local dropped = {}
+  for i = #entries, 1, -1 do
+    local e = entries[i]
+    if e.kind == "review" and tostring(e.key or ""):match("^reviewed:sent:")
+        and (real["b" .. tostring(e.book_id)] or real["u" .. tostring(e.user_book_id)]) then
+      dropped[e.key] = true
+      table.remove(entries, i)
+    end
+  end
+  for _, list in ipairs({ state.entries, state.sent }) do
+    for i = #list, 1, -1 do
+      if dropped[list[i].key] then table.remove(list, i) end
+    end
+  end
+  return entries
 end
 
 local function freshJournal(state, page)
-  local entries = Journal.append(state.sent, page)
+  local entries = dropStandIns(state, Journal.append(state.sent, page))
   for i = #entries, 1, -1 do
     local fields = state.changed[entries[i].key]
     if fields == false then
@@ -576,7 +617,7 @@ function Flows:showJournal(host)
         StatusDialogs.retry(err, _("Loading more of your journal"), function() dialog:loadMore() end, function() end)
         return
       end
-      state.entries = Journal.append(state.entries, page.entries)
+      state.entries = dropStandIns(state, Journal.append(state.entries, page.entries))
       state.offset = state.offset + (page.count or #page.entries)
       show(page.more)
     end)
@@ -737,7 +778,7 @@ function Flows:showBookJournal(book_id, title, opts)
         StatusDialogs.retry(err, _("Loading more of the journal"), function() screen:loadMore() end, function() end)
         return
       end
-      state.entries = Journal.append(state.entries, page.entries)
+      state.entries = dropStandIns(state, Journal.append(state.entries, page.entries))
       state.offset = state.offset + (page.count or #page.entries)
       show(page.more)
     end)
