@@ -188,6 +188,10 @@ check("a rating or review changed online asks with both values", function()
     online = { text = "their words", spoilers = true }, proposed = { text = "my words", spoilers = false },
     base = { text = "old words", spoilers = false } } })
   has(seen.title, "changed on Hardcover", "a known baseline is a real change")
+  has(SyncConflicts.decisionText("Dune", { entry = { conflict = { kind = "review" } } }),
+    "unseen review", "the list row says it was never seen")
+  has(SyncConflicts.decisionText("Dune", { entry = { conflict = { kind = "review",
+    base = { text = "old" } } } }), "review changed", "the list row names a real change")
 end)
 
 check("an edition page becomes a position in the file", function()

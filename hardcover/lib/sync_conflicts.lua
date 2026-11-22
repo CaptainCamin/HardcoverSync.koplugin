@@ -67,7 +67,8 @@ function SyncConflicts.decisionText(title, decision)
     return T(_("%1: rating changed on Hardcover"), title)
   elseif conflict.kind == "review" then
     return conflict.delete and T(_("%1: remove your review?"), title)
-      or T(_("%1: review changed on Hardcover"), title)
+      or (conflict.base and T(_("%1: review changed on Hardcover"), title)
+        or T(_("%1: unseen review on Hardcover"), title))
   elseif conflict.kind == "remove" then
     return T(_("%1: remove anyway?"), title)
   elseif conflict.kind == "abandon_remove" then
