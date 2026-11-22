@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.5.2
+
 ### Improved
 
 - **Reviews moves above About on a book's details.** After your reading row and any decision note, the page shows the Reviews section — its heading, average and Write/Edit button — then About, Genres and the rest. The section keeps its existing button sizes and callbacks.
