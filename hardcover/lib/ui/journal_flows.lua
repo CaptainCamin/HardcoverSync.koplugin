@@ -69,9 +69,15 @@ local function reviewSent(state, shown, user_book_id, book_id, text, spoilers)
   local matched
   for _, entries in ipairs({ state.entries, state.sent }) do
     for _, entry in ipairs(entries) do
-      if entry.kind == "review" and entry.user_book_id ~= nil and user_book_id ~= nil
-        and tostring(entry.user_book_id) == tostring(user_book_id) then
+      -- a book re-added to the library gets a new record id, so its older review rows match
+      -- by book; they take the new record id so Edit and Delete reach the live record
+      if entry.kind == "review"
+        and ((entry.user_book_id ~= nil and user_book_id ~= nil
+            and tostring(entry.user_book_id) == tostring(user_book_id))
+          or (entry.book_id ~= nil and book_id ~= nil
+            and tonumber(entry.book_id) == tonumber(book_id))) then
         matched = true
+        entry.user_book_id = tonumber(user_book_id) or entry.user_book_id
         entry.text, entry.excerpt, entry.truncated, entry.spoilers =
           body, excerpt, truncated, body and spoilers == true or nil
       end
@@ -382,14 +388,19 @@ function Flows:reviewChangeSent(user_book_id, text, spoilers, book_id)
         base.user_review, base.review_spoilers, base.review_known = text, spoilers, true
       end
     end
+    -- a book re-added to the library gets a new record id: its saved review rows still name
+    -- the old one, so they match by book and take the record the review now belongs to
     local function ofBook(e)
-      return e.kind == "review" and e.user_book_id ~= nil and tostring(e.user_book_id) == tostring(user_book_id)
+      return e.kind == "review"
+        and ((e.user_book_id ~= nil and tostring(e.user_book_id) == tostring(user_book_id))
+          or (book_id ~= nil and e.book_id ~= nil and tonumber(e.book_id) == tonumber(book_id)))
     end
     local fields = { text = false, excerpt = false, truncated = false, spoilers = false }
     if type(text) == "string" and text:match("%S") then
       local excerpt, truncated = Reviews.excerpt(text)
       fields = { text = text, excerpt = excerpt, truncated = truncated, spoilers = spoilers == true }
     end
+    fields.user_book_id = user_book_id
     store:change(User:getId(), ofBook, fields)
     if book_id then store:change(User:getId(), ofBook, fields, book_id) end
   end

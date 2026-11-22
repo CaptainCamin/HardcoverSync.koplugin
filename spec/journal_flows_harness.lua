@@ -591,11 +591,19 @@ check("editing a pending review does not inherit a deleted historical library re
         writes = writes + 1
         assert(id == 907, "edited draft targeted historical library record " .. tostring(id))
         assert(text == "Edited offline draft" and spoilers)
-        return { id = id }
+        return { id = id, review_raw = text, review_has_spoilers = spoilers, has_review = true }
       end,
-    }, { user_id = 1 })
+    }, { user_id = 1, on_sent = function(uid, ub, bid)
+      m:reviewChangeSent(uid, ub.review_raw, ub.review_has_spoilers, bid)
+    end })
     assert(waiting == 0 and writes == 1 and lookups == (known_id and 0 or 1))
-    assert(m.journal_store:get(1).entries[1].user_book_id == 700, "overlay changed the saved history")
+    local row = m.journal_store:get(1).entries[1]
+    assert(row.user_book_id == 907, "the sent review did not repoint the saved row at the live record")
+    assert(row.text == "Edited offline draft" and row.spoilers == true,
+      "the saved row did not take the sent review")
+    local shown = tab.entries[1]
+    assert(shown.user_book_id == 907 and shown.text == "Edited offline draft" and not shown.waiting,
+      "the open journal did not take the sent review")
   end
 end)
 
