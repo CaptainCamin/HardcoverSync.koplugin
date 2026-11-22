@@ -313,6 +313,28 @@ return {
     assert(library.sub == "shelves")
     assert(shell.bodies.library == library, "the Library body was rebuilt")
 
+    -- a failed inner load retries into the same slot, at the inner height -- the shell body
+    -- less the Library tab row: built at the whole body height the new screen sits under the
+    -- tab row and pushes the navigation off the panel
+    manager:screens():discard("vibes")
+    fixtures.vibes_fail = true
+    sub(3)
+    for _ = 1, 5 do emu:pump() end
+    fixtures.vibes_fail = nil
+    local retry_node = emu:expectText("Retry")
+    emu:tapExpecting(retry_node.x + math.floor(retry_node.w / 2),
+      retry_node.y + math.floor(retry_node.h / 2))
+    for _ = 1, 5 do emu:pump() end
+    local retried = library.bodies.vibes
+    assert(retried and library.sub == "vibes", "the retried Vibes is not shown")
+    assert(retried.height == library.body_h,
+      "the retried Vibes is not the inner height: " .. tostring(retried.height))
+    emu:screenNodes()
+    local nav_row = shell.frame[1][3][3]
+    local last_cell = nav_row[#nav_row]
+    assert(last_cell.dimen.y + last_cell.dimen.h == H, "the retry pushed the nav bar off the panel")
+    sub(1)
+
     -- Stats
     nav(4)
     assert(shell.active == "stats" and shell.bodies.stats and shell.bodies.stats.shell == shell, "Stats is not hosted")
