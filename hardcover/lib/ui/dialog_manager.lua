@@ -515,6 +515,18 @@ function DialogManager:shellTabs()
       return show(self, { shell = shell, width = width, height = height, id = id })
     end
   end
+
+  -- With no account there is nothing in the other tabs yet: give the landing
+  -- screen the whole panel, with Settings as the only extra way out.
+  if not signedIn() then
+    return {
+      { id = "home", label = _("Home"), title = _("Hardcover"), icon_name = "home",
+        make = host("home", self.showWelcome),
+        actions = { { icon = "settings", callback = function() self:showSettings() end } },
+      },
+    }
+  end
+
   return {
     { id = "home", label = _("Home"), icon_name = "home", make = host("home", self.showHomeBody),
       actions = {
@@ -598,6 +610,16 @@ function DialogManager:refreshHome()
   local shell = self:screens():open("shell")
   if not shell then return end
   self:screens():discard("home")
+  -- Signing in or out changes which tabs there are: the landing screen has no
+  -- Library, Goals or Stats until there is an account to fill them.
+  local tabs = self:shellTabs()
+  local active = shell.active
+  local still_there = false
+  for _, tab in ipairs(tabs) do
+    if tab.id == active then still_there = true end
+  end
+  shell.tabs = tabs
+  if not still_there then shell.active = tabs[1].id end
   shell:build()
   UIManager:setDirty(shell, "ui")
 end
@@ -632,23 +654,40 @@ function DialogManager:showHome()
   return self:showShell("home")
 end
 
+-- The landing screen a reader sees before signing in. The sign-in callback is
+-- the same one Settings and the menu use; it starts the flow, and Home is
+-- rebuilt when the sign-in succeeds.
+function DialogManager:showWelcome(host)
+  self:screens():discard("home")
+  local welcome = require("hardcover/lib/ui/welcome_body"):new {
+    shell = host.shell, width = host.width, height = host.height, parent = host.parent,
+    sign_in_cb = function()
+      if self.sign_in then self.sign_in() end
+    end,
+  }
+  self:screens():track("home", welcome)
+  self:checkForUpdate()
+  return welcome
+end
+
 -- `host` ({ shell, width, height }) builds Home as the shell's first tab (ui/home_body.lua).
 function DialogManager:showHomeBody(host)
-  local signed_in = signedIn()
-  local user_id = signed_in and User:getId() or nil
+  if not signedIn() then return self:showWelcome(host) end
+
+  local user_id = User:getId()
   local cache = self.shelf_cache
   local ids = Home.statusIds()
 
   self:screens():discard("home")
 
-  local saved_counts = signed_in and cache and cache:counts(user_id, ids) or {}
-  local saved_reading = signed_in and cache and cache:reading(user_id) or nil
-  local reading_never_loaded = signed_in and saved_reading == nil
-  if signed_in and (not saved_reading or #saved_reading == 0) then
+  local saved_counts = cache and cache:counts(user_id, ids) or {}
+  local saved_reading = cache and cache:reading(user_id) or nil
+  local reading_never_loaded = saved_reading == nil
+  if not saved_reading or #saved_reading == 0 then
     -- nothing saved for Home itself (or an empty list): the saved Currently reading shelf
     saved_reading = self:readingFromShelf(user_id, 5)
   end
-  local online = signed_in and Network.connected() or false
+  local online = Network.connected()
   -- what Currently Reading shows: the saved or fetched cards with the reading done
   -- offline (pages turned, books finished or started) laid over them
   local function shownReading(entries)
@@ -662,25 +701,20 @@ function DialogManager:showHomeBody(host)
   local dialog = require("hardcover/lib/ui/home_body"):new {
     shell = host.shell, width = host.width, height = host.height,
     parent = host.parent,
-    pending_fn = signed_in and function()
+    pending_fn = function()
       return (self.sync_queue and self.sync_queue:changeCount() or 0)
         + (self.goal_queue and self.goal_queue:count() or 0)
         + (self.rating_queue and self.rating_queue:count() or 0)
         + (self.list_queue and self.list_queue:count() or 0)
         + (self.journal_queue and self.journal_queue:count() or 0)
         + (self.review_queue and self.review_queue:count() or 0)
-    end or function() return 0 end,
-    decision_fn = signed_in and function()
+    end,
+    decision_fn = function()
       return Decisions.count({
         user_id = User.settings and User:getId() or nil,
         sync_queue = self.sync_queue, goal_queue = self.goal_queue, rating_queue = self.rating_queue,
         list_queue = self.list_queue, journal_queue = self.journal_queue, review_queue = self.review_queue,
       })
-    end or function() return 0 end,
-    signed_out = not signed_in,
-    sign_in_cb = function()
-      -- signIn refreshes Home itself when it succeeds; this only starts the flow.
-      if self.sign_in then self.sign_in() end
     end,
     held_fn = function()
       return PendingChanges.heldCounts({
@@ -692,9 +726,9 @@ function DialogManager:showHomeBody(host)
     -- the sync box's Sync now sends; tapping the rest of the box opens what is waiting
     sync_cb = function() self:syncNow() end,
     pending_cb = function() self:showPendingChanges() end,
-    rows = signed_in and Home.rows(saved_counts) or {},
-    entries = signed_in and shownReading(saved_reading) or {},
-    empty_message = signed_in and reading_never_loaded and not online
+    rows = Home.rows(saved_counts),
+    entries = shownReading(saved_reading),
+    empty_message = reading_never_loaded and not online
       and _("Home needs an internet connection the first time.") or nil,
     select_cb = function(row)
       self:showShelf(row.status_id, row.title)
@@ -707,7 +741,7 @@ function DialogManager:showHomeBody(host)
 
   self:checkForUpdate()
 
-  if not signed_in or not online then
+  if not online then
     return dialog
   end
 
