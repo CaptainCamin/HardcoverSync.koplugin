@@ -271,6 +271,14 @@ local SNAPSHOT_KEYS = {
 -- record yet; automatic status writes must not recreate the deleted book.
 local REMOVED_KEY = "hardcover_removed"
 
+-- A rating the server answered with: a number, or false when the book is known to carry
+-- none. The key stays saved either way: absent would read as "never checked", and a guess
+-- confirmed later would learn nothing from it.
+local function snapshotRating(rating)
+  local r = tonumber(rating)
+  return (r and r > 0) and r or false
+end
+
 function HardcoverSettings:saveBookSnapshot(filename, user_book)
   if not filename or not user_book or not user_book.id then
     return
@@ -282,7 +290,7 @@ function HardcoverSettings:saveBookSnapshot(filename, user_book)
     user_book_id = user_book.id,
     status_id = user_book.status_id,
     privacy_setting_id = user_book.privacy_setting_id,
-    user_rating = user_book.rating,
+    user_rating = snapshotRating(user_book.rating),
     read_id = current_read and current_read.id,
     started_at = current_read and current_read.started_at,
     last_synced_page = current_read and current_read.progress_pages,
@@ -315,7 +323,7 @@ function HardcoverSettings:saveShelfSnapshot(filename, user_book)
     user_book_id = user_book.id,
     status_id = user_book.status_id,
     privacy_setting_id = user_book.privacy_setting_id,
-    user_rating = user_book.rating,
+    user_rating = snapshotRating(user_book.rating),
     read_id = current_read and current_read.id,
     started_at = current_read and current_read.started_at,
     last_synced_page = current_read and current_read.progress_pages,
@@ -334,9 +342,14 @@ end
 -- and read, and a file linked to a different edition or page count must not take them on.
 function HardcoverSettings:saveBookRating(filename, rating)
   if not filename then return end
-  local config = { user_rating = rating }
-  if rating == nil then config._delete = { "user_rating" } end
-  self:updateBookSetting(filename, config)
+  self:updateBookSetting(filename, { user_rating = snapshotRating(rating) })
+end
+
+-- A guess marker can outlive the guess: a file relinked by hand keeps the old marker, but the
+-- link is settled, so the marker only counts while it still names the linked book.
+local function guessed(config)
+  return config.guessed_book_id ~= nil
+    and tostring(config.guessed_book_id) == tostring(config.book_id)
 end
 
 -- A catalog book can be linked to several files: every copy's saved rating follows the
@@ -347,7 +360,7 @@ function HardcoverSettings:saveBookRatingsFor(book_id, rating)
   if type(books) ~= "table" then return end
   for file, config in pairs(books) do
     -- a guess may yet be the wrong book: its rating follows once the link is confirmed
-    if type(config) == "table" and config.guessed_book_id == nil
+    if type(config) == "table" and not guessed(config)
         and tostring(config.book_id) == tostring(book_id) then
       self:saveBookRating(file, rating)
     end
@@ -356,15 +369,15 @@ end
 
 -- A guess is confirmed: the file becomes an ordinary link, so its saved rating follows the
 -- book's, which rating writes skipped while the link was only guessed. A confirmed copy of the
--- book is the authority: it carries the latest rating, and carrying none means the rating was
--- cleared. With no confirmed copy there is nothing to learn from, so the file is left alone.
+-- book is the authority: user_rating holds the latest rating, or false when it is known the
+-- book carries none. A copy without the key tells nothing, so the file is left alone.
 function HardcoverSettings:restoreBookRatingOnConfirm(filename, book_id)
   if not (filename and book_id) then return end
   local books = self.settings:readSetting(SETTING.BOOKS)
   if type(books) ~= "table" then return end
   for file, config in pairs(books) do
-    if file ~= filename and type(config) == "table" and config.guessed_book_id == nil
-        and tostring(config.book_id) == tostring(book_id) then
+    if file ~= filename and type(config) == "table" and not guessed(config)
+        and tostring(config.book_id) == tostring(book_id) and config.user_rating ~= nil then
       self:saveBookRating(filename, config.user_rating)
       return
     end
@@ -447,7 +460,7 @@ function HardcoverSettings:bookStatusFromSnapshot(filename)
     edition_id = settings.edition_id,
     status_id = settings.status_id,
     privacy_setting_id = settings.privacy_setting_id,
-    rating = settings.user_rating,
+    rating = tonumber(settings.user_rating),
     user_book_reads = {},
     reads_complete = false,
     reads_snapshot = true,

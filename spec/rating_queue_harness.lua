@@ -379,5 +379,16 @@ check("keeping Hardcover's rating drops the device one", function()
   eq(#api.sent, 0)
 end)
 
+check("a rating found already on Hardcover still reaches the file snapshots", function()
+  local q = newQueue()
+  q:queue(907, 4, "Dune", 101, 42)
+  local api, sent = deferredApi()
+  api.lookup_rating = 4
+  eq(q:flush(api, function(id, ub) sent = { id = id, ub = ub } end, 42), 0)
+  assert(sent and sent.id == 907 and sent.ub.book_id == 101 and sent.ub.rating == 4,
+    "an acknowledged rating never reached on_sent")
+  eq(api.lookups, 1); eq(#api.sent, 0)
+end)
+
 print(string.format("\n%d passed, %d failed", results.passed, results.failed))
 os.exit(results.failed == 0 and 0 or 1)

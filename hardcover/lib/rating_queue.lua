@@ -224,6 +224,12 @@ function RatingQueue:flush(api, on_sent, user_id, opts)
             if outcome == "ack" then
               ops[key] = nil
               self:persist()
+              -- the write landed earlier and its answer was lost: the file snapshots
+              -- still need the rating a send would have told them
+              if on_sent then
+                on_sent(op.user_book_id, { id = op.user_book_id, book_id = op.book_id,
+                  rating = online > 0 and online or nil })
+              end
               ready = false
             elseif outcome == "park" then
               local known, base = baseValue(op)
