@@ -1696,7 +1696,11 @@ function Flows:writeReview(dialog, on_kept)
     Api:getBookDetailAsync(detail.book.book_id, User:getId(), nil, function(fresh)
       StatusDialogs.close(loading)
       if not fresh then
-        StatusDialogs.info(_("Couldn't load your review. Try again."))
+        -- The review on record could not be read: the editor still opens, and what is
+        -- saved is queued with an unknown baseline, so a review already on Hardcover
+        -- asks before it is replaced instead of looking like an empty slot.
+        StatusDialogs.info(_("Couldn't load your review. What you save is checked against Hardcover before it replaces anything."), 3)
+        self:editReview(dialog, on_kept)
         return
       end
       detail.user_review, detail.review_spoilers = fresh.user_review, fresh.review_spoilers

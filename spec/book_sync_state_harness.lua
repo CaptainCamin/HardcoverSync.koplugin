@@ -107,10 +107,16 @@ check("a rating or review question is the book's decision when the reading queue
 
   local review = { title = "A Book", kind = "review",
     entry = { title = "A Book", conflict = { kind = "review", online = { text = "x", spoilers = false },
-      proposed = { text = "y", spoilers = false } } } }
+      proposed = { text = "y", spoilers = false }, base = { text = "x", spoilers = false } } } }
   local r = state { review_queue = itemQueue({ text = "y" }, { parked = true }, review) }
   assert(r.decision == review)
   assert(r.note_lines[1] == "A Book: review changed on Hardcover", r.note_lines[1])
+
+  local unseen = { title = "A Book", kind = "review",
+    entry = { title = "A Book", conflict = { kind = "review", online = { text = "x", spoilers = false },
+      proposed = { text = "y", spoilers = false } } } }
+  local u = state { review_queue = itemQueue({ text = "y" }, { parked = true }, unseen) }
+  assert(u.note_lines[1] == "A Book: unseen review on Hardcover", u.note_lines[1])
 end)
 
 print("\n== read edits ==")

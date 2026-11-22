@@ -67,7 +67,8 @@ function SyncConflicts.decisionText(title, decision)
     return T(_("%1: rating changed on Hardcover"), title)
   elseif conflict.kind == "review" then
     return conflict.delete and T(_("%1: remove your review?"), title)
-      or T(_("%1: review changed on Hardcover"), title)
+      or (conflict.base and T(_("%1: review changed on Hardcover"), title)
+        or T(_("%1: unseen review on Hardcover"), title))
   elseif conflict.kind == "remove" then
     return T(_("%1: remove anyway?"), title)
   elseif conflict.kind == "abandon_remove" then
@@ -290,8 +291,12 @@ function SyncConflicts.describe(filepath, entry)
     end
     rows[#rows + 1] = { id = "later", text = _("Decide later") }
     return {
-      title = T(_("%1\n\nYour review changed on Hardcover since this device last checked.\n\n%2\n\nWhich should be kept?"),
-        name, table.concat(lines, "\n\n")),
+      -- no baseline means the device never saw the review at all, so it cannot have "changed"
+      title = conflict.base
+        and T(_("%1\n\nYour review changed on Hardcover since this device last checked.\n\n%2\n\nWhich should be kept?"),
+          name, table.concat(lines, "\n\n"))
+        or T(_("%1\n\nHardcover has a review this device had not seen.\n\n%2\n\nWhich should be kept?"),
+          name, table.concat(lines, "\n\n")),
       rows = rows,
     }
   end

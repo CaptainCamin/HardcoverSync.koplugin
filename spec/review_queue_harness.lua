@@ -393,6 +393,21 @@ local function reviewApi(text, spoilers)
   return api
 end
 
+check("an unseen baseline sends when there is no review to lose, and asks when there is", function()
+  local empty = newQueue()
+  empty:queue(907, "my words", false, "Dune", 101, 42, "unknown")
+  local empty_api = reviewApi(nil, nil)
+  eq(empty:flush(empty_api, { user_id = 42 }), 0, "a first review should not wait on a decision")
+  eq(#empty_api.sent, 1); eq(empty_api.sent[1].text, "my words")
+
+  local seen = newQueue()
+  seen:queue(907, "my words", false, "Dune", 101, 42, "unknown")
+  local seen_api = reviewApi("online words", false)
+  eq(seen:flush(seen_api, { user_id = 42 }), 1, "a real review still asks before it is replaced")
+  eq(#seen_api.sent, 0)
+  eq(seen:list(42)[1].parked, true)
+end)
+
 check("an unchanged online review sends, and a changed one parks", function()
   local q = newQueue()
   q:queue(907, "my words", false, "Dune", 101, 42,
