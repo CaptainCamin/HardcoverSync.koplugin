@@ -238,4 +238,17 @@ check("a snapshot with no read or edition drops the old ones", function()
   assert(s:readBookSetting(f, "user_book_id") == 5)
 end)
 
+check("a snapshot keeps the rating, and losing it drops the saved one", function()
+  local s = settings(nil)
+  local f = "/books/rated.epub"
+  s:saveBookSnapshot(f, { id = 5, status_id = 2, rating = 4,
+    user_book_reads = { { id = 11, progress_pages = 50, started_at = "2026-01-01" } } })
+  assert(s:readBookSetting(f, "user_rating") == 4, "rating was not saved")
+  assert(s:bookStatusFromSnapshot(f).rating == 4, "the hydrated status lost the rating")
+  s:saveBookSnapshot(f, { id = 5, status_id = 3, rating = nil,
+    user_book_reads = { { id = 11, progress_pages = 50, started_at = "2026-01-01", finished_at = "2026-02-01" } } })
+  assert(s:readBookSetting(f, "user_rating") == nil, "a cleared rating stayed saved")
+  assert(s:bookStatusFromSnapshot(f).rating == nil, "the hydrated status kept a cleared rating")
+end)
+
 r.finish()

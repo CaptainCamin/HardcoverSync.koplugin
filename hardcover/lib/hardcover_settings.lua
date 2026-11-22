@@ -281,6 +281,7 @@ function HardcoverSettings:saveBookSnapshot(filename, user_book)
     user_book_id = user_book.id,
     status_id = user_book.status_id,
     privacy_setting_id = user_book.privacy_setting_id,
+    user_rating = user_book.rating,
     read_id = current_read and current_read.id,
     started_at = current_read and current_read.started_at,
     last_synced_page = current_read and current_read.progress_pages,
@@ -289,10 +290,10 @@ function HardcoverSettings:saveBookSnapshot(filename, user_book)
   if user_book.edition_id then
     config.edition_id = user_book.edition_id
   end
-  -- a nil value is skipped by updateBookSetting, so name the keys to drop (a read or edition
-  -- that is gone must not live on from the last snapshot)
+  -- a nil value is skipped by updateBookSetting, so name the keys to drop (a read, edition or
+  -- rating that is gone must not live on from the last snapshot)
   local delete = {}
-  for _, key in ipairs({ "read_id", "started_at", "last_synced_page", "read_edition_id", "edition_id" }) do
+  for _, key in ipairs({ "user_rating", "read_id", "started_at", "last_synced_page", "read_edition_id", "edition_id" }) do
     if config[key] == nil then delete[#delete + 1] = key end
   end
   -- A confirmed library record means the file is no longer waiting after a removal.
@@ -313,13 +314,14 @@ function HardcoverSettings:saveShelfSnapshot(filename, user_book)
     user_book_id = user_book.id,
     status_id = user_book.status_id,
     privacy_setting_id = user_book.privacy_setting_id,
+    user_rating = user_book.rating,
     read_id = current_read and current_read.id,
     started_at = current_read and current_read.started_at,
     last_synced_page = current_read and current_read.progress_pages,
     read_edition_id = current_read and current_read.edition_id,
   }
   local delete = {}
-  for _, key in ipairs({ "status_id", "read_id", "started_at", "last_synced_page", "read_edition_id" }) do
+  for _, key in ipairs({ "status_id", "user_rating", "read_id", "started_at", "last_synced_page", "read_edition_id" }) do
     if config[key] == nil then delete[#delete + 1] = key end
   end
   if #delete > 0 then config._delete = delete end
@@ -403,6 +405,7 @@ function HardcoverSettings:bookStatusFromSnapshot(filename)
     edition_id = settings.edition_id,
     status_id = settings.status_id,
     privacy_setting_id = settings.privacy_setting_id,
+    rating = settings.user_rating,
     user_book_reads = {},
     reads_complete = false,
     reads_snapshot = true,

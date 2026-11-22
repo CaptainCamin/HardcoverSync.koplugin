@@ -1584,6 +1584,10 @@ function HardcoverMenu:saveRating(value, menu_instance, quiet)
     end
     if result then
       self.state.book_status = result
+      local file = self.ui and self.ui.document and self.ui.document.file
+      if file and self.cache and self.cache.saveSnapshot then
+        self.cache:saveSnapshot(file, result)
+      end
       menu_instance:updateItems()
     elseif not quiet then
       self.dialog_manager:showError(_("Rating could not be saved"))
