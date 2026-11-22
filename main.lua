@@ -1290,11 +1290,13 @@ function HardcoverApp:_flushReviews()
       and self.sync_queue:bookBarrier(op.book_id, op.user_book_id, User:getId(), "review")
   end
   local waiting = queue:flush(Api, { json = json, user_id = User:getId(), barrier = barrier,
-    on_sent = function(user_book_id, user_book, book_id)
+    on_sent = function(user_book_id, user_book, book_id, op)
       self._flush_sent = true
       local has = type(user_book) == "table" and user_book.has_review ~= false
+      -- an older queued review can name no book; the answered record still does
       self.dialog_manager:reviewChangeSent(user_book_id, has and user_book.review_raw or nil,
-        has and user_book.review_has_spoilers, book_id)
+        has and user_book.review_has_spoilers,
+        book_id or (type(user_book) == "table" and user_book.book_id), op)
     end })
   self:_noticeHeld("review", queue:heldCount(User:getId()))
   return waiting <= queue:parkedCount(User:getId())
