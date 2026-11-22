@@ -426,12 +426,15 @@ end)
 
 print("\n== launching it ==")
 
-check("signing out forgets the account and rebuilds Home signed out", function()
+check("signing out forgets the account and rebuilds the landing screen", function()
   local main = read("main.lua")
   assert(main:find("User:forget()", 1, true), "sign-out keeps the old account id/name")
   assert(main:find("refreshHome()", 1, true), "sign-out leaves Home showing the old account")
-  local home = read("hardcover/lib/ui/home_body.lua")
-  assert(home:find("signedOutCard", 1, true) and home:find("Sign in to Hardcover", 1, true), "no signed-out Home state")
+  local welcome = read("hardcover/lib/ui/welcome_body.lua")
+  assert(welcome:find("Welcome to Hardcover Sync", 1, true), "no landing screen")
+  assert(welcome:find("Sign in to Hardcover", 1, true), "no way to sign in from the landing screen")
+  local manager = read("hardcover/lib/ui/dialog_manager.lua")
+  assert(manager:find("showWelcome", 1, true), "the signed-out state does not open the landing screen")
 end)
 
 check("a Dispatcher action opens the home screen, for gestures and other plugins", function()

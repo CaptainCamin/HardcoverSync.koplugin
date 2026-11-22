@@ -49,8 +49,6 @@ local HomeBody = InputContainer:extend {
   sync_cb = nil,    -- Sync now
   pending_cb = nil, -- a tap on the sync box: what is waiting
   empty_message = nil, -- why Currently Reading is empty before its first successful load
-  signed_out = false,  -- no account: show the sign-in state, not shelves or counts
-  sign_in_cb = nil,    -- the signed-out card's button
   held_fn = nil,       -- returns PendingChanges.heldCounts for the sync box
   online_fn = nil,     -- returns whether a connection is up
 }
@@ -129,23 +127,6 @@ function HomeBody:emptyCard(width)
         { secondary = true, width = width - 2 * pad - 2 * border }) } }
 end
 
--- No account yet (or after sign-out): one clear state and one way in, with no shelf counts.
-function HomeBody:signedOutCard(width)
-  local pad, border = px(14), px(3)
-  local inner = width - 2 * pad - 2 * border
-  local sign_in = Button.new { label = _("Sign in"), w = inner, h = px(56), primary = true,
-    callback = function() if self.sign_in_cb then self.sign_in_cb() end end }
-  return FrameContainer:new { bordersize = border, radius = px(12), padding = pad, margin = 0,
-    color = Theme.BLACK, background = Theme.WHITE,
-    VerticalGroup:new { align = "left",
-      Theme.mmdText(_("Sign in to Hardcover"), "strong", 21, { width = inner }),
-      Theme.span(px(6)),
-      Theme.mmdText(_("Your shelves, reading and sync will appear here after you sign in."), "text", 18,
-        { secondary = true, width = inner }),
-      Theme.span(px(14)),
-      sign_in } }
-end
-
 -- The sync box, dotted whether or not anything is waiting; the two states differ by icon and words,
 -- and are built at the taller one's height so switching between them moves nothing below.
 function HomeBody:syncNote(width)
@@ -210,22 +191,6 @@ function HomeBody:build()
 
   local column = VerticalGroup:new { align = "left" }
   local function inset(widget) return HorizontalGroup:new { Theme.hspan(side), widget } end
-
-  if self.signed_out then
-    column[#column + 1] = Theme.span(px(8))
-    column[#column + 1] = ListItem.section(_("Hardcover"), w, 0)
-    column[#column + 1] = inset(self:signedOutCard(width))
-    column:resetLayout()
-    self.layout = { signed_out = true }
-    self.frame = FrameContainer:new {
-      width = w, height = h, background = Theme.WHITE,
-      bordersize = 0, padding = 0, margin = 0, column,
-    }
-    self.dimen = Geom:new { x = 0, y = 0, w = w, h = h }
-    self[1] = self.frame
-    self.covers:finish()
-    return
-  end
 
   column[#column + 1] = Theme.span(px(8))
   column[#column + 1] = ListItem.section(_("Currently reading"), w, 0)
