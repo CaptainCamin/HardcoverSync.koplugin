@@ -1451,6 +1451,20 @@ check("an edition with no catalog page count asks instead of retrying forever", 
   assert(conflict.cloud_pages == nil and #api.calls == 0, "the missing page count reached Hardcover")
 end)
 
+check("an unreadable edition reply is retried", function()
+  local q, api = queue(), fakeApi()
+  local current = { id = 11, started_at = "2026-11-16", edition_id = 8, progress_pages = 40 }
+  api.records[7] = record(7, { current }, 2)
+  api.records[7].edition_id = 8
+  api.hydrateBookFromEdition = function() return nil, { status = 200 } end
+  q:enqueuePage("/books/7.epub", { book_id = 7, mapped_page = 150, edition_id = 7, pages = 304 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(q:get(7).conflict == nil and #api.calls == 0, "an unreadable reply parked a question")
+  api.hydrateBookFromEdition = function() return { pages = 608 } end
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(api.calls[1].op == "updatePage" and api.calls[1].page == 300, "the retried page was not sent")
+end)
+
 check("a converted page conflict does not offer a resume in the wrong edition", function()
   local q, api = queue(), fakeApi()
   local current = { id = 11, started_at = "2026-11-16", edition_id = 8, progress_pages = 500 }

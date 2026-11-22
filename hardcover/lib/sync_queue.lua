@@ -1694,7 +1694,9 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
     local ok, edition, err = pcall(function()
       return api:hydrateBookFromEdition(edition_id, opts.user_id or entry.user_id)
     end)
-    if not ok or (err ~= nil and OfflineQueue.transient(err)) then
+    local transient = err ~= nil and (OfflineQueue.transient(err)
+      or (type(err) == "table" and err.status == 200 and err.errors == nil))
+    if not ok or transient then
       return nil, true
     end
     if err ~= nil or type(edition) ~= "table" then return nil end
