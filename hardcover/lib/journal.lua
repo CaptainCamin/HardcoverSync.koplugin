@@ -547,16 +547,19 @@ end
 
 -- `entry` among `entries` by when it was made, newest first; entries of the same moment keep
 -- their order, the new one after them. A saved entry is prepended nowhere: a queued change sent
--- days later would sit above newer entries otherwise.
+-- days later would sit above newer entries otherwise. An entry its key already names gives way:
+-- the arriving copy is the newer truth.
 function Journal.insertDated(entries, entry)
   local out, mine = {}, Journal.epoch(entry.at) or 0
   local placed
   for _, e in ipairs(entries or {}) do
-    if not placed and (Journal.epoch(e.at) or 0) < mine then
-      out[#out + 1] = entry
-      placed = true
+    if e.key ~= entry.key then
+      if not placed and (Journal.epoch(e.at) or 0) < mine then
+        out[#out + 1] = entry
+        placed = true
+      end
+      out[#out + 1] = e
     end
-    out[#out + 1] = e
   end
   if not placed then out[#out + 1] = entry end
   return out

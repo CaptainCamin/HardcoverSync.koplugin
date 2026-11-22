@@ -794,6 +794,22 @@ check("a review re-stamped for a re-added book moves to where its new date puts 
     "the re-stamped row did not move above the newer note")
 end)
 
+check("a sent entry already fetched once is not kept twice", function()
+  local m = newManager()
+  m.journal_store:put(1, {
+    { key = "note:600", id = 600, kind = "note", user_id = 1, book_id = 5, title = "Dune",
+      text = "Draft", excerpt = "Draft", at = "2026-10-05T10:00:00+00:00" },
+    entry(2),
+  }, false)
+  -- the entry reached the saved copy before the send's own answer resumed
+  m:journalChangeSent({ id = 9, user_id = 1, book_id = 5, event = "note", text = "Draft",
+    title = "Dune", at = os.time { year = 2026, month = 10, day = 5, hour = 10 } }, { id = 600 })
+  local entries = m.journal_store:get(1).entries
+  local count = 0
+  for _, e in ipairs(entries) do if e.key == "note:600" then count = count + 1 end end
+  assert(count == 1 and #entries == 2, "the sent note was kept twice")
+end)
+
 check("a review sent while the first page loads keeps its text on the late answer", function()
   local m = newManager()
   m.journal_store:put(1, {
