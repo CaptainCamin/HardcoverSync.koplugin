@@ -273,6 +273,27 @@ check("a sent rating reaches every linked file, touching only the rating", funct
     "a cleared rating stayed saved")
 end)
 
+check("a confirmed guess takes the book's rating, or loses a stale one when cleared", function()
+  local s = settings(nil)
+  local f, guess = "/books/epub.epub", "/books/guessed.epub"
+  s:updateBookSetting(f, { book_id = 77, user_rating = 5 })
+  s:updateBookSetting(guess, { book_id = 77, guessed_book_id = 77, user_rating = 3 })
+  s:restoreBookRatingOnConfirm(guess, 77)
+  assert(s:readBookSetting(guess, "user_rating") == 5,
+    "the confirmed link kept its stale rating")
+  s:saveBookRatingsFor(77, nil)
+  s:updateBookSetting(guess, { guessed_book_id = 77 })
+  s:updateBookSetting(guess, { user_rating = 3 })
+  s:restoreBookRatingOnConfirm(guess, 77)
+  assert(s:readBookSetting(guess, "user_rating") == nil,
+    "a rating cleared while the link was guessed stayed saved")
+  local lone = "/books/lone.epub"
+  s:updateBookSetting(lone, { book_id = 88, guessed_book_id = 88, user_rating = 2 })
+  s:restoreBookRatingOnConfirm(lone, 88)
+  assert(s:readBookSetting(lone, "user_rating") == 2,
+    "a guess with no confirmed copy lost the rating it had")
+end)
+
 check("relinking or removing drops the saved rating with the rest of the snapshot", function()
   local s = settings(nil)
   local f = "/books/rated.epub"

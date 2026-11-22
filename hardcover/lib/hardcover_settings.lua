@@ -354,6 +354,23 @@ function HardcoverSettings:saveBookRatingsFor(book_id, rating)
   end
 end
 
+-- A guess is confirmed: the file becomes an ordinary link, so its saved rating follows the
+-- book's, which rating writes skipped while the link was only guessed. A confirmed copy of the
+-- book is the authority: it carries the latest rating, and carrying none means the rating was
+-- cleared. With no confirmed copy there is nothing to learn from, so the file is left alone.
+function HardcoverSettings:restoreBookRatingOnConfirm(filename, book_id)
+  if not (filename and book_id) then return end
+  local books = self.settings:readSetting(SETTING.BOOKS)
+  if type(books) ~= "table" then return end
+  for file, config in pairs(books) do
+    if file ~= filename and type(config) == "table" and config.guessed_book_id == nil
+        and tostring(config.book_id) == tostring(book_id) then
+      self:saveBookRating(filename, config.user_rating)
+      return
+    end
+  end
+end
+
 function HardcoverSettings:clearBookSnapshot(filename, removed_book_id)
   if not filename then
     return
