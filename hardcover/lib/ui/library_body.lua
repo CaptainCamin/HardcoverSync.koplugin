@@ -42,6 +42,8 @@ function LibraryBody:build()
   end
   local tabs = Tabs.new { width = w, tabs = items }
   local inner_h = h - tabs:getSize().h
+  -- the size inner bodies and their retries get: the body less its tab row
+  self.body_w, self.body_h = w, inner_h
   if not self.bodies[self.sub] then
     for _, sub in ipairs(self.subs) do
       if sub.id == self.sub then self.bodies[sub.id] = sub.make(self.shell, w, inner_h, self) end
@@ -66,15 +68,16 @@ function LibraryBody:isCurrent(body)
   return self.bodies[self.sub] == body
 end
 
--- An inner body was replaced (a retry built a new one): show the new one.
+-- An inner body was replaced (a retry built a new one): show the new one. A retry means the
+-- failed screen is on view, so its tab is the one to show even when a rebuild during a
+-- resize dropped the selection back to the first tab.
 function LibraryBody:remount(id, body)
   self.bodies[id] = body
-  if id == self.sub then
-    if self[1] and type(self[1].free) == "function" then pcall(function() self[1]:free() end) end
-    self[1] = nil
-    self:build()
-    Hosted.dirty(self)
-  end
+  self.sub = id
+  if self[1] and type(self[1].free) == "function" then pcall(function() self[1]:free() end) end
+  self[1] = nil
+  self:build()
+  Hosted.dirty(self)
 end
 
 -- An inner body was discarded by the registry: forget it, so it is built again when opened.

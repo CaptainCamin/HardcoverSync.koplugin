@@ -1,6 +1,7 @@
 --[[--
-The shell: Home, Library, Goals and Stats as tabs of one screen with a navigation bar. Home (fixed, never
-scrolls) and Goals are hosted bodies ; Library (Shelves | Lists | Vibes) and Stats are hosted too. Checked for real:
+The shell: Home, Library, Goals and Stats as tabs of one screen with a navigation bar. Home (scrolled only
+when it cannot fit) and Goals are hosted bodies ; Library (Shelves | Lists | Vibes) and Stats are hosted too.
+Checked for real:
 tapping the bar changes the tab; a tab keeps its body (so its scroll position) when left and
 reopened; an answer that arrives for a hidden tab is on screen when the tab is opened; a goal opened
 from the Goals tab stacks over the shell and closing it reveals the shell, live; Back goes to the
@@ -107,7 +108,7 @@ return {
     NetworkManager.isConnected = was_connected
     NetworkManager.getConnectionState = was_state
     local home = shell.bodies.home
-    assert(home and home.shell == shell and not home.scroll, "Home must be a body that never scrolls")
+    assert(home and home.shell == shell and not home.scroll, "Home should not scroll when it fits")
 
     -- The snackbar's X sits over the Stats tab. Closing it must spend the tap and leave Home up.
     local Theme = require("hardcover/lib/ui/theme")
@@ -190,8 +191,8 @@ return {
     pending = 0
     home:rebuild()
 
-    -- the book being read: one bordered card with a filled Open book; the page never scrolls, and
-    -- the shelves give way before the card does
+    -- the book being read: one bordered card with a filled Open book; a page that fits does not
+    -- scroll, and a page that does not keeps the card, the sync box and every shelf row
     home:setReading(fixtures.currently_reading)
     home:setRows(require("hardcover/lib/home").rows(fixtures.shelf_counts))
     home:rebuild()
@@ -202,8 +203,9 @@ return {
     emu:shot("shell_home_cards")
     local L = home.layout
     if L.shelves > 0 then emu:expectText("Want to Read") end
-    assert(not home.scroll, "Home scrolled with a card")
     assert(L.card, "Home dropped the card")
+    assert(L.note, "Home dropped the sync box")
+    assert(L.shelves == L.total_shelves, "Home dropped a shelf row instead of scrolling")
     if H > W or L.shelves > 0 then emu:expectText("books") end -- a shelf row shows its count
     print(string.format("        home at %dx%d: note=%s, shelf rows=%d", W, H, tostring(L.note), L.shelves))
     local bottom = home.dimen.y + home.dimen.h
@@ -310,6 +312,28 @@ return {
     sub(1)
     assert(library.sub == "shelves")
     assert(shell.bodies.library == library, "the Library body was rebuilt")
+
+    -- a failed inner load retries into the same slot, at the inner height -- the shell body
+    -- less the Library tab row: built at the whole body height the new screen sits under the
+    -- tab row and pushes the navigation off the panel
+    manager:screens():discard("vibes")
+    fixtures.vibes_fail = true
+    sub(3)
+    for _ = 1, 5 do emu:pump() end
+    fixtures.vibes_fail = nil
+    local retry_node = emu:expectText("Retry")
+    emu:tapExpecting(retry_node.x + math.floor(retry_node.w / 2),
+      retry_node.y + math.floor(retry_node.h / 2))
+    for _ = 1, 5 do emu:pump() end
+    local retried = library.bodies.vibes
+    assert(retried and library.sub == "vibes", "the retried Vibes is not shown")
+    assert(retried.height == library.body_h,
+      "the retried Vibes is not the inner height: " .. tostring(retried.height))
+    emu:screenNodes()
+    local nav_row = shell.frame[1][3][3]
+    local last_cell = nav_row[#nav_row]
+    assert(last_cell.dimen.y + last_cell.dimen.h == H, "the retry pushed the nav bar off the panel")
+    sub(1)
 
     -- Stats
     nav(4)

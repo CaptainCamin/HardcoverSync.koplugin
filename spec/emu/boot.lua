@@ -126,18 +126,26 @@ Boot the emulator. Returns a handle with the modules a scenario needs.
 `keep_open` leaves the process alive after the scenario returns, for use with
 the interactive driver (emu_drive.lua) which needs a live UIManager.
 ]]
--- Is this shot's layout problem listed in layout_known.txt? Lines are `<shot> [<WxH>]  # why`.
+-- The problem patterns a shot is known to show, from layout_known.txt. Lines are
+-- `<shot> [<WxH>] <pattern> # why`: a problem counts as known only when it contains <pattern>,
+-- so a waiver for one known fault never waives a new kind of failure on the same shot.
 function M.layout_known(shot, size)
   local f = io.open(M.plugin_root() .. "/spec/emu/layout_known.txt", "r")
-  if not f then return false end
-  local found = false
+  if not f then return {} end
+  local patterns = {}
   for line in f:lines() do
     local entry = line:gsub("%s*#.*$", "")
-    local s, sz = entry:match("^(%S+)%s*(%S*)$")
-    if s == shot and (sz == "" or sz == size) then found = true end
+    local s, rest = entry:match("^(%S+)%s*(.*)$")
+    if s then
+      local sz, pattern = rest:match("^(%d+x%d+)%s+(.-)%s*$")
+      if not sz then pattern = rest:match("^%s*(.-)%s*$") end
+      if s == shot and (not sz or sz == size) and pattern ~= "" then
+        patterns[#patterns + 1] = pattern
+      end
+    end
   end
   f:close()
-  return found
+  return patterns
 end
 
 function M.boot(opts)
@@ -272,16 +280,21 @@ function M.boot(opts)
 
   --[[--
   Cheap layout checks on what was just painted (see Tree.layout_problems), run on every shot so each
-  scenario is also a layout test at whatever KO_EMU_W/H is set. A problem fails the scenario unless
-  `<scenario> <shot>` is listed in spec/emu/layout_known.txt (with the size, if it only breaks at one).
+  scenario is also a layout test at whatever KO_EMU_W/H is set. A problem fails the scenario unless it
+  contains a pattern listed for `<shot>` in spec/emu/layout_known.txt (with the size, if it only
+  breaks at one).
   ]]
   function emu:checkLayout(name)
     local touch_min = require("hardcover/lib/ui/theme").TOUCH_MIN
     local problems = Tree.layout_problems(self:screenRoot(), Screen:getWidth(), Screen:getHeight(), touch_min)
     local known = M.layout_known(name, Screen:getWidth() .. "x" .. Screen:getHeight())
     for _, p in ipairs(problems) do
-      print((known and "  layout (known) " or "  LAYOUT ") .. name .. ": " .. p)
-      if not known then self.layout_failures = (self.layout_failures or 0) + 1 end
+      local waived = false
+      for _, pattern in ipairs(known) do
+        if p:find(pattern, 1, true) then waived = true break end
+      end
+      print((waived and "  layout (known) " or "  LAYOUT ") .. name .. ": " .. p)
+      if not waived then self.layout_failures = (self.layout_failures or 0) + 1 end
     end
   end
 

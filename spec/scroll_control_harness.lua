@@ -35,6 +35,13 @@ _G.require = function(name)
 end
 package.preload["gettext"] = function() return setmetatable({}, { __call = function(_, s) return s end }) end
 package.preload["logger"] = function() return { dbg = function() end, info = function() end, warn = function() end, err = function() end } end
+local mirrored = false
+package.preload["ui/bidi"] = function()
+  return { mirroredUILayout = function() return mirrored end }
+end
+package.preload["ui/widget/overlapgroup"] = function()
+  return { new = function(_, t) return t end }
+end
 
 local ScrollControl = require("hardcover/lib/ui/components/scroll_control")
 
@@ -62,6 +69,38 @@ r.check("hold on the bottom triangle goes to the last page", went == 5)
 went = nil
 paged:onHoldScrollControl(nil, { pos = { x = 5, y = 500 } })
 r.check("hold on the track does nothing", went == nil)
+
+-- taps: the end zones step a page, the track does nothing
+paged:onTapScrollControl(nil, { pos = { x = 5, y = 5 } })
+r.check("tap on the up triangle pages up", went == 2)
+paged:onTapScrollControl(nil, { pos = { x = 5, y = 995 } })
+r.check("tap on the down triangle pages down", went == 4)
+went = nil
+paged:onTapScrollControl(nil, { pos = { x = 5, y = 500 } })
+r.check("tap on the track does nothing", went == nil)
+
+-- a viewport shorter than two touch targets splits the zones evenly, so the down triangle
+-- still pages down instead of falling in the up zone (a tap the visible arrow could not make)
+local short = ScrollControl.paged { height = 60, pages = function() return 5 end, page = function() return 3 end,
+  go = function(n) went = n end }
+short.dimen = { x = 0, y = 0, w = 40, h = 60 }
+short:onTapScrollControl(nil, { pos = { x = 5, y = 45 } })
+r.check("down tap in a viewport shorter than two touch targets pages down", went == 4)
+short:onTapScrollControl(nil, { pos = { x = 5, y = 10 } })
+r.check("up tap in a viewport shorter than two touch targets pages up", went == 2)
+
+-- the control sits on the side KOReader keeps free for its own bar: right, and left in a
+-- mirrored layout, where the container's crop region leaves the left edge open
+local function fake_scroll()
+  return { dimen = { w = 200, h = 400 }, initState = function() end, _scrollBy = function() end }
+end
+local ltr = ScrollControl.wrap(fake_scroll())
+r.check("control at the right edge in a left-to-right layout",
+  ltr[2].overlap_offset[1] == 200 - ScrollControl.gutter())
+mirrored = true
+local rtl = ScrollControl.wrap(fake_scroll())
+r.check("control at the left edge in a mirrored layout", rtl[2].overlap_offset[1] == 0)
+mirrored = false
 
 _G.require = real_require
 r.finish()

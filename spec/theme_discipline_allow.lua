@@ -27,7 +27,7 @@ return {
   ["hardcover/lib/ui/goal_dialog.lua"] = { color = 2 },
   ["hardcover/lib/ui/goal_form_dialog.lua"] = { color = 1 },
   ["hardcover/lib/ui/goals_dialog.lua"] = { color = 2 },
-  ["hardcover/lib/ui/home_body.lua"] = { color = 1 },
+
   ["hardcover/lib/ui/icon_list_body.lua"] = { color = 1 },
   ["hardcover/lib/ui/library_body.lua"] = { color = 1 },
   ["hardcover/lib/ui/lists_dialog.lua"] = { scaleBySize = 1, color = 1 },
