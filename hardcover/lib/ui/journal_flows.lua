@@ -62,10 +62,11 @@ end
 -- none once it was removed), and a row that was still waiting for it becomes the sent review.
 -- `shown` is the open list: the waiting row is where the book's cover, authors and title come
 -- from, since the queue's send answers with the library record, not a journal entry.
-local function reviewSent(state, shown, user_book_id, book_id, text, spoilers)
+local function reviewSent(state, shown, user_book_id, book_id, text, spoilers, at)
   local body = type(text) == "string" and text:match("%S") and text or nil
   local excerpt, truncated
   if body then excerpt, truncated = Reviews.excerpt(body) end
+  local stamped = at or os.date("!%Y-%m-%dT%H:%M:%SZ")
   local matched
   for _, entries in ipairs({ state.entries, state.sent }) do
     for _, entry in ipairs(entries) do
@@ -80,7 +81,7 @@ local function reviewSent(state, shown, user_book_id, book_id, text, spoilers)
         -- a row for an older library record is a different review: it takes the new one's
         -- date; a row for the record the edit landed on keeps its own
         if tostring(entry.user_book_id) ~= tostring(user_book_id) then
-          entry.at = os.date("!%Y-%m-%dT%H:%M:%SZ")
+          entry.at = stamped
         end
         entry.user_book_id = tonumber(user_book_id) or entry.user_book_id
         entry.text, entry.excerpt, entry.truncated, entry.spoilers =
@@ -111,7 +112,7 @@ local function reviewSent(state, shown, user_book_id, book_id, text, spoilers)
     user_book_id = tonumber(user_book_id) or waiting.user_book_id,
     title = waiting.title, authors = waiting.authors, cover_url = waiting.cover_url,
     text = body, excerpt = excerpt, truncated = truncated, spoilers = spoilers == true,
-    at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+    at = stamped,
   } }, state.entries)
 end
 
@@ -373,9 +374,11 @@ end
 
 -- Hardcover took a review: the saved copy shows the new text on every entry of the book, or, for a
 -- removed review, says only that you reviewed it.
-function Flows:reviewChangeSent(user_book_id, text, spoilers, book_id)
+function Flows:reviewChangeSent(user_book_id, text, spoilers, book_id, op)
   local store = self.journal_store
   if not store then return end
+  -- the queued write's own date is the review's date; a send a day later does not move it
+  local stamped = os.date("!%Y-%m-%dT%H:%M:%SZ", op and op.at or os.time())
   if user_book_id ~= nil then
     -- The open book's removal baseline must know about a review Hardcover accepted.
     local screen = self.screens and self:screens():open("book")
@@ -415,14 +418,13 @@ function Flows:reviewChangeSent(user_book_id, text, spoilers, book_id)
           and tonumber(e.book_id) == tonumber(book_id)
           and tostring(e.user_book_id) ~= tostring(user_book_id)
       end
-      local date = { at = os.date("!%Y-%m-%dT%H:%M:%SZ") }
+      local date = { at = stamped }
       store:change(uid, ofOldRecord, date)
       store:change(uid, ofOldRecord, date, book_id)
     end
-    local all_saved = store:get(uid)
-    -- a first review matches no saved row: keep a stand-in in both snapshots, or an offline
-    -- reopen drops the review the open screen just showed. Rows for the book in the saved
-    -- journal lend the title, authors and cover the send's answer does not carry.
+    -- a first review matches no saved row: keep a stand-in, or an offline reopen drops the
+    -- review the open screen just showed. Rows for the book in the saved journal lend the
+    -- title, authors and cover the send's answer does not carry; the queue's copy does.
     local function standIn(from_entries)
       local donor
       for _, e in ipairs(from_entries or {}) do
@@ -434,29 +436,27 @@ function Flows:reviewChangeSent(user_book_id, text, spoilers, book_id)
         kind = "review", event = "reviewed",
         user_id = donor and tonumber(donor.user_id) or uid,
         book_id = tonumber(book_id), user_book_id = tonumber(user_book_id),
-        title = donor and donor.title, authors = donor and donor.authors,
+        title = (donor and donor.title) or (op and op.title) or _("A book"),
+        authors = donor and donor.authors,
         cover_url = donor and donor.cover_url,
         text = fields.text, excerpt = excerpt, truncated = truncated,
         spoilers = fields.spoilers or nil,
-        at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+        at = stamped,
       }
     end
+    local all_saved = store:get(uid)
     if not store:change(uid, ofBook, fields) and fields.text then
       store:put(uid, Journal.append({ standIn(all_saved and all_saved.entries) },
         all_saved and all_saved.entries or {}),
         all_saved and all_saved.more, nil, all_saved and all_saved.saved_at)
     end
+    -- the book's own snapshot only when it exists: a fresh one made of the review alone would
+    -- shadow the book's library-journal rows on the next offline open and never be refreshed
     if book_id then
       local book_saved = store:get(uid, book_id)
-      if not store:change(uid, ofBook, fields, book_id) and fields.text then
-        local prior = book_saved and book_saved.entries or {}
-        if not book_saved and all_saved then
-          for _, old in ipairs(all_saved.entries) do
-            if tonumber(old.book_id) == tonumber(book_id) then prior[#prior + 1] = old end
-          end
-        end
-        store:put(uid, Journal.append({ standIn(prior) }, prior), book_saved and book_saved.more,
-          book_id, (book_saved or all_saved) and (book_saved or all_saved).saved_at)
+      if book_saved and not store:change(uid, ofBook, fields, book_id) and fields.text then
+        store:put(uid, Journal.append({ standIn(book_saved.entries) }, book_saved.entries),
+          book_saved.more, book_id, book_saved.saved_at)
       end
     end
   end
@@ -464,7 +464,8 @@ function Flows:reviewChangeSent(user_book_id, text, spoilers, book_id)
   -- shows the sent review without a reopen.
   for _, kind in ipairs({ "journal", "book_journal" }) do
     local screen = self:screens():open(kind)
-    if screen and screen.reviewSent then screen:reviewSent(user_book_id, text, spoilers, book_id) end
+    if screen and screen.reviewSent then
+      screen:reviewSent(user_book_id, text, spoilers, book_id, stamped) end
   end
 end
 
@@ -519,8 +520,8 @@ function Flows:showJournal(host)
     journalChanged(state, key, fields)
     self:setEntries(manager:pendingJournal(state.entries, me_id), self.has_more)
   end
-  function dialog:reviewSent(user_book_id, text, spoilers, book_id)
-    reviewSent(state, self.entries, user_book_id, book_id, text, spoilers)
+  function dialog:reviewSent(user_book_id, text, spoilers, book_id, at)
+    reviewSent(state, self.entries, user_book_id, book_id, text, spoilers, at)
     self:setEntries(manager:pendingJournal(state.entries, me_id), self.has_more)
   end
   -- saved, and there was nothing in it: say so, as an empty answer does
@@ -676,11 +677,11 @@ function Flows:showBookJournal(book_id, title, opts)
     journalChanged(state, key, fields)
     refresh()
   end
-  function screen:reviewSent(user_book_id, text, spoilers, sent_book_id)
+  function screen:reviewSent(user_book_id, text, spoilers, sent_book_id, at)
     if sent_book_id ~= nil and tonumber(sent_book_id) ~= tonumber(book_id) then return end
     -- an old queued review may name no book: substituting this one's would let the send
     -- rewrite an unrelated book's rows, so only the library-record match applies then
-    reviewSent(state, self.body.entries, user_book_id, sent_book_id, text, spoilers)
+    reviewSent(state, self.body.entries, user_book_id, sent_book_id, text, spoilers, at)
     refresh()
   end
   self:screens():track("book_journal", screen)

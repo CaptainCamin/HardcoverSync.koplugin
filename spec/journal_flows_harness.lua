@@ -594,8 +594,8 @@ check("editing a pending review does not inherit a deleted historical library re
         assert(text == "Edited offline draft" and spoilers)
         return { id = id, review_raw = text, review_has_spoilers = spoilers, has_review = true }
       end,
-    }, { user_id = 1, on_sent = function(uid, ub, bid)
-      m:reviewChangeSent(uid, ub.review_raw, ub.review_has_spoilers, bid)
+    }, { user_id = 1, on_sent = function(uid, ub, bid, op)
+      m:reviewChangeSent(uid, ub.review_raw, ub.review_has_spoilers, bid or ub.book_id, op)
     end })
     assert(waiting == 0 and writes == 1 and lookups == (known_id and 0 or 1))
     local row = m.journal_store:get(1).entries[1]
@@ -723,7 +723,7 @@ check("a review sent while the tab is open stops waiting and says the day it was
       assert(id == 900 and text == "My review")
       return { id = 900, review_raw = "My review", has_review = true }
     end,
-  }, { user_id = 1, on_sent = function(uid, ub, bid) m:reviewChangeSent(uid, ub.review_raw, false, bid) end })
+  }, { user_id = 1, on_sent = function(uid, ub, bid, op) m:reviewChangeSent(uid, ub.review_raw, false, bid or ub.book_id, op) end })
   local row = tab.entries[1]
   assert(row and row.kind == "review" and not row.waiting, "the sent review still waits")
   local shown = Journal.row(row)
@@ -731,7 +731,7 @@ check("a review sent while the tab is open stops waiting and says the day it was
   assert(shown.what == "Review: My review", tostring(shown.what))
 end)
 
-check("a first sent review is kept in the book journal's saved copy too", function()
+check("a first sent review is kept for the book journal's offline open too", function()
   local m = newManager()
   m.journal_store:put(1, {
     { key = "read:9", id = 9, kind = "read", user_id = 1, book_id = 5,
@@ -741,9 +741,24 @@ check("a first sent review is kept in the book journal's saved copy too", functi
   local lib = m.journal_store:get(1).entries
   assert(lib[1].kind == "review" and lib[1].text == "First review" and lib[1].title == "Dune",
     "the saved journal did not keep the first review")
-  local book = m.journal_store:get(1, 5).entries
-  assert(#book == 2 and book[1].kind == "review" and book[2].kind == "read",
-    "the book journal's saved copy did not take the review over the book's rows")
+  assert(m.journal_store:get(1, 5) == nil,
+    "a book copy of only the review would shadow its library rows offline")
+end)
+
+check("a sent review with no book id takes the answer's book in its own book journal", function()
+  local m = newManager()
+  online = false
+  -- an older queue entry names only the library record
+  m.review_queue:queue(900, "My review", false, "Dune", nil, 1)
+  local screen = m:showBookJournal(5, "Dune", {})
+  assert(screen.body.entries[1].waiting and screen.body.entries[1].kind == "review")
+  m.review_queue:flush({ updateReview = function()
+      return { id = 900, review_raw = "My review", book_id = 5 } end }, {
+    user_id = 1, on_sent = function(uid, ub, bid, op)
+      m:reviewChangeSent(uid, ub.review_raw, false, bid or ub.book_id, op) end })
+  local row = screen.body.entries[1]
+  assert(row and row.kind == "review" and not row.waiting and row.book_id == 5,
+    "the sent review vanished from its book journal")
 end)
 
 check("a sent review with no book id cannot rewrite an unrelated open book journal", function()
@@ -766,7 +781,7 @@ check("a review sent while the book journal is open stops waiting there too", fu
   local screen = m:showBookJournal(5, "Dune", {})
   assert(screen.body.entries[1].waiting and screen.body.entries[1].kind == "review")
   m.review_queue:flush({ updateReview = function() return { id = 900, review_raw = "My review" } end }, {
-    user_id = 1, on_sent = function(uid, ub, bid) m:reviewChangeSent(uid, ub.review_raw, false, bid) end })
+    user_id = 1, on_sent = function(uid, ub, bid, op) m:reviewChangeSent(uid, ub.review_raw, false, bid or ub.book_id, op) end })
   local row = screen.body.entries[1]
   assert(row and row.kind == "review" and not row.waiting, "the sent review still waits")
   assert(row.book_id == 5 and row.text == "My review")
@@ -787,7 +802,7 @@ check("a review edit sent while the book journal is open shows the new text on t
   assert(#screen.body.entries == 2 and screen.body.entries[1].waiting
     and screen.body.entries[1].text == "Much better")
   m.review_queue:flush({ updateReview = function() return { id = 900, review_raw = "Much better" } end }, {
-    user_id = 1, on_sent = function(uid, ub, bid) m:reviewChangeSent(uid, ub.review_raw, true, bid) end })
+    user_id = 1, on_sent = function(uid, ub, bid, op) m:reviewChangeSent(uid, ub.review_raw, true, bid or ub.book_id, op) end })
   for _, key in ipairs({ "reviewed:4003", "reviewed:4004" }) do
     local row
     for _, e in ipairs(screen.body.entries) do if e.key == key then row = e end end
