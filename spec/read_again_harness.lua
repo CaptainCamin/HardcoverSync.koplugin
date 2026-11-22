@@ -66,6 +66,16 @@ check("the re-read queues its start and page as one cancellable change", functio
   eq(q:hasPending(), false, "cancelling the reread also cancels its start")
 end)
 
+check("a queued re-read reads as Currently Reading to the reader panel's lookups", function()
+  -- The panel asks the queue by file (statusOf) and by book (shelfOp): both must say Reading
+  -- while the start is still waiting, or the panel keeps showing the finished read (#339).
+  local q = KB.newQueue()
+  q:startReread(PATH, payload(1))
+  eq(q:statusOf(PATH), HARDCOVER.STATUS.READING, "statusOf by file")
+  local op = q:shelfOp(7, 1)
+  eq(op and op.status_id, HARDCOVER.STATUS.READING, "shelfOp by book")
+end)
+
 check("a re-read is sent as a new read, and the finished read is never written", function()
   local q = KB.newQueue()
   q:startReread(PATH, payload(12))
