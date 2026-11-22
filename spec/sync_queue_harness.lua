@@ -377,6 +377,25 @@ check("an entry migrated from a file is sent, and its file takes the snapshot", 
   eq(snapshots[1], "/books/a.epub")
 end)
 
+check("an entry cleared by a removal during its request is not saved back", function()
+  local q = newQueue()
+  local file = "/books/cleared.epub"
+  q:enqueueStatus(file, { user_id = 1, book_id = 7, user_book_id = 500,
+    status_id = HARDCOVER.STATUS.FINISHED, from_status_id = HARDCOVER.STATUS.READING, edition_id = 3 })
+  local api = fakeApi()
+  api.updateUserBookStatus = function(_, user_book_id, status_id)
+    -- a removal completed while this request was in flight
+    q:clear(file)
+    return { id = user_book_id, book_id = 7, status_id = status_id, user_book_reads = {} }
+  end
+  local snapshots, state = 0, {}
+  local settings = { saveBookSnapshot = function() snapshots = snapshots + 1 end }
+  q:flush(api, { user_id = 1, settings = settings, current_file = file, state = state })
+  eq(snapshots, 0, "the removed book's snapshot was saved again")
+  eq(state.book_status, nil, "the reader state was set back to the removed book")
+  eq(q:hasPending(file), false, "the queue did not drain")
+end)
+
 check("nothing queued flushes cleanly and calls nothing", function()
   local q = newQueue()
   local api = fakeApi()
@@ -990,6 +1009,51 @@ check("a removal no longer in the library finishes quietly", function()
   eq(q:flush(api, { user_id = 1 }), true, "flush result")
   eq(removed, 0, "nothing to delete")
   eq(#q:keys(), 0, "nothing left")
+end)
+
+check("a finished removal clears the saved snapshot and the shelf marker", function()
+  local q = removalQueue(7, 70)
+  local api = fakeApi()
+  api.findUserBookForRemoval = function() return removalRecord() end
+  api.removeUserBook = function(_, id) return { id = id } end
+  local cleared, removed = {}, {}
+  local settings = { clearBookSnapshotsFor = function(_, book_id) cleared[#cleared + 1] = book_id end }
+  eq(q:flush(api, { user_id = 1, settings = settings,
+    on_removed = function(op) removed[#removed + 1] = op end }), true)
+  eq(cleared[1], 7, "the file still has the removed book's snapshot")
+  eq(#removed, 1, "the shelf was not told the removal is done")
+  eq(removed[1].kind, "remove", "the wrong callback was used")
+  eq(removed[1].book_id, 7, "the wrong book's marker was cleared")
+
+  local q2 = removalQueue(7, 70)
+  local api2 = fakeApi()
+  api2.findUserBookForRemoval = function() return nil end
+  local cleared2 = {}
+  eq(q2:flush(api2, { user_id = 1,
+    settings = { clearBookSnapshotsFor = function(_, book_id) cleared2[#cleared2 + 1] = book_id end } }), true)
+  eq(cleared2[1], 7, "an already-gone removal left the stale snapshot")
+end)
+
+check("a removal that asks a question leaves the snapshot alone", function()
+  local q = removalQueue(7, 70, removalBase({ rating = 4 }))
+  local api = fakeApi()
+  api.findUserBookForRemoval = function() return removalRecord({ rating = 5 }) end
+  local cleared = 0
+  local settings = { clearBookSnapshotsFor = function() cleared = cleared + 1 end }
+  eq(q:flush(api, { user_id = 1, settings = settings }), false)
+  eq(cleared, 0, "a kept book lost its saved snapshot")
+end)
+
+check("an answerless delete is marked, so putting the book back keeps its edition", function()
+  local q = removalQueue(7, 70)
+  local api = fakeApi()
+  api.findUserBookForRemoval = function() return removalRecord() end
+  api.removeUserBook = function() return nil, { completed = false } end
+  eq(q:flush(api, { user_id = 1 }), false)
+  eq(q:get(7).maybe_remote, true, "the possibly-landed delete was not remembered")
+  q:enqueueStatus("/books/a.epub", { user_id = 1, book_id = 7, status_id = HARDCOVER.STATUS.FINISHED,
+    edition_id = 9, from_status_id = HARDCOVER.STATUS.READING })
+  eq(q:shelfOp(7).edition_id, 9, "the restored book lost its linked edition")
 end)
 
 check("a book that gained work online keeps both the book and the removal", function()

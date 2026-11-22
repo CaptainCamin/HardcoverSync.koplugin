@@ -264,7 +264,11 @@ local SNAPSHOT_KEYS = {
   "privacy_setting_id",
   "started_at",
   "last_synced_page",
+  "read_edition_id",
 }
+-- Set only when a removal completed. A linked file with this marker has no Hardcover
+-- record yet; automatic status writes must not recreate the deleted book.
+local REMOVED_KEY = "hardcover_removed"
 
 function HardcoverSettings:saveBookSnapshot(filename, user_book)
   if not filename or not user_book or not user_book.id then
@@ -280,6 +284,7 @@ function HardcoverSettings:saveBookSnapshot(filename, user_book)
     read_id = current_read and current_read.id,
     started_at = current_read and current_read.started_at,
     last_synced_page = current_read and current_read.progress_pages,
+    read_edition_id = current_read and current_read.edition_id,
   }
   if user_book.edition_id then
     config.edition_id = user_book.edition_id
@@ -287,23 +292,108 @@ function HardcoverSettings:saveBookSnapshot(filename, user_book)
   -- a nil value is skipped by updateBookSetting, so name the keys to drop (a read or edition
   -- that is gone must not live on from the last snapshot)
   local delete = {}
-  for _, key in ipairs({ "read_id", "started_at", "last_synced_page", "edition_id" }) do
+  for _, key in ipairs({ "read_id", "started_at", "last_synced_page", "read_edition_id", "edition_id" }) do
+    if config[key] == nil then delete[#delete + 1] = key end
+  end
+  -- A confirmed library record means the file is no longer waiting after a removal.
+  delete[#delete + 1] = REMOVED_KEY
+  config._delete = delete
+  self:updateBookSetting(filename, config)
+  local book_id = user_book.book_id or self:readBookSetting(filename, "book_id")
+  if book_id then self:clearRemovedMarkersFor(book_id) end
+end
+
+-- Restore the library status of a confirmed re-add without touching the file's
+-- linked edition or page count: a details shelf choice can name a different edition.
+function HardcoverSettings:saveShelfSnapshot(filename, user_book)
+  if not filename or not user_book or not user_book.id then return end
+  local reads = user_book.user_book_reads
+  local current_read = Book:currentRead(reads)
+  local config = {
+    user_book_id = user_book.id,
+    status_id = user_book.status_id,
+    privacy_setting_id = user_book.privacy_setting_id,
+    read_id = current_read and current_read.id,
+    started_at = current_read and current_read.started_at,
+    last_synced_page = current_read and current_read.progress_pages,
+    read_edition_id = current_read and current_read.edition_id,
+  }
+  local delete = {}
+  for _, key in ipairs({ "status_id", "read_id", "started_at", "last_synced_page", "read_edition_id" }) do
     if config[key] == nil then delete[#delete + 1] = key end
   end
   if #delete > 0 then config._delete = delete end
   self:updateBookSetting(filename, config)
+  self:clearRemovedMarkersFor(user_book.book_id or self:readBookSetting(filename, "book_id"))
 end
 
-function HardcoverSettings:clearBookSnapshot(filename)
+function HardcoverSettings:clearBookSnapshot(filename, removed_book_id)
   if not filename then
     return
   end
-  self:updateBookSetting(filename, { _delete = SNAPSHOT_KEYS })
+  local delete = {}
+  for i, key in ipairs(SNAPSHOT_KEYS) do delete[i] = key end
+  if not removed_book_id then delete[#delete + 1] = REMOVED_KEY end
+  local config = { _delete = delete }
+  if removed_book_id then config[REMOVED_KEY] = removed_book_id end
+  self:updateBookSetting(filename, config)
+end
+
+-- A completed removal must also clear the saved record of every file linked to that
+-- book: reopening one offline would otherwise hydrate the old shelf and read, and the
+-- next progress write would put the deleted book back. Link keys stay untouched.
+function HardcoverSettings:clearBookSnapshotsFor(book_id)
+  if not book_id then return end
+  local books = self.settings:readSetting(SETTING.BOOKS)
+  if type(books) ~= "table" then return end
+  local files = {}
+  for file, config in pairs(books) do
+    if type(config) == "table" and tostring(config.book_id) == tostring(book_id) then
+      files[#files + 1] = file
+    end
+  end
+  for _, file in ipairs(files) do self:clearBookSnapshot(file, book_id) end
+end
+
+-- A catalog book can be linked to several files: restore the confirmed shelf state
+-- on every copy, while each file keeps its own edition and page count.
+function HardcoverSettings:saveShelfSnapshotsFor(book_id, user_book)
+  if not book_id then return end
+  local books = self.settings:readSetting(SETTING.BOOKS)
+  if type(books) ~= "table" then return end
+  for file, config in pairs(books) do
+    if type(config) == "table" and tostring(config.book_id) == tostring(book_id) then
+      self:saveShelfSnapshot(file, user_book)
+    end
+  end
+end
+
+-- The marker describes one catalog book. If a file was unlinked or relinked, it does
+-- not apply to the new book any more.
+function HardcoverSettings:clearRemovedMarkersFor(book_id)
+  if not book_id then return end
+  local books = self.settings:readSetting(SETTING.BOOKS)
+  if type(books) ~= "table" then return end
+  local files = {}
+  for file, config in pairs(books) do
+    if type(config) == "table" and tostring(config.book_id) == tostring(book_id)
+        and config[REMOVED_KEY] ~= nil then
+      files[#files + 1] = file
+    end
+  end
+  for _, file in ipairs(files) do self:updateBookSetting(file, { _delete = { REMOVED_KEY } }) end
+end
+
+function HardcoverSettings:readRemovedMarker(filename)
+  local marked = self:readBookSetting(filename, REMOVED_KEY)
+  if marked == nil then return false end
+  local book_id = self:readBookSetting(filename, "book_id")
+  return book_id ~= nil and tostring(marked) == tostring(book_id)
 end
 
 function HardcoverSettings:bookStatusFromSnapshot(filename)
   local settings = self:readBookSettings(filename)
-  if not settings or not settings.user_book_id then
+  if not settings or not settings.user_book_id or settings[REMOVED_KEY] then
     return nil
   end
 
@@ -319,12 +409,17 @@ function HardcoverSettings:bookStatusFromSnapshot(filename)
   }
 
   if settings.read_id or settings.last_synced_page or settings.started_at then
+    local read_edition = settings.read_edition_id or settings.edition_id
     book_status.user_book_reads = { {
       id = settings.read_id,
       started_at = settings.started_at,
       progress_pages = settings.last_synced_page,
-      edition_id = settings.edition_id,
+      edition_id = read_edition,
     } }
+    -- The confirmed read may belong to another edition with a different page count.
+    -- Keep it for conflict checks, but do not map this file's pages into it.
+    book_status.page_tracking = read_edition == nil or settings.edition_id == nil
+      or tostring(read_edition) == tostring(settings.edition_id)
   end
 
   return book_status

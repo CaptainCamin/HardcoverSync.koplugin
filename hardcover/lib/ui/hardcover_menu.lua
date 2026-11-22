@@ -1361,18 +1361,67 @@ function HardcoverMenu:showEndPage()
   return page
 end
 
+-- Removing from the reader's Status list deletes the same library record as the details
+-- screen's Remove, so it takes the same route: kept with a conflict baseline when offline,
+-- withdrawn immediately when the answer says it is gone.
 function HardcoverMenu:removeCurrentRead(menu_instance)
-  Background.run(function()
-    local result = Api:removeRead(self.state.book_status.id)
-    if result and result.id then
-      -- the book is off the shelf: a queued page or status must not put it back
-      if self.sync_queue and self.ui and self.ui.document then
-        self.sync_queue:clear(self.ui.document.file)
-      end
-      self.state.book_status = {}
-      menu_instance:updateItems()
+  local manager = self.dialog_manager
+  if not manager or not manager.removeBook then return end
+  local status = self.state.book_status or {}
+  local status_id = self:bookShelfStatus() or status.status_id
+  local book_id = self.settings:getLinkedBookId()
+  local title = self.settings:getLinkedTitle()
+    or (self.ui and self.ui.doc_props and self.ui.doc_props.display_title)
+    or _("This book")
+  local detail = {
+    book = { book_id = book_id, title = title },
+    status_id = status_id,
+    user_book_id = status.id,
+    user_rating = status.rating,
+    user_review = status.review_raw,
+    review_spoilers = status.review_has_spoilers,
+    review_known = status.review_known,
+  }
+  -- The reader's rating can be a draft awaiting sync. Compare a removal against the
+  -- rating Hardcover had before that draft, so a matching server-side change is still
+  -- seen as work the reader never asked to delete.
+  local rating_op
+  if self.rating_queue then
+    local _key, op = self.rating_queue:bookOpKey(status.id, book_id, User:getId())
+    rating_op = op
+  end
+  if rating_op then
+    if type(rating_op.base) == "table" and rating_op.base.known then
+      detail.user_rating = rating_op.base.rating
+      detail.rating_known = true
+    else
+      detail.user_rating = nil
+      detail.rating_known = false
     end
-  end)
+  end
+  if manager.withPending then detail = manager:withPending(detail) end
+
+  local function removed()
+    -- the book is off the shelf: a queued page or status must not put it back
+    self.state.book_status = {}
+    if menu_instance and menu_instance.updateItems then menu_instance:updateItems() end
+    local panel = self.reader_panel
+    if panel and UIManager:isWidgetShown(panel) then panel:render() end
+  end
+
+  manager:removeBook(detail, {
+    on_queued = function(outcome, abandon_waiting, lost_answer)
+      removed()
+      manager:removalNotice(outcome, abandon_waiting, lost_answer)
+    end,
+    on_failed = function(err, retry)
+      StatusDialogs.retry(err, _("Removing from your library"), retry, function() end)
+    end,
+    on_removed = function()
+      removed()
+      StatusDialogs.info(_("Removed from your library."), 2)
+    end,
+  })
 end
 
 -- Put a paused book back on Currently Reading. Asks first.
@@ -1434,6 +1483,11 @@ function HardcoverMenu:startReread(restart)
       settings = self.settings,
       current_file = file,
       state = self.state,
+      on_removed = function(op)
+        if self.dialog_manager and self.dialog_manager.removalSent then
+          self.dialog_manager:removalSent(op)
+        end
+      end,
     })
     if self.sync_queue:hasPending(file) then
       StatusDialogs.error(_("Could not start the new read. It is saved and will be sent again."), 3)

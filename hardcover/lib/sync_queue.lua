@@ -296,7 +296,8 @@ function SyncQueue:enqueuePage(filepath, payload)
   -- An abandon is a barrier: a page turned after it must not be sent to the read it removes.
   if entry.abandon_barrier or Actions.hasAbandon(entry) then return entry end
   local at = os.time()
-  Actions.page(entry, payload.mapped_page, at, entry.reread, payload.force_page)
+  Actions.page(entry, payload.mapped_page, at, entry.reread, payload.force_page,
+    payload.edition_id, payload.pages)
   entry.first_page_date = entry.first_page_date or os.date("%Y-%m-%d", at)
   entry.failures = nil
   -- Reading on does not answer a conflict: the unsafe change stays parked, and this page waits
@@ -383,6 +384,21 @@ end
 function SyncQueue:readActions(book_id)
   local entry = self:get(book_id)
   return entry and Actions.readActions(entry) or {}
+end
+
+-- Has the reader already queued a move of this read to the edition this file now
+-- uses? Its pages will be in the destination edition's units, not the old one's.
+function SyncQueue:pendingEditionMove(ref, read_id, edition_id)
+  local entry = self:get(ref)
+  if not entry then return false end
+  for _, action in ipairs(Actions.list(entry)) do
+    if action.kind == "read_edition" and read_id ~= nil
+        and tostring(action.read_id) == tostring(read_id)
+        and tostring(action.target_edition_id) == tostring(edition_id) then
+      return true
+    end
+  end
+  return false
 end
 
 -- Cancel one unsent read edit. An edit whose request may already have landed (`checking`) is
@@ -505,7 +521,7 @@ function SyncQueue:startReread(filepath, payload)
   start.from_page = true
   entry.read_id, entry.started_at = nil, nil
   entry.first_page_date = os.date("%Y-%m-%d", at)
-  Actions.page(entry, payload.mapped_page or 0, at, true)
+  Actions.page(entry, payload.mapped_page or 0, at, true, nil, payload.edition_id, payload.pages)
   -- a reread does not answer an unresolved conflict either: it waits with the rest
   entry.failures = nil
   self:persist()
@@ -548,9 +564,12 @@ function SyncQueue:enqueueStatus(filepath, payload)
   local entry = self:_ensure(filepath, payload)
   if not entry then return nil end
   if entry.abandon_barrier then return nil, "abandon" end
-  -- back from a waiting removal: the record is still there, so this is not a book new to the library
+  -- Back from a waiting removal. If that delete may have landed, keep the edition
+  -- supplied here: the replay may have to recreate the record from this status.
+  -- A removal that was only kept offline still has its original record.
   if before and before.remove then
-    entry.remove, entry.remove_at, entry.edition_id = nil, nil, nil
+    entry.remove, entry.remove_at = nil, nil
+    if not before.maybe_remote then entry.edition_id = nil end
     entry.remove_seq, entry.remove_base, entry.remove_force = nil, nil, nil
     -- putting the book back is an answer to a removal question too
     if entry.conflict and entry.conflict.kind == "remove" then entry.conflict = nil end
@@ -1054,6 +1073,22 @@ function SyncQueue:resolveRead(key, seq, choice)
           if action.change then action.change.progress_pages = nil end
           action.target_page = nil
           action.target_edition_id = nil
+          -- Pages recorded after a queued move are in that proposed edition's
+          -- units. Without the move they would overwrite Hardcover's progress
+          -- with numbers for a different edition, so drop those unstarted pages.
+          -- Only the current read's move changes the linked edition those pages use;
+          -- a past read's rejected move leaves them in the kept edition's units.
+          if action.current then
+            local move_seq = action.seq
+            local actions = Actions.list(entry)
+            for i = #actions, 1, -1 do
+              local later = actions[i]
+              if later.kind == "page" and later.seq > move_seq and not Actions.started(later) then
+                table.remove(actions, i)
+              end
+            end
+            Actions.refresh(entry)
+          end
           restoreLink()
         end
         if field.field == "progress_pages" then action.target_page = nil end
@@ -1341,7 +1376,9 @@ function SyncQueue:resolve(filepath, choice)
     end
     -- the place to resume is a file's: the one asked about, else the one read last
     local file = type(entry.files) == "table" and entry.files[filepath] and filepath or entry.file or filepath
-    resume[file] = entry.conflict.cloud_page
+    if not entry.conflict.edition_changed then
+      resume[file] = entry.conflict.cloud_page
+    end
     self.settings:saveSetting("resume", resume)
   elseif kind == "page" and choice == "local" then
     for _, action in ipairs(Actions.list(entry)) do
@@ -1522,6 +1559,19 @@ local function findUserBook(api, book_id, opts, prefetched)
   return api:findUserBook(book_id, opts.user_id)
 end
 
+local function removalSent(opts, op, result)
+  if type(opts) == "table" and type(opts.on_removed) == "function" then
+    opts.on_removed(op, result)
+  end
+end
+
+local function clearRemovedSnapshots(opts, book_id)
+  local settings = type(opts) == "table" and opts.settings
+  if type(settings) == "table" and type(settings.clearBookSnapshotsFor) == "function" then
+    settings:clearBookSnapshotsFor(book_id)
+  end
+end
+
 -- A removal needs what a delete would take with it (rating, review and reads), which the
 -- ordinary lookup does not ask for. Older API doubles keep working through findUserBook.
 local function findRemovalRecord(api, book_id, opts)
@@ -1538,6 +1588,7 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
   end
 
   local files = entry.files or {}
+  local completed_here = false
   local book_id = entry.book_id
   local edition_id = entry.edition_id
   local privacy_setting_id = entry.privacy_setting_id
@@ -1567,6 +1618,8 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
       if now == entry then
         local op = SyncQueue.opOf(entry)
         self:_drop(filepath)
+        clearRemovedSnapshots(opts, book_id)
+        removalSent(opts, op, current)
         self:persist()
         if opts.on_status_sent and not entry.file then opts.on_status_sent(op, current) end
       end
@@ -1589,13 +1642,23 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
     end
 
     local removed, err = api:removeUserBook(current.id)
-    if not removed then return failed(self, filepath, err) end
+    if not removed then
+      -- A missing answer may still have deleted the record. Remember that on the
+      -- queue so putting the book back keeps its edition for a possible re-insert.
+      if OfflineQueue.transient(err) and self:get(filepath) == entry then
+        entry.maybe_remote = true
+        self:persist()
+      end
+      return failed(self, filepath, err)
+    end
     self.last_flush_sent = true
     -- a status made while this was out is what is left to send
     local now = self:get(filepath)
     if now == entry and entry.remove then
       local op = SyncQueue.opOf(entry)
       self:_drop(filepath)
+      clearRemovedSnapshots(opts, book_id)
+      removalSent(opts, op, removed)
       self:persist()
       if opts.on_status_sent and not entry.file then opts.on_status_sent(op, removed) end
     end
@@ -1614,6 +1677,40 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
   local info = {
     book_id = book_id, edition_id = edition_id, privacy_setting_id = privacy_setting_id,
   }
+
+  local edition_page_counts = {}
+  local function targetPageCount(edition_id, read)
+    edition_id = tonumber(edition_id)
+    if not edition_id then return nil end
+    if edition_page_counts[edition_id] ~= nil then
+      return edition_page_counts[edition_id] or nil
+    end
+    if read and type(read.edition) == "table" then
+      local pages = tonumber(read.edition.pages)
+      edition_page_counts[edition_id] = pages or false
+      return pages
+    end
+    if type(api.hydrateBookFromEdition) ~= "function" then return nil end
+    local ok, edition, err = pcall(function()
+      return api:hydrateBookFromEdition(edition_id, opts.user_id or entry.user_id)
+    end)
+    local transient = err ~= nil and (OfflineQueue.transient(err)
+      or (type(err) == "table" and err.status == 200 and err.errors == nil))
+    if not ok or transient then
+      return nil, true
+    end
+    if err ~= nil or type(edition) ~= "table" then return nil end
+    local pages = tonumber(edition.pages)
+    edition_page_counts[edition_id] = pages or false
+    return pages
+  end
+
+  local function convertPage(page, from_pages, to_pages)
+    page, from_pages, to_pages = tonumber(page), tonumber(from_pages), tonumber(to_pages)
+    if page == 0 then return 0 end
+    if not (page and from_pages and to_pages and from_pages > 0 and to_pages > 0) then return nil end
+    return math.max(1, math.min(to_pages, math.floor((page / from_pages) * to_pages)))
+  end
 
   for i, op in ipairs(ops) do
     -- A cancellation, removal or replacement while the network yielded must stop this stream.
@@ -1644,7 +1741,10 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
             if op.kind == "abandon_reread" then
               entry.abandon_barrier = Actions.hasAbandon(entry) or nil
             end
-            if self:isEmpty(entry) then self:_drop(filepath) end
+            if self:isEmpty(entry) then
+              self:_drop(filepath)
+              completed_here = true
+            end
             self:persist()
             if opts.on_read_sent then opts.on_read_sent(entry.book_id, detail, op) end
           end
@@ -1741,6 +1841,30 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
           return false, "conflict"
         end
 
+        local page_edition_changed = false
+        local send_edition
+        if current_read and current_read.id then
+          send_edition = current_read.edition_id or edition_id
+        else
+          send_edition = edition_id or user_book.edition_id
+        end
+        if op.edition_id and send_edition and tonumber(op.edition_id) ~= tonumber(send_edition) then
+          local target_pages, transient = targetPageCount(send_edition, current_read)
+          if transient then return false, "transient" end
+          local converted = convertPage(op.value, op.pages, target_pages)
+          if converted then
+            page_edition_changed = true
+            op.value, op.edition_id, op.pages = converted, tonumber(send_edition), target_pages
+          else
+            entry.conflict = { kind = "page", local_page = op.value, cloud_page = nil, seq = op.seq,
+              edition_mismatch = true, local_edition_id = tonumber(op.edition_id),
+              cloud_edition_id = tonumber(send_edition), local_pages = tonumber(op.pages),
+              cloud_pages = target_pages }
+            self:persist()
+            return false, "conflict"
+          end
+        end
+
         -- The cloud is further along (read on another device). Far ahead: ask.
         -- Slightly ahead: it wins quietly. Never take the server backwards
         -- unless the user said to.
@@ -1754,7 +1878,8 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
             if ops[j].value >= server_page then caught_up = true end
           end
           if not caught_up and server_page - op.value >= SyncQueue.CONFLICT_PAGES then
-            entry.conflict = { kind = "page", local_page = op.value, cloud_page = server_page, seq = op.seq }
+            entry.conflict = { kind = "page", local_page = op.value, cloud_page = server_page,
+              seq = op.seq, edition_changed = page_edition_changed or nil }
             self:persist()
             return false, "conflict"
           end
@@ -1856,14 +1981,19 @@ function SyncQueue:_flushEntry(api, filepath, opts, prefetched)
       if self:get(filepath) == entry and not entry.remove then
         entry.user_book_id = user_book.id
         Actions.ack(entry, op.seq)
-        if self:isEmpty(entry) then self:_drop(filepath) end
+        if self:isEmpty(entry) then
+          self:_drop(filepath)
+          completed_here = true
+        end
         self:persist()
       end
       end
     end
   end
 
-  if self:isEmpty(self:get(filepath)) then
+  -- An empty queue is not enough: another operation may have cleared the entry while
+  -- this request was out, and the saved snapshot must not resurrect a removed book.
+  if completed_here then
     if opts.settings and opts.settings.saveBookSnapshot then
       for file in pairs(files) do opts.settings:saveBookSnapshot(file, user_book) end
     end

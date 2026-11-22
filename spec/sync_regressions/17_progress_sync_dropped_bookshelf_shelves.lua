@@ -66,4 +66,66 @@ KB.check("clearing a saved status is a change, clearing none is not", function()
   KB.eq(changes[3], false, "clearing nothing was reported")
 end)
 
+KB.check("clearing a removed book keeps every other link on its files", function()
+  local settings, _ = watch()
+  local other = "/books/other.epub"
+  settings:updateBookSetting(FILE, { book_id = 7, edition_id = 3, sync = true })
+  settings:updateBookSetting(other, { book_id = 8, edition_id = 4, sync = true })
+  settings:saveBookSnapshot(FILE, { id = 70, edition_id = 3, status_id = 2,
+    user_book_reads = { { id = 9, progress_pages = 12 } } })
+  settings:saveBookSnapshot(other, { id = 80, edition_id = 4, status_id = 3, user_book_reads = {} })
+
+  settings:clearBookSnapshotsFor(7)
+  KB.eq(settings:bookStatusFromSnapshot(FILE), nil, "the removed book's snapshot survived")
+  KB.eq(settings:readRemovedMarker(FILE), true, "an offline reopen could treat the book as unknown")
+  KB.eq(settings:readBookSetting(FILE, "book_id"), 7, "the link was cleared with the snapshot")
+  KB.eq(settings:readBookSetting(FILE, "edition_id"), 3, "the linked edition was cleared")
+  KB.eq(settings:readBookSetting(other, "book_id"), 8, "another book's link changed")
+  KB.eq(settings:bookStatusFromSnapshot(other).id, 80, "another book's snapshot was cleared")
+
+  -- The marker belongs to the book that was removed, not to whichever book a
+  -- later relink assigns to the file.
+  settings:updateBookSetting(FILE, { book_id = 99 })
+  KB.eq(settings:readRemovedMarker(FILE), false, "the marker followed a later relink")
+  settings:updateBookSetting(FILE, { book_id = 7 })
+  settings:clearRemovedMarkersFor(7)
+  KB.eq(settings:readRemovedMarker(FILE), false, "a confirmed re-add kept the marker")
+  KB.eq(settings:readBookSetting(FILE, "edition_id"), 3, "re-add lifted the linked edition")
+
+  -- The removal marker is set again before checking that a new record clears it.
+  settings:clearBookSnapshotsFor(7)
+  -- A new library record, online or replayed, lifts the block again.
+  settings:saveBookSnapshot(FILE, { id = 71, edition_id = 3, status_id = 2, user_book_reads = {} })
+  KB.eq(settings:readRemovedMarker(FILE), false, "a new record kept the removed marker")
+  KB.eq(settings:bookStatusFromSnapshot(FILE).id, 71, "the new record was not restored offline")
+
+  -- A re-add from the details screen restores tracking state without switching
+  -- the linked file to a different edition.
+  settings:clearBookSnapshotsFor(7)
+  settings:saveShelfSnapshot(FILE, { id = 72, book_id = 7, status_id = 3,
+    user_book_reads = { { id = 12, progress_pages = 4, started_at = "2026-11-19",
+      edition_id = 9 } } })
+  KB.eq(settings:readRemovedMarker(FILE), false, "the re-add kept the removal marker")
+  KB.eq(settings:bookStatusFromSnapshot(FILE).id, 72, "offline tracking has no restored status")
+  KB.eq(settings:bookStatusFromSnapshot(FILE).status_id, 3, "the re-added shelf was not saved")
+  KB.eq(settings:readBookSetting(FILE, "edition_id"), 3, "the re-add switched the linked edition")
+  KB.eq(settings:bookStatusFromSnapshot(FILE).user_book_reads[1].edition_id, 9,
+    "offline progress would rewrite the confirmed read's edition")
+
+  -- Another file links the same book but a different edition. It gets the library
+  -- record back, not the active read whose pages use another edition's scale.
+  local second = "/books/second.epub"
+  settings:updateBookSetting(second, { book_id = 7, edition_id = 4, sync = true })
+  settings:clearBookSnapshotsFor(7)
+  settings:saveShelfSnapshotsFor(7, { id = 73, book_id = 7, status_id = 3,
+    user_book_reads = { { id = 13, progress_pages = 4, edition_id = 3 } } })
+  local other_status = settings:bookStatusFromSnapshot(second)
+  KB.eq(other_status.id, 73, "the second copy did not get the library record")
+  KB.eq(other_status.status_id, 3, "the confirmed shelf status was dropped")
+  KB.eq(other_status.user_book_reads[1].edition_id, 3, "the confirmed read was dropped")
+  KB.eq(other_status.page_tracking, false, "the second copy would track pages in the wrong edition")
+  KB.eq(settings:readBookSetting(second, "edition_id"), 4, "the second copy lost its own edition")
+  KB.eq(settings:readRemovedMarker(second), false, "the second copy kept a removed marker")
+end)
+
 KB.finish("only a real status change may drop Bookshelf's shelves")

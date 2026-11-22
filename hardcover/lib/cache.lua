@@ -41,6 +41,12 @@ function Cache:hydrateBookStatus(filename)
 
   if self.sync_queue then
     book_status = self.sync_queue:applyPending(filename, book_status)
+    local read = Book:currentRead(book_status.user_book_reads)
+    if book_status.page_tracking == false and read and self.sync_queue.pendingEditionMove
+        and self.sync_queue:pendingEditionMove(filename, read.id, book_status.edition_id) then
+      -- The read will move to this file's edition before its queued pages replay.
+      book_status.page_tracking = true
+    end
   end
 
   self.state.book_status = book_status
@@ -94,9 +100,10 @@ function Cache:queueMeta(filename)
     user_id = User.settings and User.settings:readSetting(SETTING.USER_ID),
     title = self.settings:readBookSetting(filename, "title"),
     book_id = book_status.book_id or self.settings:readBookSetting(filename, "book_id"),
-    edition_id = (current_read and current_read.edition_id)
-      or book_status.edition_id
-      or self.settings:readBookSetting(filename, "edition_id"),
+    edition_id = self.settings:readBookSetting(filename, "edition_id")
+      or (current_read and current_read.edition_id)
+      or book_status.edition_id,
+    pages = tonumber(self.settings:readBookSetting(filename, "pages")),
     user_book_id = book_status.id,
     read_id = current_read and current_read.id,
     started_at = current_read and current_read.started_at,

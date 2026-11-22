@@ -528,6 +528,196 @@ check("keeping a book after a removal question puts it back on its saved shelf",
   assert(sync_queue:get(1) == nil, "the removal is still queued")
 end)
 
+check("the reader's Status remove keeps the same offline removal, with the conflict guard", function()
+  local m = newManager()
+  local HardcoverMenu = real_require("hardcover/lib/ui/hardcover_menu")
+  local menu = setmetatable({
+    enabled = true,
+    sync_queue = sync_queue,
+    dialog_manager = m,
+    settings = {
+      getLinkedBookId = function() return 1 end,
+      getLinkedTitle = function() return "Book 1" end,
+    },
+    state = { book_status = { id = 51, book_id = 1, status_id = 1, rating = 4,
+      user_book_reads = {} } },
+    ui = { document = { file = "/books/a.epub" }, doc_props = { display_title = "a.epub" } },
+  }, { __index = HardcoverMenu })
+  local updated = 0
+  local menu_instance = { updateItems = function() updated = updated + 1 end }
+
+  online = false
+  menu:removeCurrentRead(menu_instance)
+  assert(#calls == 0, "the reader's offline removal tried to send a delete")
+  local op = sync_queue:shelfOp(1)
+  assert(op and op.kind == "remove" and op.user_book_id == 51 and op.from_status_id == 1,
+    "the reader's removal was not kept in the shared queue")
+  assert(sync_queue:get(1).remove_base.status_id == 1
+    and sync_queue:get(1).remove_base.rating == 4,
+    "the reader's removal has no baseline for the conflict check")
+  assert(menu.state.book_status.id == nil and updated == 1, "the reader still shows the book")
+  assert(shelves:member(1, 1) == nil and countOf(m, 1) == 0, "the saved shelf did not follow")
+  assert(lastInfo():find("Offline"), "no visible acknowledgement: " .. lastInfo())
+
+  -- Hardcover gained a rating while the removal waited: ask before deleting it.
+  online = true
+  local api = serverApi()
+  function api:findUserBookForRemoval(book_id)
+    return { id = 51, book_id = book_id, status_id = 1, rating = 5,
+      has_review = false, user_book_reads = {} }
+  end
+  assert(not sync_queue:flush(api, { user_id = 1 }), "the changed record was deleted without asking")
+  local entry = sync_queue:get(1)
+  assert(entry and entry.conflict and entry.conflict.kind == "remove", "no removal conflict was raised")
+  assert(#server_calls == 0, "a delete was sent before the reader answered")
+
+  assert(sync_queue:resolve(1, "remove"), "the reader's answer was not applied")
+  assert(sync_queue:flush(api, { user_id = 1 }), "the answered removal was not sent")
+  assert(#server_calls == 1 and server_calls[1].name == "removeUserBook"
+    and server_calls[1].id == 51, "the changed record was not removed")
+  assert(sync_queue:count() == 0, "the sent removal is still queued")
+end)
+
+check("a book put back after a removal keeps its edition if the delete landed", function()
+  newManager()
+  sync_queue:queueRemove(1, 1, 51, "Book 1", 1, nil)
+  sync_queue:get(1).maybe_remote = true
+  sync_queue:persist()
+  sync_queue:enqueueStatus(1, { user_id = 1, book_id = 1, status_id = 3,
+    edition_id = 9, from_status_id = 1 })
+  local entry = sync_queue:shelfOp(1)
+  assert(entry.kind == "status" and entry.edition_id == 9,
+    "the status that replaced the removal lost the linked edition")
+
+  local api = serverApi()
+  function api:findUserBook() return nil end
+  assert(sync_queue:flush(api, { user_id = 1 }))
+  local inserted
+  for _, call in ipairs(server_calls) do
+    if call.name == "updateUserBook" then inserted = call end
+  end
+  assert(inserted and inserted.edition_id == 9, "the recreated record has no linked edition")
+end)
+
+check("a confirmed online removal clears the linked file's saved record", function()
+  local m = newManager()
+  local cleared
+  m.settings.clearBookSnapshotsFor = function(_, book_id) cleared = book_id end
+  local d = detailScreen(m, SHELVED())
+  tap(showing(function() m:chooseShelf(d) end), "Remove from library")
+  confirms[1].ok_callback()
+  remove_cb({ id = 51 })
+  assert(cleared == 1, "the saved snapshot would restore the deleted book")
+end)
+
+check("a completed offline removal lets a later re-add show on the shelf", function()
+  local m = newManager()
+  online = false
+  local d = detailScreen(m, SHELVED())
+  tap(showing(function() m:chooseShelf(d) end), "Remove from library")
+  confirms[1].ok_callback()
+  assert(shelves:member(1, 1) == nil, "the optimistic removal did not take")
+
+  online = true
+  local api = serverApi()
+  assert(sync_queue:flush(api, { user_id = 1, on_removed = function(op) m:removalSent(op) end }))
+  assert(sync_queue:count() == 0)
+  -- Hardcover gained the book again after the delete. A fresh shelf download must
+  -- be allowed to show it, not filtered out by the waiting-removal marker.
+  shelves:putMembers(1, 1, { { user_book_id = 52, book_id = 1 } }, true, nil)
+  assert(shelves:member(1, 1), "the re-added book is hidden by the old removal marker")
+end)
+
+check("a gateway failure keeps the removal, but a definite refusal still offers retry", function()
+  local m = newManager()
+  local d = detailScreen(m, SHELVED())
+  tap(showing(function() m:chooseShelf(d) end), "Remove from library")
+  confirms[1].ok_callback()
+  remove_cb(nil, { status = 502 })
+  local entry = sync_queue:get(1)
+  assert(entry and entry.remove and entry.maybe_remote,
+    "the uncertain delete was not kept: " .. tostring(entry and entry.remove) .. "/"
+    .. tostring(entry and entry.maybe_remote))
+  assert(#retries == 0, "an uncertain answer only offered a retry")
+  assert(lastInfo():find("no answer"), "no visible acknowledgement: " .. lastInfo())
+
+  m = newManager()
+  d = detailScreen(m, SHELVED())
+  tap(showing(function() m:chooseShelf(d) end), "Remove from library")
+  confirms[1].ok_callback()
+  remove_cb(nil, { errors = { { message = "permission denied" } }, status = 200 })
+  assert(#retries == 1 and sync_queue:count() == 0, "a definite refusal was queued instead of retried")
+end)
+
+check("a draft rating is not mistaken for Hardcover's rating in a reader removal", function()
+  local m = newManager()
+  local HardcoverMenu = real_require("hardcover/lib/ui/hardcover_menu")
+  rating_queue:queue(51, 5, "Book 1", 1, 1, { rating = 3, known = true })
+  local menu = setmetatable({
+    enabled = true,
+    sync_queue = sync_queue,
+    rating_queue = rating_queue,
+    dialog_manager = m,
+    settings = {
+      getLinkedBookId = function() return 1 end,
+      getLinkedTitle = function() return "Book 1" end,
+    },
+    -- the open book shows the draft, not the 3 stars Hardcover last had
+    state = { book_status = { id = 51, book_id = 1, status_id = 1, rating = 5,
+      user_book_reads = {} } },
+    ui = { document = { file = "/books/a.epub" }, doc_props = { display_title = "a.epub" } },
+  }, { __index = HardcoverMenu })
+
+  online = false
+  menu:removeCurrentRead({ updateItems = function() end })
+  local entry = sync_queue:get(1)
+  assert(entry and entry.remove, "the removal was not kept")
+  assert(entry.remove_base.rating == 3 and entry.remove_base.rating_known,
+    "the draft rating became the removal baseline: " .. tostring(entry.remove_base.rating))
+
+  -- an independent change to the same 5 stars must still be noticed
+  online = true
+  local api = serverApi()
+  function api:findUserBookForRemoval(book_id)
+    return { id = 51, book_id = book_id, status_id = 1, rating = 5,
+      has_review = false, user_book_reads = {} }
+  end
+  assert(not sync_queue:flush(api, { user_id = 1 }), "the unseen rating was deleted silently")
+  local asked = sync_queue:get(1).conflict
+  assert(asked and asked.kind == "remove", "no conflict was raised for the unseen rating")
+  assert(#server_calls == 0, "the record was deleted before the reader answered")
+end)
+
+check("an unanswered details removal is kept and still asks before deleting", function()
+  local m = newManager()
+  local d = detailScreen(m, SHELVED())
+  tap(showing(function() m:chooseShelf(d) end), "Remove from library")
+  confirms[1].ok_callback()
+  assert(remove_cb and #calls == 1, "no delete was attempted")
+  remove_cb(nil, { completed = false })
+
+  local op = sync_queue:shelfOp(1)
+  assert(op and op.kind == "remove" and sync_queue:get(1).remove_base.rating == 4,
+    "the answerless removal was not kept with a baseline")
+  assert(#retries == 0, "the lost answer only offered a retry")
+  assert(d.detail.status_id == nil and shelves:member(1, 1) == nil,
+    "the screen or shelf kept the removed book")
+  assert(lastInfo():find("no answer"), "no visible acknowledgement: " .. lastInfo())
+
+  local api = serverApi()
+  function api:findUserBookForRemoval(book_id)
+    return { id = 51, book_id = book_id, status_id = 1, rating = 5,
+      has_review = false, user_book_reads = {} }
+  end
+  assert(not sync_queue:flush(api, { user_id = 1 }), "the changed record was deleted without asking")
+  assert(sync_queue:get(1).conflict.kind == "remove", "no removal conflict was raised")
+  assert(#server_calls == 0, "a delete was sent before the reader answered")
+  assert(sync_queue:resolve(1, "remove"), "the reader's answer was not applied")
+  assert(sync_queue:flush(api, { user_id = 1 }))
+  assert(#server_calls == 1 and server_calls[1].name == "removeUserBook")
+  assert(sync_queue:count() == 0, "the sent removal is still queued")
+end)
+
 check("a removal baseline uses Hardcover's values, not the reader's queued edits", function()
   local m = newManager()
   online = false

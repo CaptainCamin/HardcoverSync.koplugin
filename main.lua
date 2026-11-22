@@ -537,6 +537,11 @@ end
 
 -- What a page turn does to the book, from what the device knows (see BookActions.pageWrite).
 function HardcoverApp:pageWriteDecision(filename)
+  -- A confirmed read can belong to another linked edition. Its pages cannot be
+  -- mapped from this file's page count, so do not write progress to that read.
+  if self.state.book_status and self.state.book_status.page_tracking == false then
+    return "block"
+  end
   return BookActions.pageWrite(self:effectiveStatusId(filename))
 end
 
@@ -1155,6 +1160,7 @@ function HardcoverApp:offerJumpToCloudPage()
 
   local status = self.state.book_status
   if not (status and status.id and status.status_id == HARDCOVER.STATUS.READING) then return end
+  if status.page_tracking == false then return end
   local reads = status.user_book_reads
   local read = Book:currentRead(reads)
   local cloud_page = read and tonumber(read.progress_pages)
@@ -1339,6 +1345,9 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
           on_status_sent = function(op, user_book)
             self.dialog_manager:shelfSent(op, user_book)
           end,
+          on_removed = function(op)
+            self.dialog_manager:removalSent(op)
+          end,
           on_read_sent = function(book_id, user_book, op)
             self.dialog_manager:readSent(book_id, user_book, op)
           end,
@@ -1411,12 +1420,48 @@ function HardcoverApp:flushSyncQueue(use_wifi, callback)
   end
 end
 
+-- A removal that appeared since the earlier check (the page write can yield) still owns
+-- this book's shelf. An explicit Mark as Read is the reader putting it back; an abandon
+-- decision has to be answered before any status write can take effect.
+local function removalBlocksFinish(self, opts, file_path)
+  local settings = self.settings
+  local book_id = file_path and settings and settings.readBookSetting
+    and settings:readBookSetting(file_path, "book_id")
+  if not book_id and settings and settings.getLinkedBookId then
+    book_id = settings:getLinkedBookId()
+  end
+  local pending = book_id and self.sync_queue and self.sync_queue:shelfOp(book_id, User:getId())
+
+  -- A waiting removal still wins over an automatic finish.
+  if pending and pending.kind == "remove" then
+    local entry = self.sync_queue:get(book_id)
+    return not (opts and opts.explicit) or (entry and entry.abandon_barrier) or false
+  end
+
+  -- A completed removal leaves a marker for that book. An offline reopen has no
+  -- Hardcover record to restore: a passive check of KOReader's older Finished flag
+  -- must not turn a queued re-add into Read. Only an explicit choice does.
+  if opts and opts.explicit then return false end
+  return file_path and settings and settings.readRemovedMarker
+    and settings:readRemovedMarker(file_path) or false
+end
+
 -- Write Read for a book that has ended, if the book's status allows it (see BookActions.statusWrite).
 -- Decided when the write would happen, not when the book was opened: the status can change in the
 -- time between. Every trigger comes through here, so a second one finds the first one's write
 -- already counted (the effective status includes a change still waiting in the queue) and does nothing.
 -- Returns true when Read was written or queued.
-function HardcoverApp:markFinished(file_path, event)
+function HardcoverApp:markFinished(file_path, event, opts)
+  -- Automatically finishing a book the reader asked to remove must not turn that
+  -- queued removal back into a Read. An explicit "Mark as Read" still counts as
+  -- putting the book back, so it keeps its normal path and acknowledgement.
+  if removalBlocksFinish(self, opts, file_path) then
+    if opts and opts.explicit then
+      StatusDialogs.info(_("Resolve the reread decision in Pending changes before marking as Read."), 4)
+    end
+    return false
+  end
+
   local decision = BookActions.statusWrite(self:effectiveStatusId(file_path), event)
   if decision == "ask" then
     self:askDidNotFinish(file_path)
@@ -1426,17 +1471,20 @@ function HardcoverApp:markFinished(file_path, event)
     return false
   end
   Background.run(function()
-    self:finishBook(file_path)
+    self:finishBook(file_path, opts)
   end)
   return true
 end
 
 -- Once the book is Finished page writes are blocked, so the page the reader ended on goes
 -- first (offline the queue also sends the page before the status).
-function HardcoverApp:finishBook(file_path)
+function HardcoverApp:finishBook(file_path, opts)
   if self.ui.document and self.ui.document.file == file_path and self:pageWriteDecision(file_path) == "allow" then
     self:updatePageNowForced(file_path)
   end
+  -- The page write can yield: a removal made in that time still wins over an
+  -- unprompted finish. An explicit Mark as Read keeps its normal path.
+  if removalBlocksFinish(self, opts, file_path) then return end
   self.cache:updateBookStatus(file_path, HARDCOVER.STATUS.FINISHED)
 end
 
@@ -1445,8 +1493,8 @@ local function statusSavedMessage()
   return _("You're offline. Your status is kept and will be sent when you're connected.")
 end
 
-function HardcoverApp:markFinishedAndSay(file_path, event)
-  if self:markFinished(file_path, event) then
+function HardcoverApp:markFinishedAndSay(file_path, event, opts)
+  if self:markFinished(file_path, event, opts) then
     StatusDialogs.info(statusSavedMessage(), 2)
     return true
   end
@@ -1455,11 +1503,11 @@ end
 
 -- The reader marked this book Finished in KOReader (its pop-up, or the book-status screen): write it.
 -- Read from the open book's settings, which hold the answer as soon as it is given.
-function HardcoverApp:markIfMarkedFinished(file_path)
+function HardcoverApp:markIfMarkedFinished(file_path, opts)
   local doc_settings = self.ui and self.ui.doc_settings
   local summary = doc_settings and doc_settings:readSetting("summary")
   if summary and summary.status == "complete" and self:syncFileUpdates(file_path) then
-    return self:markFinishedAndSay(file_path, "end_chosen")
+    return self:markFinishedAndSay(file_path, "end_chosen", opts)
   end
   return false
 end
@@ -1478,7 +1526,12 @@ function HardcoverApp:onEndOfBook()
   if plan == "mark" then
     self:markFinishedAndSay(file_path, "end_auto")
   elseif plan == "check_later" then
-    -- Wait until KOReader's dialog is gone before reading its answer or asking ours.
+    -- Capture the switch before KOReader's dialog can change it. A quick dismissal
+    -- must not turn an already finished book into a fresh explicit choice.
+    local doc_settings = self.ui and self.ui.doc_settings
+    local summary = doc_settings and doc_settings:readSetting("summary")
+    self.state.end_menu_status = self.state.end_menu_status or {}
+    self.state.end_menu_status[file_path] = summary and summary.status
     UIManager:unschedule(self.checkEndMenu)
     UIManager:scheduleIn(1, self.checkEndMenu, self)
   end
@@ -1497,6 +1550,13 @@ function HardcoverApp:onHardcoverStatusScreenClosed()
   if file_path then self:markIfMarkedFinished(file_path) end
 end
 
+-- A fresh Finished choice in KOReader's status screen is as deliberate as the
+-- plugin's own "Mark as Read" button: it may replace a completed removal.
+function HardcoverApp:onHardcoverStatusScreenFinished()
+  local file_path = self.ui and self.ui.document and self.ui.document.file
+  if file_path then self:markIfMarkedFinished(file_path, { explicit = true }) end
+end
+
 function HardcoverApp:checkLastPage(page)
   local document = self.ui and self.ui.document
   if not document then return end
@@ -1512,13 +1572,28 @@ end
 function HardcoverApp:checkEndMenu()
   local document = self.ui and self.ui.document
   if not document then return end
+  local doc_settings = self.ui and self.ui.doc_settings
+  local function bookStatus()
+    local summary = doc_settings and doc_settings:readSetting("summary")
+    return summary and summary.status
+  end
   for _, window in ipairs(UIManager._window_stack or {}) do
     if window.widget.name == "end_document" then
+      -- Remember the switch before KOReader's end menu changed it: a fresh
+      -- "finished" answer is explicit, a leftover one is not.
+      self.state.end_menu_status = self.state.end_menu_status or {}
+      if self.state.end_menu_status[document.file] == nil then
+        self.state.end_menu_status[document.file] = bookStatus()
+      end
       UIManager:scheduleIn(1, self.checkEndMenu, self)
       return
     end
   end
-  if self:markIfMarkedFinished(document.file) then return end
+  local before = self.state.end_menu_status and self.state.end_menu_status[document.file]
+  if self.state.end_menu_status then self.state.end_menu_status[document.file] = nil end
+  local status = bookStatus()
+  local explicit = before ~= nil and status == "complete" and before ~= "complete"
+  if self:markIfMarkedFinished(document.file, explicit and { explicit = true } or nil) then return end
   local page = self.ui:getCurrentPage()
   if EndOfBook.atLastPage(page, document:getPageCount())
     and EndOfBook.promptOnLastPage(self.settings:endPrompt(), G_reader_settings:readSetting("end_document_action")) then
@@ -1543,7 +1618,7 @@ function HardcoverApp:askAtLastPage(file_path)
     text = _("Mark this book as Read on Hardcover?"),
     ok_text = _("Mark as Read"),
     cancel_text = _("Not yet"),
-    ok_callback = function() self:markFinishedAndSay(file_path, "end_chosen") end,
+    ok_callback = function() self:markFinishedAndSay(file_path, "end_chosen", { explicit = true }) end,
   }
 end
 
@@ -1560,12 +1635,9 @@ function HardcoverApp:askDidNotFinish(file_path)
     text = _("Hardcover has this as Did not finish. Mark it as Read?"),
     cancel_text = _("Keep as Did not finish"),
     ok_text = _("Mark as Read"),
-    ok_callback = function()
-      Background.run(function()
-        self:finishBook(file_path)
-      end)
-      StatusDialogs.info(statusSavedMessage(), 2)
-    end,
+    -- the same explicit choice as the last-page prompt: a waiting removal may
+    -- be replaced, but a reread decision must be reported instead of ignored.
+    ok_callback = function() self:markFinishedAndSay(file_path, "end_chosen", { explicit = true }) end,
   }
 end
 

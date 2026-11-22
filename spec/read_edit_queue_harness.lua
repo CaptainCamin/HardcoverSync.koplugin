@@ -1327,12 +1327,157 @@ check("keeping Hardcover's edition reports the link to restore", function()
     change = { edition_id = 8, progress_pages = 200 } })
   row.edition_id = 9 -- changed on another device
   assert(q:flush(api, { user_id = 1 }) == false)
+  -- A page read after the proposed move is in its units, not in the edition
+  -- Hardcover will keep.
+  q:enqueuePage("/books/7.epub", { book_id = 7, mapped_page = 240, edition_id = 8 })
   local saved, outcome = q:resolveRead(7, action.seq, "keep_hardcover")
   assert(saved and outcome and outcome.kind == "edition_link", "the link was not reported for restore")
   assert(outcome.action == action and outcome.book_id == 7)
   assert(action.change.progress_pages == nil and action.target_page == nil,
     "the page converted for the discarded edition was kept")
   assert(#q:readActions(7) == 0, "the discarded page was left queued")
+  local pages = 0
+  for _, queued in ipairs((q:get(7) or {}).actions or {}) do
+    if queued.kind == "page" then pages = pages + 1 end
+  end
+  assert(pages == 0, "a page in the rejected edition's units was left to replay")
+end)
+
+check("keeping Hardcover's edition for a past read keeps current pages", function()
+  local q, api = queue(), fakeApi()
+  local past = read { id = 10, started_at = "2020-01-01", finished_at = "2020-01-10" }
+  local current = { id = 11, started_at = "2026-11-16", edition_id = 7, progress_pages = 40 }
+  api.records[7] = record(7, { past, current }, 2)
+  api.records[7].edition_id = 7
+  past.edition_id = 9 -- Hardcover moved the past read after the form's baseline
+  local _, action = enqueue(q, 7, { kind = "read_edition", read_id = 10, current = false,
+    target_edition_id = 8, target_page = 200,
+    base = { edition_id = 7, progress_pages = 100 },
+    change = { edition_id = 8, progress_pages = 200 } })
+  q:enqueuePage("/books/7.epub", { book_id = 7, mapped_page = 150, edition_id = 7 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(action.conflict and action.conflict.kind == "read_reading",
+    "the past read did not ask about the newer read first")
+  assert(q:resolveRead(7, action.seq, "send_anyway") == true)
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(action.conflict and action.conflict.kind == "read_changed",
+    "the changed past-read edition did not ask which edition to keep")
+  local saved, outcome = q:resolveRead(7, action.seq, "keep_hardcover")
+  assert(saved and outcome == nil, "keeping the past read's edition reported a link restore")
+  local pages = {}
+  for _, queued in ipairs((q:get(7) or {}).actions or {}) do
+    if queued.kind == "page" then pages[#pages + 1] = queued end
+  end
+  assert(#pages == 1 and pages[1].value == 150, "the current read's page was dropped")
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(#api.calls == 1 and api.calls[1].op == "updatePage"
+    and api.calls[1].read_id == 11 and api.calls[1].edition_id == 7
+    and api.calls[1].page == 150, "the current read's page was not sent in the kept edition")
+  assert(past.edition_id == 9, "the past read's Hardcover edition was overwritten")
+end)
+
+check("keeping a past read's edition converts pages for a moved current read", function()
+  local q, api = queue(), fakeApi()
+  local past = read { id = 10, started_at = "2020-01-01", finished_at = "2020-01-10" }
+  local current = { id = 11, started_at = "2026-11-16", edition_id = 8, progress_pages = 40,
+    edition = { pages = 608 } }
+  api.records[7] = record(7, { past, current }, 2)
+  api.records[7].edition_id = 8
+  past.edition_id = 9
+  local _, action = enqueue(q, 7, { kind = "read_edition", read_id = 10, current = false,
+    target_edition_id = 8, target_page = 200,
+    base = { edition_id = 7, progress_pages = 100 },
+    change = { edition_id = 8, progress_pages = 200 } })
+  q:enqueuePage("/books/7.epub", { book_id = 7, mapped_page = 150, edition_id = 7, pages = 304 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(q:resolveRead(7, action.seq, "send_anyway") == true)
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(action.conflict and action.conflict.kind == "read_changed",
+    "the changed past-read edition did not ask which edition to keep")
+  local saved = q:resolveRead(7, action.seq, "keep_hardcover")
+  assert(saved and action.conflict == nil, "keeping the past read's edition did not clear it")
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(#api.calls == 1 and api.calls[1].op == "updatePage"
+    and api.calls[1].read_id == 11 and api.calls[1].edition_id == 8
+    and api.calls[1].page == 300, "the page was not converted into the current read's edition")
+  assert(current.edition_id == 8 and current.progress_pages == 300,
+    "the converted page was not applied to the moved read")
+  assert(past.edition_id == 9, "the past read's Hardcover edition was overwritten")
+end)
+
+check("a page in another edition waits for a decision when it cannot be converted", function()
+  local q, api = queue(), fakeApi()
+  local current = { id = 11, started_at = "2026-11-16", edition_id = 8, progress_pages = 100 }
+  api.records[7] = record(7, { current }, 2)
+  api.records[7].edition_id = 8
+  q:enqueuePage("/books/7.epub", { book_id = 7, mapped_page = 150, edition_id = 7, pages = 304 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  local conflict = q:get(7).conflict
+  assert(conflict and conflict.kind == "page" and conflict.edition_mismatch,
+    "the mismatched page was written or dropped without a decision")
+  assert(conflict.local_edition_id == 7 and conflict.cloud_edition_id == 8,
+    "the conflict did not name both editions")
+  local described = SyncConflicts.describe("/books/7.epub", q:get(7))
+  assert(described and #described.rows == 2, "the edition question had no choices")
+  assert(#api.calls == 0, "the mismatched page reached Hardcover")
+end)
+
+check("an edition page lookup that fails transiently is retried", function()
+  local q, api = queue(), fakeApi()
+  local current = { id = 11, started_at = "2026-11-16", edition_id = 8, progress_pages = 40 }
+  api.records[7] = record(7, { current }, 2)
+  api.records[7].edition_id = 8
+  api.hydrateBookFromEdition = function() return nil, { completed = false } end
+  q:enqueuePage("/books/7.epub", { book_id = 7, mapped_page = 150, edition_id = 7, pages = 304 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(q:get(7).conflict == nil and #api.calls == 0, "a transient lookup parked a question")
+  api.hydrateBookFromEdition = function() return { pages = 608 } end
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(#api.calls == 1 and api.calls[1].op == "updatePage" and api.calls[1].edition_id == 8
+    and api.calls[1].page == 300, "the retried page was not converted into the current edition")
+end)
+
+check("an edition with no catalog page count asks instead of retrying forever", function()
+  local q, api = queue(), fakeApi()
+  local current = { id = 11, started_at = "2026-11-16", edition_id = 8, progress_pages = 100 }
+  api.records[7] = record(7, { current }, 2)
+  api.records[7].edition_id = 8
+  api.hydrateBookFromEdition = function() return nil end
+  q:enqueuePage("/books/7.epub", { book_id = 7, mapped_page = 150, edition_id = 7, pages = 304 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  local conflict = q:get(7).conflict
+  assert(conflict and conflict.kind == "page" and conflict.edition_mismatch,
+    "a missing edition page count retried without a decision")
+  assert(conflict.cloud_pages == nil and #api.calls == 0, "the missing page count reached Hardcover")
+end)
+
+check("an unreadable edition reply is retried", function()
+  local q, api = queue(), fakeApi()
+  local current = { id = 11, started_at = "2026-11-16", edition_id = 8, progress_pages = 40 }
+  api.records[7] = record(7, { current }, 2)
+  api.records[7].edition_id = 8
+  api.hydrateBookFromEdition = function() return nil, { status = 200 } end
+  q:enqueuePage("/books/7.epub", { book_id = 7, mapped_page = 150, edition_id = 7, pages = 304 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  assert(q:get(7).conflict == nil and #api.calls == 0, "an unreadable reply parked a question")
+  api.hydrateBookFromEdition = function() return { pages = 608 } end
+  assert(q:flush(api, { user_id = 1 }) == true)
+  assert(api.calls[1].op == "updatePage" and api.calls[1].page == 300, "the retried page was not sent")
+end)
+
+check("a converted page conflict does not offer a resume in the wrong edition", function()
+  local q, api = queue(), fakeApi()
+  local current = { id = 11, started_at = "2026-11-16", edition_id = 8, progress_pages = 500 }
+  api.records[7] = record(7, { current }, 2)
+  api.records[7].edition_id = 8
+  api.hydrateBookFromEdition = function() return { pages = 608 } end
+  q:enqueuePage("/books/7.epub", { book_id = 7, mapped_page = 50, edition_id = 7, pages = 304 })
+  assert(q:flush(api, { user_id = 1 }) == false)
+  local conflict = q:get(7).conflict
+  assert(conflict and conflict.kind == "page" and conflict.edition_changed,
+    "the converted page did not keep its edition change")
+  assert(q:resolve("/books/7.epub", "cloud") == true)
+  assert(q:takeResumePage("/books/7.epub") == nil, "the resume page was saved in the wrong edition")
 end)
 
 check("an edition change with later pages cannot be cancelled out from under them", function()
